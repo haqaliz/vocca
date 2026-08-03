@@ -1,0 +1,22 @@
+# Claude Code worktrees (directory-only pattern — keep the trailing slash)
+.claude/worktrees/
+
+# Swift / SPM
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Local model caches, recorded audio, and BYOK secrets never get committed.
+# Local-first promise: this data stays on the box (see CLAUDE.md).
+.env
+.env.*
+models/
+recordings/
+*.mlmodelc
+*.gguf
