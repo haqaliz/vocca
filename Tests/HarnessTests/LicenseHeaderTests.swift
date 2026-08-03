@@ -18,23 +18,27 @@ import XCTest
 /// missing, or nothing was found to scan.
 private enum LicenseHeaderTestError: Error, CustomStringConvertible {
     case packageRootNotFound(startingFrom: String)
-    case noSwiftFilesScanned(root: String)
+    case noSourceFilesScanned(root: String)
 
     var description: String {
         switch self {
         case .packageRootNotFound(let path):
             return "Could not locate Package.swift by walking up from \(path)"
-        case .noSwiftFilesScanned(let root):
+        case .noSourceFilesScanned(let root):
             return
-                "No .swift files were found under \(root) — the license header rule was not evaluated against anything"
+                "No covered source files were found under \(root) — the license header rule was not evaluated against anything"
         }
     }
 }
 
-/// Enforces that every `.swift` file under `Sources/` and `Tests/` (except the SwiftPM manifest
+/// Enforces that every source file under `Sources/` and `Tests/` (except the SwiftPM manifest
 /// `Package.swift`, which must start with a `// swift-tools-version:` comment) begins with the
 /// exact Apache-2.0 header block.
 final class LicenseHeaderTests: XCTestCase {
+    /// File extensions the header rule applies to. C and headers are included because the
+    /// package contains `.c`/`.h` sources; a `//`-comment header is valid in both.
+    private static let coveredExtensions: Set<String> = ["swift", "c", "h"]
+
     private static let expectedHeader = """
         // Copyright 2026 The Vocca Authors
         //
@@ -66,7 +70,7 @@ final class LicenseHeaderTests: XCTestCase {
         throw LicenseHeaderTestError.packageRootNotFound(startingFrom: filePath)
     }
 
-    private func swiftFiles(under root: URL) -> [URL] {
+    private func sourceFiles(under root: URL) -> [URL] {
         guard
             let enumerator = FileManager.default.enumerator(
                 at: root, includingPropertiesForKeys: [.isDirectoryKey])
@@ -74,25 +78,26 @@ final class LicenseHeaderTests: XCTestCase {
             return []
         }
         var results: [URL] = []
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
+        for case let url as URL in enumerator
+        where Self.coveredExtensions.contains(url.pathExtension) {
             results.append(url)
         }
         return results
     }
 
-    /// Every `.swift` file under `Sources/` and `Tests/`, excluding `Package.swift` (which is not
-    /// under either directory, but is guarded against explicitly in case that ever changes).
+    /// Every covered source file under `Sources/` and `Tests/`, excluding `Package.swift` (which
+    /// is not under either directory, but is guarded against explicitly in case that changes).
     private func filesRequiringHeader() throws -> [URL] {
         let packageRoot = try findPackageRoot(from: #filePath)
         var files: [URL] = []
         for subdirectory in ["Sources", "Tests"] {
             let dir = packageRoot.appendingPathComponent(subdirectory)
-            files.append(contentsOf: swiftFiles(under: dir))
+            files.append(contentsOf: sourceFiles(under: dir))
         }
         files = files.filter { $0.lastPathComponent != "Package.swift" }
 
         guard !files.isEmpty else {
-            throw LicenseHeaderTestError.noSwiftFilesScanned(root: packageRoot.path)
+            throw LicenseHeaderTestError.noSourceFilesScanned(root: packageRoot.path)
         }
         return files
     }
@@ -101,7 +106,7 @@ final class LicenseHeaderTests: XCTestCase {
         let files = try filesRequiringHeader()
         XCTAssertGreaterThan(
             files.count, 0,
-            "Expected to find at least one .swift file under Sources/ or Tests/, found none")
+            "Expected to find at least one covered source file under Sources/ or Tests/, found none")
     }
 
     func testEverySourceFileStartsWithApacheLicenseHeader() throws {

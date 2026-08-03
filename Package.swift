@@ -13,10 +13,16 @@ let package = Package(
         .library(name: "VoccaInject", targets: ["VoccaInject"]),
         .library(name: "VoccaSpeech", targets: ["VoccaSpeech"]),
         .library(name: "VoccaUI", targets: ["VoccaUI"]),
-        // Not part of Vocca's API. Declared only because a `dyld` interposition shim must be a
-        // dynamic library, and SwiftPM builds a C target as one only when a product says so.
+        // Test fixture, not API. The underscore is the Swift convention for "no source
+        // stability, do not depend on this"; it is the strongest signal available, because
+        // SwiftPM has no notion of an internal product and every product is visible to
+        // consumers. It cannot simply be dropped: a `dyld` interposition shim must be a dynamic
+        // library, SwiftPM builds a C target as one only when a product says so, and both
+        // alternatives were measured and do not work — `dyld` ignores interpose tuples in a
+        // `dlopen`ed test bundle and in the main executable alike.
         .library(
-            name: "VoccaNetworkInterposer", type: .dynamic, targets: ["CVoccaNetworkInterposer"]),
+            name: "_VoccaNetworkInterposerTestFixture", type: .dynamic,
+            targets: ["CVoccaNetworkInterposer"]),
     ],
     dependencies: [],
     targets: [

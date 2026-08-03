@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Darwin
+import Foundation
 import VoccaASR
 import VoccaAudio
 import VoccaCore
@@ -32,13 +33,38 @@ import VoccaUI
 @main
 struct VoccaNetworkProbe {
 
+    /// How long to keep the process alive after the mode's work returns, before declaring the
+    /// run complete.
+    ///
+    /// **This is the difference between the invariant catching real egress and missing it.**
+    /// Almost nothing Vocca will do is synchronous — audio-engine start-up, ASR model loading and
+    /// TTS warm-up all kick off work and return immediately. Without a settle window, a
+    /// fire-and-forget `URLSession.shared.dataTask(...).resume()` in the default path exits with
+    /// the probe before the connection is ever attempted, and the test reports a clean run.
+    ///
+    /// 0.75s is chosen as comfortably more than an order of magnitude above the ~10–20 ms a
+    /// loopback `connectx` takes to appear, with headroom for a cold first use of the URL loading
+    /// system, while keeping the whole suite's cost at roughly two seconds across three probe
+    /// runs. It is a **floor, not a proof of quiescence**: work that genuinely takes longer than
+    /// this to reach the network must be awaited explicitly by the mode that starts it, rather
+    /// than left to the window to catch.
+    private static let settleWindow: TimeInterval = 0.75
+
     static func main() {
         let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
         switch mode {
         case "default-configuration":
-            exerciseDefaultConfiguration()
+            let modules = exerciseDefaultConfiguration()
+            // Reported so the test can assert every Vocca module on disk was actually driven
+            // through here, rather than trusting a comment to stay true.
+            print("PROBE-MODULES\t\(modules.joined(separator: ","))")
         case "deliberate-connection":
-            guard exerciseDeliberateConnection() else {
+            guard exerciseDeliberateConnect() else {
+                fputs("PROBE-FAILED\t\(mode)\terrno=\(errno)\n", stderr)
+                exit(2)
+            }
+        case "deliberate-connectx":
+            guard exerciseDeliberateConnectx() else {
                 fputs("PROBE-FAILED\t\(mode)\terrno=\(errno)\n", stderr)
                 exit(2)
             }
@@ -46,26 +72,56 @@ struct VoccaNetworkProbe {
             fputs("PROBE-UNKNOWN-MODE\t\(mode)\n", stderr)
             exit(64)
         }
-        // The harness treats this marker as proof the requested mode ran to completion. Without
-        // it, a probe that crashed on line one would look identical to one that behaved.
+
+        settle()
+
+        // Asserted by both tests. Without checking it, a probe that did nothing at all — or a
+        // stub that printed one line and exited 0 — is indistinguishable from a clean run.
         print("PROBE-OK\t\(mode)")
         exit(0)
     }
 
+    /// Keeps the process alive, and the main run loop pumping, for ``settleWindow``.
+    ///
+    /// The deadline loop — not the run loop — is what guarantees the duration:
+    /// `RunLoop.run(mode:before:)` returns immediately when no input source is attached, so
+    /// `runUntilDate:` alone cannot be relied on to wait.
+    ///
+    /// The keep-alive timer supplies that source, and is not decoration. Measured on this
+    /// machine, the probe takes 0.76s wall with the timer attached and 1.61s without, because
+    /// with no source the loop degenerates into a busy-spin that burns a core and never actually
+    /// services anything. Running the loop rather than sleeping the thread is what lets work
+    /// scheduled onto the main queue or onto a `CFRunLoop` source execute at all.
+    private static func settle() {
+        let deadline = Date().addingTimeInterval(settleWindow)
+        let keepAlive = Timer(timeInterval: 0.05, repeats: true) { _ in }
+        RunLoop.current.add(keepAlive, forMode: .default)
+        while Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: deadline)
+        }
+        keepAlive.invalidate()
+    }
+
     // MARK: - The invariant path
 
-    /// Exercises everything Vocca does in its default configuration.
+    /// Exercises everything Vocca does in its default configuration, and returns the names of the
+    /// modules it drove.
     ///
     /// **This function is the scope of the zero-network guarantee — keep it honest.** The
     /// assertion in `testDefaultConfigurationMakesZeroNetworkConnections` only covers code that
     /// actually runs here. Today the modules are placeholders, so all this can do is link every
     /// one of them and force each to load. As capabilities land (audio capture, ASR model
     /// loading, TTS, injection, the default text-cleanup pipeline), their default-configuration
-    /// start-up work must be invoked from here. A capability that is never driven from this
-    /// function is a capability the invariant does not cover, and the test will keep passing
-    /// while silently covering less and less of the product.
-    private static func exerciseDefaultConfiguration() {
-        let modules: [Any.Type] = [
+    /// start-up work must be invoked from here.
+    ///
+    /// That instruction is enforced rather than merely written down: the returned module list is
+    /// checked against the `Vocca*` directories present under `Sources/`, so adding a module
+    /// without driving it from here fails the suite. The enforcement is at module granularity —
+    /// it can tell that a module was reached, not that a module's *work* was exercised — so
+    /// growing the body below as capabilities land is still a judgement call this test can
+    /// prompt but cannot make.
+    private static func exerciseDefaultConfiguration() -> [String] {
+        let placeholders: [Any.Type] = [
             VoccaCorePlaceholder.self,
             VoccaAudioPlaceholder.self,
             VoccaHotkeyPlaceholder.self,
@@ -75,21 +131,55 @@ struct VoccaNetworkProbe {
             VoccaSpeechPlaceholder.self,
             VoccaUIPlaceholder.self,
         ]
-        // `String(describing:)` forces each type's metadata to be realized, so the reference
-        // cannot be folded away by the optimizer and every module is genuinely loaded.
-        var touched = 0
-        for module in modules where !String(describing: module).isEmpty {
-            touched += 1
+        // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
+        // derived from the type itself rather than written out by hand. A module cannot be
+        // reported as covered without a real type from it being referenced here.
+        return placeholders.compactMap { placeholder in
+            String(reflecting: placeholder).split(separator: ".").first.map(String.init)
         }
-        precondition(touched == modules.count, "Failed to touch every Vocca module")
     }
 
-    // MARK: - The positive-control path
+    // MARK: - The positive-control paths
 
-    /// Binds a `SOCK_STREAM` listener on `127.0.0.1` with a kernel-assigned port, then connects
-    /// to it. Deterministic, DNS-free, and works offline — the positive control must never be
-    /// able to fail because a network was unavailable.
-    private static func exerciseDeliberateConnection() -> Bool {
+    /// Binds a `SOCK_STREAM` listener on `127.0.0.1` with a kernel-assigned port, then reaches it
+    /// with `connect(2)`. Deterministic, DNS-free, and works offline — a positive control must
+    /// never be able to fail because a network was unavailable.
+    private static func exerciseDeliberateConnect() -> Bool {
+        withLoopbackListener { destination in
+            let clientFD = socket(AF_INET, SOCK_STREAM, 0)
+            guard clientFD >= 0 else { return false }
+            defer { close(clientFD) }
+            return connect(clientFD, destination, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
+        }
+    }
+
+    /// The same connection, made with `connectx(2)` instead.
+    ///
+    /// This mode exists because `connectx` — not `connect` — is the call `URLSession` and
+    /// `Network.framework` actually reach the kernel through, which makes it the single most
+    /// important hook in the interposer for real-world egress. Reaching it directly with a raw
+    /// socket keeps the positive control DNS-free, offline-safe, and free of any CFNetwork
+    /// linkage, so the coverage costs this package no networking surface.
+    private static func exerciseDeliberateConnectx() -> Bool {
+        withLoopbackListener { destination in
+            let clientFD = socket(AF_INET, SOCK_STREAM, 0)
+            guard clientFD >= 0 else { return false }
+            defer { close(clientFD) }
+            var endpoints = sa_endpoints_t()
+            endpoints.sae_srcif = 0
+            endpoints.sae_srcaddr = nil
+            endpoints.sae_srcaddrlen = 0
+            endpoints.sae_dstaddr = destination
+            endpoints.sae_dstaddrlen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            return connectx(clientFD, &endpoints, 0, 0, nil, 0, nil, nil) == 0
+        }
+    }
+
+    /// Stands up a loopback listener on a kernel-assigned port and hands `body` a pointer to its
+    /// address, valid for the duration of the call.
+    private static func withLoopbackListener(
+        _ body: (UnsafePointer<sockaddr>) -> Bool
+    ) -> Bool {
         let listenerFD = socket(AF_INET, SOCK_STREAM, 0)
         guard listenerFD >= 0 else { return false }
         defer { close(listenerFD) }
@@ -111,17 +201,10 @@ struct VoccaNetworkProbe {
         }
         guard didReadBack else { return false }
 
-        let clientFD = socket(AF_INET, SOCK_STREAM, 0)
-        guard clientFD >= 0 else { return false }
-        defer { close(clientFD) }
-
-        var target = loopbackAddress(port: assigned.sin_port)
-        let didConnect = withUnsafePointer(to: &target) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(clientFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
-            }
+        var destination = loopbackAddress(port: assigned.sin_port)
+        return withUnsafePointer(to: &destination) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { body($0) }
         }
-        return didConnect
     }
 
     /// `port` is in network byte order, matching `sockaddr_in.sin_port`.

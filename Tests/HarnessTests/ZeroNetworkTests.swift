@@ -14,6 +14,22 @@
 
 import XCTest
 
+/// Raised when the module coverage cross-check cannot be evaluated meaningfully.
+private enum ZeroNetworkTestError: Error, CustomStringConvertible {
+    case packageRootNotFound(startingFrom: String)
+    case noModulesDiscovered(sourcesRoot: String)
+
+    var description: String {
+        switch self {
+        case .packageRootNotFound(let path):
+            return "Could not locate Package.swift by walking up from \(path)"
+        case .noModulesDiscovered(let root):
+            return
+                "No Vocca module directories were found under \(root) — the probe's coverage was not checked against anything"
+        }
+    }
+}
+
 /// Vocca's headline promise is that audio and text never leave the machine. These two tests are
 /// what make that claim auditable rather than marketing, and they are a permanent release
 /// blocker: **if one of them ever fails, the product code is wrong, not the test.** Weakening
@@ -22,9 +38,9 @@ import XCTest
 /// The pair is deliberately structured so that neither test can go green vacuously:
 ///
 /// - ``testInterposerDetectsAnOutboundConnection`` is the **positive control**. It drives the
-///   probe through a code path that deliberately opens one outbound TCP connection and asserts
-///   the interposer saw it. If this fails, the interposer is blind, and the other test's green
-///   means nothing.
+///   probe through code paths that deliberately open outbound TCP connections and asserts the
+///   interposer saw each one, by name. If this fails, the interposer is blind, and the other
+///   test's green means nothing.
 /// - ``testDefaultConfigurationMakesZeroNetworkConnections`` is the **invariant**. It drives the
 ///   probe through Vocca's default configuration and asserts nothing was contacted.
 ///
@@ -33,68 +49,75 @@ import XCTest
 /// meaningful guarantee about the invariant rather than a separate, unrelated experiment.
 final class ZeroNetworkTests: XCTestCase {
 
+    /// Targets under `Sources/` that exist only to support these tests, and are therefore not
+    /// expected to appear in the probe's coverage report.
+    private static let testOnlyTargets: Set<String> = ["VoccaNetworkProbe"]
+
     // MARK: - Test A: the positive control
 
-    /// Proves the detection mechanism actually works.
+    /// Proves the detection mechanism actually works, for both calls that matter.
     ///
     /// The probe binds a `SOCK_STREAM` listener on `127.0.0.1` port 0 (kernel-assigned) and
     /// connects to it. That is deterministic, needs no DNS, and works offline and in CI — the
     /// test never depends on the internet being reachable.
     ///
-    /// Loopback deliberately *counts* as a network connection here. Vocca's default
-    /// configuration talks to nothing at all, including `localhost`: the opt-in local LLM
-    /// (Ollama) that a user may later enable lives on loopback, and this test exists precisely
-    /// to catch it becoming reachable by default.
+    /// It checks `connect(2)` **and** `connectx(2)` separately, and asserts on the name of the
+    /// call observed rather than merely on a count. `connectx` is how `URLSession` and
+    /// `Network.framework` actually reach the kernel, so it is the hook that carries almost all
+    /// real-world egress; asserting only a non-zero count would let that hook be deleted with the
+    /// suite still green, which is exactly the blindness this test exists to rule out.
+    ///
+    /// Loopback deliberately *counts* as a network connection here. Vocca's default configuration
+    /// talks to nothing at all, including `localhost`: the opt-in local LLM (Ollama) that a user
+    /// may later enable lives on loopback, and this test exists partly to catch it becoming
+    /// reachable by default.
     func testInterposerDetectsAnOutboundConnection() throws {
-        let session = try NetworkInterposer.startObserving()
-        let exit = try session.runProbe(mode: .deliberateConnection)
-        let observation = try session.stopObserving()
+        for (mode, expectedCall) in [
+            (ProbeMode.deliberateConnection, "connect"),
+            (ProbeMode.deliberateConnectx, "connectx"),
+        ] {
+            let observation = try runProbe(mode: mode)
 
-        XCTAssertEqual(exit, 0, "Probe did not run cleanly:\n\(observation.diagnosticSummary)")
-        XCTAssertTrue(
-            observation.interposerDidLoad,
-            """
-            The interposer never loaded into the probe process, so it observed nothing and \
-            could not have observed anything. Do not read this as "no connections were made".
-            \(observation.diagnosticSummary)
-            """)
-        XCTAssertGreaterThanOrEqual(
-            observation.networkConnectionCount, 1,
-            """
-            The probe deliberately opened one outbound TCP connection to a loopback listener \
-            and the interposer did not see it. The interposer is blind, which means \
-            testDefaultConfigurationMakesZeroNetworkConnections cannot be trusted either.
-            \(observation.diagnosticSummary)
-            """)
+            XCTAssertGreaterThanOrEqual(
+                observation.networkConnectionCount, 1,
+                """
+                The probe deliberately opened one outbound TCP connection to a loopback listener \
+                in mode '\(mode.rawValue)' and the interposer did not see it. The interposer is \
+                blind, which means testDefaultConfigurationMakesZeroNetworkConnections cannot be \
+                trusted either.
+                \(observation.diagnosticSummary)
+                """)
+
+            XCTAssertTrue(
+                observation.networkConnections.contains { $0.call == expectedCall },
+                """
+                The connection in mode '\(mode.rawValue)' was expected to be observed via \
+                '\(expectedCall)', and was not. The interposer is missing that hook, so every \
+                caller that uses it goes unseen — and for connectx that means URLSession and all \
+                of Network.framework.
+                \(observation.diagnosticSummary)
+                """)
+        }
     }
 
     // MARK: - Test B: the invariant
 
     /// Asserts Vocca's default configuration makes zero network calls.
     ///
-    /// **This test is only as strong as the path it exercises.** Today the package is a set of
-    /// placeholder modules, so the probe's default-configuration path is correspondingly small:
-    /// it links every Vocca module and touches each one. As the package grows, that path in
-    /// `Sources/VoccaNetworkProbe/main.swift` **must grow with it** — every new piece of
-    /// start-up, model-loading, or default-pipeline work belongs there. If it does not, this
-    /// assertion quietly becomes vacuous: it will keep passing while asserting nothing about
-    /// the code that was actually added.
+    /// **This test is only as strong as the path it exercises**, which is the body of
+    /// `VoccaNetworkProbe.exerciseDefaultConfiguration()`. Two mechanisms defend that from
+    /// quietly decaying, and neither replaces reading the function itself:
+    ///
+    /// - The probe holds the process open for a settle window after the path returns, so
+    ///   asynchronous work — which is nearly everything Vocca will do — gets to reach the network
+    ///   before the observation ends.
+    /// - The module cross-check below fails the suite when a new `Sources/Vocca*` module is added
+    ///   without being driven from that function.
+    ///
+    /// What neither can check is whether an *existing* module's new work is exercised. When a
+    /// capability lands, extending that function is still a judgement call.
     func testDefaultConfigurationMakesZeroNetworkConnections() throws {
-        let session = try NetworkInterposer.startObserving()
-        let exit = try session.runProbe(mode: .defaultConfiguration)
-        let observation = try session.stopObserving()
-
-        XCTAssertEqual(exit, 0, "Probe did not run cleanly:\n\(observation.diagnosticSummary)")
-
-        // Checked before the zero-assertions: without it, a failure to instrument would present
-        // itself as a perfect score.
-        XCTAssertTrue(
-            observation.interposerDidLoad,
-            """
-            The interposer never loaded into the probe process. Zero observed connections here \
-            is the absence of evidence, not evidence of absence — treat this as a failure.
-            \(observation.diagnosticSummary)
-            """)
+        let observation = try runProbe(mode: .defaultConfiguration)
 
         XCTAssertEqual(
             observation.networkConnectionCount, 0,
@@ -114,5 +137,96 @@ final class ZeroNetworkTests: XCTestCase {
             Fix the code. Do not weaken this test.
             \(observation.diagnosticSummary)
             """)
+
+        // The coverage cross-check. Without it the assertions above stay green while covering an
+        // ever-smaller fraction of the product, which is the most likely way this gate rots.
+        let onDisk = try voccaModuleDirectories()
+        let exercised = observation.reportedModules
+        XCTAssertEqual(
+            exercised, onDisk,
+            """
+            The probe's default-configuration path does not cover every Vocca module.
+              never driven by the probe: \(onDisk.subtracting(exercised).sorted())
+              reported but not on disk:  \(exercised.subtracting(onDisk).sorted())
+            A module the probe never reaches is a module the zero-network invariant says nothing \
+            about. Drive it from VoccaNetworkProbe.exerciseDefaultConfiguration() — including its \
+            default-configuration start-up work, not just a reference to one of its types.
+            \(observation.diagnosticSummary)
+            """)
+    }
+
+    // MARK: - Shared plumbing
+
+    /// Runs one probe mode under the interposer and returns what was observed, having already
+    /// asserted the three things that must hold before any observation can be believed: the probe
+    /// ran, it ran to completion, and something was watching while it did.
+    private func runProbe(
+        mode: ProbeMode, file: StaticString = #filePath, line: UInt = #line
+    ) throws -> NetworkObservation {
+        let session = try NetworkInterposer.startObserving()
+        let exitStatus = try session.runProbe(mode: mode)
+        let observation = try session.stopObserving()
+
+        XCTAssertEqual(
+            exitStatus, 0, "Probe did not run cleanly:\n\(observation.diagnosticSummary)",
+            file: file, line: line)
+
+        // Checked before any zero-assertion: a failure to instrument would otherwise present
+        // itself as a perfect score.
+        XCTAssertTrue(
+            observation.interposerDidLoad,
+            """
+            The interposer never loaded into the probe process, so it observed nothing and could \
+            not have observed anything. Zero observed connections here is the absence of \
+            evidence, not evidence of absence.
+            \(observation.diagnosticSummary)
+            """,
+            file: file, line: line)
+
+        XCTAssertTrue(
+            observation.probeCompleted(mode: mode),
+            """
+            The probe never reported completing mode '\(mode.rawValue)'. Whatever it did, it was \
+            not the work this test believes it was observing.
+            \(observation.diagnosticSummary)
+            """,
+            file: file, line: line)
+
+        return observation
+    }
+
+    /// Every `Sources/Vocca*` directory, excluding targets that exist only to support these
+    /// tests. Mirrors the discovery `ModuleBoundaryTests` does, and fails loudly rather than
+    /// vacuously if the scan finds nothing.
+    private func voccaModuleDirectories() throws -> Set<String> {
+        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while dir.pathComponents.count > 1,
+            !FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent("Package.swift").path)
+        {
+            dir = dir.deletingLastPathComponent()
+        }
+        guard dir.pathComponents.count > 1 else {
+            throw ZeroNetworkTestError.packageRootNotFound(startingFrom: #filePath)
+        }
+
+        let sourcesRoot = dir.appendingPathComponent("Sources")
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: sourcesRoot, includingPropertiesForKeys: [.isDirectoryKey])
+        var modules: Set<String> = []
+        for entry in entries {
+            let isDirectory =
+                (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            let name = entry.lastPathComponent
+            guard isDirectory, name.hasPrefix("Vocca"), !Self.testOnlyTargets.contains(name) else {
+                continue
+            }
+            modules.insert(name)
+        }
+
+        guard !modules.isEmpty else {
+            throw ZeroNetworkTestError.noModulesDiscovered(sourcesRoot: sourcesRoot.path)
+        }
+        return modules
     }
 }

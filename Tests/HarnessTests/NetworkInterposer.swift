@@ -130,8 +130,11 @@ enum NetworkInterposer {
 enum ProbeMode: String {
     /// Everything Vocca does by default. The invariant asserts this observes nothing.
     case defaultConfiguration = "default-configuration"
-    /// One deliberate loopback TCP connection. The positive control asserts this is observed.
+    /// One deliberate loopback TCP connection via `connect(2)`.
     case deliberateConnection = "deliberate-connection"
+    /// The same connection via `connectx(2)` — the call `URLSession` and `Network.framework`
+    /// actually use, and therefore the hook whose coverage matters most.
+    case deliberateConnectx = "deliberate-connectx"
 }
 
 // MARK: - Observations
@@ -161,6 +164,28 @@ struct NetworkObservation {
     /// a pass would be exactly the false green these tests exist to prevent.
     var interposerDidLoad: Bool {
         rawLog.split(separator: "\n").contains { $0.hasPrefix("LOADED\t") }
+    }
+
+    /// Whether the probe reported that it ran `mode` to completion.
+    ///
+    /// Must be asserted alongside ``interposerDidLoad``. That flag proves something was watching;
+    /// this one proves there was something to watch. A probe replaced by a stub that prints a
+    /// line and exits 0 satisfies neither the exit-status check nor this one.
+    func probeCompleted(mode: ProbeMode) -> Bool {
+        probeStandardOutput.split(separator: "\n").contains("PROBE-OK\t\(mode.rawValue)")
+    }
+
+    /// The Vocca modules the probe reported driving in `defaultConfiguration` mode.
+    ///
+    /// The probe derives these from type metadata (`String(reflecting:)` on a placeholder type
+    /// yields `Module.Type`), so a name cannot appear here unless a type from that module was
+    /// genuinely referenced.
+    var reportedModules: Set<String> {
+        for line in probeStandardOutput.split(separator: "\n") where line.hasPrefix("PROBE-MODULES\t") {
+            let payload = line.dropFirst("PROBE-MODULES\t".count)
+            return Set(payload.split(separator: ",").map(String.init))
+        }
+        return []
     }
 
     var events: [ObservedNetworkEvent] {
@@ -255,10 +280,10 @@ private struct BuildArtifacts {
             .deletingLastPathComponent()
         let searched = [productsDirectory.path]
 
-        let shim = productsDirectory.appendingPathComponent("libVoccaNetworkInterposer.dylib")
+        let shim = productsDirectory.appendingPathComponent("lib_VoccaNetworkInterposerTestFixture.dylib")
         guard FileManager.default.isReadableFile(atPath: shim.path) else {
             throw NetworkInterposerError.artifactNotFound(
-                name: "libVoccaNetworkInterposer.dylib", searchedIn: searched)
+                name: "lib_VoccaNetworkInterposerTestFixture.dylib", searchedIn: searched)
         }
         let probe = productsDirectory.appendingPathComponent("VoccaNetworkProbe")
         guard FileManager.default.isExecutableFile(atPath: probe.path) else {
