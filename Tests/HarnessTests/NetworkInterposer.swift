@@ -58,6 +58,25 @@ enum NetworkInterposer {
     /// One observation window: start it, run the probe under it, then stop it and read what was
     /// seen. A session is single-use and confined to the test method that created it.
     final class Session {
+        /// How long the probe should wait for deferred egress after its work returns.
+        ///
+        /// The probe's own default (0.75s) is tuned for fast local iteration. On CI it is raised
+        /// by nearly an order of magnitude, because the two costs are wildly asymmetric: a few
+        /// extra seconds of wall clock against a real outbound connection slipping through
+        /// unnoticed. A loaded CI machine can easily push work that lands at 0.3s locally out
+        /// past a sub-second window, and that failure is a silent green.
+        ///
+        /// This does not make the window a guarantee — deferred egress past *any* window is still
+        /// missed, and slow work must be awaited explicitly by whatever starts it. It moves the
+        /// boundary to where scheduling jitter is very unlikely to reach it.
+        static let settleWindow: TimeInterval = isContinuousIntegration ? 6.0 : 0.75
+
+        private static var isContinuousIntegration: Bool {
+            let environment = ProcessInfo.processInfo.environment
+            return environment["CI"] != nil || environment["GITHUB_ACTIONS"] != nil
+                || environment["CONTINUOUS_INTEGRATION"] != nil
+        }
+
         private let artifacts: BuildArtifacts
         private let logURL: URL
 
@@ -82,6 +101,7 @@ enum NetworkInterposer {
             var environment = ProcessInfo.processInfo.environment
             environment["DYLD_INSERT_LIBRARIES"] = artifacts.shim.path
             environment["VOCCA_NETWORK_INTERPOSER_LOG"] = logURL.path
+            environment["VOCCA_PROBE_SETTLE_SECONDS"] = String(Self.settleWindow)
             process.environment = environment
 
             let output = Pipe()

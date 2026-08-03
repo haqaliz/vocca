@@ -33,8 +33,8 @@ import VoccaUI
 @main
 struct VoccaNetworkProbe {
 
-    /// How long to keep the process alive after the mode's work returns, before declaring the
-    /// run complete.
+    /// Default time to keep the process alive after the default-configuration path returns,
+    /// before declaring the run complete.
     ///
     /// **This is the difference between the invariant catching real egress and missing it.**
     /// Almost nothing Vocca will do is synchronous — audio-engine start-up, ASR model loading and
@@ -42,13 +42,20 @@ struct VoccaNetworkProbe {
     /// fire-and-forget `URLSession.shared.dataTask(...).resume()` in the default path exits with
     /// the probe before the connection is ever attempted, and the test reports a clean run.
     ///
-    /// 0.75s is chosen as comfortably more than an order of magnitude above the ~10–20 ms a
-    /// loopback `connectx` takes to appear, with headroom for a cold first use of the URL loading
-    /// system, while keeping the whole suite's cost at roughly two seconds across three probe
-    /// runs. It is a **floor, not a proof of quiescence**: work that genuinely takes longer than
-    /// this to reach the network must be awaited explicitly by the mode that starts it, rather
-    /// than left to the window to catch.
-    private static let settleWindow: TimeInterval = 0.75
+    /// 0.75s is comfortably more than an order of magnitude above the ~10–20 ms a loopback
+    /// `connectx` takes to appear, with headroom for a cold first use of the URL loading system,
+    /// while keeping local iteration fast.
+    ///
+    /// It remains a **floor, not a proof of quiescence** — egress deferred past the window is
+    /// still missed, and the honest fix for slow work is for the mode that starts it to await it
+    /// explicitly. But the failure direction is a false *green*, which is the dangerous one, and
+    /// a loaded CI machine can push work that normally lands at 0.3s well past this. So the
+    /// window is overridable via ``settleEnvironmentVariable`` and the harness raises it
+    /// substantially on CI, where wall-clock cost matters far less than a missed connection.
+    private static let defaultSettleWindow: TimeInterval = 0.75
+
+    /// Overrides ``defaultSettleWindow``, in seconds. Set by the test harness.
+    private static let settleEnvironmentVariable = "VOCCA_PROBE_SETTLE_SECONDS"
 
     static func main() {
         let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
@@ -73,12 +80,33 @@ struct VoccaNetworkProbe {
             exit(64)
         }
 
-        settle()
+        // Only the invariant path needs settling. The positive-control modes make one synchronous
+        // connection that is recorded before they return, so a window there buys nothing and just
+        // slows the suite down.
+        if mode == "default-configuration" {
+            settle(for: settleWindow())
+        }
 
         // Asserted by both tests. Without checking it, a probe that did nothing at all — or a
         // stub that printed one line and exited 0 — is indistinguishable from a clean run.
         print("PROBE-OK\t\(mode)")
         exit(0)
+    }
+
+    /// ``defaultSettleWindow``, unless the harness overrode it.
+    ///
+    /// An unparseable override is fatal rather than ignored. Falling back to the default would
+    /// mean a CI job that believed it was running a long window silently ran a short one — the
+    /// exact false-green this override exists to prevent.
+    private static func settleWindow() -> TimeInterval {
+        guard let raw = ProcessInfo.processInfo.environment[settleEnvironmentVariable] else {
+            return defaultSettleWindow
+        }
+        guard let seconds = TimeInterval(raw), seconds >= 0 else {
+            fputs("PROBE-BAD-SETTLE\t\(settleEnvironmentVariable)=\(raw)\n", stderr)
+            exit(65)
+        }
+        return seconds
     }
 
     /// Keeps the process alive, and the main run loop pumping, for ``settleWindow``.
@@ -92,8 +120,9 @@ struct VoccaNetworkProbe {
     /// with no source the loop degenerates into a busy-spin that burns a core and never actually
     /// services anything. Running the loop rather than sleeping the thread is what lets work
     /// scheduled onto the main queue or onto a `CFRunLoop` source execute at all.
-    private static func settle() {
-        let deadline = Date().addingTimeInterval(settleWindow)
+    private static func settle(for seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+        let deadline = Date().addingTimeInterval(seconds)
         let keepAlive = Timer(timeInterval: 0.05, repeats: true) { _ in }
         RunLoop.current.add(keepAlive, forMode: .default)
         while Date() < deadline {

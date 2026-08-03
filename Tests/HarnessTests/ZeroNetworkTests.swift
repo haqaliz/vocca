@@ -25,9 +25,21 @@ private enum ZeroNetworkTestError: Error, CustomStringConvertible {
             return "Could not locate Package.swift by walking up from \(path)"
         case .noModulesDiscovered(let root):
             return
-                "No Vocca module directories were found under \(root) — the probe's coverage was not checked against anything"
+                "No module directories were found under \(root) — the probe's coverage was not checked against anything"
         }
     }
+}
+
+/// A module the coverage check is allowed not to require the probe to drive.
+///
+/// Every entry is checked structurally before it is honoured — see
+/// `ZeroNetworkTests.justifiedExclusions()`. Adding a name here cannot silence a failure for a
+/// module that actually ships.
+private struct CoverageExclusion {
+    let target: String
+    /// Recorded so the next reader knows why this was ever acceptable. Not load-bearing on its
+    /// own; the structural check is what enforces it.
+    let reason: String
 }
 
 /// Vocca's headline promise is that audio and text never leave the machine. These two tests are
@@ -49,9 +61,22 @@ private enum ZeroNetworkTestError: Error, CustomStringConvertible {
 /// meaningful guarantee about the invariant rather than a separate, unrelated experiment.
 final class ZeroNetworkTests: XCTestCase {
 
-    /// Targets under `Sources/` that exist only to support these tests, and are therefore not
-    /// expected to appear in the probe's coverage report.
-    private static let testOnlyTargets: Set<String> = ["VoccaNetworkProbe"]
+    /// The only modules the probe is not required to drive.
+    ///
+    /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
+    /// entry that the manifest says is part of something the package ships, so adding a real
+    /// module's name here to make a coverage failure go away does not work — the test fails on
+    /// the exclusion instead, and says why. That matters because silencing this check is the
+    /// path of least resistance for anyone who just wants CI green, and this file's own header
+    /// declares that forbidden.
+    private static let candidateExclusions: [CoverageExclusion] = [
+        CoverageExclusion(
+            target: "VoccaNetworkProbe",
+            reason: "The probe itself. Belongs to no product; built only because HarnessTests depends on it."),
+        CoverageExclusion(
+            target: "CVoccaNetworkInterposer",
+            reason: "The dyld shim. Reachable only from the underscored _VoccaNetworkInterposerTestFixture product."),
+    ]
 
     // MARK: - Test A: the positive control
 
@@ -140,14 +165,15 @@ final class ZeroNetworkTests: XCTestCase {
 
         // The coverage cross-check. Without it the assertions above stay green while covering an
         // ever-smaller fraction of the product, which is the most likely way this gate rots.
-        let onDisk = try voccaModuleDirectories()
+        let manifest = try PackageManifest.load(packageRoot: try packageRoot())
+        let expected = try modulesRequiringCoverage(manifest: manifest)
         let exercised = observation.reportedModules
         XCTAssertEqual(
-            exercised, onDisk,
+            exercised, expected,
             """
-            The probe's default-configuration path does not cover every Vocca module.
-              never driven by the probe: \(onDisk.subtracting(exercised).sorted())
-              reported but not on disk:  \(exercised.subtracting(onDisk).sorted())
+            The probe's default-configuration path does not cover every module in this package.
+              never driven by the probe: \(expected.subtracting(exercised).sorted())
+              reported but not a module: \(exercised.subtracting(expected).sorted())
             A module the probe never reaches is a module the zero-network invariant says nothing \
             about. Drive it from VoccaNetworkProbe.exerciseDefaultConfiguration() — including its \
             default-configuration start-up work, not just a reference to one of its types.
@@ -195,38 +221,93 @@ final class ZeroNetworkTests: XCTestCase {
         return observation
     }
 
-    /// Every `Sources/Vocca*` directory, excluding targets that exist only to support these
-    /// tests. Mirrors the discovery `ModuleBoundaryTests` does, and fails loudly rather than
-    /// vacuously if the scan finds nothing.
-    private func voccaModuleDirectories() throws -> Set<String> {
-        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        while dir.pathComponents.count > 1,
-            !FileManager.default.fileExists(
-                atPath: dir.appendingPathComponent("Package.swift").path)
-        {
-            dir = dir.deletingLastPathComponent()
+    /// The set of modules the probe must drive.
+    ///
+    /// Built to **fail closed**: it is the union of every directory under `Sources/` and every
+    /// non-test target the manifest declares, minus only the exclusions that survive
+    /// ``justifiedExclusions(manifest:)``. Taking the union of both sources means neither a
+    /// module that exists on disk without a manifest entry, nor one declared with a custom
+    /// `path:`, can slip past — and nothing keys on what the module happens to be *named*.
+    ///
+    /// That last point is the fix for a real miss: an earlier version filtered on a `Vocca`
+    /// prefix, so adding `Sources/KokoroTTS/` — a plausible module, given Kokoro is the locked
+    /// TTS choice — left the suite green.
+    private func modulesRequiringCoverage(manifest: PackageManifest) throws -> Set<String> {
+        let candidates = try sourceDirectories().union(manifest.nonTestTargetNames)
+        guard !candidates.isEmpty else {
+            throw ZeroNetworkTestError.noModulesDiscovered(
+                sourcesRoot: try packageRoot().appendingPathComponent("Sources").path)
         }
-        guard dir.pathComponents.count > 1 else {
-            throw ZeroNetworkTestError.packageRootNotFound(startingFrom: #filePath)
-        }
+        return candidates.subtracting(justifiedExclusions(manifest: manifest))
+    }
 
-        let sourcesRoot = dir.appendingPathComponent("Sources")
+    /// Filters ``candidateExclusions`` down to the ones the manifest actually justifies, and
+    /// fails the test for any that it does not.
+    ///
+    /// An exclusion is honoured only when the manifest says the target is not reachable from any
+    /// product whose name does not begin with `_`. So a module that ships — or that anything
+    /// shipping depends on — cannot be excluded, no matter what is written in the list.
+    ///
+    /// **Residual limitation, stated rather than hidden:** a target that belongs to no product
+    /// *and* that nothing shipping depends on is structurally not part of the app, so it can
+    /// still be excluded. If it is later wired into a product or depended on by one, this check
+    /// starts failing until the probe drives it.
+    private func justifiedExclusions(manifest: PackageManifest) -> Set<String> {
+        let shipping = manifest.shippingTargets
+        var honoured: Set<String> = []
+
+        for exclusion in Self.candidateExclusions {
+            XCTAssertNotNil(
+                manifest.targets[exclusion.target],
+                """
+                Coverage exclusion '\(exclusion.target)' is not a target in this package. Remove \
+                the stale entry rather than leaving a name here that excludes nothing.
+                """)
+
+            if shipping.contains(exclusion.target) {
+                XCTFail(
+                    """
+                    Coverage exclusion '\(exclusion.target)' is not allowed: the manifest says it \
+                    is reachable from a product this package ships, so it is product code and the \
+                    probe must drive it.
+                      stated reason: \(exclusion.reason)
+                    Excluding a shipping module would make the zero-network invariant silently \
+                    stop covering it. Drive it from \
+                    VoccaNetworkProbe.exerciseDefaultConfiguration() instead.
+                    """)
+                continue
+            }
+            honoured.insert(exclusion.target)
+        }
+        return honoured
+    }
+
+    /// Every directory directly under `Sources/`, whatever it is called.
+    private func sourceDirectories() throws -> Set<String> {
+        let sourcesRoot = try packageRoot().appendingPathComponent("Sources")
         let entries = try FileManager.default.contentsOfDirectory(
             at: sourcesRoot, includingPropertiesForKeys: [.isDirectoryKey])
-        var modules: Set<String> = []
+        var names: Set<String> = []
         for entry in entries {
             let isDirectory =
                 (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            let name = entry.lastPathComponent
-            guard isDirectory, name.hasPrefix("Vocca"), !Self.testOnlyTargets.contains(name) else {
-                continue
-            }
-            modules.insert(name)
+            if isDirectory { names.insert(entry.lastPathComponent) }
         }
+        return names
+    }
 
-        guard !modules.isEmpty else {
-            throw ZeroNetworkTestError.noModulesDiscovered(sourcesRoot: sourcesRoot.path)
+    /// Walks up from this file until it finds the directory containing `Package.swift`. Never
+    /// hardcodes an absolute path. Mirrors what `ModuleBoundaryTests` does.
+    private func packageRoot() throws -> URL {
+        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while dir.pathComponents.count > 1 {
+            if FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent("Package.swift").path)
+            {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
         }
-        return modules
+        throw ZeroNetworkTestError.packageRootNotFound(startingFrom: #filePath)
     }
 }
