@@ -28,21 +28,27 @@ Every structural decision below traces to one of these. If a design choice doesn
 ```
 Vocca.app  (single process, Swift 6, strict concurrency)
 │
+├── VoccaBootstrap Swift    — @main, composition root         @MainActor
 ├── VoccaUI        SwiftUI  — widget, settings, onboarding    @MainActor
 ├── VoccaCore      Swift    — orchestration, session state    actors
-├── VoccaAudio     Swift    — capture, playback, VAD           realtime + actor
-├── VoccaASR       Swift    — ASREngine implementations        actor
-├── VoccaText      Swift    — cleanup, dictionary              actor (pure-ish)
-├── VoccaInject    Swift    — AX / Pasteboard / CGEvent        actor (never main)
-├── VoccaSpeech    Swift    — SpeechSynthesizer implementations actor
-└── VoccaBridge    C/C++    — whisper.cpp, Kokoro if needed    isolated
+├── VoccaAudio     Swift    — capture, playback, VAD          realtime + actor
+├── VoccaHotkey    Swift    — HotkeyEventSource, CGEvent tap  tap callback + actor
+├── VoccaASR       Swift    — ASREngine implementations       actor
+├── VoccaText      Swift    — cleanup, dictionary             actor (pure-ish)
+├── VoccaInject    Swift    — AX / Pasteboard / CGEvent       actor (never main)
+├── VoccaSpeech    Swift    — SpeechSynthesizer impls         actor
+└── VoccaBridge    C/C++    — whisper.cpp, Kokoro if needed   isolated
 ```
 
 **Why single-process Swift** (locked in planning): direct access to `AXUIElement`, `CGEvent`, and `NSPasteboard` without a bridge; FluidAudio's CoreML/ANE models drop in natively; and nothing sits between key-up and text-on-screen except our own code. A Tauri/Rust shell would buy cross-platform we explicitly deferred and cost us the ANE path — the fastest ASR route available on this hardware.
 
 **Swift 6 strict concurrency is on from commit one.** Retrofitting it onto an audio pipeline with a realtime thread, an actor graph, and main-thread UI is materially harder than starting with it.
 
-Modules are **Swift Package Manager targets** in one repository. The dependency graph is strictly acyclic and points inward: `VoccaUI → VoccaCore → {VoccaAudio, VoccaASR, VoccaText, VoccaInject, VoccaSpeech}`. Leaf modules never import `VoccaCore` and never import each other. This is what makes each capability testable in isolation.
+Modules are **Swift Package Manager targets** in one repository. The dependency graph is strictly acyclic and points inward: `VoccaBootstrap → VoccaUI → VoccaCore → {VoccaAudio, VoccaHotkey, VoccaASR, VoccaText, VoccaInject, VoccaSpeech}`. Leaf modules never import `VoccaCore` and never import each other. This is what makes each capability testable in isolation.
+
+**But SwiftPM alone cannot produce a shippable app, and that is a structural fact, not a packaging detail.** An SPM `.executable` builds a bare Mach-O, not a bundle — and macOS TCC keys every grant to a **bundle identifier plus a code signature**. A bare executable therefore cannot carry `NSMicrophoneUsageDescription` (so the microphone prompt has nothing to say), and cannot durably hold a Microphone or Accessibility grant across rebuilds. So the repository also carries a **thin Xcode app target** (`App/`, `Vocca.xcodeproj`) that owns *only* bundle assembly, `Info.plist`, entitlements, and signing. Every line of real code stays in the local SPM packages — which is what keeps modules testable headlessly and keeps them inside the zero-network coverage guard (§14), since the guard walks package targets.
+
+One entitlement deserves naming here because it is routinely misfiled as sandbox-only: **`com.apple.security.device.audio-input` is a hardened-runtime capability and applies *outside* the sandbox too.** We are not sandboxed (§13) and we are hardened-runtime, so we still need it. Omit it and the microphone is denied outright — and the permission prompt never appears at all, which presents as "the mic is broken" rather than as a permissions problem.
 
 ---
 
@@ -50,7 +56,10 @@ Modules are **Swift Package Manager targets** in one repository. The dependency 
 
 ```
 Sources/
-  VoccaApp/                  # @main, app delegate, permission bootstrap
+  VoccaBootstrap/            # @main, composition root, permission bootstrap.
+                             #   Deliberately an SPM target and not the Xcode app
+                             #   target, so the composition root is inside §14's
+                             #   zero-network coverage guard like everything else.
   VoccaUI/
     Widget/                  # the floating pill + its states
     Settings/
@@ -64,6 +73,10 @@ Sources/
     Capture/                 # AudioCapture impls
     Playback/                # duckable output for barge-in
     VAD/                     # VoiceActivityDetector, TurnDetector
+  VoccaHotkey/               # HotkeyEventSource seam + the CGEvent tap behind it.
+                             #   Separate from VoccaInject even though both speak
+                             #   CGEvent: one reads the keyboard, one writes it, and
+                             #   they fail for entirely different reasons.
   VoccaASR/
     Parakeet/                # FluidAudio-backed
     Whisper/                 # whisper.cpp-backed
@@ -83,6 +96,12 @@ Sources/
   VoccaContext/              # P4 — ContextProvider
   VoccaActions/              # P4 — ActionProvider, MCP client
   VoccaBridge/               # C interop shims
+  VoccaNetworkProbe/         # TEST-ONLY. Links every module and exercises it under
+                             #   the interposer for §14. Never shipped.
+  CVoccaNetworkInterposer/   # TEST-ONLY. dyld interposer over connect(2), loaded
+                             #   into the probe. Never shipped, never linked by app code.
+App/                         # the thin Xcode app target — Info.plist, entitlements,
+                             #   signing. No logic lives here (§2).
 Tests/
   <mirrors Sources>/
   Fixtures/                  # audio, transcripts, golden outputs
@@ -227,7 +246,8 @@ The P2 gate is p50 ≤ 400 ms, p95 ≤ 800 ms from key-up to text-on-screen. Tha
 ```
 ⌥Space DOWN
    │
-   ├─ [~5 ms]   AudioCapture.begin() — engine already warm (C7)
+   ├─ [ ? ms]   AudioCapture.begin() — engine started ON DEMAND, not kept warm.
+   │             Cost is deliberately unquantified here: measure it, see below.
    ├─           widget → .recording, live waveform
    ├─           speculative ASR consumes the buffer as it fills  ◄── C7
    │
@@ -243,6 +263,18 @@ The P2 gate is p50 ≤ 400 ms, p95 ≤ 800 ms from key-up to text-on-screen. Tha
 
 **Why speculative ASR is the whole trick.** Without it, a 10-second utterance pays full ASR cost after key-up and p50 lands near a second. With it, only the tail is unprocessed at key-up, and Parakeet's RTF (~0.042 on M4) makes that tail cheap. Everything else in the budget is small by comparison — which is also why cleanup gets 10 ms and not 200: at P1 the default is rules, and if an LLM is opted into, the user has knowingly bought latency.
 
+**Why the audio engine is *not* kept warm — privacy beats the milliseconds.** An earlier version of this document assumed a permanently-running `AVAudioEngine`, on the reasoning that a warm engine makes `begin()` nearly free. The SDK forecloses it: `AVAudioEngine.h:465-466` states that "if the engine has at any point previously had its inputNode enabled and permission to record was granted, then any time the engine is running, the mic-in-use indicator will appear." A warm engine therefore means macOS's **orange microphone dot is lit permanently, whether or not we are recording** — which for a tool whose entire pitch is "your audio never leaves your Mac" is the single most damaging signal we could emit. It would say, continuously and in the OS's own voice, the opposite of the promise. So the engine starts on `⌥Space` down and stops on release; when Vocca is idle, the dot is dark, because nothing is listening.
+
+Three mitigations make the on-demand start cheap without running the engine:
+
+1. **`prepare()` after every stop**, so allocation and graph setup are already done when `start()` is called.
+2. **Allocate the engine, sink node, converter and ring buffer once, for the app's lifetime.** A press does `start()`/`stop()` and nothing else — never a graph rebuild, which is the genuinely expensive operation.
+3. **Measure the start cost; do not assume it.** This span is inside the pre-key-up window and so outside the p50 clock, but it delays the waveform — the "it heard me" signal — and `PRODUCT_SPEC.md` promises that within one frame. Treat it as a first-class number with its own acceptance threshold rather than a rounding error.
+
+The same header notes that an app switching between output-only and input-output configurations may want **two engine instances**, one per configuration. Worth remembering at C9, when TTS playback arrives and the naive move is to reuse the capture engine.
+
+Note that this is separate from, and does not contradict, the **model** warm-start in C7 (`ASREngine.prepare()`, `ROADMAP.md`'s warm-start metric). A resident CoreML model holds no audio device and lights nothing; keeping the ASR engine warm is free of this problem entirely. It is specifically the *audio* engine that must go cold.
+
 Every stage emits a span into a **local-only** `LatencyRecorder`. Never transmitted, inspectable in settings, and the CI benchmark asserts against it so a regression names its own culprit.
 
 ---
@@ -251,9 +283,10 @@ Every stage emits a span into a **local-only** `LatencyRecorder`. Never transmit
 
 ```
 ┌─ Realtime audio thread ─────────────────────────────────────┐
-│  AVAudioEngine tap. No allocation, no locks, no logging,    │
-│  no Swift runtime calls that can allocate. Writes into a    │
-│  lock-free ring buffer and nothing else.                    │
+│  AVAudioSinkNode receiver block — NOT installTap (see below)│
+│  No allocation, no locks, no logging, no Swift runtime      │
+│  calls that can allocate. Writes into a lock-free ring      │
+│  buffer and nothing else.                                   │
 └──────────────────────┬──────────────────────────────────────┘
                        │ drain
 ┌─ AudioActor ─────────▼──────────────────────────────────────┐
@@ -278,6 +311,15 @@ Every stage emits a span into a **local-only** `LatencyRecorder`. Never transmit
 1. **AX calls never run on the main thread.** `AXUIElementCopyAttributeValue` against an unresponsive app blocks for the full AX timeout, and on the main thread that is a frozen UI — a documented, commonly-hit macOS trap. `InjectActor` owns every AX call, with an explicit per-call timeout below the system default.
 2. **The realtime audio thread does nothing but write samples.** Any allocation or lock there produces glitches that sound like a broken product.
 3. **`SessionActor` is the only place session state lives.** The widget renders a projection of it. No component infers session state from its own local flags — that's how you get stuck-recording bugs that only reproduce on someone else's machine.
+
+**The capture primitive is `AVAudioSinkNode`, not `installTap`.** This document previously said "AVAudioEngine tap", which cannot satisfy rule 2 above — the rule and the mechanism were in direct contradiction, and the mechanism was the wrong one. Two reasons, both from the headers:
+
+- **`installTap` is not documented as realtime.** `AVAudioNode.h:30` says only "CAUTION: This callback may be invoked on a thread other than the main thread" — a warning about thread-safety, not a realtime guarantee. `AVAudioSinkNode.h:64` is the API that actually states its block "will be called on the realtime thread." If we are going to write realtime-discipline code, it needs to run on the thread that has those constraints, not on one that merely might.
+- **`installTap` has a 100 ms floor.** `AVAudioNode.h:86` gives its `bufferSize` as "Supported range is [100, 400] ms". A 100 ms minimum buffer is **25% of P2's entire 400 ms p50 budget**, spent before a single sample reaches us and bought nothing. That is not a cost we can optimize away later; it is structural to the API.
+
+`AVAudioSinkNode.h:38` also notes the node "does not support format conversion", so the connection must use the input node's own output format — hardware will hand us 44.1/48 kHz, or 16 kHz over Bluetooth HFP. Conversion to the canonical 16 kHz mono Float32 of `AudioBuffer` (§4) happens on the **consumer** side, off the realtime thread, because `AVAudioConverter` allocates.
+
+**One consequence shapes the seam.** `AVAudioSinkNode.h:48` records that the sink node is **unsupported in manual rendering mode** — the offline mode that would otherwise let CI drive audio through the real graph with no hardware. There is therefore no offline equivalent of the realtime path, which is why the `AudioCaptureSource` seam must sit **above** the node rather than wrap it. A seam drawn below the node would be untestable headlessly, permanently. See `docs/SMOKE_CHECKLIST.md` for what this costs us in CI coverage and what has to be checked by hand instead.
 
 ---
 
@@ -431,11 +473,21 @@ The user dictionary is plain JSON in Application Support — hand-editable and v
 | Permission | Needed for | Requested at | If denied |
 |-----------|------------|--------------|-----------|
 | Microphone | All capture | First dictation attempt | Hard block, with a direct link to the settings pane |
-| Accessibility | AX injection + context | First dictation attempt | Degrade to clipboard rung — still fully usable |
-| Input Monitoring | Global hotkey tap | First launch | Hard block — no hotkey, no product |
+| **Accessibility** | **Global hotkey tap** + AX injection + context | **First launch** | **Hard block — no hotkey, no product** |
 | Automation (per-app) | Some AX targets | Per app, on demand | That app drops to clipboard rung |
 
-**Entitlements:** the app is **not sandboxed** (AX injection into arbitrary apps is incompatible with the sandbox), is Developer ID signed, hardened-runtime enabled, and notarized. Signing and notarization are wired up in **week 1** — the combination of non-sandboxed + Accessibility + Input Monitoring draws review scrutiny, and that is not a discovery to make at ship time.
+**The hotkey needs Accessibility, not Input Monitoring.** This table previously assigned Input Monitoring to the global hotkey tap. That is wrong, and it is wrong in the direction that would have shipped a broken product. `CGEvent.h:274-279`: event taps "may only receive key up and down events if access for assistive devices is enabled … If the tap is not permitted to monitor these events when the tap is created, then the appropriate bits in the mask are cleared. If that results in an empty mask, then NULL is returned."
+
+Input Monitoring covers a **listen-only** tap. Vocca cannot use one: `⌥Space` must be **swallowed**, because if it passes through, macOS inserts U+00A0 NO-BREAK SPACE into the very field the user is dictating into — a bug that corrupts the output of every single dictation. Swallowing requires an active tap (`kCGEventTapOptionDefault`), and an active keyboard tap requires **Accessibility**. Accessibility supersedes Input Monitoring, so the grant that makes injection work is the same grant that makes the hotkey work.
+
+Two operational consequences:
+
+- **`CGEvent.tapCreate` returning `nil` *is* the permission check.** There is no separate API that reports the grant, and no entitlement or `NS*UsageDescription` key exists for Accessibility — the system dialog's text is fixed and we cannot add a word to it. Our onboarding copy is therefore the *only* explanation the user will ever read for the scariest permission macOS asks for.
+- **After a grant, the tap must be destroyed and re-created.** Its event mask was cleared at creation time, when we had no permission; `CGEventTapEnable` re-enables a tap but cannot restore a mask that was emptied. Re-arming the old tap yields a live tap that receives nothing — a silent failure. Observe `com.apple.accessibility.api` and rebuild.
+
+**The silver lining is that the incremental cost is zero.** C4's injection ladder needs Accessibility regardless, so moving the hotkey onto the same grant removes an entire permission from onboarding rather than adding one. The correction makes first run shorter, not longer.
+
+**Entitlements:** the app is **not sandboxed** (AX injection into arbitrary apps is incompatible with the sandbox), is Developer ID signed, hardened-runtime enabled, and notarized. It carries `com.apple.security.device.audio-input`, which — as §2 notes — is a hardened-runtime capability and is required even outside the sandbox. Signing and notarization are wired up in **week 1** — the combination of non-sandboxed + Accessibility + an active keyboard event tap draws review scrutiny, and that is not a discovery to make at ship time.
 
 ---
 

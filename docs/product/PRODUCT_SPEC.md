@@ -111,7 +111,7 @@ Everything else is convenience. This is the promise.
 | Secure Input | "This looks like a password field. Vocca won't type into it — press ⌘C to paste it yourself." |
 | Ladder exhausted | "Couldn't type into Notion. Press ⌘C to paste it manually, or ⏎ to try again." |
 | No focused field | "Nothing was focused. Click where you want this, then press ⏎." |
-| Accessibility denied | "Vocca needs Accessibility permission to type. [Open Settings] — or ⌘C to paste manually." |
+| Accessibility revoked mid-session | "Vocca's permission to type was turned off. [Open Settings] — or ⌘C to paste manually." Reachable only by revocation *during* a dictation: without Accessibility the hotkey never fires in the first place (§6). The words captured before the revocation are still delivered here, because they are still the user's. |
 
 - **Retry (⏎) re-runs the ladder** against the *current* focus, so the fix for "wrong window was focused" is: click the right one, hit enter.
 - **Crash recovery:** transcripts unresolved at crash time reappear in the failsafe on next launch, with a note about when they were captured.
@@ -150,12 +150,18 @@ Target: **installed to first successful dictation in under two minutes**, with n
 
 2. PERMISSIONS      Requested one at a time, each with a plain reason:
 
-                    Input Monitoring — "so ⌥Space works everywhere"
-                    Microphone       — "to hear you. Audio never leaves this Mac."
-                    Accessibility    — "to type into other apps"
+                    Accessibility — "so ⌥Space works everywhere, and so
+                                     Vocca can type into other apps"
+                    Microphone    — "to hear you. Audio never leaves this Mac."
 
                     Each shows live ✓/✗ and a direct button to the exact
                     settings pane. No hunting.
+
+                    Two, not three: the same Accessibility grant covers both
+                    the hotkey and the typing, so there is one fewer scary
+                    dialog than a dictation tool usually asks for.
+                    (Input Monitoring would only cover a listen-only hotkey,
+                    which can't swallow ⌥Space — see ARCHITECTURE.md §13.)
 
 3. MODEL            "Downloading the speech model (≈600 MB, one time)"
                     Progress, resumable, cancellable.
@@ -170,7 +176,7 @@ Target: **installed to first successful dictation in under two minutes**, with n
 5. DONE             "Vocca lives in your menu bar. Hold ⌥Space anywhere."
 ```
 
-**Permission denial is never a dead end.** Every denial screen explains what still works without it and how to grant it later. Accessibility denied → clipboard rung still delivers text. Only Input Monitoring is genuinely fatal, and that's stated plainly.
+**Permission denial is never a dead end.** Every denial screen explains what still works without it and how to grant it later. Microphone denied → nothing can be heard, but the screen says exactly which toggle to flip and Vocca picks up where it left off. **Accessibility is the one genuinely fatal permission** — without it `⌥Space` can't be captured at all, so there is no way to start a dictation — and that's stated plainly rather than dressed up. Granting it afterwards requires a restart, so that screen offers a **[Restart Vocca]** button instead of leaving the user to wonder why the hotkey still does nothing.
 
 ---
 
