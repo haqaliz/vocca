@@ -201,9 +201,19 @@ struct VoccaNetworkProbe {
         // `assumeIsolated` rather than a hop: `main()` is the process entry point and so is
         // already on the main thread, and a hop would return before the work ran, putting it
         // outside the observation window.
-        MainActor.assumeIsolated {
-            AppBootstrap.configure(NSApplication.shared)
+        //
+        // The observed policy is reported so the suite can require the *effect* of this call, not
+        // its presence. Reporting `AppBootstrap` in the module list below is satisfied by the
+        // metatype reference alone: deleting this block and keeping `AppBootstrap.self` left
+        // ZeroNetworkTests 2/2 green, which made the one module here that has real work the one
+        // module whose work nothing checked. Module granularity is enough for the eight
+        // placeholders; for this one it was not.
+        let observedPolicy = MainActor.assumeIsolated { () -> NSApplication.ActivationPolicy in
+            let application = NSApplication.shared
+            AppBootstrap.configure(application)
+            return application.activationPolicy()
         }
+        print("PROBE-BOOTSTRAP\tactivationPolicy=\(name(of: observedPolicy))")
 
         let placeholders: [Any.Type] = [
             VoccaCorePlaceholder.self,
@@ -221,6 +231,19 @@ struct VoccaNetworkProbe {
         // reported as covered without a real type from it being referenced here.
         return placeholders.compactMap { placeholder in
             String(reflecting: placeholder).split(separator: ".").first.map(String.init)
+        }
+    }
+
+    /// A stable spelling for an activation policy.
+    ///
+    /// Written out rather than derived from `String(describing:)` so the marker the test matches on
+    /// is this package's own vocabulary and cannot change under it if Apple relabels the enum.
+    private static func name(of policy: NSApplication.ActivationPolicy) -> String {
+        switch policy {
+        case .regular: return "regular"
+        case .accessory: return "accessory"
+        case .prohibited: return "prohibited"
+        @unknown default: return "unknown"
         }
     }
 

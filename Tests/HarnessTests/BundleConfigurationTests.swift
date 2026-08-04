@@ -147,6 +147,7 @@ enum BundleTestError: Error, CustomStringConvertible {
     case projectUnreadable(path: String, detail: String)
     case targetNotFound(name: String, available: [String])
     case noBuildConfigurations(target: String)
+    case noSourcesBuildPhase
     case codesignFailed(status: Int32, stderr: String)
     case entitlementsUnreadable(detail: String)
 
@@ -174,6 +175,12 @@ enum BundleTestError: Error, CustomStringConvertible {
                 Target '\(target)' has no build configurations, so every build-setting assertion \
                 below would have iterated over an empty collection and passed while checking \
                 nothing.
+                """
+        case .noSourcesBuildPhase:
+            return """
+                The Vocca target has no PBXSourcesBuildPhase. This is refused rather than treated \
+                as "compiles nothing", because an empty source list would satisfy the assertion \
+                that the target compiles only the shim while compiling no shim at all.
                 """
         case .codesignFailed(let status, let stderr):
             return "`codesign -d --entitlements` failed with status \(status): \(stderr)"
@@ -308,6 +315,11 @@ final class BundleConfigurationTests: XCTestCase {
     /// cries wolf on documentation changes gets updated reflexively — at which point it stops
     /// guarding the thing it exists for. Stripping comments cannot hide code: a line of Swift that
     /// does anything is not a comment.
+    ///
+    /// **Both** comment forms are stripped. The first version handled only `//`, so a `/* … */`
+    /// block anywhere in the file tripped the pin — and the failure message then announced that
+    /// code had been added with no guarantee behind it, which was false. A red that misdiagnoses
+    /// its own cause is the failure shape this file has already had to remove twice.
     private static let expectedAppTargetSource = """
         import VoccaBootstrap
         @main
@@ -318,6 +330,39 @@ final class BundleConfigurationTests: XCTestCase {
         }
         }
         """
+
+    /// Removes `/* … */` comments, preserving newlines so line-based filtering downstream still
+    /// lines up. Nesting is not handled, matching every file this rule applies to — and an
+    /// unterminated or nested block simply leaves text that fails the pin, which is the safe
+    /// direction.
+    private static func strippingBlockComments(from source: String) -> String {
+        var result = ""
+        result.reserveCapacity(source.count)
+        let characters = Array(source)
+        var index = 0
+        var depth = 0
+        while index < characters.count {
+            if index + 1 < characters.count, characters[index] == "/", characters[index + 1] == "*" {
+                depth += 1
+                index += 2
+                continue
+            }
+            if depth > 0, index + 1 < characters.count, characters[index] == "*",
+                characters[index + 1] == "/"
+            {
+                depth -= 1
+                index += 2
+                continue
+            }
+            if depth == 0 {
+                result.append(characters[index])
+            } else if characters[index] == "\n" {
+                result.append("\n")
+            }
+            index += 1
+        }
+        return result
+    }
 
     /// `App/VoccaApp.swift` must remain a shim that hands straight to ``AppBootstrap``.
     ///
@@ -343,7 +388,7 @@ final class BundleConfigurationTests: XCTestCase {
         }
 
         let code =
-            text
+            Self.strippingBlockComments(from: text)
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("//") }
@@ -352,13 +397,79 @@ final class BundleConfigurationTests: XCTestCase {
         XCTAssertEqual(
             code, Self.expectedAppTargetSource,
             """
-            App/VoccaApp.swift is no longer just the @main shim.
+            App/VoccaApp.swift no longer matches the @main shim exactly.
             This file is outside the SwiftPM package, so nothing drives it: the zero-network probe \
-            cannot reach it and ModuleBoundaryTests cannot see it. Whatever was added here is \
-            code shipping with no automated guarantee behind it.
-            Move it to AppBootstrap.configure(_:) in Sources/VoccaBootstrap, which the probe calls \
-            on the default-configuration path. If the shim itself genuinely has to change, update \
-            `expectedAppTargetSource` in the same change so the decision is visible in review.
+            cannot reach it and ModuleBoundaryTests cannot see it. Code here ships with no \
+            automated guarantee behind it, which is why the shim is pinned rather than reviewed.
+            Comments — both // and /* */ — are stripped before this comparison, so if the diff \
+            above looks like prose, something in it is being parsed as code: an unterminated block \
+            comment, or a `//` inside a string literal.
+            If code was added, move it to AppBootstrap.configure(_:) in Sources/VoccaBootstrap, \
+            which the probe calls on the default-configuration path. If the shim itself genuinely \
+            has to change, update `expectedAppTargetSource` in the same change so the decision is \
+            visible in review.
+            """)
+    }
+
+    // MARK: The app target's source *set* may not grow either
+
+    /// Every file `App/` is allowed to contain.
+    private static let expectedAppDirectoryContents = [
+        "Info.plist", "Vocca.entitlements", "VoccaApp.swift",
+    ]
+
+    /// The app target may compile exactly one file.
+    ///
+    /// ``testAppTargetSourceIsOnlyAShimToTheBootstrapModule`` pins the *contents* of
+    /// `App/VoccaApp.swift`; this pins the *set*. Both are needed and neither substitutes for the
+    /// other — I argued otherwise in round 1 and was wrong, in a way that was demonstrated rather
+    /// than argued: adding `App/UpdateChecker.swift` (carrying the Apache header, so the licence
+    /// suite was satisfied) with a `getaddrinfo("updates.vocca.dev", …)` in it, wired in with the
+    /// three routine `project.pbxproj` entries Xcode writes when you drag a file into a target,
+    /// shipped the hostname and seven `UpdateChecker` symbols inside `Contents/MacOS/Vocca` while
+    /// the full suite reported **27/27, zero failures** under the CI contract.
+    ///
+    /// The content pin could not have caught it: `VoccaApp.swift` was never touched. Growth in one
+    /// file and a second file are two different holes, and closing one says nothing about the
+    /// other.
+    ///
+    /// Read from the `Sources` build phase rather than from the directory listing, because
+    /// compilation is what actually matters — a `.swift` file sitting in `App/` unreferenced by the
+    /// target ships nothing.
+    func testAppTargetCompilesOnlyTheShim() throws {
+        XCTAssertEqual(
+            try appTargetSourceFileNames(), ["VoccaApp.swift"],
+            """
+            The Vocca app target compiles more than the @main shim.
+            Sources under App/ are outside the SwiftPM package: VoccaNetworkProbe cannot drive \
+            them, so the zero-network invariant — a permanent release blocker — says nothing about \
+            them, and ModuleBoundaryTests cannot see them either. A file added here ships with no \
+            automated guarantee behind it whatsoever.
+            Put the code in a module under Sources/ instead. If it is start-up work, it belongs in \
+            AppBootstrap.configure(_:), which the probe calls on the default-configuration path.
+            """)
+    }
+
+    /// `App/` may hold exactly the three known files.
+    ///
+    /// A narrower check than the build-phase assertion above and kept alongside it deliberately:
+    /// this one fails the moment an extra source appears on disk, before anyone wires it into the
+    /// target, which is where the mistake is cheapest to undo. It also catches a stray resource
+    /// being picked up by a copy phase.
+    func testAppDirectoryHoldsOnlyTheKnownFiles() throws {
+        let appDirectory = try BundleTestSupport.packageRoot().appendingPathComponent("App")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: appDirectory.path)
+            .filter { $0 != ".DS_Store" }
+            .sorted()
+        XCTAssertEqual(
+            entries, Self.expectedAppDirectoryContents,
+            """
+            App/ contains files this task does not know about.
+            The app target is a shell: a plist, an entitlements file and a one-line @main shim. \
+            Everything else belongs in a module under Sources/, where the zero-network probe and \
+            ModuleBoundaryTests can reach it.
+            If a file genuinely belongs here, add it to `expectedAppDirectoryContents` in the same \
+            change so the decision is visible in review.
             """)
     }
 
@@ -479,7 +590,8 @@ final class BundleConfigurationTests: XCTestCase {
     /// and it needs no Xcode installation. Anything unparseable throws rather than returning an
     /// empty result, and an empty configuration set throws too: iterating zero configurations would
     /// make every assertion above pass while checking nothing.
-    private func buildSettingsPerConfiguration() throws -> [String: [String: String]] {
+    /// The parsed `objects` table and the `Vocca` native target within it.
+    private func voccaTarget() throws -> (objects: [String: [String: Any]], target: [String: Any]) {
         let projectFile = try BundleTestSupport.packageRoot()
             .appendingPathComponent("Vocca.xcodeproj/project.pbxproj")
 
@@ -521,6 +633,37 @@ final class BundleConfigurationTests: XCTestCase {
                 name: "Vocca",
                 available: nativeTargets.compactMap { $0.value["name"] as? String })
         }
+        return (objects, target)
+    }
+
+    /// The file names in the `Vocca` target's `Sources` build phase — the set of files the app
+    /// target actually compiles.
+    ///
+    /// Resolved structurally: build phase → `PBXBuildFile` → its `fileRef` → the
+    /// `PBXFileReference`'s `path`. A missing `Sources` phase throws rather than returning an empty
+    /// list, because "compiles nothing" would satisfy an equality check against an empty
+    /// expectation and is never a real state for an app target.
+    private func appTargetSourceFileNames() throws -> [String] {
+        let (objects, target) = try voccaTarget()
+
+        guard let phaseIdentifiers = target["buildPhases"] as? [String],
+            let sourcesPhase = phaseIdentifiers.lazy.compactMap({ objects[$0] })
+                .first(where: { $0["isa"] as? String == "PBXSourcesBuildPhase" })
+        else {
+            throw BundleTestError.noSourcesBuildPhase
+        }
+
+        let buildFileIdentifiers = sourcesPhase["files"] as? [String] ?? []
+        return
+            buildFileIdentifiers
+            .compactMap { objects[$0]?["fileRef"] as? String }
+            .compactMap { objects[$0]?["path"] as? String }
+            .map { ($0 as NSString).lastPathComponent }
+            .sorted()
+    }
+
+    private func buildSettingsPerConfiguration() throws -> [String: [String: String]] {
+        let (objects, target) = try voccaTarget()
 
         guard
             let listIdentifier = target["buildConfigurationList"] as? String,

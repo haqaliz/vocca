@@ -44,14 +44,27 @@ private enum ModuleBoundaryTestError: Error, CustomStringConvertible {
 /// 1. No leaf module imports `VoccaCore`.
 /// 2. No leaf module imports another leaf module.
 /// 3. `VoccaUI` imports only `VoccaCore` among Vocca modules.
+/// 4. Only `VoccaNetworkProbe` imports `VoccaBootstrap`.
 final class ModuleBoundaryTests: XCTestCase {
     private static let leafModules: Set<String> = [
         "VoccaAudio", "VoccaHotkey", "VoccaASR", "VoccaText", "VoccaInject", "VoccaSpeech",
     ]
 
+    /// The app's composition root. Depends on modules; nothing in the package may depend on it.
+    private static let compositionRoot = "VoccaBootstrap"
+
+    /// The one module allowed to import ``compositionRoot``, and required to.
+    ///
+    /// The probe drives `AppBootstrap.configure(_:)` on the default-configuration path, which is
+    /// what puts the app's real start-up code inside the zero-network invariant. That import is
+    /// therefore a fixture, not a dependency.
+    private static let permittedCompositionRootImporter = "VoccaNetworkProbe"
+
     /// Every module directory this task's `Package.swift` is expected to declare. Used to
     /// catch a deleted/renamed module directory passing a rule by absence rather than fact.
-    private static let expectedModules: Set<String> = leafModules.union(["VoccaCore", "VoccaUI"])
+    private static let expectedModules: Set<String> = leafModules.union([
+        "VoccaCore", "VoccaUI", compositionRoot, permittedCompositionRootImporter,
+    ])
 
     /// Leading tokens that can precede the `import` keyword itself: the `@testable` attribute
     /// and the SE-0409 access-level import modifiers. Order between them isn't fixed, so this
@@ -216,6 +229,45 @@ final class ModuleBoundaryTests: XCTestCase {
                 violations.isEmpty,
                 "\(leaf) must not import other leaf modules, found: \(violations)")
         }
+    }
+
+    /// `VoccaBootstrap` is the composition root: it may depend on modules, and nothing in the
+    /// package may depend on it. The only import of it is the network probe's, which is a fixture.
+    ///
+    /// SwiftPM refuses a *declared* cycle, so this looks redundant — and is not. An `import
+    /// VoccaBootstrap` added to `Sources/VoccaAudio/Placeholder.swift` **with no declared
+    /// dependency** compiles clean, because every target in a package builds against a shared
+    /// module search path, and it passed this suite 3/3: the existing rules only forbid a leaf
+    /// importing `VoccaCore` or another leaf. So the manifest was not the guard anyone assumed it
+    /// was.
+    ///
+    /// Direction is what makes this safe to state now, rather than policy invented for modules that
+    /// do not exist yet: the root wires everything together, so nothing it wires can point back at
+    /// it without creating a cycle.
+    ///
+    /// The assertion is equality, not "no unexpected importers", so it also fails if the probe
+    /// *stops* importing it — which is the mechanism that keeps the app's start-up path inside the
+    /// zero-network invariant. Deleting that import is not something to discover later.
+    func testOnlyTheNetworkProbeImportsTheCompositionRoot() throws {
+        let map = try moduleImportMap()
+        let importers = map
+            .filter { $0.key != Self.compositionRoot && $0.value.contains(Self.compositionRoot) }
+            .keys.sorted()
+
+        XCTAssertEqual(
+            importers, [Self.permittedCompositionRootImporter],
+            """
+            \(Self.compositionRoot) must be imported by \
+            \(Self.permittedCompositionRootImporter) and by nothing else. Found: \
+            \(importers.isEmpty ? "no importers at all" : importers.joined(separator: ", ")).
+            Too many: it is the composition root — it wires the other modules together, so a module \
+            importing it points a dependency backwards and creates a cycle. Note that SwiftPM will \
+            not catch this for you: an undeclared import of it compiles clean via the shared module \
+            search path.
+            Too few: \(Self.permittedCompositionRootImporter) driving \
+            AppBootstrap.configure(_:) is what places Vocca's real start-up code inside the \
+            zero-network invariant. Without that import there is no coverage of it at all.
+            """)
     }
 
     func testVoccaUIImportsOnlyVoccaCoreAmongVoccaModules() throws {

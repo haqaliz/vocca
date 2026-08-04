@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import OSLog
 
 /// Vocca's composition root: everything the process does before it starts taking events.
 ///
@@ -49,8 +50,26 @@ public enum AppBootstrap {
     /// typing into *another* app's text field, taking focus means typing into the wrong place.
     @MainActor
     public static func configure(_ application: NSApplication) {
-        application.setActivationPolicy(.accessory)
+        // The return value is checked rather than discarded because of what `false` would mean
+        // here. Vocca's named failure mode is "takes focus and types into the wrong field"; an
+        // application left in `.regular` does exactly that, and it does it silently — there is no
+        // exception, no crash, just a widget that steals the frontmost slot at the moment the user
+        // starts dictating. `ZeroNetworkTests` asserts the resulting policy through the probe, so
+        // this is caught in CI; the log is for the case where it happens on a user's machine.
+        if !application.setActivationPolicy(.accessory) {
+            logger.error(
+                """
+                Failed to enter the .accessory activation policy; the app is \
+                \(String(describing: application.activationPolicy()), privacy: .public). Vocca will \
+                take keyboard focus when it should not, and text injection will go to the wrong \
+                window.
+                """)
+        }
     }
+
+    /// Subsystem matches the bundle identifier so `log stream --subsystem dev.vocca.Vocca` picks up
+    /// everything Vocca writes.
+    private static let logger = Logger(subsystem: "dev.vocca.Vocca", category: "bootstrap")
 
     /// Configures the shared application and hands control to its run loop. Does not return.
     ///

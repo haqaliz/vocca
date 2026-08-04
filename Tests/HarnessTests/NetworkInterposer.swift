@@ -208,6 +208,25 @@ struct NetworkObservation {
         return []
     }
 
+    /// The activation policy the probe *observed* after calling `AppBootstrap.configure(_:)`, or
+    /// `nil` if the probe never reported one.
+    ///
+    /// This is an effect, not a reference, and the distinction is the whole point. `VoccaBootstrap`
+    /// appearing in ``reportedModules`` only proves a type from it was mentioned — deleting the
+    /// `configure(_:)` call while keeping `AppBootstrap.self` in the placeholder list left the
+    /// suite 2/2 green. Requiring an observed `accessory` here means the call has to have actually
+    /// run and actually worked.
+    ///
+    /// It also removes the cheap way out of a headless-CI failure: if `NSApplication.shared` ever
+    /// fails on a runner, deleting the call is a one-line change that would otherwise go green.
+    var reportedActivationPolicy: String? {
+        for line in probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-BOOTSTRAP\tactivationPolicy=") {
+            return String(line.dropFirst("PROBE-BOOTSTRAP\tactivationPolicy=".count))
+        }
+        return nil
+    }
+
     var events: [ObservedNetworkEvent] {
         rawLog.split(separator: "\n").compactMap { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)

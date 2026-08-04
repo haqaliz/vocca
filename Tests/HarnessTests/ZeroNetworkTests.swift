@@ -172,6 +172,30 @@ final class ZeroNetworkTests: XCTestCase {
             \(observation.diagnosticSummary)
             """)
 
+        // The bootstrap post-condition. Checked as an *effect* — the activation policy the probe
+        // read back after calling AppBootstrap.configure(_:) — rather than as a module name in the
+        // coverage list below.
+        //
+        // The distinction is load-bearing and was demonstrated, not assumed: deleting the
+        // configure(_:) call from the probe while keeping `AppBootstrap.self` in its placeholder
+        // list left this suite 2/2 green. Module granularity is enough for the eight placeholder
+        // modules, which have no work yet; VoccaBootstrap is the one module where the work *is* the
+        // deliverable, because it is the app's real start-up path and the only code in this package
+        // that runs before the run loop.
+        XCTAssertEqual(
+            observation.reportedActivationPolicy, "accessory",
+            """
+            The probe did not observe Vocca's start-up leaving the application in the .accessory \
+            activation policy (saw: \(observation.reportedActivationPolicy ?? "no report at all")).
+            Either AppBootstrap.configure(_:) was not called on the default-configuration path, or \
+            it no longer sets the policy. Both matter: the first means the app's real start-up code \
+            is no longer covered by this invariant at all, and the second means Vocca takes focus \
+            on launch and types into the wrong window.
+            Do not fix this by removing the call — that is the change this assertion exists to \
+            refuse.
+            \(observation.diagnosticSummary)
+            """)
+
         // The coverage cross-check. Without it the assertions above stay green while covering an
         // ever-smaller fraction of the product, which is the most likely way this gate rots.
         let manifest = try PackageManifest.load(packageRoot: try packageRoot())
