@@ -57,53 +57,90 @@ struct VoccaNetworkProbe {
     /// Overrides ``defaultSettleWindow``, in seconds. Set by the test harness.
     private static let settleEnvironmentVariable = "VOCCA_PROBE_SETTLE_SECONDS"
 
+    /// The work the probe knows how to do.
+    ///
+    /// Modelled as an enum rather than matched as a string so that ``needsSettle`` is decided by
+    /// an exhaustive `switch`. Adding a mode then fails to compile until someone states whether
+    /// it needs a settle window — where a string comparison would have silently given a new mode
+    /// none, which is the same fail-open shape the settle window was added to remove.
+    private enum Mode: String {
+        case defaultConfiguration = "default-configuration"
+        case deliberateConnect = "deliberate-connection"
+        case deliberateConnectx = "deliberate-connectx"
+
+        /// Whether deferred egress is possible in this mode, and so whether the process must be
+        /// held open after the work returns.
+        var needsSettle: Bool {
+            switch self {
+            case .defaultConfiguration:
+                // Arbitrary product code, nearly all of it asynchronous. This is the whole reason
+                // the window exists.
+                return true
+            case .deliberateConnect, .deliberateConnectx:
+                // One synchronous connection, recorded before the call returns. A window here
+                // buys nothing and only slows the suite down.
+                return false
+            }
+        }
+    }
+
     static func main() {
-        let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
-        switch mode {
-        case "default-configuration":
-            let modules = exerciseDefaultConfiguration()
-            // Reported so the test can assert every Vocca module on disk was actually driven
-            // through here, rather than trusting a comment to stay true.
-            print("PROBE-MODULES\t\(modules.joined(separator: ","))")
-        case "deliberate-connection":
-            guard exerciseDeliberateConnect() else {
-                fputs("PROBE-FAILED\t\(mode)\terrno=\(errno)\n", stderr)
-                exit(2)
-            }
-        case "deliberate-connectx":
-            guard exerciseDeliberateConnectx() else {
-                fputs("PROBE-FAILED\t\(mode)\terrno=\(errno)\n", stderr)
-                exit(2)
-            }
-        default:
-            fputs("PROBE-UNKNOWN-MODE\t\(mode)\n", stderr)
+        let rawMode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
+        guard let mode = Mode(rawValue: rawMode) else {
+            fputs("PROBE-UNKNOWN-MODE\t\(rawMode)\n", stderr)
             exit(64)
         }
 
-        // Only the invariant path needs settling. The positive-control modes make one synchronous
-        // connection that is recorded before they return, so a window there buys nothing and just
-        // slows the suite down.
-        if mode == "default-configuration" {
+        switch mode {
+        case .defaultConfiguration:
+            let modules = exerciseDefaultConfiguration()
+            // Reported so the test can assert every module in the package was actually driven
+            // through here, rather than trusting a comment to stay true.
+            print("PROBE-MODULES\t\(modules.joined(separator: ","))")
+        case .deliberateConnect:
+            guard exerciseDeliberateConnect() else {
+                fputs("PROBE-FAILED\t\(mode.rawValue)\terrno=\(errno)\n", stderr)
+                exit(2)
+            }
+        case .deliberateConnectx:
+            guard exerciseDeliberateConnectx() else {
+                fputs("PROBE-FAILED\t\(mode.rawValue)\terrno=\(errno)\n", stderr)
+                exit(2)
+            }
+        }
+
+        if mode.needsSettle {
             settle(for: settleWindow())
         }
 
         // Asserted by both tests. Without checking it, a probe that did nothing at all — or a
         // stub that printed one line and exited 0 — is indistinguishable from a clean run.
-        print("PROBE-OK\t\(mode)")
+        print("PROBE-OK\t\(mode.rawValue)")
         exit(0)
     }
 
+    /// The shortest override that is accepted.
+    ///
+    /// Zero — "settle for no time at all" — is rejected along with negatives and garbage. It
+    /// parses cleanly, so it would sail through a naive check while disabling the window
+    /// entirely: a fail-open value in a knob whose entire purpose is to fail closed. The floor is
+    /// an order of magnitude above the ~10–20 ms a loopback `connectx` takes to appear, so any
+    /// accepted value still leaves the window doing its job.
+    private static let minimumSettleWindow: TimeInterval = 0.25
+
     /// ``defaultSettleWindow``, unless the harness overrode it.
     ///
-    /// An unparseable override is fatal rather than ignored. Falling back to the default would
-    /// mean a CI job that believed it was running a long window silently ran a short one — the
-    /// exact false-green this override exists to prevent.
+    /// A missing, unparseable, or too-short override is fatal rather than ignored. Quietly
+    /// falling back to the default would mean a CI job that believed it was running a long window
+    /// silently ran a short one — the exact false-green this override exists to prevent.
     private static func settleWindow() -> TimeInterval {
         guard let raw = ProcessInfo.processInfo.environment[settleEnvironmentVariable] else {
             return defaultSettleWindow
         }
-        guard let seconds = TimeInterval(raw), seconds >= 0 else {
-            fputs("PROBE-BAD-SETTLE\t\(settleEnvironmentVariable)=\(raw)\n", stderr)
+        guard let seconds = TimeInterval(raw), seconds >= minimumSettleWindow else {
+            fputs(
+                "PROBE-BAD-SETTLE\t\(settleEnvironmentVariable)=\(raw)\tminimum=\(minimumSettleWindow)\n",
+                stderr)
             exit(65)
         }
         return seconds
@@ -144,8 +181,8 @@ struct VoccaNetworkProbe {
     /// start-up work must be invoked from here.
     ///
     /// That instruction is enforced rather than merely written down: the returned module list is
-    /// checked against the `Vocca*` directories present under `Sources/`, so adding a module
-    /// without driving it from here fails the suite. The enforcement is at module granularity —
+    /// checked against the package manifest and the `Sources/` listing, so adding any module
+    /// without driving it from here fails the suite — whatever the module is called. The enforcement is at module granularity —
     /// it can tell that a module was reached, not that a module's *work* was exercised — so
     /// growing the body below as capabilities land is still a judgement call this test can
     /// prompt but cannot make.

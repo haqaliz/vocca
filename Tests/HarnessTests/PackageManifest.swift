@@ -68,17 +68,51 @@ struct PackageManifest {
         return reached
     }
 
-    /// Every target that is not a test target — i.e. every module that could contain product
-    /// code, whatever it happens to be named.
-    var nonTestTargetNames: Set<String> {
-        Set(targets.values.filter { $0.type != "test" }.map(\.name))
+    /// Target kinds the probe has no way to drive, and which therefore must be neither required
+    /// nor able to consume a coverage exclusion.
+    ///
+    /// The distinction is "can Swift code `import` this and call into it", not "is this
+    /// important". A command plugin, a prebuilt `.xcframework`, a C system-library shim and a
+    /// macro implementation are all reachable from a shipping product, so the exclusion guard
+    /// correctly refuses to exclude them — but none can be `import`ed and exercised from the probe
+    /// either. Without this carve-out the guard becomes *unsatisfiable* for such a target:
+    /// impossible to satisfy, impossible to exclude, and the cheapest way out for whoever hits it
+    /// is to weaken the check. That is not hypothetical — `whisper.cpp` ships as an xcframework
+    /// and is two capabilities away.
+    ///
+    /// These kinds are not a hole in the invariant: a binary or plugin target contains no Swift
+    /// module for the default-configuration path to run through. Code that *uses* one lives in a
+    /// regular target, which is still required.
+    static let nonDrivableTargetTypes: Set<String> = ["binary", "plugin", "macro", "system"]
+
+    /// Every target that could hold Swift code the probe can drive: not a test, and not one of the
+    /// kinds above. Names are irrelevant to this — only the manifest's own `type` is used.
+    var drivableTargetNames: Set<String> {
+        Set(
+            targets.values
+                .filter { $0.type != "test" && !Self.nonDrivableTargetTypes.contains($0.type) }
+                .map(\.name))
+    }
+
+    /// Targets the manifest declares that the probe cannot drive, by name.
+    var nonDrivableTargetNames: Set<String> {
+        Set(
+            targets.values
+                .filter { Self.nonDrivableTargetTypes.contains($0.type) }
+                .map(\.name))
     }
 
     // MARK: - Loading
 
     static func load(packageRoot: URL) throws -> PackageManifest {
+        // Created explicitly: `dump-package` builds nothing, so it never creates the directory
+        // named by `--scratch-path`. Leaving that to SwiftPM meant the cleanup below failed on a
+        // path that had never existed, and that failure surfaced in place of the real error —
+        // which cost real time to diagnose during review. Creating it keeps cleanup silent and
+        // keeps failures saying what actually went wrong.
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("vocca-manifest-scratch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
 
         let process = Process()
@@ -143,7 +177,18 @@ struct PackageManifest {
         guard !targets.isEmpty, !products.isEmpty else {
             throw PackageManifestError.emptyManifest
         }
-        return PackageManifest(targets: targets, products: products)
+
+        let manifest = PackageManifest(targets: targets, products: products)
+
+        // The same class of hole one level down, and the more dangerous one: the exclusion defence
+        // is "you may not exclude a target that ships", enforced by testing membership of
+        // `shippingTargets`. If that set is empty, *nothing* ships, so every exclusion is
+        // permitted and the defence evaporates silently while the suite stays green. A package
+        // that vends nothing is a bug in the manifest, not a licence to exclude everything.
+        guard !manifest.shippingTargets.isEmpty else {
+            throw PackageManifestError.noShippingTargets(productNames: products.keys.sorted())
+        }
+        return manifest
     }
 
     /// SwiftPM encodes a dependency as a single-key object, e.g. `{"byName": ["VoccaCore", null]}`
@@ -160,6 +205,7 @@ enum PackageManifestError: Error, CustomStringConvertible {
     case dumpFailed(status: Int32, stderr: String)
     case malformedDump(String)
     case emptyManifest
+    case noShippingTargets(productNames: [String])
 
     var description: String {
         switch self {
@@ -170,6 +216,16 @@ enum PackageManifestError: Error, CustomStringConvertible {
         case .emptyManifest:
             return
                 "`swift package dump-package` reported no targets or no products — refusing to check module coverage against an empty manifest"
+        case .noShippingTargets(let productNames):
+            return """
+                No target in this package is reachable from a product whose name does not begin \
+                with `_`, so the manifest says Vocca ships nothing. Declared products: \
+                \(productNames.joined(separator: ", ")).
+                This is refused rather than tolerated because the coverage exclusion guard is built \
+                on "you may not exclude a target that ships" — with an empty shipping set every \
+                exclusion would be permitted and the guard would pass while enforcing nothing. If \
+                the package genuinely vends nothing, fix the manifest.
+                """
         }
     }
 }

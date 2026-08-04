@@ -136,8 +136,9 @@ final class ZeroNetworkTests: XCTestCase {
     /// - The probe holds the process open for a settle window after the path returns, so
     ///   asynchronous work — which is nearly everything Vocca will do — gets to reach the network
     ///   before the observation ends.
-    /// - The module cross-check below fails the suite when a new `Sources/Vocca*` module is added
-    ///   without being driven from that function.
+    /// - The module cross-check below fails the suite when any new module is added without being
+    ///   driven from that function — keyed on the package manifest and on the `Sources/` listing,
+    ///   never on what the module is named.
     ///
     /// What neither can check is whether an *existing* module's new work is exercised. When a
     /// capability lands, extending that function is still a judgement call.
@@ -224,21 +225,29 @@ final class ZeroNetworkTests: XCTestCase {
     /// The set of modules the probe must drive.
     ///
     /// Built to **fail closed**: it is the union of every directory under `Sources/` and every
-    /// non-test target the manifest declares, minus only the exclusions that survive
-    /// ``justifiedExclusions(manifest:)``. Taking the union of both sources means neither a
-    /// module that exists on disk without a manifest entry, nor one declared with a custom
-    /// `path:`, can slip past — and nothing keys on what the module happens to be *named*.
+    /// drivable target the manifest declares, minus the target kinds no Swift code can import and
+    /// minus only those exclusions that survive ``justifiedExclusions(manifest:)``. Taking the
+    /// union of both sources means neither a module that exists on disk without a manifest entry,
+    /// nor one declared with a custom `path:`, can slip past — and nothing keys on what the
+    /// module happens to be *named*.
     ///
     /// That last point is the fix for a real miss: an earlier version filtered on a `Vocca`
     /// prefix, so adding `Sources/KokoroTTS/` — a plausible module, given Kokoro is the locked
     /// TTS choice — left the suite green.
     private func modulesRequiringCoverage(manifest: PackageManifest) throws -> Set<String> {
-        let candidates = try sourceDirectories().union(manifest.nonTestTargetNames)
+        let candidates = try sourceDirectories().union(manifest.drivableTargetNames)
         guard !candidates.isEmpty else {
             throw ZeroNetworkTestError.noModulesDiscovered(
                 sourcesRoot: try packageRoot().appendingPathComponent("Sources").path)
         }
-        return candidates.subtracting(justifiedExclusions(manifest: manifest))
+        // Subtracted before exclusions are consulted, so a plugin or binary target neither has to
+        // be driven (impossible) nor has to be excluded (which the shipping guard would rightly
+        // refuse). Applied to the directory-derived half too, since a plugin target has a
+        // `Sources/` directory like any other.
+        return
+            candidates
+            .subtracting(manifest.nonDrivableTargetNames)
+            .subtracting(justifiedExclusions(manifest: manifest))
     }
 
     /// Filters ``candidateExclusions`` down to the ones the manifest actually justifies, and
