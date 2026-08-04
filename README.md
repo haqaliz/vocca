@@ -8,9 +8,11 @@ Your audio never has to leave your Mac.
 
 ---
 
-> ### ⚠️ Status: planning
+> ### ⚠️ Status: early — the skeleton exists, the product does not
 >
-> **Nothing is built yet.** This repository currently contains the plan: the vision, the phased roadmap, the capability backlog, the architecture, and the product spec. Implementation starts at **C1** (audio capture + global hotkey).
+> **There is nothing to dictate with yet.** What exists is the project skeleton for **C1** (audio capture + global hotkey): a nine-module Swift 6 package (every module a placeholder), an `App/` target that builds a signed, unsandboxed, hardened-runtime `Vocca.app`, signing and notarization scripts, and a three-job CI matrix that enforces the invariants — zero strict-concurrency warnings, zero network calls in the default configuration, module boundaries, licence headers, and the shipped bundle's entitlements.
+>
+> No audio is captured, no hotkey is registered, nothing is transcribed and nothing is injected. The plan — vision, phased roadmap, capability backlog, architecture, product spec — is all still here and still governs.
 >
 > If you're here from a link expecting a download — there isn't one yet. Star the repo if you want to know when there is.
 
@@ -91,6 +93,27 @@ xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \
 (git-ignored, host-local). Without it, `Config/Signing.xcconfig` falls back to `-` — a fresh clone
 with no identity still builds, just back to the ad-hoc, re-grant-every-time behavior.
 
+**To reset the dev identity**, delete the keychain the script owns and rerun it:
+
+```sh
+security delete-keychain ~/Library/Keychains/vocca-dev.keychain-db
+rm -f ~/Library/Application\ Support/Vocca/dev-keychain.pass
+./Scripts/dev-identity.sh
+```
+
+That is also what to do if `dev-identity.sh` refuses to run because a certificate is present but
+not trusted — the state an earlier run leaves behind if it failed or was interrupted partway. It
+deliberately will not create a second certificate with the same name on top of the first: `codesign`
+would then be choosing between two leaf certificates, and which leaf signs the app is exactly what
+macOS keys your Microphone and Accessibility grants on.
+
+`Scripts/sign.sh` defaults to the **Debug** bundle. It reads `VoccaBuildConfiguration` out of the
+bundle and signs the two configurations differently — Debug additionally gets
+`com.apple.security.get-task-allow`, without which no debugger can attach; Release gets
+`App/Vocca.entitlements` and nothing else. For a release build, pass the path:
+`./Scripts/sign.sh .build/xcode-release/Build/Products/Release/Vocca.app`. The full release order is
+in [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md).
+
 This identity is self-signed and proves nothing to anyone but this Mac. **Notarization
 (`Scripts/notarize.sh`) is unproven** — there is no Apple Developer ID or `notarytool` credential
 configured yet, so the script has never run end to end. It detects that and exits 0 with an
@@ -135,9 +158,9 @@ manual steps required before a release. **A green badge here is a narrower claim
 
 ## Contributing
 
-Not yet — there's no code to contribute to. Once C1 lands, the seams in [`ARCHITECTURE.md`](docs/technical/ARCHITECTURE.md) are the extension points, and "add your own ASR engine" is an explicitly supported path.
+Early. What exists is the skeleton described at the top of this file — a package, an app bundle, signing scripts and CI — not a working product, so there is not yet much to build *on*. Once C1 lands, the seams in [`ARCHITECTURE.md`](docs/technical/ARCHITECTURE.md) are the extension points, and "add your own ASR engine" is an explicitly supported path.
 
-Issues and discussion about the plan itself are welcome now.
+If you do open a PR now, the bar it has to clear is CI: `swift test` (with the test-count floor in `Scripts/test-with-floor.sh`) and both bundle contracts, green. Issues and discussion about the plan itself are welcome too.
 
 ## License
 

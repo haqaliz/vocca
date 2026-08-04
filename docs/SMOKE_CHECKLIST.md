@@ -93,13 +93,38 @@ failed step.
 
 1. `./Scripts/dev-identity.sh` if this machine has no stable identity yet, then build Release:
    `xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release -derivedDataPath .build/xcode-release build`
-2. Confirm the signature is what you expect:
+
+   If `dev-identity.sh` refuses because the keychain is in a partial state (a certificate imported
+   by an earlier run that failed or was interrupted before it was trusted), reset it rather than
+   rerunning — a second certificate with the same name makes which one signs the app, and therefore
+   whether TCC grants survive, a coin flip:
+   `security delete-keychain ~/Library/Keychains/vocca-dev.keychain-db && rm -f ~/Library/Application\ Support/Vocca/dev-keychain.pass`
+
+2. Sign it — **with the Release path spelled out**:
+   `./Scripts/sign.sh .build/xcode-release/Build/Products/Release/Vocca.app`
+
+   `Scripts/sign.sh` defaults to the *Debug* bundle, because that is the daily dev loop. A bare
+   `./Scripts/sign.sh` here signs Debug and leaves the Release bundle carrying whatever `xcodebuild`
+   gave it, which is not what step 3 then inspects and not what `Scripts/notarize.sh` submits.
+
+   The script reads `VoccaBuildConfiguration` out of the bundle and signs Debug and Release
+   differently: Debug gets `com.apple.security.get-task-allow` added so a debugger can still
+   attach, Release gets `App/Vocca.entitlements` exactly. It reads the entitlements back out of the
+   finished signature and fails if either rule was not met, so a silent mismatch here is a failed
+   command rather than a surprise at notarization.
+
+3. Confirm the signature is what you expect:
    `codesign -d --verbose=2 .build/xcode-release/Build/Products/Release/Vocca.app`
-   — `runtime` must be in the flags.
-3. Confirm the entitlements are exactly one:
+   — `runtime` must be inside the parentheses on the `flags=` line (`flags=0x10000(runtime)`), not
+   merely somewhere in the output. The output begins with the path you passed, so "the word
+   `runtime` appears" is not the same claim.
+
+4. Confirm the entitlements are exactly one:
    `codesign -d --entitlements :- --xml .build/xcode-release/Build/Products/Release/Vocca.app`
-   — `com.apple.security.device.audio-input` and nothing else. CI asserts this too; confirm it by
-   eye anyway on the artefact you are actually shipping, because CI tested a bundle it built itself.
+   — `com.apple.security.device.audio-input` and nothing else; in particular **no**
+   `com.apple.security.get-task-allow`, which Release must not carry. CI asserts this too; confirm
+   it by eye anyway on the artefact you are actually shipping, because CI tested a bundle it built
+   itself.
 
 ### Permissions, on a machine that has never run Vocca
 
@@ -107,35 +132,45 @@ This is the step most likely to be skipped and most likely to be broken, because
 once per machine without resetting state. Use a fresh user account or
 `tccutil reset Microphone dev.vocca.Vocca` and `tccutil reset Accessibility dev.vocca.Vocca`.
 
-4. Launch the app. Confirm **no Dock icon and no menu bar** appear (`LSUIElement`).
-5. Trigger capture. Confirm the **microphone prompt appears**, and that its text is the
+5. Launch the app. Confirm **no Dock icon and no menu bar** appear (`LSUIElement`).
+6. Trigger capture. Confirm the **microphone prompt appears**, and that its text is the
    `NSMicrophoneUsageDescription` string, not a generic one.
-6. Grant it. Confirm audio actually arrives — that dictation produces text, not silence.
-7. Deny it on a second fresh account. Confirm Vocca says something useful rather than appearing to
+7. Grant it. Confirm audio actually arrives — that dictation produces text, not silence.
+8. Deny it on a second fresh account. Confirm Vocca says something useful rather than appearing to
    work and producing nothing.
-8. Confirm the Accessibility prompt appears when the global hotkey is first registered, and that
+9. Confirm the Accessibility prompt appears when the global hotkey is first registered, and that
    after granting, the hotkey fires from **another app's** front window — not just when Vocca is
    frontmost.
-9. Quit, rebuild, relaunch. Confirm the grants **survived** — this is what catches an identity
+10. Quit, rebuild, relaunch. Confirm the grants **survived** — this is what catches an identity
    regression, and it is invisible to every other check in this repository.
 
 ### Behaviour in the real world
 
-10. Hotkey capture works while a full-screen app is frontmost.
-11. Injection lands correctly in at least: a native Cocoa field (Notes), a browser field (Safari and
+11. Hotkey capture works while a full-screen app is frontmost.
+12. Injection lands correctly in at least: a native Cocoa field (Notes), a browser field (Safari and
     Chrome), and an Electron app (VS Code or Slack). These fail differently and one working says
     little about the others.
-12. The widget never takes focus: the app you were typing in stays frontmost throughout a capture.
-13. Under Activity Monitor, confirm no network activity during a normal dictation cycle. CI asserts
+13. The widget never takes focus: the app you were typing in stays frontmost throughout a capture.
+14. Under Activity Monitor, confirm no network activity during a normal dictation cycle. CI asserts
     the invariant against the composition root; this confirms it for the shipping app, which
     contains one file (`App/VoccaApp.swift`) the probe cannot reach.
 
 ### If notarizing
 
-14. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
+15. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
     first real release must treat notarization as unproven and budget time for it, including for
     the possibility that a rejected entitlement or a missing hardened-runtime flag only shows up
     there.
+
+16. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
+    steps 1–4 built, signed and inspected. That is only true if step 2 was run with the Release path
+    given explicitly; a bare `./Scripts/sign.sh` signs Debug and this step then submits an
+    unmodified Release build.
+
+    If it reports *"the notary service is unreachable"*, that is a network failure and **not** a
+    missing credential — do not run `store-credentials` again on the strength of it. The two are
+    reported differently on purpose: the older version of the script probed credentials with a
+    network call and told an offline machine with perfectly good credentials that it had none.
 
 ---
 

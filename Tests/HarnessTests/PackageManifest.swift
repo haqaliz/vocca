@@ -87,18 +87,27 @@ struct PackageManifest {
     /// Target kinds the probe has no way to drive, and which therefore must be neither required
     /// nor able to consume a coverage exclusion.
     ///
-    /// The distinction is "can Swift code `import` this and call into it", not "is this
-    /// important". A command plugin, a prebuilt `.xcframework`, a C system-library shim and a
-    /// macro implementation are all reachable from a shipping product, so the exclusion guard
-    /// correctly refuses to exclude them — but none can be `import`ed and exercised from the probe
-    /// either. Without this carve-out the guard becomes *unsatisfiable* for such a target:
-    /// impossible to satisfy, impossible to exclude, and the cheapest way out for whoever hits it
-    /// is to weaken the check. That is not hypothetical — `whisper.cpp` ships as an xcframework
-    /// and is two capabilities away.
+    /// The distinction is "does this target contain code of *ours* that the probe can execute",
+    /// not "is this importable" and not "is this important". Importability is the wrong test and
+    /// saying it was importability made this list look wrong: a `system` target is perfectly
+    /// importable — that is its entire purpose, it vends a module map over a library that is
+    /// already on the machine — and it is on this list anyway. It belongs here because the module
+    /// it vends is *not part of this package*. There is no Vocca source file in it, so there is
+    /// nothing in it for the default-configuration path to run through and nothing the probe
+    /// could drive even with a perfect `import`.
     ///
-    /// These kinds are not a hole in the invariant: a binary or plugin target contains no Swift
-    /// module for the default-configuration path to run through. Code that *uses* one lives in a
-    /// regular target, which is still required.
+    /// The same reasoning covers the rest, by a different route: a `binary` target is a prebuilt
+    /// `.xcframework` whose sources are not here, a `plugin` runs at build time in a separate
+    /// process rather than inside the app, and a `macro` implementation runs inside the compiler.
+    /// All four are reachable from a shipping product, so the exclusion guard correctly refuses to
+    /// let them be excluded — but none can be exercised by the probe. Without this carve-out the
+    /// guard becomes *unsatisfiable* for such a target: impossible to satisfy, impossible to
+    /// exclude, and the cheapest way out for whoever hits it is to weaken the check. That is not
+    /// hypothetical — `whisper.cpp` ships as an xcframework and is two capabilities away.
+    ///
+    /// These kinds are not a hole in the invariant. Code that *uses* one — the Swift wrapper
+    /// around the xcframework, the module that imports the system library — lives in a regular
+    /// target, and that target is still required to be driven.
     static let nonDrivableTargetTypes: Set<String> = ["binary", "plugin", "macro", "system"]
 
     /// Every target that could hold Swift code the probe can drive: not a test, and not one of the

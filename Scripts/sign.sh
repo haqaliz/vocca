@@ -21,6 +21,15 @@
 #   Defaults to .build/xcode/Build/Products/Debug/Vocca.app, matching the xcodebuild invocation
 #   documented in Tests/HarnessTests/BundleConfigurationTests.swift.
 #
+#   The default is the *Debug* bundle because that is the daily dev loop. A release build lives
+#   somewhere else and must be named explicitly — Scripts/notarize.sh defaults to the Release path
+#   and expects a bundle signed by this script, so the release flow is:
+#     xcodebuild ... -configuration Release -derivedDataPath .build/xcode-release build
+#     Scripts/sign.sh .build/xcode-release/Build/Products/Release/Vocca.app
+#     Scripts/notarize.sh
+#   Running a bare `Scripts/sign.sh` before `Scripts/notarize.sh` signs the Debug bundle and
+#   notarizes an unrelated Release one. See docs/SMOKE_CHECKLIST.md, which spells the order out.
+#
 # The identity is overridable:
 #   VOCCA_DEV_IDENTITY_NAME="Developer ID Application: ..." Scripts/sign.sh path/to/Vocca.app
 
@@ -57,11 +66,77 @@ first, or set VOCCA_DEV_IDENTITY_NAME to an identity that does exist."
 # passed again explicitly for this one.
 APP_ENTITLEMENTS="$REPO_ROOT/App/Vocca.entitlements"
 
+# But App/Vocca.entitlements is not the whole entitlement set of a *Debug* bundle, and re-signing
+# with it alone is a silent regression.
+#
+# Xcode injects com.apple.security.get-task-allow into Debug builds (CODE_SIGN_INJECT_BASE_
+# ENTITLEMENTS, which the project turns off for Release only). It is what lets a debugger attach.
+# Re-signing a Debug bundle against the checked-in file drops it, `codesign` succeeds, the app
+# still launches — and then LLDB and Xcode's own debugger attach with a permission error that says
+# nothing about signing. Measured before this fix: xcodebuild left the bundle with
+# {audio-input, get-task-allow}; a bare `Scripts/sign.sh` — the exact flow the README documents —
+# left it with {audio-input}.
+#
+# The suite did not catch it and structurally cannot: BuildConfiguration.permittedInjectedEntitle-
+# ments *permits* get-task-allow on Debug, it does not require it. Requiring it there would be
+# wrong too, since a Debug bundle signed by a flow that never injected it is not broken, just not
+# debuggable.
+#
+# So the configuration is read from the bundle itself — the same VoccaBuildConfiguration marker the
+# suite trusts, written by the build system during Process Info.plist — and a Debug bundle is
+# signed against a temporary copy of the entitlements with get-task-allow added.
+DEBUG_ONLY_INJECTED_ENTITLEMENT="com.apple.security.get-task-allow"
+
+bundle_build_configuration() {
+    local plist="$BUNDLE_PATH/Contents/Info.plist"
+    [ -f "$plist" ] || fail "No Contents/Info.plist inside $BUNDLE_PATH — that is not an app bundle this script built."
+
+    local value
+    value="$(plutil -extract VoccaBuildConfiguration raw -o - "$plist" 2>/dev/null)" \
+        || fail "$plist has no VoccaBuildConfiguration key, so which configuration built this \
+bundle cannot be determined — and the Debug and Release entitlement sets differ. Rebuild from this \
+checkout (App/Info.plist declares the key) rather than signing a bundle of unknown provenance."
+
+    case "$value" in
+        Debug | Release) printf '%s' "$value" ;;
+        *'$('*)
+            fail "VoccaBuildConfiguration in $plist is still the unexpanded literal '$value', so \
+Xcode did not substitute it. Signing would have to guess the entitlement set; it will not."
+            ;;
+        *)
+            fail "VoccaBuildConfiguration in $plist is '$value', which has no entitlement policy \
+here (known: Debug, Release). A third configuration must state its policy in this script and in \
+Tests/HarnessTests/BundleConfigurationTests.swift before a bundle built from it can be signed."
+            ;;
+    esac
+}
+
+BUILD_CONFIGURATION="$(bundle_build_configuration)"
+
+# Set to a temp file for Debug; cleaned up on every exit path including `fail`.
+EFFECTIVE_ENTITLEMENTS="$APP_ENTITLEMENTS"
+TEMP_ENTITLEMENTS=""
+trap '[ -n "$TEMP_ENTITLEMENTS" ] && rm -f "$TEMP_ENTITLEMENTS"' EXIT
+
+if [ "$BUILD_CONFIGURATION" = "Debug" ]; then
+    TEMP_ENTITLEMENTS="$(mktemp -t vocca-debug-entitlements.XXXXXX)"
+    cp "$APP_ENTITLEMENTS" "$TEMP_ENTITLEMENTS"
+    # PlistBuddy, not `plutil -insert`: plutil treats `.` in a key path as a nesting separator, and
+    # every entitlement name is dotted. PlistBuddy separates path components with `:`, so a dotted
+    # key is addressed literally.
+    /usr/libexec/PlistBuddy -c "Add :$DEBUG_ONLY_INJECTED_ENTITLEMENT bool true" "$TEMP_ENTITLEMENTS" >/dev/null \
+        || fail "Could not add $DEBUG_ONLY_INJECTED_ENTITLEMENT to the temporary Debug entitlements."
+    EFFECTIVE_ENTITLEMENTS="$TEMP_ENTITLEMENTS"
+    log "Debug bundle: signing with App/Vocca.entitlements + $DEBUG_ONLY_INJECTED_ENTITLEMENT (so a debugger can still attach)."
+else
+    log "Release bundle: signing with App/Vocca.entitlements exactly — $DEBUG_ONLY_INJECTED_ENTITLEMENT is deliberately absent."
+fi
+
 sign_one() {
     local target="$1"
     local entitlements_args=()
     if [ "$target" = "$BUNDLE_PATH" ]; then
-        entitlements_args=(--entitlements "$APP_ENTITLEMENTS")
+        entitlements_args=(--entitlements "$EFFECTIVE_ENTITLEMENTS")
     fi
     local stderr_file
     stderr_file="$(mktemp)"
@@ -104,5 +179,34 @@ sign_one "$BUNDLE_PATH"
 log "Verifying $BUNDLE_PATH"
 codesign --verify --strict --verbose=2 "$BUNDLE_PATH"
 
+# Read the entitlements back out of the signature rather than trusting that codesign applied what
+# it was handed. This is the same principle as testBuiltBundleIsSignedWithTheHardenedRuntime:
+# passing a flag and the flag taking effect are two different claims, and the whole reason this
+# script needed fixing is that the second one failed silently.
+embedded_entitlements="$(codesign -d --entitlements :- --xml "$BUNDLE_PATH" 2>/dev/null || true)"
+
+if [ "$BUILD_CONFIGURATION" = "Debug" ]; then
+    case "$embedded_entitlements" in
+        *"$DEBUG_ONLY_INJECTED_ENTITLEMENT"*) ;;
+        *)
+            fail "This is a Debug bundle but the signature it now carries has no \
+$DEBUG_ONLY_INJECTED_ENTITLEMENT, so no debugger will be able to attach to it. The signature was \
+applied; the entitlement was not. Embedded entitlements:
+$embedded_entitlements"
+            ;;
+    esac
+else
+    case "$embedded_entitlements" in
+        *"$DEBUG_ONLY_INJECTED_ENTITLEMENT"*)
+            fail "This is a Release bundle and its signature carries \
+$DEBUG_ONLY_INJECTED_ENTITLEMENT, which lets any same-user process read this process's memory — \
+live audio and transcripts — and which notarization rejects outright. Embedded entitlements:
+$embedded_entitlements"
+            ;;
+    esac
+fi
+
 log "Signed and verified: $BUNDLE_PATH"
 codesign -dv "$BUNDLE_PATH" 2>&1 | sed 's/^/  /'
+log "Embedded entitlements:"
+printf '%s\n' "$embedded_entitlements" | sed 's/^/  /'

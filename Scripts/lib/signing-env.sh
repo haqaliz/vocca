@@ -24,6 +24,31 @@
 VOCCA_DEV_KEYCHAIN_NAME="vocca-dev.keychain-db"
 VOCCA_DEV_KEYCHAIN_PATH="$HOME/Library/Keychains/$VOCCA_DEV_KEYCHAIN_NAME"
 
+# PASSWORDS ON THE COMMAND LINE — acceptable here, and why
+#
+# `security unlock-keychain -p`, `security create-keychain -p`, `security import -P` and
+# `security set-key-partition-list -k` all take the secret as an argv element, which is readable
+# via `ps` by any process running as the same user for as long as the call lasts. That is a real
+# exposure and it is stated here rather than left to be rediscovered.
+#
+# It is accepted because there is no alternative that closes it and no attacker it would stop:
+#
+#   - No stdin form exists for the two calls that matter. `security import` without `-P` obtains
+#     the passphrase "via GUI" (its own man page), not from stdin, which is unusable from a script;
+#     `set-key-partition-list` has no form other than `-k password`. Moving only `unlock-keychain`
+#     to a prompt would leave the same keychain password on argv a few lines later, so it would buy
+#     the appearance of a fix and nothing else.
+#   - The bound: this protects a *self-signed, local-only, disposable* code-signing identity that
+#     proves nothing to anyone but this Mac. It signs nothing anyone else trusts and can be
+#     recreated in seconds by deleting the keychain and rerunning Scripts/dev-identity.sh.
+#   - The threat model it is inside: an attacker who can run `ps` as this user can already read
+#     $VOCCA_DEV_KEYCHAIN_PASSWORD_FILE below — a 0600 file owned by this user — without racing
+#     anything. argv is the weaker of two paths to the same secret, not a new one.
+#
+# What would change this judgement: this file being reused for a real Developer ID identity, whose
+# private key is not disposable and whose compromise is not local. Do not extend these scripts to
+# manage one without moving the secrets off argv first.
+#
 # Where the keychain's own (script-generated) unlock password is stashed, so future runs — and
 # `sign.sh` on a later day, after the keychain has auto-relocked — can unlock it without a prompt.
 # Deliberately outside the repository: this is host-local dev state, not project state, and it

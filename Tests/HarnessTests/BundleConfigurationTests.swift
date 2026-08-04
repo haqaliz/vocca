@@ -1242,9 +1242,27 @@ final class BuiltBundleTests: XCTestCase {
     ///
     /// The last is corroboration only and is applied in one direction: the marker is authoritative,
     /// the path may only contradict it. A path component that is not exactly a known configuration
-    /// name says nothing and is ignored, so an app copied elsewhere still classifies — while
-    /// `…/Products/Release/Vocca.app` claiming to be Debug, which is what a tampered or
-    /// hand-assembled bundle looks like, cannot.
+    /// name says nothing and is ignored, so an app copied elsewhere still classifies.
+    ///
+    /// ## What this does not defend against
+    ///
+    /// Stated precisely, because an earlier version of this comment claimed a tampered bundle
+    /// "cannot" be misclassified, and it can. The corroborator only fires when the enclosing
+    /// directory is *exactly* `Debug` or `Release`; copy a Release bundle to `…/out/Vocca.app`, or
+    /// to `…/Release-fixed/`, and edit `Contents/Info.plist` to say `Debug`, and it classifies as
+    /// Debug and is then permitted `get-task-allow`. Nothing here re-derives the configuration from
+    /// the binary, and `BuiltBundleTests` deliberately compares the built plist against `App/`
+    /// while excluding this key (the source holds the unexpanded `$(…)` reference, so it cannot be
+    /// compared literally) — so an edited marker is not caught by the staleness check either.
+    ///
+    /// The bound this actually provides: a bundle produced by *this* build system reports the
+    /// configuration *the build system itself* wrote, and cannot be relabelled by moving it or by a
+    /// build setting. That is the real failure mode — a Release job silently measuring a Debug
+    /// build — and it is closed. Defeating it takes a deliberate edit of a file inside a signed
+    /// bundle, which breaks the signature that `testBuiltBundleIsSignedWithTheHardenedRuntime` and
+    /// `codesign --verify` in `Scripts/sign.sh` both look at. This suite tests build outputs, not
+    /// adversarially supplied ones; an attacker who can rewrite the bundle under test has already
+    /// won more than this check.
     private func buildConfiguration(of bundle: URL) throws -> BundleTestSupport.BuildConfiguration {
         let plist = try BundleTestSupport.readPropertyList(
             at: bundle.appendingPathComponent("Contents/Info.plist"))
@@ -1304,17 +1322,55 @@ final class BuiltBundleTests: XCTestCase {
     /// That override is why this assertion reads the signature rather than the build setting: a
     /// project-setting check would have gone green over a bundle with no hardened runtime at all,
     /// and every entitlement assertion above describes behaviour *under* hardened runtime.
+    ///
+    /// ## Why a regex and not two `contains` calls
+    ///
+    /// The first version of this asserted `report.contains("flags=") && report.contains("runtime")`
+    /// over `codesign`'s whole report — which begins `Executable=<the path this test was handed>`.
+    /// Measured: a bundle copied to `…/scratchpad/runtime/Vocca.app` and re-signed `--sign -`
+    /// reports `flags=0x2(adhoc)`, has no hardened runtime whatsoever, and passes, because the word
+    /// "runtime" is in its *path*. `VOCCA_APP_BUNDLE` is caller-supplied, so the input that decides
+    /// the verdict is partly under the control of whoever runs the test.
+    ///
+    /// The flags line is therefore matched as a unit: `flags=0x…(` followed by a flag list that
+    /// contains `runtime` before the closing paren. `0x10002(adhoc,runtime)` matches — an ad-hoc
+    /// build with the runtime really enabled is what CI produces and is legitimate here.
+    /// `0x2(adhoc)` does not, wherever the file happens to live.
     func testBuiltBundleIsSignedWithTheHardenedRuntime() throws {
         let bundle = try locateBundle()
         let output = try run("/usr/bin/codesign", ["-d", "--verbose=2", bundle.path])
         // codesign prints its report on stderr.
         let report = output.standardError + output.standardOutput
+
+        let flagsPattern = try NSRegularExpression(pattern: #"flags=0x[0-9a-fA-F]+\([^)]*runtime"#)
+        let hardened =
+            flagsPattern.firstMatch(
+                in: report, range: NSRange(report.startIndex..., in: report)) != nil
+
+        // Reported separately, because "no flags line at all" and "a flags line without runtime"
+        // are different failures: the first means codesign's output format changed underneath this
+        // test and the assertion has stopped measuring anything, which is the worse of the two.
+        let flagsLine = report.split(separator: "\n").first { $0.contains("flags=") }
+        XCTAssertNotNil(
+            flagsLine,
+            """
+            codesign's report for \(bundle.path) contains no 'flags=' line at all, so this test \
+            cannot tell whether the hardened runtime is enabled. Its output format has changed; \
+            fix the parser rather than the assertion.
+            codesign said:
+            \(report)
+            """)
+
         XCTAssertTrue(
-            report.contains("flags=") && report.contains("runtime"),
+            hardened,
             """
             The built bundle is not signed with the hardened runtime. The entitlement assertions \
             above are about behaviour under hardened runtime, and TCC treats a non-hardened build \
             as a different, less trusted identity.
+            Looked for 'runtime' inside the flag list of the signature's flags= line, which is \
+            \(flagsLine.map(String.init) ?? "<no flags= line>"). Matching 'runtime' anywhere in \
+            the report is not enough: codesign echoes the bundle path, so a bundle under a \
+            directory named 'runtime' passed that check while signed flags=0x2(adhoc).
             codesign said:
             \(report)
             """)
