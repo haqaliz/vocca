@@ -235,8 +235,11 @@ final class SessionVocabularyTests: XCTestCase {
         XCTAssertEqual(ModifierSet([]).rawValue, 0)
         XCTAssertFalse(hotkey.isEmpty)
 
-        // The superset test the start rule is written in: flags ⊇ configured modifiers, with
-        // extra modifiers tolerated (caps lock being on must not stop a hotkey working).
+        // `isSuperset(of:)` is what the *stop* rules are written in — "is the user still holding
+        // what they pressed?". Starting is equality on the bindable modifiers, so ⌥⇧Space is not
+        // ⌥Space; see `decide(_:state:config:)`, "Why starting is exact and stopping is not".
+        // Caps Lock is tolerated by neither predicate but by `ModifierSet.locking`, which is
+        // masked out before either comparison.
         XCTAssertTrue(ModifierSet([.option, .shift, .capsLock]).isSuperset(of: hotkey))
         XCTAssertFalse(ModifierSet([.option, .capsLock]).isSuperset(of: hotkey))
 

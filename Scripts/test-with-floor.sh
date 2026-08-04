@@ -47,7 +47,13 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 76 by task 3's first review round, which added one: a multi-modifier chord must be matched as a
+# 77 by task 3's second review round, which added one: the dictate and converse bindings of
+# PRODUCT_SPEC.md:127 must not match each other's press. Starting a session now requires an *exact*
+# match on the bindable modifiers (locks masked), because superset semantics let one press match two
+# configured bindings — and the direction that matters types speech meant for the agent into the
+# focused field.
+#
+# It was 76 after the first review round, which added one: a multi-modifier chord must be matched as a
 # whole and not in part. Every other test configured a hotkey with one modifier or none, and for
 # those a chord predicate meaning *intersects* is indistinguishable from one meaning *contains all*
 # — the suite was green at 75/75 with that defect in place.
@@ -63,7 +69,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=76
+MINIMUM_EXECUTED_TESTS=77
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

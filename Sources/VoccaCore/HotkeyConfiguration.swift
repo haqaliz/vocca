@@ -45,11 +45,18 @@ public struct HotkeyConfiguration: Sendable, Hashable {
     /// not comparable across layouts, and nothing here tries.
     public let keyCode: UInt16
 
-    /// The modifiers that must be held. Tested with `⊇`, never `==`: caps lock being on, or a
-    /// finger still resting on Shift, must not stop the hotkey working.
+    /// The modifiers that must be held.
     ///
-    /// May be empty — a bare F13 is a legitimate binding. Every modifier rule is then vacuously
-    /// satisfied, which is correct: there is no modifier to release.
+    /// Compared two different ways, because starting and stopping ask different questions — see
+    /// ``decide(_:state:config:)``, "Why starting is exact and stopping is not". Starting requires
+    /// **equality**, so `⌥⇧Space` is not `⌥Space` and two bindings cannot both match one press.
+    /// Stopping requires only **containment**, so reaching for Shift mid-sentence does not end a
+    /// session. ``ModifierSet/locking`` is masked out of both sides first, which is what keeps a
+    /// hotkey working while Caps Lock happens to be on.
+    ///
+    /// May be empty — a bare F13 is a legitimate binding. The stop rules are then vacuously
+    /// satisfied, which is correct: there is no modifier to release. Starting still requires
+    /// equality, so a bare binding is *not* triggered by the same key with a modifier held.
     public let modifiers: ModifierSet
 
     public let activation: Activation

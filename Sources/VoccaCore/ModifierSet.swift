@@ -45,4 +45,21 @@ public struct ModifierSet: OptionSet, Sendable, Hashable {
     /// Included because macOS reports it in the same flag word, and a hotkey must keep working
     /// while it happens to be on — not because anyone should bind to it.
     public static let capsLock = ModifierSet(rawValue: 1 << 5)
+
+    /// Modifiers that are **not part of a binding** and are masked out before any hotkey
+    /// comparison, on both sides.
+    ///
+    /// Caps Lock alone, and the reason is the one already given above: it is a *lock*, not a key
+    /// someone holds down to mean something. A user with Caps Lock on must still be able to press
+    /// their hotkey, and nobody binds to it, so it can be neither required nor disqualifying.
+    ///
+    /// Masked from the *configuration* as well as from the event. A configuration naming Caps Lock
+    /// is then simply ignored rather than becoming a hotkey that only works with Caps Lock on —
+    /// which is the failure a one-sided mask would produce.
+    ///
+    /// Everything else is bindable and is compared exactly. `function` is deliberately **not** here:
+    /// `fn` is a key a user holds, and ``ModifierSet/function`` documents it as a usable hotkey
+    /// modifier on Apple keyboards. Treating it as a lock would silently make `fn`-prefixed bindings
+    /// interchangeable with their unprefixed forms.
+    public static let locking: ModifierSet = [.capsLock]
 }

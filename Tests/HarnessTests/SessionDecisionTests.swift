@@ -46,6 +46,17 @@ private let bareKey = HotkeyConfiguration(keyCode: 105, modifiers: [], activatio
 private let twoModifier = HotkeyConfiguration(
     keyCode: space, modifiers: [.control, .option], activation: .holdToTalk)
 
+/// `PRODUCT_SPEC.md:127`'s converse-mode hotkey, alongside `chord` — which is its dictate hotkey.
+///
+/// The two exist together in the suite because they are the collision that made exact matching
+/// necessary: under superset semantics an event carrying `[.option, .shift]` matches **both**, and
+/// the direction that matters is the one the spec names as the failure to prevent — a converse
+/// press matching the dictate binding types speech meant for the agent into the focused field.
+/// It is also the only fixture that binds Shift, which is what makes the Shift branch of the
+/// independent chord derivation reachable at all.
+private let converse = HotkeyConfiguration(
+    keyCode: space, modifiers: [.option, .shift], activation: .holdToTalk)
+
 private func event(
     _ kind: RawKeyEvent.Kind, _ keyCode: UInt16, _ modifiers: ModifierSet,
     autorepeat: Bool = false, at milliseconds: Int = 0
@@ -271,15 +282,98 @@ final class SessionDecisionTests: XCTestCase {
             "The previous session is still handing off; .ending exists precisely to refuse this.")
     }
 
-    /// Extra modifiers are tolerated. Caps lock being on must not stop a hotkey working, and the
-    /// rule is `⊇`, not `==`, for exactly that reason.
-    func testStartToleratesModifiersBeyondTheConfiguredChord() {
+    /// Starting is an **exact** match on the bindable modifiers, with locks masked out.
+    ///
+    /// Both halves are load-bearing and they pull in opposite directions, which is why there is a
+    /// mask rather than a blanket `⊇` or a blanket `==`:
+    ///
+    /// - Caps Lock must not break a hotkey. It is a lock, not a key someone holds down to mean
+    ///   something, and `ModifierSet.locking` is the whole of that carve-out.
+    /// - Any *bindable* extra modifier makes it a different chord. Superset semantics do not merely
+    ///   tolerate an extra modifier, they **claim** it: with `⌥Space` bound, a user could not type
+    ///   `⌥⇧Space` at all, because Vocca started a session and swallowed the key.
+    func testStartRequiresTheExactChordWithOnlyLocksMaskedOut() {
         XCTAssertEqual(
-            decide(event(.keyDown, space, [.option, .capsLock]), state: .idle, config: chord), start)
+            decide(event(.keyDown, space, [.option]), state: .idle, config: chord), start,
+            "The baseline, so the negatives below mean something.")
+
+        // A lock is masked, on both sides of the comparison.
+        XCTAssertEqual(
+            decide(event(.keyDown, space, [.option, .capsLock]), state: .idle, config: chord), start,
+            "Caps Lock being on must not stop a hotkey working.")
+        XCTAssertEqual(
+            decide(
+                event(.keyDown, space, [.option]), state: .idle,
+                config: HotkeyConfiguration(
+                    keyCode: space, modifiers: [.option, .capsLock], activation: .holdToTalk)),
+            start,
+            "A configuration naming a lock must be masked too, or it only works with Caps Lock on.")
+
+        // Every bindable extra modifier makes it a different chord.
+        for extra: ModifierSet in [.shift, .command, .control, .function] {
+            XCTAssertEqual(
+                decide(
+                    event(.keyDown, space, ModifierSet([.option]).union(extra)), state: .idle,
+                    config: chord), ignorePassing,
+                "Option plus modifier \(extra.rawValue) started a session bound to Option alone.")
+        }
         XCTAssertEqual(
             decide(
                 event(.keyDown, space, [.option, .shift, .command, .capsLock, .function, .control]),
-                state: .idle, config: chord), start)
+                state: .idle, config: chord), ignorePassing)
+    }
+
+    /// The two bindings `PRODUCT_SPEC.md:127` names must not match each other's press — in either
+    /// direction, and with Caps Lock on or off.
+    ///
+    /// This is the collision exact matching exists to close. `⌥Space` is dictate and `⌥⇧Space` is
+    /// converse, and under `⊇` an event carrying `[.option, .shift]` matched **both**. The dangerous
+    /// direction is converse→dictate: that document states the failure as "saying something to
+    /// Vocca that lands in a Slack message to your boss", and a converse press matching the dictate
+    /// binding is precisely it. It also says "No implicit mode switching, ever" — and a superset
+    /// match between two bindings is an implicit mode decision, made by whichever is consulted
+    /// first.
+    func testTheDictateAndConverseBindingsDoNotMatchEachOthersPress() {
+        // Each binding starts on its own chord, or nothing below means anything.
+        XCTAssertEqual(
+            decide(event(.keyDown, space, [.option]), state: .idle, config: chord), start)
+        XCTAssertEqual(
+            decide(event(.keyDown, space, [.option, .shift]), state: .idle, config: converse), start)
+
+        // The dangerous direction: a converse press must not start dictation.
+        XCTAssertEqual(
+            decide(event(.keyDown, space, [.option, .shift]), state: .idle, config: chord),
+            ignorePassing,
+            """
+            The converse chord started the dictate binding. Under this, speech meant for the agent \
+            is transcribed and typed into whatever the user had focused.
+            """)
+        // ...and the reverse, which is only a hotkey that does not work.
+        XCTAssertEqual(
+            decide(event(.keyDown, space, [.option]), state: .idle, config: converse),
+            ignorePassing, "The dictate chord started the converse binding.")
+
+        // Caps Lock changes neither answer.
+        XCTAssertEqual(
+            decide(
+                event(.keyDown, space, [.option, .shift, .capsLock]), state: .idle, config: chord),
+            ignorePassing)
+        XCTAssertEqual(
+            decide(
+                event(.keyDown, space, [.option, .shift, .capsLock]), state: .idle,
+                config: converse), start)
+
+        // Stopping stays containment, so a session already under way is not ended by the user
+        // reaching for another modifier — including one that would form the *other* binding.
+        // Equality here would cut a sentence short and file it under `.modifierReleased`, which
+        // would also be a lie: nothing was released.
+        XCTAssertEqual(
+            decide(event(.flagsChanged, 0, [.option, .shift]), state: .recording, config: chord),
+            ignorePassing,
+            "Pressing Shift during dictation must not end it; a mode cannot switch mid-session.")
+        XCTAssertEqual(
+            decide(event(.keyUp, space, [.option, .shift]), state: .recording, config: chord),
+            stop(.keyUp, .swallow), "...and the session still ends on its own key-up.")
     }
 
     /// A chord is matched **as a whole**, not in part — on both the start and the stop side.
@@ -298,15 +392,19 @@ final class SessionDecisionTests: XCTestCase {
             decide(event(.keyDown, space, [.control, .option]), state: .idle, config: twoModifier),
             start, "The exact configured chord must start a session.")
 
-        // Start: a superset. An extra modifier resting on the keyboard must not block the hotkey.
+        // Start: a lock is masked out, so it is still the exact chord.
         XCTAssertEqual(
             decide(
                 event(.keyDown, space, [.control, .option, .capsLock]), state: .idle,
                 config: twoModifier), start)
+        // ...but a bindable extra makes it a different chord. This expectation is the inverse of
+        // what it was before review round 2: under `⊇` this started a session, which meant a user
+        // bound to ⌃⌥Space could not type ⌃⌥⇧⌘Space at all, and — the reason it changed — two
+        // configured bindings could match one press.
         XCTAssertEqual(
             decide(
                 event(.keyDown, space, [.control, .option, .shift, .command]), state: .idle,
-                config: twoModifier), start)
+                config: twoModifier), ignorePassing)
 
         // No start: any strict subset. Both halves, because a predicate that is wrong in one
         // direction is usually wrong in only one.
@@ -892,24 +990,45 @@ final class SessionDecisionTests: XCTestCase {
     func testTheWholeInputSpaceMatchesTheTruthTable() {
         let inputSpace = Self.wholeInputSpace()
         XCTAssertEqual(
-            inputSpace.count, 4 * 2 * 7 * 2 * 3 * 3,
+            inputSpace.count, 4 * 3 * 9 * 2 * 3 * 4,
             "The enumeration lost a dimension; it is no longer exhaustive over the inputs.")
 
         let table = Self.parsedTruthTable()
         XCTAssertEqual(
-            table.count, 96,
+            table.count, 144,
             """
-            The truth table is not 3 states × 4 kinds × 2 key matches × 2 chord states × 2 \
-            autorepeat values = 96 rows. A missing row is a cell with no expectation; a duplicate \
+            The truth table is not 3 states × 4 kinds × 2 key matches × 3 chord relations × 2 \
+            autorepeat values = 144 rows. A missing row is a cell with no expectation; a duplicate \
             is two expectations for one cell.
             """)
 
-        // The six modifiers the independent derivation below sweeps must be every modifier there
-        // is, or "every configured modifier is held" silently means "every modifier I remembered".
-        let sweep: [ModifierSet] = [.control, .option, .shift, .command, .function, .capsLock]
+        // Round 2 finding N1. These reduce the *same arrays the derivation uses* — the previous
+        // version reduced a duplicate literal declared here, so four of six modifiers could be
+        // deleted from the derivation with the suite green. Verified by the reviewer.
+        let swept = Self.bindableModifiers + Self.lockingModifiers
         XCTAssertEqual(
-            sweep.reduce(into: ModifierSet()) { $0.formUnion($1) }.rawValue, 0b11_1111,
-            "ModifierSet gained a modifier the chord derivation does not check.")
+            swept.reduce(into: ModifierSet()) { $0.formUnion($1) }.rawValue, 0b11_1111,
+            """
+            The chord derivation and the lock mask do not, between them, account for every \
+            modifier ModifierSet has. A modifier missing from both is one the derivation silently \
+            ignores, which makes the truth table agree with a rule that ignores it too.
+            """)
+        XCTAssertEqual(
+            swept.count, 6, "A modifier is listed as both bindable and locking, or listed twice.")
+
+        // Round 2 finding N2: the arity assertion above pins the *count* of configurations, not
+        // their shape. Swapping `twoModifier` for a third single-modifier config kept it green and
+        // restored the original coverage hole exactly.
+        XCTAssertTrue(
+            Self.configurations.contains { $0.modifiers.rawValue.nonzeroBitCount >= 2 },
+            """
+            No configuration in the space binds two modifiers, so a chord predicate meaning \
+            *intersects* is indistinguishable from one meaning *contains all* — which is the hole \
+            that survived 75/75 in review round 1.
+            """)
+        XCTAssertTrue(
+            Self.configurations.contains { $0.modifiers.contains(.shift) },
+            "No configuration binds Shift, so the derivation's Shift branch is never exercised.")
 
         var exercised: Set<Cell> = []
         var starts = 0
@@ -922,7 +1041,7 @@ final class SessionDecisionTests: XCTestCase {
             let cell = Cell(
                 state: testCase.state, kind: event.kind,
                 keyMatches: event.keyCode == config.keyCode,
-                chordHeld: Self.everyConfiguredModifierIsHeld(event: event, config: config),
+                chord: Self.chordRelation(event: event, config: config),
                 isAutorepeat: event.isAutorepeat)
             exercised.insert(cell)
 
@@ -948,9 +1067,9 @@ final class SessionDecisionTests: XCTestCase {
         // Both directions. A table row no cell reaches is an expectation nobody has seen hold, and
         // a cell with no row would have failed above — together they make "exhaustive" mean it.
         XCTAssertEqual(
-            exercised.count, 96,
+            exercised.count, 144,
             """
-            The input space reaches only \(exercised.count) of the 96 descriptor cells, so the \
+            The input space reaches only \(exercised.count) of the 144 descriptor cells, so the \
             table's other rows assert nothing. Missing: \
             \(Set(table.keys).subtracting(exercised).map(String.init(describing:)).sorted())
             """)
@@ -970,9 +1089,10 @@ final class SessionDecisionTests: XCTestCase {
             let matchesKey = event.keyCode == testCase.config.keyCode
             // The independent derivation, not the implementation's set operation — otherwise a
             // chord predicate meaning *intersects* would classify the cells the same wrong way it
-            // decides them, and this test would agree with the defect.
-            let carriesChord = Self.everyConfiguredModifierIsHeld(
-                event: event, config: testCase.config)
+            // decides them, and this test would agree with the defect. `.extra` counts as held:
+            // stopping asks containment, so a surplus modifier releases nothing.
+            let carriesChord =
+                Self.chordRelation(event: event, config: testCase.config) != .broken
 
             let trigger: String?
             switch event.kind {
@@ -1009,12 +1129,27 @@ final class SessionDecisionTests: XCTestCase {
         let state: SessionState
         let kind: RawKeyEvent.Kind
         let keyMatches: Bool
-        let chordHeld: Bool
+        let chord: ChordRelation
         let isAutorepeat: Bool
 
         var description: String {
-            "\(state)/\(kind)/key=\(keyMatches)/chord=\(chordHeld)/repeat=\(isAutorepeat)"
+            "\(state)/\(kind)/key=\(keyMatches)/chord=\(chord)/repeat=\(isAutorepeat)"
         }
+    }
+
+    /// How an event's modifiers stand to the configured chord — the three relations the rules can
+    /// tell apart, now that starting and stopping ask different questions.
+    ///
+    /// A single `chordHeld` boolean was enough while both used containment. It is not any more:
+    /// `extra` starts nothing but stops nothing either, and collapsing it into `exact` or `broken`
+    /// would make the table unable to express the very distinction review round 2 introduced.
+    private enum ChordRelation: Hashable, CaseIterable {
+        /// Exactly the configured bindable modifiers. The only relation that starts a session.
+        case exact
+        /// Every configured modifier, plus at least one more. Does not start; does not stop.
+        case extra
+        /// At least one configured modifier is missing. Stop rules (b) and (c).
+        case broken
     }
 
     /// **Does the event carry every configured modifier?** — derived from the meaning of the rule,
@@ -1026,16 +1161,33 @@ final class SessionDecisionTests: XCTestCase {
     /// present in this event's own flags?" is the same question posed independently, and it
     /// separates `⊇` from `==` and from *intersects* — which a suite configured with 0 or 1
     /// modifiers cannot do at all.
-    private static func everyConfiguredModifierIsHeld(
+    private static func chordRelation(
         event: RawKeyEvent, config: HotkeyConfiguration
-    ) -> Bool {
-        let everyModifier: [ModifierSet] = [
-            .control, .option, .shift, .command, .function, .capsLock,
-        ]
-        return everyModifier.allSatisfy { modifier in
-            !config.modifiers.contains(modifier) || event.modifiers.contains(modifier)
+    ) -> ChordRelation {
+        // Locks are not part of any binding, so they are simply not swept — which is the
+        // independent statement of the mask, rather than a call to `subtracting(.locking)`.
+        let missing = bindableModifiers.contains { modifier in
+            config.modifiers.contains(modifier) && !event.modifiers.contains(modifier)
         }
+        if missing { return .broken }
+        let surplus = bindableModifiers.contains { modifier in
+            !config.modifiers.contains(modifier) && event.modifiers.contains(modifier)
+        }
+        return surplus ? .extra : .exact
     }
+
+    /// The modifiers a user can bind, one entry per bit — **the list the derivation above actually
+    /// uses**, and therefore the list the completeness guard must check.
+    ///
+    /// Round 2 finding N1: the guard used to reduce a *duplicate* literal declared next to the
+    /// assertion, so four of the six modifiers could vanish from the derivation with the suite
+    /// green. Verified by the reviewer. One list, referenced twice, is the whole fix.
+    static let bindableModifiers: [ModifierSet] = [
+        .control, .option, .shift, .command, .function,
+    ]
+
+    /// The complement: masked out of every hotkey comparison. See `ModifierSet.locking`.
+    static let lockingModifiers: [ModifierSet] = [.capsLock]
 
     /// The complete policy, as a table rather than as code.
     ///
@@ -1057,103 +1209,151 @@ final class SessionDecisionTests: XCTestCase {
     ///   focused app an unpaired key-down. A stateless function cannot do better, and Phase 4 of
     ///   the plan owns the fix. Pinned here so it changes on purpose.
     private static let truthTable = """
-        # state      kind          key  chord  rep  action                  propagation
-        idle         keyDown       yes  yes    no   start                   swallow
-        idle         keyDown       yes  yes    yes  ignore                  passThrough
-        idle         keyDown       yes  no     no   ignore                  passThrough
-        idle         keyDown       yes  no     yes  ignore                  passThrough
-        idle         keyDown       no   yes    no   ignore                  passThrough
-        idle         keyDown       no   yes    yes  ignore                  passThrough
-        idle         keyDown       no   no     no   ignore                  passThrough
-        idle         keyDown       no   no     yes  ignore                  passThrough
-        idle         keyUp         yes  yes    no   ignore                  passThrough
-        idle         keyUp         yes  yes    yes  ignore                  passThrough
-        idle         keyUp         yes  no     no   ignore                  passThrough
-        idle         keyUp         yes  no     yes  ignore                  passThrough
-        idle         keyUp         no   yes    no   ignore                  passThrough
-        idle         keyUp         no   yes    yes  ignore                  passThrough
-        idle         keyUp         no   no     no   ignore                  passThrough
-        idle         keyUp         no   no     yes  ignore                  passThrough
-        idle         flagsChanged  yes  yes    no   ignore                  passThrough
-        idle         flagsChanged  yes  yes    yes  ignore                  passThrough
-        idle         flagsChanged  yes  no     no   ignore                  passThrough
-        idle         flagsChanged  yes  no     yes  ignore                  passThrough
-        idle         flagsChanged  no   yes    no   ignore                  passThrough
-        idle         flagsChanged  no   yes    yes  ignore                  passThrough
-        idle         flagsChanged  no   no     no   ignore                  passThrough
-        idle         flagsChanged  no   no     yes  ignore                  passThrough
-        idle         tapDisabled   yes  yes    no   ignore                  passThrough
-        idle         tapDisabled   yes  yes    yes  ignore                  passThrough
-        idle         tapDisabled   yes  no     no   ignore                  passThrough
-        idle         tapDisabled   yes  no     yes  ignore                  passThrough
-        idle         tapDisabled   no   yes    no   ignore                  passThrough
-        idle         tapDisabled   no   yes    yes  ignore                  passThrough
-        idle         tapDisabled   no   no     no   ignore                  passThrough
-        idle         tapDisabled   no   no     yes  ignore                  passThrough
-        recording    keyDown       yes  yes    no   ignore                  swallow
-        recording    keyDown       yes  yes    yes  ignore                  swallow
-        recording    keyDown       yes  no     no   stop:modifierReleased   passThrough
-        recording    keyDown       yes  no     yes  stop:modifierReleased   passThrough
-        recording    keyDown       no   yes    no   ignore                  passThrough
-        recording    keyDown       no   yes    yes  ignore                  passThrough
-        recording    keyDown       no   no     no   stop:modifierReleased   passThrough
-        recording    keyDown       no   no     yes  stop:modifierReleased   passThrough
-        recording    keyUp         yes  yes    no   stop:keyUp              swallow
-        recording    keyUp         yes  yes    yes  stop:keyUp              swallow
-        recording    keyUp         yes  no     no   stop:keyUp              swallow
-        recording    keyUp         yes  no     yes  stop:keyUp              swallow
-        recording    keyUp         no   yes    no   ignore                  passThrough
-        recording    keyUp         no   yes    yes  ignore                  passThrough
-        recording    keyUp         no   no     no   stop:modifierReleased   passThrough
-        recording    keyUp         no   no     yes  stop:modifierReleased   passThrough
-        recording    flagsChanged  yes  yes    no   ignore                  passThrough
-        recording    flagsChanged  yes  yes    yes  ignore                  passThrough
-        recording    flagsChanged  yes  no     no   stop:modifierReleased   passThrough
-        recording    flagsChanged  yes  no     yes  stop:modifierReleased   passThrough
-        recording    flagsChanged  no   yes    no   ignore                  passThrough
-        recording    flagsChanged  no   yes    yes  ignore                  passThrough
-        recording    flagsChanged  no   no     no   stop:modifierReleased   passThrough
-        recording    flagsChanged  no   no     yes  stop:modifierReleased   passThrough
-        recording    tapDisabled   yes  yes    no   stop:tapDisabled        passThrough
-        recording    tapDisabled   yes  yes    yes  stop:tapDisabled        passThrough
-        recording    tapDisabled   yes  no     no   stop:tapDisabled        passThrough
-        recording    tapDisabled   yes  no     yes  stop:tapDisabled        passThrough
-        recording    tapDisabled   no   yes    no   stop:tapDisabled        passThrough
-        recording    tapDisabled   no   yes    yes  stop:tapDisabled        passThrough
-        recording    tapDisabled   no   no     no   stop:tapDisabled        passThrough
-        recording    tapDisabled   no   no     yes  stop:tapDisabled        passThrough
-        ending       keyDown       yes  yes    no   ignore                  swallow
-        ending       keyDown       yes  yes    yes  ignore                  swallow
-        ending       keyDown       yes  no     no   ignore                  passThrough
-        ending       keyDown       yes  no     yes  ignore                  passThrough
-        ending       keyDown       no   yes    no   ignore                  passThrough
-        ending       keyDown       no   yes    yes  ignore                  passThrough
-        ending       keyDown       no   no     no   ignore                  passThrough
-        ending       keyDown       no   no     yes  ignore                  passThrough
-        ending       keyUp         yes  yes    no   ignore                  swallow
-        ending       keyUp         yes  yes    yes  ignore                  swallow
-        ending       keyUp         yes  no     no   ignore                  swallow
-        ending       keyUp         yes  no     yes  ignore                  swallow
-        ending       keyUp         no   yes    no   ignore                  passThrough
-        ending       keyUp         no   yes    yes  ignore                  passThrough
-        ending       keyUp         no   no     no   ignore                  passThrough
-        ending       keyUp         no   no     yes  ignore                  passThrough
-        ending       flagsChanged  yes  yes    no   ignore                  passThrough
-        ending       flagsChanged  yes  yes    yes  ignore                  passThrough
-        ending       flagsChanged  yes  no     no   ignore                  passThrough
-        ending       flagsChanged  yes  no     yes  ignore                  passThrough
-        ending       flagsChanged  no   yes    no   ignore                  passThrough
-        ending       flagsChanged  no   yes    yes  ignore                  passThrough
-        ending       flagsChanged  no   no     no   ignore                  passThrough
-        ending       flagsChanged  no   no     yes  ignore                  passThrough
-        ending       tapDisabled   yes  yes    no   ignore                  passThrough
-        ending       tapDisabled   yes  yes    yes  ignore                  passThrough
-        ending       tapDisabled   yes  no     no   ignore                  passThrough
-        ending       tapDisabled   yes  no     yes  ignore                  passThrough
-        ending       tapDisabled   no   yes    no   ignore                  passThrough
-        ending       tapDisabled   no   yes    yes  ignore                  passThrough
-        ending       tapDisabled   no   no     no   ignore                  passThrough
-        ending       tapDisabled   no   no     yes  ignore                  passThrough
+        # state      kind          key  chord   rep  action                  propagation
+        idle         keyDown       yes  exact   no   start                   swallow
+        idle         keyDown       yes  exact   yes  ignore                  passThrough
+        idle         keyDown       yes  extra   no   ignore                  passThrough
+        idle         keyDown       yes  extra   yes  ignore                  passThrough
+        idle         keyDown       yes  broken  no   ignore                  passThrough
+        idle         keyDown       yes  broken  yes  ignore                  passThrough
+        idle         keyDown       no   exact   no   ignore                  passThrough
+        idle         keyDown       no   exact   yes  ignore                  passThrough
+        idle         keyDown       no   extra   no   ignore                  passThrough
+        idle         keyDown       no   extra   yes  ignore                  passThrough
+        idle         keyDown       no   broken  no   ignore                  passThrough
+        idle         keyDown       no   broken  yes  ignore                  passThrough
+        idle         keyUp         yes  exact   no   ignore                  passThrough
+        idle         keyUp         yes  exact   yes  ignore                  passThrough
+        idle         keyUp         yes  extra   no   ignore                  passThrough
+        idle         keyUp         yes  extra   yes  ignore                  passThrough
+        idle         keyUp         yes  broken  no   ignore                  passThrough
+        idle         keyUp         yes  broken  yes  ignore                  passThrough
+        idle         keyUp         no   exact   no   ignore                  passThrough
+        idle         keyUp         no   exact   yes  ignore                  passThrough
+        idle         keyUp         no   extra   no   ignore                  passThrough
+        idle         keyUp         no   extra   yes  ignore                  passThrough
+        idle         keyUp         no   broken  no   ignore                  passThrough
+        idle         keyUp         no   broken  yes  ignore                  passThrough
+        idle         flagsChanged  yes  exact   no   ignore                  passThrough
+        idle         flagsChanged  yes  exact   yes  ignore                  passThrough
+        idle         flagsChanged  yes  extra   no   ignore                  passThrough
+        idle         flagsChanged  yes  extra   yes  ignore                  passThrough
+        idle         flagsChanged  yes  broken  no   ignore                  passThrough
+        idle         flagsChanged  yes  broken  yes  ignore                  passThrough
+        idle         flagsChanged  no   exact   no   ignore                  passThrough
+        idle         flagsChanged  no   exact   yes  ignore                  passThrough
+        idle         flagsChanged  no   extra   no   ignore                  passThrough
+        idle         flagsChanged  no   extra   yes  ignore                  passThrough
+        idle         flagsChanged  no   broken  no   ignore                  passThrough
+        idle         flagsChanged  no   broken  yes  ignore                  passThrough
+        idle         tapDisabled   yes  exact   no   ignore                  passThrough
+        idle         tapDisabled   yes  exact   yes  ignore                  passThrough
+        idle         tapDisabled   yes  extra   no   ignore                  passThrough
+        idle         tapDisabled   yes  extra   yes  ignore                  passThrough
+        idle         tapDisabled   yes  broken  no   ignore                  passThrough
+        idle         tapDisabled   yes  broken  yes  ignore                  passThrough
+        idle         tapDisabled   no   exact   no   ignore                  passThrough
+        idle         tapDisabled   no   exact   yes  ignore                  passThrough
+        idle         tapDisabled   no   extra   no   ignore                  passThrough
+        idle         tapDisabled   no   extra   yes  ignore                  passThrough
+        idle         tapDisabled   no   broken  no   ignore                  passThrough
+        idle         tapDisabled   no   broken  yes  ignore                  passThrough
+        recording    keyDown       yes  exact   no   ignore                  swallow
+        recording    keyDown       yes  exact   yes  ignore                  swallow
+        recording    keyDown       yes  extra   no   ignore                  swallow
+        recording    keyDown       yes  extra   yes  ignore                  swallow
+        recording    keyDown       yes  broken  no   stop:modifierReleased   passThrough
+        recording    keyDown       yes  broken  yes  stop:modifierReleased   passThrough
+        recording    keyDown       no   exact   no   ignore                  passThrough
+        recording    keyDown       no   exact   yes  ignore                  passThrough
+        recording    keyDown       no   extra   no   ignore                  passThrough
+        recording    keyDown       no   extra   yes  ignore                  passThrough
+        recording    keyDown       no   broken  no   stop:modifierReleased   passThrough
+        recording    keyDown       no   broken  yes  stop:modifierReleased   passThrough
+        recording    keyUp         yes  exact   no   stop:keyUp              swallow
+        recording    keyUp         yes  exact   yes  stop:keyUp              swallow
+        recording    keyUp         yes  extra   no   stop:keyUp              swallow
+        recording    keyUp         yes  extra   yes  stop:keyUp              swallow
+        recording    keyUp         yes  broken  no   stop:keyUp              swallow
+        recording    keyUp         yes  broken  yes  stop:keyUp              swallow
+        recording    keyUp         no   exact   no   ignore                  passThrough
+        recording    keyUp         no   exact   yes  ignore                  passThrough
+        recording    keyUp         no   extra   no   ignore                  passThrough
+        recording    keyUp         no   extra   yes  ignore                  passThrough
+        recording    keyUp         no   broken  no   stop:modifierReleased   passThrough
+        recording    keyUp         no   broken  yes  stop:modifierReleased   passThrough
+        recording    flagsChanged  yes  exact   no   ignore                  passThrough
+        recording    flagsChanged  yes  exact   yes  ignore                  passThrough
+        recording    flagsChanged  yes  extra   no   ignore                  passThrough
+        recording    flagsChanged  yes  extra   yes  ignore                  passThrough
+        recording    flagsChanged  yes  broken  no   stop:modifierReleased   passThrough
+        recording    flagsChanged  yes  broken  yes  stop:modifierReleased   passThrough
+        recording    flagsChanged  no   exact   no   ignore                  passThrough
+        recording    flagsChanged  no   exact   yes  ignore                  passThrough
+        recording    flagsChanged  no   extra   no   ignore                  passThrough
+        recording    flagsChanged  no   extra   yes  ignore                  passThrough
+        recording    flagsChanged  no   broken  no   stop:modifierReleased   passThrough
+        recording    flagsChanged  no   broken  yes  stop:modifierReleased   passThrough
+        recording    tapDisabled   yes  exact   no   stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  exact   yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  extra   no   stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  extra   yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  broken  no   stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  broken  yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   no   exact   no   stop:tapDisabled        passThrough
+        recording    tapDisabled   no   exact   yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   no   extra   no   stop:tapDisabled        passThrough
+        recording    tapDisabled   no   extra   yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   no   broken  no   stop:tapDisabled        passThrough
+        recording    tapDisabled   no   broken  yes  stop:tapDisabled        passThrough
+        ending       keyDown       yes  exact   no   ignore                  swallow
+        ending       keyDown       yes  exact   yes  ignore                  swallow
+        ending       keyDown       yes  extra   no   ignore                  swallow
+        ending       keyDown       yes  extra   yes  ignore                  swallow
+        ending       keyDown       yes  broken  no   ignore                  passThrough
+        ending       keyDown       yes  broken  yes  ignore                  passThrough
+        ending       keyDown       no   exact   no   ignore                  passThrough
+        ending       keyDown       no   exact   yes  ignore                  passThrough
+        ending       keyDown       no   extra   no   ignore                  passThrough
+        ending       keyDown       no   extra   yes  ignore                  passThrough
+        ending       keyDown       no   broken  no   ignore                  passThrough
+        ending       keyDown       no   broken  yes  ignore                  passThrough
+        ending       keyUp         yes  exact   no   ignore                  swallow
+        ending       keyUp         yes  exact   yes  ignore                  swallow
+        ending       keyUp         yes  extra   no   ignore                  swallow
+        ending       keyUp         yes  extra   yes  ignore                  swallow
+        ending       keyUp         yes  broken  no   ignore                  swallow
+        ending       keyUp         yes  broken  yes  ignore                  swallow
+        ending       keyUp         no   exact   no   ignore                  passThrough
+        ending       keyUp         no   exact   yes  ignore                  passThrough
+        ending       keyUp         no   extra   no   ignore                  passThrough
+        ending       keyUp         no   extra   yes  ignore                  passThrough
+        ending       keyUp         no   broken  no   ignore                  passThrough
+        ending       keyUp         no   broken  yes  ignore                  passThrough
+        ending       flagsChanged  yes  exact   no   ignore                  passThrough
+        ending       flagsChanged  yes  exact   yes  ignore                  passThrough
+        ending       flagsChanged  yes  extra   no   ignore                  passThrough
+        ending       flagsChanged  yes  extra   yes  ignore                  passThrough
+        ending       flagsChanged  yes  broken  no   ignore                  passThrough
+        ending       flagsChanged  yes  broken  yes  ignore                  passThrough
+        ending       flagsChanged  no   exact   no   ignore                  passThrough
+        ending       flagsChanged  no   exact   yes  ignore                  passThrough
+        ending       flagsChanged  no   extra   no   ignore                  passThrough
+        ending       flagsChanged  no   extra   yes  ignore                  passThrough
+        ending       flagsChanged  no   broken  no   ignore                  passThrough
+        ending       flagsChanged  no   broken  yes  ignore                  passThrough
+        ending       tapDisabled   yes  exact   no   ignore                  passThrough
+        ending       tapDisabled   yes  exact   yes  ignore                  passThrough
+        ending       tapDisabled   yes  extra   no   ignore                  passThrough
+        ending       tapDisabled   yes  extra   yes  ignore                  passThrough
+        ending       tapDisabled   yes  broken  no   ignore                  passThrough
+        ending       tapDisabled   yes  broken  yes  ignore                  passThrough
+        ending       tapDisabled   no   exact   no   ignore                  passThrough
+        ending       tapDisabled   no   exact   yes  ignore                  passThrough
+        ending       tapDisabled   no   extra   no   ignore                  passThrough
+        ending       tapDisabled   no   extra   yes  ignore                  passThrough
+        ending       tapDisabled   no   broken  no   ignore                  passThrough
+        ending       tapDisabled   no   broken  yes  ignore                  passThrough
         """
 
     /// Parses ``truthTable``, failing loudly on anything it does not recognise.
@@ -1192,6 +1392,14 @@ final class SessionDecisionTests: XCTestCase {
                 }
             }
 
+            let chord: ChordRelation
+            switch fields[3] {
+            case "exact": chord = .exact
+            case "extra": chord = .extra
+            case "broken": chord = .broken
+            default: preconditionFailure("Unknown chord relation in truth table: \(fields[3])")
+            }
+
             let action: Decision.Action
             switch fields[5] {
             case "start": action = .start
@@ -1210,7 +1418,7 @@ final class SessionDecisionTests: XCTestCase {
             }
 
             let cell = Cell(
-                state: state, kind: kind, keyMatches: flag(fields[2]), chordHeld: flag(fields[3]),
+                state: state, kind: kind, keyMatches: flag(fields[2]), chord: chord,
                 isAutorepeat: flag(fields[4]))
             precondition(table[cell] == nil, "Duplicate truth-table row for \(cell)")
             table[cell] = Decision(action: action, eventPropagation: propagation)
@@ -1228,14 +1436,16 @@ final class SessionDecisionTests: XCTestCase {
 
     /// The modifier states the space is swept over.
     ///
-    /// Chosen so that **every configuration below sees all four relationships** to its own chord:
-    /// exact, strict superset, partial, and disjoint. The last two entries are what make the
-    /// two-modifier configuration meaningful — `[.control]` and `[.option]` are each *half* of
-    /// `twoModifier`'s chord, which is the only shape that distinguishes "contains all of" from
-    /// "intersects".
+    /// Chosen so that **every configuration below reaches every chord relation it can**: `exact`,
+    /// `extra` and `broken` for the three that bind modifiers, and `exact`/`extra` for the bare key,
+    /// which cannot be `broken` because it requires nothing.
+    ///
+    /// `[.control]` and `[.option]` are each *half* of `twoModifier`'s chord — the shape that
+    /// distinguishes "contains all of" from "intersects". `[.option, .shift]` is `converse`'s exact
+    /// chord and simultaneously `chord`'s `extra`, which is the collision itself, in the space.
     private static let modifierValues: [ModifierSet] = [
         [], [.option], [.option, .capsLock], [.shift], [.control], [.control, .option],
-        [.control, .option, .capsLock],
+        [.control, .option, .capsLock], [.control, .option, .shift], [.option, .shift],
     ]
 
     /// Every configuration the space is swept over: no modifiers, one, and two.
@@ -1243,15 +1453,21 @@ final class SessionDecisionTests: XCTestCase {
     /// The arity matters, not the identity. With 0 or 1 configured modifiers, a chord predicate
     /// meaning *intersects* behaves identically to one meaning *contains all*, so a space swept
     /// over only those two hides the difference — measured, at 75/75 green.
-    private static let configurations: [HotkeyConfiguration] = [chord, bareKey, twoModifier]
+    private static let configurations: [HotkeyConfiguration] = [
+        chord, bareKey, twoModifier, converse,
+    ]
 
-    /// Every combination the rules can see: 4 kinds × 2 key codes × 7 modifier sets × 2 autorepeat
-    /// values × 3 states × 3 configurations = 1,008 cells.
+    /// Every combination the rules can see: 4 kinds × 3 key codes × 9 modifier sets × 2 autorepeat
+    /// values × 3 states × 4 configurations = 2,592 cells.
+    ///
+    /// The third key code is round 2 finding N3: the space swept only `[config.keyCode, letterA]`,
+    /// so a "this stray key code is also the hotkey" mutation was killed by exactly one assertion
+    /// in one unrelated test that happened to use `letterB`. The descriptor cells stay at 144.
     private static func wholeInputSpace() -> [InputCase] {
         var cases: [InputCase] = []
         for config in configurations {
             for kind in RawKeyEvent.Kind.allCases {
-                for keyCode in [config.keyCode, letterA] {
+                for keyCode in [config.keyCode, letterA, letterB] {
                     for modifiers in modifierValues {
                         for autorepeat in [false, true] {
                             cases.append(

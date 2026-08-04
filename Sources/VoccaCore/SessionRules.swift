@@ -33,7 +33,7 @@
 ///
 /// **Modifier state is derived from `event.modifiers`, every time. It is never accumulated.**
 ///
-/// One line below does it — `event.modifiers.isSuperset(of: config.modifiers)` — and there is
+/// Two lines below do it — `heldChord` is read straight off the event in hand, and there is
 /// deliberately nowhere else it could come from. This is not a style preference:
 /// [Handy #840](https://github.com/cjpais/Handy/issues/840) is this defect shipping in a comparable
 /// tool. v0.1.4 derived modifier state from each event's flags and worked; v0.2.0 kept a running
@@ -47,8 +47,36 @@
 ///
 /// ## The rules
 ///
-/// **Start** — `.keyDown` on the configured key, carrying at least the configured modifiers, not an
-/// autorepeat, in `.idle`. All five, and each one is load-bearing.
+/// **Start** — `.keyDown` on the configured key, carrying **exactly** the configured modifiers, not
+/// an autorepeat, in `.idle`. All five, and each one is load-bearing.
+///
+/// ### Why starting is exact and stopping is not
+///
+/// `⊇` on both sides is the obvious shape and it is wrong, in a way that is already user-visible
+/// and becomes a correctness problem at P3.
+///
+/// Superset does not merely *tolerate* an extra modifier, it **claims** it. With `⌥Space` bound, a
+/// user cannot type `⌥⇧Space` at all: Vocca starts a session and swallows the key. And
+/// `PRODUCT_SPEC.md:127` makes `⌥⇧Space` the converse-mode hotkey while `⌥Space` is dictate, so
+/// under `⊇` an event carrying `[.option, .shift]` matches **both bindings**. The dangerous
+/// direction is the one that document names as the failure to prevent — a converse press matching
+/// the dictate binding means speech meant for the agent is typed into the focused field — and
+/// "No implicit mode switching, ever" is exactly what a superset match between two bindings is.
+///
+/// So the two questions are asked differently, because they *are* different:
+///
+/// | | Question | Comparison |
+/// |---|---|---|
+/// | Start | Which binding did the user just press? | **equality** — it must be unambiguous |
+/// | Stop | Is the user still holding what they pressed? | **containment** — anything missing is a release |
+///
+/// Equality on the stop side would end a session because the user reached for Shift mid-sentence,
+/// and would report `.modifierReleased` for a modifier that was *added*. Containment on the start
+/// side is the collision above. Neither predicate does the other's job.
+///
+/// Locks are masked from both sides before either comparison, so `⌥Space` still works with Caps
+/// Lock on — the one extra-modifier case with a real justification, and the one
+/// ``ModifierSet/locking`` exists to provide. It argues that for Caps Lock and for nothing else.
 ///
 /// **Stop**, in the order they are applied. The order is a decision, not an accident: when two fire
 /// on the same event the reported reason is the one that best describes what happened, and log
@@ -58,7 +86,7 @@
 /// |---|---|---|
 /// | d | `.tapDisabled` | `.tapDisabled` — checked first, because such an event's modifier flags mean nothing, and testing them earlier would end the session for the right cause under the wrong name |
 /// | a | `.keyUp` on the configured key | `.keyUp` — the user's own gesture, and the more specific fact when the key-up also happens to report no modifiers |
-/// | b/c | any event no longer carrying the configured modifiers | `.modifierReleased` |
+/// | b/c | any event no longer carrying **all** the configured modifiers | `.modifierReleased` |
 ///
 /// Rules (e) ceiling and (f) poll are absent here on purpose. Neither has a `RawKeyEvent` to be
 /// decided from — one is a clock reading and the other a physical-key read, both of which live
@@ -87,7 +115,9 @@
 ///
 /// A `.keyDown` on the configured key whose chord is *gone* passes through, because without the
 /// chord it is not Vocca's hotkey — it is the user typing a space, and they should get one, along
-/// with the stop that a lost chord always means.
+/// with the stop that a lost chord always means. Note that "gone" here means containment, not
+/// equality: a session started with `⌥Space` keeps swallowing its own repeats when the user also
+/// presses Shift, because it is still that session's key.
 ///
 /// **That last rule is a known trade with two costs, and neither is fixable here.** Both begin the
 /// instant a rule-(b) stop fires while the key is still physically held:
@@ -136,7 +166,19 @@ private func holdToTalkDecision(
     let matchesKey = event.keyCode == config.keyCode
 
     // The prohibition, in one line. Read from the event in hand — never from anything remembered.
-    let carriesChord = event.modifiers.isSuperset(of: config.modifiers)
+    // Locks are masked from both sides first; see `ModifierSet.locking` for why.
+    let heldChord = event.modifiers.subtracting(.locking)
+    let requiredChord = config.modifiers.subtracting(.locking)
+
+    // Two different questions, and conflating them is a bug in either direction.
+    //
+    // STARTING asks *which binding did the user just press?* That must be unambiguous, so it is
+    // equality: ⌥⇧Space is not ⌥Space.
+    let chordIsExactlyTheBinding = heldChord == requiredChord
+    // STOPPING asks *is the user still holding what they pressed?* That is containment. Equality
+    // here would end a session because the user reached for Shift mid-sentence — and would report
+    // `.modifierReleased` for a modifier that was added, not released.
+    let chordIsStillHeld = heldChord.isSuperset(of: requiredChord)
 
     let action: Decision.Action
     switch state {
@@ -146,7 +188,7 @@ private func holdToTalkDecision(
         // (b), not a second stop.
         switch event.kind {
         case .keyDown:
-            action = matchesKey && carriesChord && !event.isAutorepeat ? .start : .ignore
+            action = matchesKey && chordIsExactlyTheBinding && !event.isAutorepeat ? .start : .ignore
         case .keyUp, .flagsChanged, .tapDisabled:
             action = .ignore
         }
@@ -159,7 +201,7 @@ private func holdToTalkDecision(
         case .keyUp:
             if matchesKey {
                 action = .stop(.retained(.keyUp))
-            } else if carriesChord {
+            } else if chordIsStillHeld {
                 action = .ignore
             } else {
                 action = .stop(.retained(.modifierReleased))
@@ -176,7 +218,7 @@ private func holdToTalkDecision(
             // key-up that went missing is what the ceiling and the poll exist for, and restarting
             // would be the double-start bug. Toggle mode is where this event becomes
             // `.toggledOff`.
-            action = carriesChord ? .ignore : .stop(.retained(.modifierReleased))
+            action = chordIsStillHeld ? .ignore : .stop(.retained(.modifierReleased))
         }
 
     case .ending:
@@ -198,7 +240,7 @@ private func holdToTalkDecision(
         // The release of a press Vocca swallowed, whatever modifiers survive to report it.
         claimsThisEvent = sessionInFlight && matchesKey
     case .keyDown:
-        claimsThisEvent = sessionInFlight && matchesKey && carriesChord
+        claimsThisEvent = sessionInFlight && matchesKey && chordIsStillHeld
     case .flagsChanged, .tapDisabled:
         claimsThisEvent = false
     }
