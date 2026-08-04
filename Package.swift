@@ -13,6 +13,10 @@ let package = Package(
         .library(name: "VoccaInject", targets: ["VoccaInject"]),
         .library(name: "VoccaSpeech", targets: ["VoccaSpeech"]),
         .library(name: "VoccaUI", targets: ["VoccaUI"]),
+        // The app's composition root. It is a package module rather than a file in the Xcode app
+        // target so that VoccaNetworkProbe can drive it: sources under App/ are outside the
+        // package and therefore outside the zero-network invariant.
+        .library(name: "VoccaBootstrap", targets: ["VoccaBootstrap"]),
         // Test fixture, not API. The underscore is the Swift convention for "no source
         // stability, do not depend on this"; it is the strongest signal available, because
         // SwiftPM has no notion of an internal product and every product is visible to
@@ -66,6 +70,11 @@ let package = Package(
             dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .target(
+            name: "VoccaBootstrap",
+            dependencies: [],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Test-only fixtures for the zero-network invariant. Neither is a package product:
         // they ship nothing, and are built only because HarnessTests depends on the probe and
         // the shim is a dynamic library product SwiftPM builds alongside the tests.
@@ -80,6 +89,7 @@ let package = Package(
             dependencies: [
                 "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR",
                 "VoccaText", "VoccaInject", "VoccaSpeech", "VoccaUI",
+                "VoccaBootstrap",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

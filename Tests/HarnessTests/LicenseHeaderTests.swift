@@ -19,6 +19,7 @@ import XCTest
 private enum LicenseHeaderTestError: Error, CustomStringConvertible {
     case packageRootNotFound(startingFrom: String)
     case noSourceFilesScanned(root: String)
+    case scannedDirectoryMissing(name: String, expectedAt: String)
 
     var description: String {
         switch self {
@@ -27,6 +28,15 @@ private enum LicenseHeaderTestError: Error, CustomStringConvertible {
         case .noSourceFilesScanned(let root):
             return
                 "No covered source files were found under \(root) — the license header rule was not evaluated against anything"
+        case .scannedDirectoryMissing(let name, let expectedAt):
+            return """
+                The scanned directory '\(name)' does not exist at \(expectedAt). Naming a \
+                directory in `scannedDirectories` is what puts it under the licence rule, and a \
+                name that resolves to nothing enforces nothing — the suite would stay green while \
+                that directory's files went unchecked, or while the directory was moved somewhere \
+                the rule does not reach. If it was deliberately removed, remove it from \
+                `scannedDirectories` in the same change so the decision is visible in review.
+                """
         }
     }
 }
@@ -95,11 +105,24 @@ final class LicenseHeaderTests: XCTestCase {
 
     /// Every covered source file under ``scannedDirectories``, excluding `Package.swift` (which is
     /// not under any of them, but is guarded against explicitly in case that changes).
+    ///
+    /// Each named directory must exist. `FileManager.enumerator` on a path that is not there
+    /// yields nothing rather than failing, so a missing directory contributes zero files and the
+    /// remaining ones keep the suite green — which is how listing `App` here could look like
+    /// enforcement while enforcing nothing. Verified: moving `App/` aside left this suite 2/2.
     private func filesRequiringHeader() throws -> [URL] {
         let packageRoot = try findPackageRoot(from: #filePath)
         var files: [URL] = []
         for subdirectory in Self.scannedDirectories {
             let dir = packageRoot.appendingPathComponent(subdirectory)
+            var isDirectory: ObjCBool = false
+            guard
+                FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDirectory),
+                isDirectory.boolValue
+            else {
+                throw LicenseHeaderTestError.scannedDirectoryMissing(
+                    name: subdirectory, expectedAt: dir.path)
+            }
             files.append(contentsOf: sourceFiles(under: dir))
         }
         files = files.filter { $0.lastPathComponent != "Package.swift" }

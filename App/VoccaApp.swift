@@ -12,38 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import AppKit
+import VoccaBootstrap
 
-/// The application entry point, and deliberately nothing more.
+/// The `@main` shim, and nothing else. Do not add code here.
 ///
-/// This target exists to produce a *bundle*: an identifier, an `Info.plist`, entitlements and a
-/// code signature, which is what macOS binds TCC permission grants to. An SPM `.executable`
-/// product cannot hold any of those, so hotkey registration, audio capture, transcription and the
-/// widget would all be denied at runtime without it.
+/// This file is the only source in the repository that lives outside the SwiftPM package, and that
+/// costs it every guarantee the package has: `ModuleBoundaryTests` does not see it, and
+/// `VoccaNetworkProbe` cannot drive it — so the zero-network invariant, a permanent release
+/// blocker, says nothing at all about whatever is written here. `App/` is also where an update
+/// checker, a crash reporter or a Sparkle integration lands by convention, which are exactly the
+/// things that invariant exists to catch.
 ///
-/// All real behaviour lives in the `Vocca*` modules of the SPM package, which this target links.
-/// Nothing is started here yet — the capabilities that would start it have not been built. Resist
-/// putting logic in this file when they are: an app target's sources are outside the package, so
-/// they are invisible to `ModuleBoundaryTests` and to the zero-network probe, and code that lives
-/// here is code those guarantees do not cover.
+/// So the file is kept to a single call and pinned:
+/// `BundleConfigurationTests.testAppTargetSourceIsOnlyAShimToTheBootstrapModule` compares its code
+/// against an exact expected form and fails on any addition. Comments are free to change; code is
+/// not.
+///
+/// **Everything that would go here goes in `AppBootstrap.configure(_:)` instead**, where the probe
+/// reaches it.
 @main
 enum VoccaApp {
-
-    /// `@MainActor` because every `NSApplication` member is main-actor isolated under Swift 6
-    /// strict concurrency. The `@main` entry point is invoked on the main thread, so this is an
-    /// accurate description of where the code runs rather than a way to quiet the compiler.
     @MainActor
     static func main() {
-        let application = NSApplication.shared
-
-        // `.accessory` alongside `LSUIElement` in Info.plist. Both are set on purpose: the plist
-        // key is what the Dock and Launch Services read before the process starts, and the
-        // activation policy is what `NSApplication` itself honours once it has. Setting only one
-        // leaves a window between launch and this line during which the app can take focus —
-        // which, for a tool whose whole job is typing into *another* app's text field, means
-        // typing into the wrong place.
-        application.setActivationPolicy(.accessory)
-
-        application.run()
+        AppBootstrap.main()
     }
 }

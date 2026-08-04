@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import AppKit
 import Darwin
 import Foundation
 import VoccaASR
 import VoccaAudio
+import VoccaBootstrap
 import VoccaCore
 import VoccaHotkey
 import VoccaInject
@@ -187,6 +189,22 @@ struct VoccaNetworkProbe {
     /// growing the body below as capabilities land is still a judgement call this test can
     /// prompt but cannot make.
     private static func exerciseDefaultConfiguration() -> [String] {
+        // The app's real start-up path, and the only module here that does anything yet rather
+        // than merely being loaded. It is called for that reason: `AppBootstrap.configure(_:)` is
+        // literally what runs when a user launches Vocca, so egress introduced there — an update
+        // check, a crash reporter, a telemetry ping — is caught by the invariant instead of
+        // shipping in the one file nothing was watching.
+        //
+        // `configure` and not `main`: `main` ends in `NSApplication.run()`, which never returns.
+        // The seam stops short of the run loop precisely so this call can exist.
+        //
+        // `assumeIsolated` rather than a hop: `main()` is the process entry point and so is
+        // already on the main thread, and a hop would return before the work ran, putting it
+        // outside the observation window.
+        MainActor.assumeIsolated {
+            AppBootstrap.configure(NSApplication.shared)
+        }
+
         let placeholders: [Any.Type] = [
             VoccaCorePlaceholder.self,
             VoccaAudioPlaceholder.self,
@@ -196,6 +214,7 @@ struct VoccaNetworkProbe {
             VoccaInjectPlaceholder.self,
             VoccaSpeechPlaceholder.self,
             VoccaUIPlaceholder.self,
+            AppBootstrap.self,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be

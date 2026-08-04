@@ -16,6 +16,7 @@
 		1A0000000000000000000035 /* VoccaInject in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000025 /* VoccaInject */; };
 		1A0000000000000000000036 /* VoccaSpeech in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000026 /* VoccaSpeech */; };
 		1A0000000000000000000037 /* VoccaUI in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000027 /* VoccaUI */; };
+		1A0000000000000000000038 /* VoccaBootstrap in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000028 /* VoccaBootstrap */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +39,7 @@
 				1A0000000000000000000035 /* VoccaInject in Frameworks */,
 				1A0000000000000000000036 /* VoccaSpeech in Frameworks */,
 				1A0000000000000000000037 /* VoccaUI in Frameworks */,
+				1A0000000000000000000038 /* VoccaBootstrap in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -95,6 +97,7 @@
 				1A0000000000000000000025 /* VoccaInject */,
 				1A0000000000000000000026 /* VoccaSpeech */,
 				1A0000000000000000000027 /* VoccaUI */,
+				1A0000000000000000000028 /* VoccaBootstrap */,
 			);
 			productName = Vocca;
 			productReference = 1A000000000000000000000F /* Vocca.app */;
@@ -214,6 +217,7 @@
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = YES;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_DEBUG_DYLIB = NO;
@@ -245,6 +249,7 @@
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = YES;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_DEBUG_DYLIB = NO;
@@ -328,6 +333,10 @@
 		1A0000000000000000000027 /* VoccaUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = VoccaUI;
+		};
+		1A0000000000000000000028 /* VoccaBootstrap */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = VoccaBootstrap;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

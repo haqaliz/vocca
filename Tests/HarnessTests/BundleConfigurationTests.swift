@@ -45,35 +45,52 @@ import XCTest
 /// The second suite is the end-to-end confirmation: it reads the processed plist Xcode actually
 /// emitted and the entitlements `codesign` actually embedded.
 ///
-/// ## How the built-bundle suite is meant to be run
+/// ## How the built-bundle suite is meant to be run — this is the CI contract
 ///
 /// ```sh
 /// xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \
 ///     -derivedDataPath .build/xcode build
-/// swift test --filter BuiltBundleTests
+/// VOCCA_APP_BUNDLE=.build/xcode/Build/Products/Debug/Vocca.app swift test
 /// ```
 ///
-/// The `-derivedDataPath` is what makes the bundle findable: the suite looks in
-/// `.build/xcode/Build/Products/*/Vocca.app` relative to the package root. `VOCCA_APP_BUNDLE=<path>`
-/// overrides that for a bundle built somewhere else.
+/// **Both lines, in that order, are what CI must run.** Ad-hoc signing needs no identity, no
+/// keychain and no secrets — this repository's app target builds and signs on a machine where
+/// `security find-identity -v -p codesigning` reports `0 valid identities found`, producing
+/// `flags=0x10002(adhoc,runtime)` every time. So there is no reason for CI to skip this suite, and
+/// with `VOCCA_APP_BUNDLE` set a missing bundle is a hard failure rather than a skip. That is the
+/// path that must stay green.
+///
+/// The `-derivedDataPath` is what makes the bundle findable without the variable: the suite also
+/// looks in `.build/xcode/Build/Products/*/Vocca.app` relative to the package root, which is what
+/// makes a plain local `swift test` pick up a bundle you already built.
 ///
 /// ## What happens when there is no bundle
 ///
-/// A plain `swift test` on a machine that never ran `xcodebuild` **skips** this suite, because CI
-/// deliberately does not build the Xcode project (that needs signing) and a hard failure would make
-/// the suite red for everyone.
+/// A plain `swift test` on a machine that never ran `xcodebuild` **skips** this suite. That path
+/// exists for local convenience only — so a quick `swift test` is not blocked on a bundle build.
+/// It is not the path that guards anything; the two-line contract above is.
 ///
 /// The skip is engineered not to be mistakable for a pass:
 ///
-/// 1. it prints a multi-line banner to stderr naming the assertions that were **not** evaluated,
+/// 1. it writes a multi-line banner naming the assertions that were **not** evaluated. The write
+///    goes to `FileHandle.standardError`; SwiftPM merges the test process's streams, so under
+///    `swift test` it surfaces on **stdout** (measured: `swift test >out 2>err` puts all eight
+///    banners in `out` and none in `err`; running the `.xctest` bundle directly puts them on
+///    stderr). Either way it is on screen and impossible to miss,
 /// 2. `XCTSkip` reports the tests as skipped, not passed, in the run summary,
-/// 3. setting `VOCCA_APP_BUNDLE` converts "no bundle" from a skip into a **failure**, so the
-///    documented command above can never go green without measuring a real bundle,
+/// 3. setting `VOCCA_APP_BUNDLE` converts "no bundle" from a skip into a **failure**, so the CI
+///    contract above can never go green without measuring a real bundle,
 /// 4. a bundle whose plist or entitlements disagree with the checked-in sources is a **failure**,
 ///    not a pass — a stale `.app` asserting yesterday's plist is the same vacuous green in slower
 ///    motion,
 /// 5. and the six properties are never left unmeasured regardless, because
 ///    ``BundleConfigurationTests`` asserts every one of them and cannot skip.
+///
+/// Point 5 is a floor, not a substitute, and the sandbox hole proved it: a project-level
+/// `ENABLE_APP_SANDBOX = YES` once left `BundleConfigurationTests` 11/11 green while the built
+/// bundle shipped `com.apple.security.app-sandbox`. `BuiltBundleTests` caught it and the source
+/// checks did not, because only one of the two reads what was actually signed. That is the case
+/// for running the CI contract rather than relying on the always-on suite.
 private enum BundleTestSupport {
 
     static let expectedBundleIdentifier = "dev.vocca.Vocca"
@@ -281,6 +298,70 @@ final class BundleConfigurationTests: XCTestCase {
             """)
     }
 
+    // MARK: The app target's source may not grow
+
+    /// The exact code `App/VoccaApp.swift` is allowed to contain: comments and blank lines
+    /// removed, every remaining line trimmed.
+    ///
+    /// Comments are excluded deliberately, and it makes the pin *stronger* rather than looser.
+    /// Pinning the raw text would mean every prose improvement is a test edit, and a test that
+    /// cries wolf on documentation changes gets updated reflexively — at which point it stops
+    /// guarding the thing it exists for. Stripping comments cannot hide code: a line of Swift that
+    /// does anything is not a comment.
+    private static let expectedAppTargetSource = """
+        import VoccaBootstrap
+        @main
+        enum VoccaApp {
+        @MainActor
+        static func main() {
+        AppBootstrap.main()
+        }
+        }
+        """
+
+    /// `App/VoccaApp.swift` must remain a shim that hands straight to ``AppBootstrap``.
+    ///
+    /// It is the only source in this repository outside the SwiftPM package, and that puts it
+    /// outside `ModuleBoundaryTests` and — the one that matters — outside `VoccaNetworkProbe`. The
+    /// zero-network invariant is a permanent release blocker and it says nothing about this file.
+    /// `App/` is also, by convention, exactly where an update checker, a crash reporter or a
+    /// Sparkle integration goes: the archetypal network callers, landing in the one place nothing
+    /// is watching.
+    ///
+    /// A file-count assertion was considered and rejected: it stops a second file appearing and
+    /// does nothing at all about two hundred lines going into the one file that is allowed to
+    /// exist. Pinning the content is what actually closes the gap — anything added here fails,
+    /// which sends the code to `AppBootstrap.configure(_:)` where the probe drives it.
+    func testAppTargetSourceIsOnlyAShimToTheBootstrapModule() throws {
+        let file = try BundleTestSupport.packageRoot()
+            .appendingPathComponent("App/VoccaApp.swift")
+        let text: String
+        do {
+            text = try String(contentsOf: file, encoding: .utf8)
+        } catch {
+            throw BundleTestError.fileMissing(path: file.path, underlying: "\(error)")
+        }
+
+        let code =
+            text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("//") }
+            .joined(separator: "\n")
+
+        XCTAssertEqual(
+            code, Self.expectedAppTargetSource,
+            """
+            App/VoccaApp.swift is no longer just the @main shim.
+            This file is outside the SwiftPM package, so nothing drives it: the zero-network probe \
+            cannot reach it and ModuleBoundaryTests cannot see it. Whatever was added here is \
+            code shipping with no automated guarantee behind it.
+            Move it to AppBootstrap.configure(_:) in Sources/VoccaBootstrap, which the probe calls \
+            on the default-configuration path. If the shim itself genuinely has to change, update \
+            `expectedAppTargetSource` in the same change so the decision is visible in review.
+            """)
+    }
+
     // MARK: The wiring — Xcode must actually use those two files
 
     func testXcodeProjectUsesTheCheckedInPlistAndEntitlements() throws {
@@ -311,19 +392,39 @@ final class BundleConfigurationTests: XCTestCase {
         }
     }
 
+    /// The sandbox assertion demands an explicit `NO` rather than merely "not YES", and the
+    /// difference is not pedantry — it was an exploited hole.
+    ///
+    /// ``buildSettingsPerConfiguration()`` reads the **target's** configurations only. Build
+    /// settings inherit, so a setting the target never mentions can still be YES because the
+    /// *project* said so. The earlier assertion was `XCTAssertNotEqual(values["ENABLE_APP_SANDBOX"],
+    /// "YES")`, and an unset target value is `nil` — `nil != "YES"` passes. Setting
+    /// `ENABLE_APP_SANDBOX = YES` at project level therefore left this suite 11/11 green while the
+    /// built bundle shipped `com.apple.security.app-sandbox => true`, which would have cut Vocca
+    /// off from the Accessibility API and system-wide injection entirely.
+    ///
+    /// Requiring the literal `NO` on the target closes it from both directions: the target-level
+    /// value overrides any project-level or `.xcconfig` inheritance, and absence stops being a
+    /// pass. The same reasoning applies to `ENABLE_HARDENED_RUNTIME` below, which was already
+    /// asserted by equality and so was never exposed.
     func testXcodeProjectEnablesHardenedRuntimeAndLeavesTheSandboxOff() throws {
         let settings = try buildSettingsPerConfiguration()
         for (configuration, values) in settings {
             XCTAssertEqual(
                 values["ENABLE_HARDENED_RUNTIME"], "YES",
                 "Configuration '\(configuration)' must enable the hardened runtime")
-            XCTAssertNotEqual(
-                values["ENABLE_APP_SANDBOX"], "YES",
+            XCTAssertEqual(
+                values["ENABLE_APP_SANDBOX"], "NO",
                 """
-                Configuration '\(configuration)' enables the app sandbox. Xcode injects \
-                com.apple.security.app-sandbox into the signed entitlements when this is YES, even \
-                though App/Vocca.entitlements does not mention it — which would sandbox Vocca \
-                without a single line of the entitlements file changing.
+                Configuration '\(configuration)' has ENABLE_APP_SANDBOX set to \
+                '\(values["ENABLE_APP_SANDBOX"] ?? "<unset on the target>")'; it must be an \
+                explicit NO on the target.
+                Unset is not good enough. Build settings inherit, so an absent target value can \
+                still be YES because the project or an .xcconfig said so — and Xcode then injects \
+                com.apple.security.app-sandbox into the signed entitlements without a single line \
+                of App/Vocca.entitlements changing. Sandboxing confines Vocca to a container and \
+                cuts off the Accessibility API and the system-wide text injection the product is \
+                built on.
                 """)
         }
     }
@@ -483,13 +584,14 @@ final class BuiltBundleTests: XCTestCase {
                   - the bundle was built from the checked-in App/ sources
                   - no test-only target leaked into the bundle
 
-                To run them:
+                To run them — and this is what CI runs, so it is the path that must be green:
                   xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \\
                       -derivedDataPath \(BundleTestSupport.conventionalDerivedData) build
-                  swift test --filter BuiltBundleTests
+                  \(BundleTestSupport.bundlePathVariable)=\(BundleTestSupport.conventionalDerivedData)/Build/Products/Debug/Vocca.app swift test
 
-                Set \(BundleTestSupport.bundlePathVariable)=/path/to/Vocca.app to test a bundle
-                built elsewhere; with that variable set, a missing bundle FAILS instead of skipping.
+                Ad-hoc signing needs no identity, keychain or secret, so there is no reason to skip
+                this. With \(BundleTestSupport.bundlePathVariable) set, a missing bundle FAILS
+                instead of skipping.
 
                 BundleConfigurationTests still asserted all six properties against
                 App/Info.plist, App/Vocca.entitlements and Vocca.xcodeproj — this skip leaves the
@@ -554,6 +656,23 @@ final class BuiltBundleTests: XCTestCase {
 
     // MARK: Staleness
 
+    /// Keys that must be literals in `App/Info.plist`, never `$(BUILD_SETTING)` references.
+    ///
+    /// These are the three the brief calls load-bearing, for the same reason it does: each fails
+    /// silently at runtime — denied microphone with no prompt, or a focus-stealing agent — and each
+    /// is asserted here against the file. Letting one become a reference would move the real value
+    /// into `project.pbxproj` where those assertions do not look.
+    private static let pinnedKeysThatMayNotBeSubstituted = [
+        "CFBundleIdentifier", "NSMicrophoneUsageDescription", "LSUIElement",
+    ]
+
+    /// Whether a plist value is written as an Xcode build-setting reference, e.g.
+    /// `$(MARKETING_VERSION)`. Only strings can be; anything else is a literal by construction.
+    private func isBuildSettingReference(_ value: Any?) -> Bool {
+        guard let text = value as? String else { return false }
+        return text.contains("$(")
+    }
+
     /// Fails when the bundle under test was built from a different `App/Info.plist` or
     /// `App/Vocca.entitlements` than the one currently checked in.
     ///
@@ -561,11 +680,26 @@ final class BuiltBundleTests: XCTestCase {
     /// bundle happily satisfies every assertion in this suite while today's plist is broken. Since
     /// the bundle is discovered rather than built, nothing else here would catch that.
     ///
-    /// It compares *values*, not timestamps. An earlier version compared modification dates and was
-    /// wrong in a way worth recording: Xcode's copy task is content-hashed, so touching
-    /// `App/Info.plist` made the mtime check fail and a rebuild did **not** clear it — the file's
-    /// content had not changed, so nothing was re-copied. A test that goes red and stays red
-    /// through the fix it recommends teaches people to ignore it.
+    /// It compares *values*, not timestamps, and it skips values Xcode is expected to rewrite.
+    /// Two earlier versions were wrong in the same shape, which is why both are recorded here:
+    ///
+    /// - Comparing **modification dates** failed and *stayed* failed through a rebuild. Xcode's
+    ///   copy task is content-hashed, so `touch App/Info.plist` changed no content and nothing was
+    ///   re-copied.
+    /// - Comparing every value **literally** trapped the standard Xcode idiom. `project.pbxproj`
+    ///   defines `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` precisely so an Info.plist can
+    ///   say `$(MARKETING_VERSION)`; making that edit left source `$(MARKETING_VERSION)` against
+    ///   built `0.1.0`, red after a clean build, blaming staleness for a correct change.
+    ///
+    /// A test that goes red and stays red through the fix its own message recommends teaches people
+    /// to ignore it, which costs more than the check is worth. So values containing `$(` are
+    /// excluded from the comparison — Xcode is *supposed* to change those — and the failure message
+    /// names substitution as the other possible cause.
+    ///
+    /// Excluding them is safe only because two things bound it: at least one literal key must
+    /// remain to compare, and the three keys this task exists to pin may not be substituted at all
+    /// (see ``pinnedKeysThatMayNotBeSubstituted``). Otherwise "make every value a build setting"
+    /// would be a one-line route to a staleness check that compares nothing.
     func testBuiltBundleWasBuiltFromTheCheckedInSources() throws {
         let bundle = try locateBundle()
         let root = try BundleTestSupport.packageRoot()
@@ -575,18 +709,48 @@ final class BuiltBundleTests: XCTestCase {
         let built = try BundleTestSupport.readPropertyList(
             at: bundle.appendingPathComponent("Contents/Info.plist"))
 
+        let substituted = source.keys.filter { isBuildSettingReference(source[$0]) }.sorted()
+
+        for key in Self.pinnedKeysThatMayNotBeSubstituted {
+            XCTAssertFalse(
+                substituted.contains(key),
+                """
+                App/Info.plist sets \(key) to a build-setting reference \
+                ('\(String(describing: source[key] ?? "<absent>"))'). That key must be a literal.
+                It is one of the three this task exists to pin, and routing it through the project \
+                file moves the real value out of the file every assertion here reads — the plist \
+                would then agree with itself while the shipped bundle said something else. It also \
+                removes the key from the staleness comparison below, which is the second cost.
+                """)
+        }
+
         // Xcode adds build-provenance keys (DTXcode, BuildMachineOSBuild, ...), so this compares
         // the keys the source declares rather than the two dictionaries.
-        for key in source.keys.sorted() {
+        let comparable = source.keys.filter { !substituted.contains($0) }.sorted()
+
+        XCTAssertFalse(
+            comparable.isEmpty,
+            """
+            Every value in App/Info.plist is a build-setting reference, so this check compared \
+            nothing and the bundle's provenance went unverified. Substituted keys: \
+            \(substituted.joined(separator: ", ")).
+            """)
+
+        for key in comparable {
             XCTAssertEqual(
                 String(describing: built[key] ?? "<absent>"),
                 String(describing: source[key] ?? "<absent>"),
                 """
-                The built bundle's \(key) does not match App/Info.plist, so the bundle under test \
-                was produced from a different version of that file and everything this suite says \
-                about it describes stale output. Rebuild:
-                  xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \
+                The built bundle's \(key) does not match App/Info.plist. Two causes, in order of \
+                likelihood:
+                  1. The bundle is stale — it was produced from an earlier version of that file, \
+                and everything this suite says about it describes stale output. Rebuild:
+                       xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \
                 -derivedDataPath \(BundleTestSupport.conventionalDerivedData) build
+                  2. Xcode rewrote the value on purpose. Values written as a build-setting \
+                reference — '$(SOME_SETTING)' — are excluded from this comparison for exactly that \
+                reason; a value that is transformed some *other* way is not, and this check would \
+                need to learn about it.
                 """)
         }
 
