@@ -46,7 +46,11 @@
 
 set -euo pipefail
 
-MINIMUM_EXECUTED_TESTS=30
+# Deliberate, reviewed constant — not derived from the current run (see below for why). Set to
+# 36 after the package-root-helper consolidation (task 1 of session-lifecycle) took the suite from
+# 33 to 36 tests. Raise it by hand, in the commit that changes the count, whenever the suite grows
+# on purpose.
+MINIMUM_EXECUTED_TESTS=36
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

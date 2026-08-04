@@ -16,14 +16,11 @@ import XCTest
 
 /// Raised when the module coverage cross-check cannot be evaluated meaningfully.
 private enum ZeroNetworkTestError: Error, CustomStringConvertible {
-    case packageRootNotFound(startingFrom: String)
     case noModulesDiscovered(sourcesRoot: String)
     case everyModuleExcluded(candidates: [String], nonDrivable: [String])
 
     var description: String {
         switch self {
-        case .packageRootNotFound(let path):
-            return "Could not locate Package.swift by walking up from \(path)"
         case .noModulesDiscovered(let root):
             return
                 "No module directories were found under \(root) — the probe's coverage was not checked against anything"
@@ -198,7 +195,8 @@ final class ZeroNetworkTests: XCTestCase {
 
         // The coverage cross-check. Without it the assertions above stay green while covering an
         // ever-smaller fraction of the product, which is the most likely way this gate rots.
-        let manifest = try PackageManifest.load(packageRoot: try packageRoot())
+        let manifest = try PackageManifest.load(
+            packageRoot: try PackageRootLocator.find(from: #filePath))
         let expected = try modulesRequiringCoverage(manifest: manifest)
         let exercised = observation.reportedModules
         XCTAssertEqual(
@@ -270,7 +268,8 @@ final class ZeroNetworkTests: XCTestCase {
         let candidates = try sourceDirectories().union(manifest.drivableTargetNames)
         guard !candidates.isEmpty else {
             throw ZeroNetworkTestError.noModulesDiscovered(
-                sourcesRoot: try packageRoot().appendingPathComponent("Sources").path)
+                sourcesRoot: try PackageRootLocator.find(from: #filePath)
+                    .appendingPathComponent("Sources").path)
         }
         // Subtracted before exclusions are consulted, so a plugin or binary target neither has to
         // be driven (impossible) nor has to be excluded (which the shipping guard would rightly
@@ -343,7 +342,8 @@ final class ZeroNetworkTests: XCTestCase {
 
     /// Every directory directly under `Sources/`, whatever it is called.
     private func sourceDirectories() throws -> Set<String> {
-        let sourcesRoot = try packageRoot().appendingPathComponent("Sources")
+        let sourcesRoot = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources")
         let entries = try FileManager.default.contentsOfDirectory(
             at: sourcesRoot, includingPropertiesForKeys: [.isDirectoryKey])
         var names: Set<String> = []
@@ -353,20 +353,5 @@ final class ZeroNetworkTests: XCTestCase {
             if isDirectory { names.insert(entry.lastPathComponent) }
         }
         return names
-    }
-
-    /// Walks up from this file until it finds the directory containing `Package.swift`. Never
-    /// hardcodes an absolute path. Mirrors what `ModuleBoundaryTests` does.
-    private func packageRoot() throws -> URL {
-        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        while dir.pathComponents.count > 1 {
-            if FileManager.default.fileExists(
-                atPath: dir.appendingPathComponent("Package.swift").path)
-            {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        throw ZeroNetworkTestError.packageRootNotFound(startingFrom: #filePath)
     }
 }

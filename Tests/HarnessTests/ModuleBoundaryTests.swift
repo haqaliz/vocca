@@ -17,15 +17,12 @@ import XCTest
 /// Raised when the `Sources/` tree cannot be scanned meaningfully: the package root is
 /// missing, nothing was found to scan, or an expected module directory is absent.
 private enum ModuleBoundaryTestError: Error, CustomStringConvertible {
-    case packageRootNotFound(startingFrom: String)
     case noModulesDiscovered(sourcesRoot: String)
     case noSwiftFilesScanned(sourcesRoot: String)
     case missingExpectedModules(Set<String>)
 
     var description: String {
         switch self {
-        case .packageRootNotFound(let path):
-            return "Could not locate Package.swift by walking up from \(path)"
         case .noModulesDiscovered(let root):
             return
                 "No module directories were found under \(root) — the boundary rules were not evaluated against anything"
@@ -78,18 +75,9 @@ final class ModuleBoundaryTests: XCTestCase {
         "struct", "class", "enum", "protocol", "typealias", "func", "var", "let",
     ]
 
-    /// Walks up from `filePath` until it finds the directory containing `Package.swift`,
-    /// then returns that directory's `Sources` subdirectory. Never hardcodes an absolute path.
+    /// The package's `Sources` subdirectory. Never hardcodes an absolute path.
     private func findSourcesRoot(from filePath: String) throws -> URL {
-        var dir = URL(fileURLWithPath: filePath).deletingLastPathComponent()
-        while dir.pathComponents.count > 1 {
-            let candidate = dir.appendingPathComponent("Package.swift")
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return dir.appendingPathComponent("Sources")
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        throw ModuleBoundaryTestError.packageRootNotFound(startingFrom: filePath)
+        try PackageRootLocator.find(from: filePath).appendingPathComponent("Sources")
     }
 
     private func swiftFiles(under root: URL) -> [URL] {

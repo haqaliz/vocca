@@ -17,15 +17,12 @@ import XCTest
 /// Raised when the license header scan cannot be evaluated meaningfully: the package root is
 /// missing, or nothing was found to scan.
 private enum LicenseHeaderTestError: Error, CustomStringConvertible {
-    case packageRootNotFound(startingFrom: String)
     case noSourceFilesScanned(root: String)
     case scannedDirectoryMissing(name: String, expectedAt: String)
     case scannedDirectoryMatchedNothing(name: String, extensions: [String], at: String)
 
     var description: String {
         switch self {
-        case .packageRootNotFound(let path):
-            return "Could not locate Package.swift by walking up from \(path)"
         case .noSourceFilesScanned(let root):
             return
                 "No covered source files were found under \(root) — the license header rule was not evaluated against anything"
@@ -117,21 +114,6 @@ final class LicenseHeaderTests: XCTestCase {
             .joined(separator: "\n")
     }
 
-    /// Walks up from `filePath` until it finds the directory containing `Package.swift`, then
-    /// returns that directory. Never hardcodes an absolute path. Mirrors
-    /// `ModuleBoundaryTests.findSourcesRoot(from:)`.
-    private func findPackageRoot(from filePath: String) throws -> URL {
-        var dir = URL(fileURLWithPath: filePath).deletingLastPathComponent()
-        while dir.pathComponents.count > 1 {
-            let candidate = dir.appendingPathComponent("Package.swift")
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        throw LicenseHeaderTestError.packageRootNotFound(startingFrom: filePath)
-    }
-
     private func sourceFiles(under root: URL, extensions: Set<String>) -> [URL] {
         guard
             let enumerator = FileManager.default.enumerator(
@@ -158,7 +140,7 @@ final class LicenseHeaderTests: XCTestCase {
     /// same hole one level down, where the directory is present but its extension list has stopped
     /// matching anything in it.
     private func filesRequiringHeader() throws -> [(file: URL, expectedHeader: String)] {
-        let packageRoot = try findPackageRoot(from: #filePath)
+        let packageRoot = try PackageRootLocator.find(from: #filePath)
         var files: [(file: URL, expectedHeader: String)] = []
 
         for rule in Self.scanRules {
