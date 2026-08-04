@@ -43,6 +43,16 @@ private enum EndReasonTag: Hashable, CaseIterable {
     case userCancelled
 }
 
+/// A stand-in for the captured buffer, which really lives in `VoccaAudio`.
+///
+/// It exists because `Audio` is constrained to ``CapturedAudio`` — a marker `VoccaCore` owns —
+/// rather than to `Sendable`. A plain `[Int]` no longer satisfies it, and that is the point: nor
+/// does `[Int]?`, which is how `.completed(reason:, audio: nil)` used to be legal. Conforming a
+/// fixture here is the same one line task 4 will write for the real buffer type.
+private struct AudioFixture: CapturedAudio, Equatable {
+    let frames: [Int]
+}
+
 /// The session vocabulary: the types every later part of this aspect is written in.
 ///
 /// There is no behaviour to test yet — the decision function and the state machine come next — so
@@ -202,9 +212,10 @@ final class SessionVocabularyTests: XCTestCase {
         XCTAssertEqual(
             requireSendable(Decision(action: .start, eventPropagation: .swallow)),
             Decision(action: .start, eventPropagation: .swallow))
+        let audio = AudioFixture(frames: [1])
         XCTAssertEqual(
-            requireSendable(SessionOutcome.make(reason: .retained(.keyUp), audio: [1])),
-            SessionOutcome.make(reason: .retained(.keyUp), audio: [1]))
+            requireSendable(SessionOutcome.make(reason: .retained(.keyUp), audio: audio)),
+            SessionOutcome.make(reason: .retained(.keyUp), audio: audio))
     }
 
     // MARK: - ModifierSet
@@ -279,16 +290,17 @@ final class SessionVocabularyTests: XCTestCase {
     /// reason**. Route any retaining reason to the discard path and this fails on that reason by
     /// name.
     func testOnlyCancellationProducesAnOutcomeWithoutAudio() {
+        let captured = AudioFixture(frames: [1, 2, 3])
         for reason in RetainedEndReason.allCases {
-            switch SessionOutcome.make(reason: .retained(reason), audio: [1, 2, 3]).content {
-            case .completed(let carried, let audio):
+            switch SessionOutcome.make(reason: .retained(reason), audio: captured).content {
+            case .completed(let carried, let audio, _):
                 XCTAssertEqual(carried, reason)
-                // Pinned to the non-optional element type deliberately. `XCTAssertEqual` would
-                // coerce `[Int]?` and pass, so without this line a weakening of the payload to
+                // Pinned to the non-optional type deliberately. `XCTAssertEqual` would coerce
+                // `AudioFixture?` and pass, so without this line a weakening of the payload to
                 // `Audio?` — the mutation that killed the previous version of this test — is
                 // invisible. Written as an annotated binding so it fails at compile time.
-                let carriedAudio: [Int] = audio
-                XCTAssertEqual(carriedAudio, [1, 2, 3])
+                let carriedAudio: AudioFixture = audio
+                XCTAssertEqual(carriedAudio, captured)
             case .cancelled:
                 XCTFail(
                     """
@@ -299,11 +311,62 @@ final class SessionVocabularyTests: XCTestCase {
             }
         }
 
-        switch SessionOutcome.make(reason: .userCancelled, audio: [1, 2, 3]).content {
-        case .completed(let reason, _):
+        let cancelled = SessionOutcome.make(reason: .userCancelled, audio: captured)
+        switch cancelled.content {
+        case .completed(let reason, _, _):
             XCTFail("Cancellation produced audio to hand on, attributed to \(reason)")
         case .cancelled:
             break
+        }
+
+        // The seal that makes `Content` unforgeable must not make it unreadable. Both of these
+        // compile from outside SessionOutcome.swift — the bare `case .cancelled:` above, and this
+        // `if case` — which is the ergonomic cost of the seal, in full: one `_` in `.completed`.
+        var matched = false
+        if case .cancelled = cancelled.content { matched = true }
+        XCTAssertTrue(matched, "`if case .cancelled` must still match from another module.")
+    }
+
+    /// `Optional` and `Void` must not satisfy the obligation to produce audio.
+    ///
+    /// The compile-time half of this cannot be written as an assertion — `SessionOutcome<[Int]?>`
+    /// simply does not type-check now that `Audio: CapturedAudio`, and a test that fails to build
+    /// is not a test. What is pinned here instead is the property the constraint rests on: that
+    /// conformance is something a type opts into. If `CapturedAudio` ever grows a blanket
+    /// conformance — `extension Optional: CapturedAudio` being the obvious one — this stops
+    /// meaning anything, and the reviewer's `var buffer: [Float]?` funnel compiles again.
+    func testAbsenceOfAudioCannotSatisfyTheAudioParameter() {
+        // Asked of the metatype, through a function taking `Any.Type`, so the check is dynamic.
+        // Testing a *value* with `is` does not work here: `Optional<T> is any P` succeeds whenever
+        // the value is non-nil, because the optional is unwrapped first — it would answer a
+        // question about the value rather than about the conformance.
+        func conformsToCapturedAudio(_ type: Any.Type) -> Bool { type is any CapturedAudio.Type }
+
+        XCTAssertTrue(
+            conformsToCapturedAudio(AudioFixture.self),
+            "The fixture must conform, or this test is checking the wrong thing.")
+        XCTAssertFalse(
+            conformsToCapturedAudio(AudioFixture?.self),
+            """
+            Optional<AudioFixture> conforms to CapturedAudio, which means `nil` satisfies the \
+            obligation to hand a buffer downstream: SessionOutcome<Buffer?> with a nil buffer \
+            makes `.completed(reason: .ceilingReached, audio: nil)` legal, and task 4's "every \
+            reason emits audio exactly once" property test passes while emitting nothing.
+            """)
+        XCTAssertFalse(
+            conformsToCapturedAudio(Void.self),
+            "Void conforms to CapturedAudio, so SessionOutcome<Void> carries nothing and type-checks.")
+
+        // An empty buffer of the right type is *not* what this forbids: a 20 ms tap that captured
+        // almost nothing is still a real session that ended for a real reason, and its outcome is
+        // `.completed`, not a discard.
+        switch SessionOutcome.make(
+            reason: .retained(.ceilingReached), audio: AudioFixture(frames: [])
+        ).content {
+        case .completed(_, let audio, _):
+            XCTAssertEqual(audio.frames, [])
+        case .cancelled:
+            XCTFail("An empty buffer must still be handed downstream, not discarded.")
         }
     }
 
@@ -318,9 +381,9 @@ final class SessionVocabularyTests: XCTestCase {
             var evaluations = 0
         }
         let counter = Counter()
-        func buffer() -> [Int] {
+        func buffer() -> AudioFixture {
             counter.evaluations += 1
-            return [1, 2, 3]
+            return AudioFixture(frames: [1, 2, 3])
         }
 
         _ = SessionOutcome.make(reason: .userCancelled, audio: buffer())

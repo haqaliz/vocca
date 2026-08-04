@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// What a finished session produced — **the only way audio leaves one**.
+/// What a finished session produced.
 ///
 /// This is where "a transcript is never lost" stops being a rule someone has to remember. Every
 /// terminal transition hands its captured audio downstream, and the single exception is the user
 /// pressing Escape, which is an instruction rather than an accident.
 ///
-/// ## Why this is a struct wrapping an enum
+/// ## Why this is a struct wrapping a sealed enum
 ///
 /// The obvious shape — a public enum with `completed` and `cancelled` cases — does not work, and
 /// the first version of this file was that shape. A public enum has publicly constructible cases,
@@ -27,54 +27,75 @@
 /// write:
 ///
 /// ```swift
-/// mutating func endSession(reason: EndReason) -> SessionOutcome<[Int]> {
+/// mutating func endSession(reason: EndReason) -> SessionOutcome<Buffer> {
 ///     switch reason {
 ///     case .retained(.ceilingReached), .retained(.tapDisabled):
-///         buffer = []
+///         buffer = .empty
 ///         return .cancelled          // audio discarded, and the user never asked
 ///     ...
 /// ```
 ///
-/// The refactor does not need anywhere to *put* the reason — it drops it. Requiring an `Audio`
-/// value on `completed` does not help either, because the caller chooses the generic parameter:
-/// `SessionOutcome<[Int]?>.completed(reason:, audio: nil)` and `SessionOutcome<Void>` both satisfy
-/// "requires an audio value" while carrying nothing.
+/// Making `init` private closed *that* signature and no more. The same funnel typed
+/// `-> SessionOutcome<Buffer>.Content` compiled again — five characters, an ordinary-looking
+/// return type, and behaviourally identical downstream because every consumer destructures
+/// `.content` anyway. A second route did too: `private` is file-scoped, so an
+/// `extension SessionOutcome { public init(escapeHatch: Content) { self.content = escapeHatch } }`
+/// in a sibling file of this module assigned the stored property directly. Both are the original
+/// hole wearing a different hat, and both are why the cases now carry a ``Seal``: a token whose
+/// initializer only this file can reach.
 ///
-/// So the freedom to pick a case is removed. ``Content`` can only be built by `init(_:)`, which is
-/// `private` — and `private` at type scope is *file*-scoped, so the state machine that will live in
-/// a sibling file of this same module cannot reach it either. The one way to construct an outcome
-/// is ``make(reason:audio:)``, which switches exhaustively over ``EndReason``. The reason-to-fate
-/// mapping therefore exists in exactly one place, and a new stop rule added to
-/// ``RetainedEndReason`` lands inside `.retained`, where it is handed its audio automatically.
+/// So the freedom to pick a case is gone. ``make(reason:audio:)`` switches exhaustively over
+/// ``EndReason``, the mapping from reason to fate exists in exactly one place, and a new stop rule
+/// added to ``RetainedEndReason`` lands inside `.retained`, where it is handed its audio
+/// automatically.
+///
+/// Pattern matching is unaffected on the discard side — `case .cancelled:` and
+/// `if case .cancelled = outcome.content` both still compile from anywhere. Reading a completed
+/// outcome costs one `_`: `case .completed(let reason, let audio, _)`.
 ///
 /// ## What this still does not prevent
 ///
-/// A caller can pass the wrong reason: `make(reason: .userCancelled, audio: buffer)` from a
-/// ceiling-expiry path does discard the audio. That is a false statement on one visible line rather
-/// than a value silently dropped, and no type can tell a lie about the reason from the truth. It is
-/// the residual, and it is far smaller than what it replaces.
+/// Two residuals, both far narrower than what they replace, and both requiring a deliberate line
+/// rather than an ordinary-looking signature:
 ///
-/// Generic over `Audio` because the captured buffer's type belongs to `VoccaAudio`, and this module
-/// imports nothing that can record. The generic parameter is how the obligation is stated here
-/// without the dependency.
-public struct SessionOutcome<Audio: Sendable>: Sendable {
+/// - **A false reason.** `make(reason: .userCancelled, audio: buffer)` called from a ceiling-expiry
+///   path does discard. No type can tell a lie about the reason from the truth; what it costs is
+///   one visible false statement instead of a silently dropped value.
+/// - **Laundering a seal.** A caller who first obtains a real outcome can bind its seal
+///   (`if case .cancelled(let seal) = …`) and mint a forged `Content` with it. That is four
+///   deliberate steps and reads as forgery at a glance, which is the most a token can buy.
+///
+/// See ``CapturedAudio`` for the third one that used to be here — `Optional` satisfying `Audio` —
+/// and how the constraint closes it.
+public struct SessionOutcome<Audio: CapturedAudio>: Sendable {
 
-    /// The two fates. Constructible only through ``SessionOutcome/make(reason:audio:)`` — see the
-    /// type's documentation for why the cases are not API anyone can select.
+    /// Proof that a ``Content`` was minted by ``SessionOutcome/make(reason:audio:)``.
+    ///
+    /// Its initializer is `fileprivate`, so no other file — in this module or any other — can
+    /// produce one, and therefore no other file can construct a `Content` at all. That is what
+    /// makes `make` the only route rather than merely the intended one.
+    ///
+    /// `Hashable`, not just `Sendable`: `Content`'s `Equatable` synthesis needs every payload to
+    /// be `Equatable`, and the synthesis fails without it.
+    public struct Seal: Sendable, Hashable {
+        fileprivate init() {}
+    }
+
+    /// The two fates. Constructible only through ``SessionOutcome/make(reason:audio:)``, because
+    /// both cases demand a ``Seal`` — see the type's documentation for the two routes that were
+    /// open before the seal existed.
     public enum Content: Sendable {
         /// The session ended for one of the stop rules, and here is what it captured.
-        case completed(reason: RetainedEndReason, audio: Audio)
+        case completed(reason: RetainedEndReason, audio: Audio, seal: Seal)
 
         /// The user asked to abandon the session. There is nothing to hand on, by construction:
         /// this case carries no ``RetainedEndReason`` and no audio, so no stop rule can be routed
         /// through it and no buffer can be dropped into it.
-        case cancelled
+        case cancelled(Seal)
     }
 
     public let content: Content
 
-    /// Private so that ``Content`` cannot be chosen at a call site — not from another module, and
-    /// not from another file of `VoccaCore`.
     private init(_ content: Content) {
         self.content = content
     }
@@ -89,9 +110,9 @@ public struct SessionOutcome<Audio: Sendable>: Sendable {
     ) -> SessionOutcome {
         switch reason {
         case .retained(let retained):
-            return SessionOutcome(.completed(reason: retained, audio: audio()))
+            return SessionOutcome(.completed(reason: retained, audio: audio(), seal: Seal()))
         case .userCancelled:
-            return SessionOutcome(.cancelled)
+            return SessionOutcome(.cancelled(Seal()))
         }
     }
 }

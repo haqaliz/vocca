@@ -97,8 +97,22 @@ final class CoreBoundaryTests: XCTestCase {
 
     /// What `VoccaCore` may import. **Empty**, deliberately.
     ///
-    /// Extend only with a reviewed reason, and read the type's doc comment first: adding a *Vocca
-    /// module* here reopens the re-export route, which is what the transitive rule is for.
+    /// Extend only with a reviewed reason. While this is empty, `VoccaCore` imports nothing, and
+    /// every indirect route into it is closed by that alone — there is no sibling to carry a
+    /// re-export and no module whose types could be aliased. Adding one entry ends that, and the
+    /// transitive rule below covers only part of what it lets in. Read these three before adding
+    /// anything:
+    ///
+    /// 1. **A `typealias` is not a re-export and is not caught.** A permitted sibling with
+    ///    `import AppKit` and `public typealias VoccaWindow = NSWindow` puts an `NSWindow` in
+    ///    `VoccaCore` with this suite green. The rule deliberately ignores a sibling's *plain*
+    ///    imports — reporting them would flag every legitimate adapter and get the lint deleted —
+    ///    so the cost of that trade-off lands here.
+    /// 2. **Module layout is assumed to be `Sources/<ModuleName>`.** No target in `Package.swift`
+    ///    uses a custom `path:` today. If one ever does, the transitive walk cannot find its
+    ///    directory and skips it silently.
+    /// 3. **Only `@_exported` propagates.** That is correct for Swift, but it means the rule
+    ///    answers "what does this module re-export", not "what can this module see".
     private static let permittedImports: Set<String> = []
 
     private func packageRoot() throws -> URL {
@@ -166,35 +180,64 @@ final class CoreBoundaryTests: XCTestCase {
         return violations.sorted { $0.description < $1.description }
     }
 
-    /// Everything re-exported by a module `moduleRoot` imports, that `permitted` does not cover.
+    /// Everything reachable in `VoccaCore` through a chain of re-exports, that `permitted` does not
+    /// cover.
     ///
     /// `@_exported import X` in module `M` makes `X`'s API visible to everyone importing `M`, so a
     /// lint that reads only the importing file cannot see it arrive. Imports that are not
     /// directories under `sourcesRoot` — the standard library, a system framework — are skipped:
     /// there is no source of ours to read.
+    ///
+    /// **Walked to a fixpoint, not one hop.** If `VoccaCore` imports `A`, `A` re-exports `B`, and
+    /// `B` re-exports `AppKit`, then `AppKit` is visible in `VoccaCore` — re-export is transitive.
+    /// One hop caught that case only incidentally, because `B` was not on the allow-list; put two
+    /// Vocca modules on the list and the second hop went invisible. The worklist below follows
+    /// every permitted re-export edge and reports the rest, so the depth of the chain does not
+    /// matter.
     private func disallowedReExports(
         reachableFrom moduleRoot: URL, permitted: Set<String>, sourcesRoot: URL, displayRoot: URL
     ) throws -> [DisallowedImport] {
-        let directImports = Set(
-            try SwiftSourceScanner.swiftFiles(under: moduleRoot)
-                .flatMap { try SwiftSourceScanner.importedModuleNames(in: $0) })
+        var isDirectory: ObjCBool = false
+        guard
+            FileManager.default.fileExists(atPath: moduleRoot.path, isDirectory: &isDirectory),
+            isDirectory.boolValue
+        else {
+            throw CoreBoundaryTestError.moduleDirectoryMissing(expectedAt: moduleRoot.path)
+        }
+        let rootFiles = SwiftSourceScanner.swiftFiles(under: moduleRoot)
+        guard !rootFiles.isEmpty else {
+            throw CoreBoundaryTestError.noSwiftFilesScanned(under: moduleRoot.path)
+        }
 
+        var queue = try rootFiles.flatMap { try SwiftSourceScanner.importedModuleNames(in: $0) }
+            .sorted()
+        var visited: Set<String> = []
         var violations: [DisallowedImport] = []
-        for imported in directImports.sorted() {
-            let siblingRoot = sourcesRoot.appendingPathComponent(imported)
-            var isDirectory: ObjCBool = false
+
+        while let module = queue.popLast() {
+            guard visited.insert(module).inserted else { continue }
+
+            let siblingRoot = sourcesRoot.appendingPathComponent(module)
+            var siblingIsDirectory: ObjCBool = false
             guard
-                FileManager.default.fileExists(atPath: siblingRoot.path, isDirectory: &isDirectory),
-                isDirectory.boolValue
+                FileManager.default.fileExists(
+                    atPath: siblingRoot.path, isDirectory: &siblingIsDirectory),
+                siblingIsDirectory.boolValue
             else { continue }
 
             for file in SwiftSourceScanner.swiftFiles(under: siblingRoot) {
                 for statement in try SwiftSourceScanner.importStatements(in: file)
-                where statement.isReExported && !permitted.contains(statement.module) {
-                    violations.append(
-                        DisallowedImport(
-                            file: displayPath(of: file, from: displayRoot),
-                            module: statement.module, via: imported))
+                where statement.isReExported {
+                    if permitted.contains(statement.module) {
+                        // Permitted, so not a violation — but its own re-exports ride along into
+                        // VoccaCore too, so keep walking.
+                        queue.append(statement.module)
+                    } else {
+                        violations.append(
+                            DisallowedImport(
+                                file: displayPath(of: file, from: displayRoot),
+                                module: statement.module, via: module))
+                    }
                 }
             }
         }
@@ -331,24 +374,31 @@ final class CoreBoundaryTests: XCTestCase {
     }
 
     /// Proves the transitive rule works, since the real assertion cannot exercise it while the
-    /// allow-list is empty. Two fake modules in a scratch tree: a permitted sibling that
-    /// re-exports AppKit, and a core that imports the sibling.
+    /// allow-list is empty. Three fake modules in a scratch tree, forming a two-hop chain:
+    /// `FakeCore` imports `FakeAdapter`, which re-exports `FakeRelay`, which re-exports `AppKit`.
+    ///
+    /// The second hop is the point. A one-hop rule caught the first version of this route only
+    /// because the intermediate module was not on the allow-list; with both permitted, the
+    /// framework arrives and a one-hop walk sees nothing.
     func testTheLintDetectsAFrameworkArrivingThroughAReExport() throws {
         let scratch = try makeScratchDirectory(named: "vocca-core-reexport")
         defer { try? FileManager.default.removeItem(at: scratch) }
 
         let core = scratch.appendingPathComponent("FakeCore", isDirectory: true)
         let adapter = scratch.appendingPathComponent("FakeAdapter", isDirectory: true)
-        for directory in [core, adapter] {
+        let relay = scratch.appendingPathComponent("FakeRelay", isDirectory: true)
+        for directory in [core, adapter, relay] {
             try FileManager.default.createDirectory(
                 at: directory, withIntermediateDirectories: true)
         }
         try "import FakeAdapter\n".write(
             to: core.appendingPathComponent("Core.swift"), atomically: true, encoding: .utf8)
-        try "@_exported import AppKit\nimport Foundation\n".write(
+        try "@_exported import FakeRelay\nimport Foundation\n".write(
             to: adapter.appendingPathComponent("Adapter.swift"), atomically: true, encoding: .utf8)
+        try "@_exported import AppKit\n".write(
+            to: relay.appendingPathComponent("Relay.swift"), atomically: true, encoding: .utf8)
 
-        let permitted: Set<String> = ["FakeAdapter"]
+        let permitted: Set<String> = ["FakeAdapter", "FakeRelay"]
 
         // The direct rule is satisfied — FakeCore imports only what it is allowed to. That is what
         // makes this route interesting: it is invisible to the assertion everyone would write.
@@ -360,21 +410,22 @@ final class CoreBoundaryTests: XCTestCase {
             reachableFrom: core, permitted: permitted, sourcesRoot: scratch, displayRoot: scratch)
         XCTAssertEqual(
             violations,
-            [
-                DisallowedImport(
-                    file: "FakeAdapter/Adapter.swift", module: "AppKit", via: "FakeAdapter")
-            ],
+            [DisallowedImport(file: "FakeRelay/Relay.swift", module: "AppKit", via: "FakeRelay")],
             """
-            The transitive rule missed a re-export. This is the exact route that put CGEventFlags \
-            and NSApplication inside VoccaCore with the whole suite green: @_exported import \
-            AppKit in the adapter, plus an import of the adapter here.
+            The transitive rule missed a re-export two hops out. This is the route that put \
+            CGEventFlags and NSApplication inside VoccaCore with the whole suite green, one link \
+            longer: the walk must follow a permitted module's own re-exports, not stop at the \
+            first hop.
             """)
 
-        // The sibling's plain `import Foundation` is not a violation: it is not re-exported, so it
-        // does not reach VoccaCore. Over-reporting would make the rule unusable and get it deleted.
+        // Neither the adapter's plain `import Foundation` nor its permitted re-export of
+        // FakeRelay is a violation. Over-reporting would make the rule unusable and get it deleted.
         XCTAssertFalse(
-            violations.contains { $0.module == "Foundation" },
-            "A plain, non-re-exported import in a sibling module must not be reported.")
+            violations.contains { $0.module == "Foundation" || $0.module == "FakeRelay" },
+            """
+            A plain import, or a re-export of a permitted module, must not be reported. Found: \
+            \(violations.map(\.description))
+            """)
     }
 
     /// Proves the vacuity guard fires: pointed at a directory with no Swift in it, the scan throws
