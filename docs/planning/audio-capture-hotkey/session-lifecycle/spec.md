@@ -135,3 +135,40 @@ and this must not.
 3. `.userCancelled` is the single path that discards audio. It should be structurally distinct
    in the type — not just an enum case that happens to be handled differently — so a future
    refactor cannot accidentally route another reason through it.
+
+---
+
+## Carried forward from `project-skeleton` (final review)
+
+Recorded here because the aspect that produced them is merged and its scratch ledger is gone.
+
+**Inherit these patterns — each was earned by a defect that shipped past a green suite:**
+
+1. **Assert the effect, never the reference.** Deleting the probe's `configure(_:)` call while
+   leaving `AppBootstrap.self` in a placeholder list kept the suite green. The fix asserts an
+   observable post-condition instead. The identical trap here: *"`stop()` was called"* is not
+   *"the microphone was released."* Assert the released state, not the call.
+2. **Fail closed on unclassifiable input.** The build-configuration detector throws four distinct
+   ways rather than defaulting. A watchdog that cannot tell what state it is in must fault, not
+   assume idle.
+3. **Every zero-assertion needs a positive control sharing its mechanism.** The zero-network gate
+   checks `interposerDidLoad` *before* asserting "we saw nothing". A test asserting "the mic did not
+   stay open" must first prove it can detect a mic that did.
+4. **Exhaustive switches over enums, no `default:`.** Adding a probe mode fails to compile until
+   someone states its settle policy. Use the same shape for session states and the watchdog timeout
+   table, so a new state cannot silently inherit someone else's behaviour.
+5. **Give the new suite its own test-count floor.** `swift test` exits 0 when it discovers nothing —
+   this is why `Scripts/test-with-floor.sh` exists. A green run is otherwise unfalsifiable.
+
+**Avoid:**
+
+- **Do not add a sixth `packageRoot` walker.** There are five near-identical copies across the test
+  files (not yet diverged). Consolidate them in this aspect's first commit.
+- **Do not drain subprocess pipes after `waitUntilExit`.** Two of three helpers get this right and
+  document why; `NetworkInterposer.runProbe` is the outlier and carries a deferred deadlock risk.
+- **`App/` stays a one-line shim.** It is outside the zero-network coverage guard. Start-up work
+  belongs in `AppBootstrap.configure(_:)`, never in `App/` and never in `main()`.
+
+**Open items inherited, none blocking:** notarization unproven (no Developer ID); passwords passed on
+argv in the signing scripts (bounded, documented); `sign.sh`/`notarize.sh` default to different
+configurations.
