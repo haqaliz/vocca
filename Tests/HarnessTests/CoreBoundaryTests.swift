@@ -627,6 +627,134 @@ final class CoreBoundaryTests: XCTestCase {
         return found
     }
 
+    // MARK: - The custody funnel
+
+    /// Every file under `root` that calls `.make(` on something, one entry per call.
+    ///
+    /// Deliberately textual and deliberately blunt: it matches *any* `.make(`, not
+    /// `SessionOutcome.make(` specifically, so a call written through a typealias, a generic
+    /// parameter or a local binding is still counted. Over-matching costs a rename; under-matching
+    /// costs the guarantee.
+    private func outcomeConstructionSites(under root: URL) throws -> [String] {
+        let files = SwiftSourceScanner.swiftFiles(under: root)
+        guard !files.isEmpty else {
+            throw CoreBoundaryTestError.noSwiftFilesScanned(under: root.path)
+        }
+        var sites: [String] = []
+        for file in files {
+            let source = SwiftSourceScanner.stripComments(
+                from: try String(contentsOf: file, encoding: .utf8))
+            let calls = source.components(separatedBy: ".make(").count - 1
+            sites.append(contentsOf: repeatElement(file.lastPathComponent, count: calls))
+        }
+        return sites.sorted()
+    }
+
+    /// **There is exactly one place in `VoccaCore` where a `SessionOutcome` comes into existence.**
+    ///
+    /// `spec.md` asks for one `endSession(reason:)` funnel that every stop path goes through. That
+    /// is a property of the *machine*, and the machine can satisfy it while some other file in the
+    /// module quietly builds an outcome of its own — at which point the reviewed mapping from cause
+    /// to fate is no longer the only mapping, and "a transcript is never lost" is back to being a
+    /// rule someone has to remember.
+    ///
+    /// `SessionOutcome.make(reason:audio:)` is public and sealed, so it is *the* constructor; what
+    /// this pins is that it is called once, from the funnel, and nowhere else. A behavioural test
+    /// cannot see this: a second call site produces perfectly correct-looking outcomes.
+    func testTheSessionMachineIsTheOnlyPlaceAnOutcomeIsConstructed() throws {
+        XCTAssertEqual(
+            try outcomeConstructionSites(under: try voccaCoreRoot()), ["SessionMachine.swift"],
+            """
+            A SessionOutcome is constructed somewhere other than the single custody funnel in \
+            SessionMachine.endSession(reason:). Every terminal path must go through that one \
+            reviewed switch — it is what makes "every stop rule hands its audio downstream" a \
+            property of the code rather than of everyone who edits it.
+            """)
+
+        // Positive control, sharing the scan. Two call sites in two files must both be found, and
+        // a commented-out one must not be: a lint that cannot see a second call site permits one.
+        let scratch = try makeScratchDirectory(named: "vocca-outcome-sites")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try "let a = SessionOutcome.make(reason: r, audio: b)\n// SessionOutcome.make(reason: r, audio: b)\n"
+            .write(
+                to: scratch.appendingPathComponent("First.swift"), atomically: true, encoding: .utf8)
+        try "func f() { _ = Outcome.make(reason: r, audio: b); _ = O.make(reason: r, audio: b) }\n"
+            .write(
+                to: scratch.appendingPathComponent("Second.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(
+            try outcomeConstructionSites(under: scratch),
+            ["First.swift", "Second.swift", "Second.swift"],
+            "The scan cannot see a second construction site, so it permits one.")
+
+        let empty = try makeScratchDirectory(named: "vocca-outcome-empty")
+        defer { try? FileManager.default.removeItem(at: empty) }
+        XCTAssertThrowsError(try outcomeConstructionSites(under: empty)) { error in
+            XCTAssertTrue(error is CoreBoundaryTestError, "Expected a refusal, got \(error)")
+        }
+    }
+
+    /// **`VoccaCore` reads no clock of its own**, and the import allow-list cannot say so.
+    ///
+    /// `spec.md` requires the ceiling and poll tests to be deterministic and instant, which requires
+    /// the clock to be injected. `testVoccaCoreImportsOnlyWhatIsExplicitlyPermitted` removes `Date`,
+    /// `DispatchTime` and `mach_absolute_time` by removing Foundation, Dispatch and Darwin — and
+    /// stops there, because `ContinuousClock` and `SuspendingClock` are **standard library** types.
+    /// They need no import at all, so an allow-list of imports cannot see either one arrive, and
+    /// `ContinuousClock().now` inside the session machine would leave the whole ceiling untestable
+    /// with the boundary lint green.
+    ///
+    /// One line closes it. `MonotonicClock` is the only way time enters this module.
+    func testVoccaCoreReadsNoClockOfItsOwn() throws {
+        let moduleRoot = try voccaCoreRoot()
+        let files = SwiftSourceScanner.swiftFiles(under: moduleRoot)
+        guard !files.isEmpty else {
+            throw CoreBoundaryTestError.noSwiftFilesScanned(under: moduleRoot.path)
+        }
+
+        var offenders: [String] = []
+        for file in files {
+            let source = SwiftSourceScanner.stripComments(
+                from: try String(contentsOf: file, encoding: .utf8))
+            for clock in Self.standardLibraryClocks where source.contains(clock) {
+                offenders.append("\(displayPath(of: file, from: try sourcesRoot())): \(clock)")
+            }
+        }
+        XCTAssertEqual(
+            offenders.sorted(), [],
+            """
+            VoccaCore reads a standard-library clock: \(offenders.sorted().joined(separator: "; ")).
+
+            These need no import, so the boundary lint above cannot see them. A clock read here \
+            makes the ceiling test wait 120 s to find out whether the ceiling fires, which means it \
+            will not be written. Take a MonotonicClock instead — the caller owns the real one.
+            """)
+
+        // Positive control, sharing the scan's mechanism: shown both clocks, it must report both,
+        // and it must ignore the one that is only mentioned in a comment.
+        let scratch = try makeScratchDirectory(named: "vocca-core-clock")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try """
+            let deadline = ContinuousClock().now + .seconds(120)
+            let other = SuspendingClock.now
+            // ContinuousClock is what this module must not reach for.
+            """.write(
+                to: scratch.appendingPathComponent("Clocks.swift"), atomically: true,
+                encoding: .utf8)
+        let fixture = SwiftSourceScanner.stripComments(
+            from: try String(
+                contentsOf: scratch.appendingPathComponent("Clocks.swift"), encoding: .utf8))
+        XCTAssertEqual(
+            Set(Self.standardLibraryClocks.filter { fixture.contains($0) }),
+            Set(Self.standardLibraryClocks),
+            "The lint cannot see a standard-library clock it was shown, so it permits one.")
+    }
+
+    /// The clocks that need no import, and are therefore invisible to the allow-list.
+    ///
+    /// `Foundation`'s `Date` and `UTCClock` are absent deliberately: they are already unreachable,
+    /// and a lint that repeats another lint's job fails in two places when the rule changes.
+    private static let standardLibraryClocks = ["ContinuousClock", "SuspendingClock"]
+
     /// Two properties of `SessionOutcome` that no other test in this suite can fail on.
     ///
     /// Both are source pins, for the same reason `@discardableResult` above is one: each is a small

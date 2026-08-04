@@ -47,7 +47,14 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 77 by task 3's second review round, which added one: the dictate and converse bindings of
+# 102 by task 4, which added twenty-five: twenty-three in SessionMachineTests for the session state
+# machine and its custody funnel, and two in CoreBoundaryTests — that a SessionOutcome is
+# constructed in exactly one place in VoccaCore, and that the module reads no standard-library
+# clock. The second of those closes a gap the import allow-list structurally cannot: ContinuousClock
+# and SuspendingClock need no import, so `ContinuousClock().now` inside the session machine would
+# leave the ceiling untestable with the boundary lint green.
+#
+# It was 77 after task 3's second review round, which added one: the dictate and converse bindings of
 # PRODUCT_SPEC.md:127 must not match each other's press. Starting a session now requires an *exact*
 # match on the bindable modifiers (locks masked), because superset semantics let one press match two
 # configured bindings — and the direction that matters types speech meant for the agent into the
@@ -69,7 +76,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=77
+MINIMUM_EXECUTED_TESTS=102
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
