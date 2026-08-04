@@ -39,14 +39,14 @@ public enum EventPropagation: Sendable, Hashable, CaseIterable {
 /// | swallow and ignore | `Decision(action: .ignore, eventPropagation: .swallow)` |
 ///
 /// **The caller cannot *silently* drop one** — which is the true claim, and narrower than it is
-/// tempting to write. `decide(event, state:)` on its own warns that the result is unused, and CI
-/// fails the build on any warning; `_ = decide(event, state:)` is one character longer and is
-/// silent. No Swift type can prevent that. What is arranged is that ignoring a decision has to be
-/// written down:
+/// tempting to write. `decide(event, state:config:)` on its own warns that the result is unused,
+/// and CI fails the build on any warning; `_ = decide(event, state:config:)` is one character
+/// longer and is silent. No Swift type can prevent that. What is arranged is that ignoring a
+/// decision has to be written down:
 ///
-/// 1. `decide(_:state:)` returns this and is not — must never be — `@discardableResult`, which is
-///    the one line that would remove even the bare-drop warning. `CoreBoundaryTests` asserts that
-///    the annotation appears nowhere in this module.
+/// 1. ``decide(_:state:config:)`` returns this and is not — must never be — `@discardableResult`,
+///    which is the one line that would remove even the bare-drop warning. `CoreBoundaryTests`
+///    asserts that the annotation appears nowhere in this module.
 /// 2. There is no "nothing to do" value. `.ignore` still carries a propagation choice, so even the
 ///    uninteresting events force the caller to state whether the app downstream sees them.
 /// 3. Nothing here is readable except by destructuring it. There is no `isStart` shortcut to

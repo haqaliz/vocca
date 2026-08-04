@@ -61,9 +61,12 @@
 /// - **A false reason.** `make(reason: .userCancelled, audio: buffer)` called from a ceiling-expiry
 ///   path does discard. No type can tell a lie about the reason from the truth; what it costs is
 ///   one visible false statement instead of a silently dropped value.
-/// - **Laundering a seal.** A caller who first obtains a real outcome can bind its seal
-///   (`if case .cancelled(let seal) = …`) and mint a forged `Content` with it. That is four
-///   deliberate steps and reads as forgery at a glance, which is the most a token can buy.
+/// - **Obtaining a seal.** A caller can bind one out of a real outcome — from either case,
+///   `if case .cancelled(let seal) = …` or `.completed(_, _, let seal)` — and mint a forged
+///   `Content` with it. Obtaining a real outcome first is not even necessary: ``Seal`` is an empty
+///   struct, so it is zero bytes wide, and `unsafeBitCast((), to: Seal.self)` produces one from
+///   nothing. What the token buys is not impossibility; it is that every route reads as forgery at
+///   a glance, in a deliberate line, instead of hiding behind an ordinary-looking signature.
 ///
 /// See ``CapturedAudio`` for the third one that used to be here — `Optional` satisfying `Audio` —
 /// and how the constraint closes it.
@@ -72,8 +75,11 @@ public struct SessionOutcome<Audio: CapturedAudio>: Sendable {
     /// Proof that a ``Content`` was minted by ``SessionOutcome/make(reason:audio:)``.
     ///
     /// Its initializer is `fileprivate`, so no other file — in this module or any other — can
-    /// produce one, and therefore no other file can construct a `Content` at all. That is what
-    /// makes `make` the only route rather than merely the intended one.
+    /// produce one **without an unsafe primitive**, and therefore no other file can construct a
+    /// `Content` at all. That is what makes `make` the only route rather than merely the intended
+    /// one. The qualifier is not pedantry: this type is empty and therefore zero bytes wide, so
+    /// `unsafeBitCast((), to: Seal.self)` still mints one. See the owning type's "What this still
+    /// does not prevent".
     ///
     /// `Hashable`, not just `Sendable`: `Content`'s `Equatable` synthesis needs every payload to
     /// be `Equatable`, and the synthesis fails without it.

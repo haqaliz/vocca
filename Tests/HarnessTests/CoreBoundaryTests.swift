@@ -450,13 +450,35 @@ final class CoreBoundaryTests: XCTestCase {
                 error is CoreBoundaryTestError,
                 "Expected the scan to refuse a missing directory, got \(error)")
         }
+
+        // The same guard on the transitive walk, which has its own copy of it. That copy was
+        // never exercised: `disallowedReExports` returns `[]` both when nothing re-exports
+        // anything and when it was handed a directory with no Swift in it, so the rule that walks
+        // nothing today would have reported a clean bill of health for a VoccaCore that had moved.
+        XCTAssertThrowsError(
+            try disallowedReExports(
+                reachableFrom: empty, permitted: [], sourcesRoot: empty, displayRoot: empty)
+        ) { error in
+            XCTAssertTrue(
+                error is CoreBoundaryTestError,
+                "Expected the re-export walk to refuse an empty tree, got \(error)")
+        }
+        XCTAssertThrowsError(
+            try disallowedReExports(
+                reachableFrom: missing, permitted: [], sourcesRoot: empty, displayRoot: empty)
+        ) { error in
+            XCTAssertTrue(
+                error is CoreBoundaryTestError,
+                "Expected the re-export walk to refuse a missing directory, got \(error)")
+        }
     }
 
     // MARK: - The other half of the seam
 
     /// `@discardableResult` must not appear in `VoccaCore`.
     ///
-    /// `decide(_:state:)` returns a ``Decision`` describing what the caller must do with the event.
+    /// `decide(_:state:config:)` returns a `Decision` describing what the caller must do with the
+    /// event.
     /// Swift warns when a non-`Void` result is dropped and CI fails on any warning, so a decision
     /// computed and thrown away does not reach `main` — see `Decision`'s own documentation for the
     /// precise, narrower claim. `@discardableResult` is the single annotation that turns that
@@ -487,6 +509,145 @@ final class CoreBoundaryTests: XCTestCase {
             value this module returns is an instruction the caller has to carry out; the compiler \
             warning for an unused result is the only thing that makes dropping one visible, and \
             CI turns that warning into a failure. Do not switch it off here.
+            """)
+    }
+
+    /// `VoccaCore` must hold no mutable global state.
+    ///
+    /// This is the structural half of the prohibition `decide(_:state:config:)` is written under:
+    /// modifier state is derived from the event in hand and never accumulated. `decide` is a free
+    /// function, so it has no storage of its own — the *only* place a running total could live is a
+    /// mutable global, and Swift 6's strict concurrency leaves exactly these spellings for one.
+    /// Each is a deliberate annotation; none of them belongs in a module of pure decision functions.
+    ///
+    /// The behavioural half lives in `SessionDecisionTests`: the purity test evaluates the same
+    /// inputs forwards and backwards and requires identical answers, which is what state carried
+    /// between calls would fail. Both halves, because either alone is escapable — a lint cannot see
+    /// state smuggled in behind a type, and a property test cannot see state that has not yet
+    /// desynchronised.
+    func testVoccaCoreHoldsNoMutableGlobalState() throws {
+        let moduleRoot = try voccaCoreRoot()
+        let files = SwiftSourceScanner.swiftFiles(under: moduleRoot)
+        guard !files.isEmpty else {
+            throw CoreBoundaryTestError.noSwiftFilesScanned(under: moduleRoot.path)
+        }
+
+        var offenders: [String] = []
+        for file in files {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            for marker in Self.mutableGlobalStateMarkers(in: source) {
+                offenders.append("\(displayPath(of: file, from: try sourcesRoot())): \(marker)")
+            }
+        }
+        XCTAssertEqual(
+            offenders.sorted(), [],
+            """
+            Mutable global state in VoccaCore: \(offenders.sorted().joined(separator: "; ")).
+
+            A running modifier total is the Handy #840 defect — v0.2.0 accumulated on \
+            flagsChanged and desynchronised permanently after one missed event, leaving the \
+            microphone open — and a global is the only place one could live in a module of free \
+            functions. Derive modifier state from event.modifiers, every time.
+            """)
+
+        // Positive control, sharing the scan. Both halves are needed and the second one is not
+        // decoration: the first version of this lint matched `static var` as a bare substring and
+        // failed on `RetainedEndReason.allCases`, which is a *computed* property that CaseIterable
+        // requires to be a `var`. A lint that fires on correct code gets loosened or deleted, so
+        // the false positive is pinned here alongside the true ones.
+        let caught = Self.mutableGlobalStateMarkers(
+            in: """
+                nonisolated(unsafe) var heldModifiers = ModifierSet()
+                enum Held { static var modifiers = ModifierSet() }
+                enum Typed { static var modifiers: ModifierSet = [] }
+                @MainActor final class Isolated {}
+                @globalActor actor Custom {}
+                // nonisolated(unsafe) var commentedOut = 0
+                """)
+        XCTAssertEqual(
+            Set(caught),
+            ["nonisolated(unsafe)", "@MainActor", "@globalActor", "stored static var"],
+            "The lint cannot see a spelling of mutable global state, so it permits it.")
+        XCTAssertEqual(
+            caught.filter { $0 == "stored static var" }.count, 2,
+            "Both the inferred and the annotated stored form must be seen, not just one.")
+
+        let mustNotFire = Self.mutableGlobalStateMarkers(
+            in: """
+                public static var allCases: [RetainedEndReason] {
+                    [.keyUp] + SystemTrigger.allCases.map(RetainedEndReason.systemEvent)
+                }
+                static let permitted: Set<String> = []
+                var local = 0
+                """)
+        XCTAssertEqual(
+            mustNotFire, [],
+            """
+            The lint reported \(mustNotFire) for a computed `static var`, a `static let`, or a \
+            local. None of the three is global mutable state, and a lint that fails on correct \
+            code is a lint someone loosens.
+            """)
+    }
+
+    /// Every spelling of mutable global state Swift 6 still permits, found in `source`.
+    ///
+    /// Swift 6's strict concurrency already rejects an unannotated global `var` or stored
+    /// `static var` outright — the compiler's own fix-its name the ways out, and these are they.
+    /// `actor` is deliberately absent: task 4's session may legitimately be one, and forbidding it
+    /// would be a lint written against the next unit of work rather than against the defect.
+    /// `static let` is absent because an immutable constant is not state.
+    ///
+    /// Comments are stripped first, so a doc comment discussing the prohibition does not trip it.
+    private static func mutableGlobalStateMarkers(in source: String) -> [String] {
+        let stripped = SwiftSourceScanner.stripComments(from: source)
+        var found = ["nonisolated(unsafe)", "@MainActor", "@globalActor"]
+            .filter { stripped.contains($0) }
+
+        // A *stored* static var: `static var x =` or `static var x: T =`. A computed one is
+        // `static var x: T {` and has no `=` before the brace, which is what keeps `allCases` and
+        // every other CaseIterable conformance out of this.
+        let storedStaticVar = try? NSRegularExpression(
+            pattern: #"static\s+var\s+\w+\s*(?::[^={}\n]+)?="#)
+        let range = NSRange(stripped.startIndex..<stripped.endIndex, in: stripped)
+        let matches = storedStaticVar?.numberOfMatches(in: stripped, range: range) ?? 0
+        found.append(contentsOf: repeatElement("stored static var", count: matches))
+        return found
+    }
+
+    /// Two properties of `SessionOutcome` that no other test in this suite can fail on.
+    ///
+    /// Both are source pins, for the same reason `@discardableResult` above is one: each is a small
+    /// edit that reads as harmless and silently removes an invariant, and neither is visible to a
+    /// behavioural test written in this module.
+    ///
+    /// 1. **`<Audio: CapturedAudio>`.** Widen it back to `Sendable` and `SessionOutcome<[Float]?>`
+    ///    type-checks again, which makes `.completed(reason: .ceilingReached, audio: nil)` legal —
+    ///    "ended a session without producing audio", type-approved. `SessionVocabularyTests`
+    ///    catches that only through a conformance query on `Optional`, which a blanket conformance
+    ///    would satisfy; this catches the constraint being dropped outright.
+    /// 2. **`case cancelled(Seal)`.** The seal is what makes `make(reason:audio:)` the only route
+    ///    to a `Content` rather than merely the intended one. Take it off this case and a sibling
+    ///    file can mint `.cancelled` directly, which is a stop rule routed to the discard path
+    ///    with no reason attached — the one thing the split enum exists to prevent.
+    func testSessionOutcomeKeepsItsAudioConstraintAndItsSealedCancellation() throws {
+        let file = try voccaCoreRoot().appendingPathComponent("SessionOutcome.swift")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+
+        XCTAssertTrue(
+            source.contains("<Audio: CapturedAudio>"),
+            """
+            SessionOutcome no longer constrains its audio to CapturedAudio. Widened to Sendable, \
+            Optional satisfies it again and `.completed(reason: .ceilingReached, audio: nil)` \
+            becomes legal — a session that ended without producing the audio it owes downstream, \
+            with the property test that is supposed to catch that passing while emitting nothing.
+            """)
+        XCTAssertTrue(
+            source.contains("case cancelled(Seal)"),
+            """
+            SessionOutcome.Content.cancelled no longer demands a Seal. Without it any file in this \
+            module can construct the discard case directly, and the single-funnel guarantee — that \
+            the mapping from EndReason to fate exists in exactly one reviewed switch — is gone.
             """)
     }
 }
