@@ -37,15 +37,16 @@ public enum SystemTrigger: Sendable, Hashable, CaseIterable {
 
 /// A reason a session ended **with audio that must be handed downstream**.
 ///
-/// These are the six stop rules. Every one of them ends a session the user did not ask to
-/// abandon, so every one of them owes its captured audio to whatever comes next: the invariant is
-/// that a transcript is never lost, and an unexpectedly-ended session yields its audio to custody
-/// rather than discarding it.
+/// The six stop rules of hold-to-talk, plus toggle mode's. Every one of them ends a session the
+/// user did not ask to abandon, so every one of them owes its captured audio to whatever comes
+/// next: the invariant is that a transcript is never lost, and an unexpectedly-ended session yields
+/// its audio to custody rather than discarding it.
 ///
 /// That obligation is enforced by the type, not by discipline. This enum is the only thing
-/// ``SessionOutcome/completed(reason:audio:)`` accepts, and that case cannot be constructed
-/// without an audio value — so a new stop rule added here is *structurally* incapable of reaching
-/// the discard path. See ``EndReason`` for the other half of the argument.
+/// ``SessionOutcome/Content/completed(reason:audio:)`` carries, and the only route to it is
+/// ``SessionOutcome/make(reason:audio:)``, which is total over ``EndReason`` — so a new stop rule
+/// added here is handed its audio automatically and cannot reach the discard path. See
+/// ``SessionOutcome`` for why an enum alone was not enough.
 public enum RetainedEndReason: Sendable, Hashable {
     /// (a) Key-up on the configured key.
     case keyUp
@@ -63,6 +64,15 @@ public enum RetainedEndReason: Sendable, Hashable {
     /// (f) A poll of the physical key state found it released, so a key-up was missed.
     case pollDetectedRelease
 
+    /// Toggle mode: the next matching key-*down* arrived while recording.
+    ///
+    /// Not `.keyUp`. In toggle mode stop rules (a)/(b)/(c) are replaced by "next matching
+    /// key-down", and labelling that `.keyUp` would be false about the event that caused it —
+    /// exactly the mislabelling the split-enum design exists to prevent. Named here rather than
+    /// when toggle mode is implemented, because adding it later means paying the compile-error
+    /// cascade in a commit that is about something else.
+    case toggledOff
+
     /// A system event made continuing impossible or wrong.
     case systemEvent(SystemTrigger)
 }
@@ -75,22 +85,24 @@ extension RetainedEndReason: CaseIterable {
     /// exists to prevent: it switches over this enum exhaustively, so a new case fails to compile
     /// there until it is added here too.
     public static var allCases: [RetainedEndReason] {
-        [.keyUp, .modifierReleased, .tapDisabled, .ceilingReached, .pollDetectedRelease]
-            + SystemTrigger.allCases.map(RetainedEndReason.systemEvent)
+        [
+            .keyUp, .modifierReleased, .tapDisabled, .ceilingReached, .pollDetectedRelease,
+            .toggledOff,
+        ] + SystemTrigger.allCases.map(RetainedEndReason.systemEvent)
     }
 }
 
 /// Every reason a session can end.
 ///
-/// Two cases, not seven, and the split is the point. `.userCancelled` is the only reason permitted
-/// to discard captured audio — the user pressed Escape and explicitly asked for it — and it is
-/// separated here from the six that are not, so that "which reasons may discard?" is a question
-/// the type answers rather than a rule someone has to remember while editing a switch.
+/// Two cases, and the split is the point. `.userCancelled` is the only reason permitted to discard
+/// captured audio — the user pressed Escape and explicitly asked for it — and it is separated here
+/// from the reasons that are not, so that "which reasons may discard?" is a question the type
+/// answers rather than a rule someone has to remember while editing a switch.
 ///
 /// A future stop rule is added to ``RetainedEndReason``, where it lands inside `.retained` and
-/// inherits the obligation to hand its audio downstream. Routing it through the discard path
-/// instead is not a mistake anyone can make quietly: it would mean adding a second top-level case
-/// here, which breaks every exhaustive switch in the package and is visible in one line of diff.
+/// inherits the obligation to hand its audio downstream. This split is necessary but not
+/// sufficient on its own: what actually enforces it is that ``SessionOutcome/make(reason:audio:)``
+/// is the only constructor of an outcome and switches over this enum exhaustively, in one file.
 public enum EndReason: Sendable, Hashable {
     /// One of the six stop rules. The captured audio travels with it.
     case retained(RetainedEndReason)

@@ -27,7 +27,25 @@ import Foundation
 /// Deliberately *not* a Swift parser. It reads text, which is what makes it usable from a test
 /// with no build-system integration — and it is why comments are stripped first rather than
 /// pattern-matched around.
+///
+/// **Known limit:** it is not string-literal aware. ``stripComments(from:)`` will treat `/*` inside
+/// a string literal as opening a block comment, and ``importedModuleNames(inSource:)`` splits on
+/// `;` inside literals too. Both usually fail towards *over*-reporting, which is the safe
+/// direction for a boundary lint — with one exception worth knowing: an unterminated `/*` inside a
+/// multi-line or raw string literal would swallow every import below it in that file. No file in
+/// `Sources/` contains one today, and a Swift-syntax dependency in the harness costs more than the
+/// risk; if that changes, this is the thing to fix first.
 enum SwiftSourceScanner {
+
+    /// One `import` statement, as the text scan understands it.
+    struct ImportStatement: Equatable {
+        /// The leading component of the imported path — the module itself.
+        let module: String
+        /// `true` for `@_exported import`, which makes the imported module's API visible to
+        /// everything that imports *this* one. That is invisible to a lint that only reads the
+        /// importing file, so it is surfaced rather than flattened away.
+        let isReExported: Bool
+    }
 
     /// Non-attribute tokens that can precede the `import` keyword: the SE-0409 access-level
     /// import modifiers. Order between these and any attributes isn't fixed, so the prefix is
@@ -116,19 +134,21 @@ enum SwiftSourceScanner {
     /// Each of those forms is here because a lint in this repository was, or would have been,
     /// blind to it. An import a lint cannot see is an import that lint permits, and a lint that
     /// permits the one form someone reaches for is not a boundary.
-    static func importedModuleNames(inSource source: String) -> [String] {
+    static func importStatements(inSource source: String) -> [ImportStatement] {
         // `;` separates statements, so it both terminates an import and can put a second one on
         // the same physical line. Treating it as a line break handles both.
         let withoutComments = stripComments(from: source)
             .replacingOccurrences(of: ";", with: "\n")
-        var result: [String] = []
+        var result: [ImportStatement] = []
         for rawLine in withoutComments.split(separator: "\n", omittingEmptySubsequences: false) {
             let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
             var tokens = trimmed.split(whereSeparator: { $0.isWhitespace }).map(String.init)
 
+            var isReExported = false
             while let first = tokens.first,
                 importPrefixModifiers.contains(first) || first.hasPrefix("@")
             {
+                if first == "@_exported" { isReExported = true }
                 tokens.removeFirst()
             }
             guard tokens.first == "import" else { continue }
@@ -140,9 +160,18 @@ enum SwiftSourceScanner {
             guard let modulePath = tokens.first else { continue }
 
             let moduleName = modulePath.split(separator: ".").first.map(String.init) ?? modulePath
-            result.append(moduleName)
+            result.append(ImportStatement(module: moduleName, isReExported: isReExported))
         }
         return result
+    }
+
+    /// ``importStatements(inSource:)`` applied to a file on disk.
+    static func importStatements(in file: URL) throws -> [ImportStatement] {
+        importStatements(inSource: try String(contentsOf: file, encoding: .utf8))
+    }
+
+    static func importedModuleNames(inSource source: String) -> [String] {
+        importStatements(inSource: source).map(\.module)
     }
 
     /// ``importedModuleNames(inSource:)`` applied to a file on disk.

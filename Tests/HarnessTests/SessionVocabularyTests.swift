@@ -31,6 +31,7 @@ private enum RetainedEndReasonTag: Hashable, CaseIterable {
     case tapDisabled
     case ceilingReached
     case pollDetectedRelease
+    case toggledOff
     /// One tag for all system triggers; that they are individually present in `allCases` is
     /// asserted separately against `SystemTrigger.allCases`, which *is* synthesised.
     case systemEvent
@@ -77,6 +78,7 @@ final class SessionVocabularyTests: XCTestCase {
             case .tapDisabled: return .tapDisabled
             case .ceilingReached: return .ceilingReached
             case .pollDetectedRelease: return .pollDetectedRelease
+            case .toggledOff: return .toggledOff
             case .systemEvent: return .systemEvent
             }
         }
@@ -201,8 +203,8 @@ final class SessionVocabularyTests: XCTestCase {
             requireSendable(Decision(action: .start, eventPropagation: .swallow)),
             Decision(action: .start, eventPropagation: .swallow))
         XCTAssertEqual(
-            requireSendable(SessionOutcome<[Int]>.completed(reason: .keyUp, audio: [1])),
-            .completed(reason: .keyUp, audio: [1]))
+            requireSendable(SessionOutcome.make(reason: .retained(.keyUp), audio: [1])),
+            SessionOutcome.make(reason: .retained(.keyUp), audio: [1]))
     }
 
     // MARK: - ModifierSet
@@ -265,31 +267,66 @@ final class SessionVocabularyTests: XCTestCase {
 
     // MARK: - The discard path
 
-    /// The structural claim about `.userCancelled`, stated as a test so it is not merely a comment.
+    /// The custody invariant, tested against the function that now enforces it.
     ///
-    /// `SessionOutcome.completed` requires an `Audio` value, so no stop rule can end a session
-    /// without handing its audio on; `SessionOutcome.cancelled` carries no `RetainedEndReason`, so
-    /// no stop rule can be routed down the one path that discards. The compiler enforces both —
-    /// what this test adds is the record of *which* property is being relied on, so that a future
-    /// change to `SessionOutcome` that quietly removes it has something to break.
-    func testOnlyCancellationYieldsAnOutcomeWithoutAudio() {
+    /// The previous version of this test built `.completed(reason:audio:)` by hand and asserted it
+    /// destructured back to itself — a tautology over a value it had just constructed. It survived
+    /// the mutation that destroys the whole property (`audio: Audio` → `audio: Audio?`, which makes
+    /// `.completed(reason: .ceilingReached, audio: nil)` legal) with 8/8 green.
+    ///
+    /// What is tested now is ``SessionOutcome/make(reason:audio:)``, the only constructor there is:
+    /// that it is **total** over the reasons and that the fate it picks is a **function of the
+    /// reason**. Route any retaining reason to the discard path and this fails on that reason by
+    /// name.
+    func testOnlyCancellationProducesAnOutcomeWithoutAudio() {
         for reason in RetainedEndReason.allCases {
-            let outcome = SessionOutcome.completed(reason: reason, audio: [1, 2, 3])
-            switch outcome {
+            switch SessionOutcome.make(reason: .retained(reason), audio: [1, 2, 3]).content {
             case .completed(let carried, let audio):
                 XCTAssertEqual(carried, reason)
-                XCTAssertEqual(audio, [1, 2, 3])
+                // Pinned to the non-optional element type deliberately. `XCTAssertEqual` would
+                // coerce `[Int]?` and pass, so without this line a weakening of the payload to
+                // `Audio?` — the mutation that killed the previous version of this test — is
+                // invisible. Written as an annotated binding so it fails at compile time.
+                let carriedAudio: [Int] = audio
+                XCTAssertEqual(carriedAudio, [1, 2, 3])
             case .cancelled:
-                XCTFail("A retaining reason produced a cancelled outcome: \(reason)")
+                XCTFail(
+                    """
+                    \(reason) reached the discard path. Only .userCancelled may discard captured \
+                    audio — every other reason ends a session the user did not ask to abandon, \
+                    and owes its audio downstream.
+                    """)
             }
         }
 
-        let cancelled = SessionOutcome<[Int]>.cancelled
-        switch cancelled {
+        switch SessionOutcome.make(reason: .userCancelled, audio: [1, 2, 3]).content {
         case .completed(let reason, _):
             XCTFail("Cancellation produced audio to hand on, attributed to \(reason)")
         case .cancelled:
             break
         }
+    }
+
+    /// Cancellation never even evaluates the audio it is not going to use.
+    ///
+    /// Small, and worth pinning: `audio` is an `@autoclosure`, so "the buffer was discarded" and
+    /// "the buffer was never asked for" are different executions. If the autoclosure is ever
+    /// dropped in favour of an eager parameter, the discard path starts materialising a buffer it
+    /// exists to avoid, and this says so.
+    func testCancellationNeverEvaluatesTheCapturedAudio() {
+        final class Counter: @unchecked Sendable {
+            var evaluations = 0
+        }
+        let counter = Counter()
+        func buffer() -> [Int] {
+            counter.evaluations += 1
+            return [1, 2, 3]
+        }
+
+        _ = SessionOutcome.make(reason: .userCancelled, audio: buffer())
+        XCTAssertEqual(counter.evaluations, 0, "Cancellation evaluated the audio it discards.")
+
+        _ = SessionOutcome.make(reason: .retained(.keyUp), audio: buffer())
+        XCTAssertEqual(counter.evaluations, 1, "A retaining reason must evaluate the audio exactly once.")
     }
 }

@@ -38,14 +38,15 @@ public enum EventPropagation: Sendable, Hashable, CaseIterable {
 /// | ignore | `Decision(action: .ignore, eventPropagation: .passThrough)` |
 /// | swallow and ignore | `Decision(action: .ignore, eventPropagation: .swallow)` |
 ///
-/// **The caller cannot forget to act on one.** Three things arrange that, and none of them is a
-/// comment:
+/// **The caller cannot *silently* drop one** — which is the true claim, and narrower than it is
+/// tempting to write. `decide(event, state:)` on its own warns that the result is unused, and CI
+/// fails the build on any warning; `_ = decide(event, state:)` is one character longer and is
+/// silent. No Swift type can prevent that. What is arranged is that ignoring a decision has to be
+/// written down:
 ///
-/// 1. `decide(_:state:)` returns this and is not — must never be — `@discardableResult`. Swift
-///    warns when a non-`Void` result is dropped and CI fails the build on any warning, so a
-///    computed-and-ignored decision does not reach `main`. `CoreBoundaryTests` asserts that no
-///    `@discardableResult` appears anywhere in this module, because that annotation is the one
-///    line that would switch the protection off.
+/// 1. `decide(_:state:)` returns this and is not — must never be — `@discardableResult`, which is
+///    the one line that would remove even the bare-drop warning. `CoreBoundaryTests` asserts that
+///    the annotation appears nowhere in this module.
 /// 2. There is no "nothing to do" value. `.ignore` still carries a propagation choice, so even the
 ///    uninteresting events force the caller to state whether the app downstream sees them.
 /// 3. Nothing here is readable except by destructuring it. There is no `isStart` shortcut to

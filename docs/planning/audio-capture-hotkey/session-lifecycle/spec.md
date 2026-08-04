@@ -27,9 +27,11 @@ without exception — and the audio captured before that point is never thrown a
 func decide(_ event: RawKeyEvent, state: SessionState) -> Decision
 ```
 - Pure. Same inputs → same output. No clock read, no I/O, no globals.
-- `RawKeyEvent` is a **POD struct** (`type`, `keyCode`, `flags`, `isAutorepeat`, `timestamp`).
+- `RawKeyEvent` is a **POD struct** (`kind`, `keyCode`, `modifiers`, `isAutorepeat`, `timestamp`).
   No `CGEvent` type ever crosses this boundary — that is what makes the tests possible.
-- **Modifier state is derived from `event.flags` on every event and never accumulated.**
+  (`kind`/`modifiers` rather than `type`/`flags`: `type` reads as the Swift keyword and `flags`
+  invites the assumption that it is a `CGEventFlags`, which is the one thing it must never be.)
+- **Modifier state is derived from `event.modifiers` on every event and never accumulated.**
   This is the [Handy #840](https://github.com/cjpais/Handy/issues/840) defect: v0.1.4 derived
   and worked, v0.2.0 accumulated on `flagsChanged` and desynced permanently after one missed
   event. The prohibition is the requirement.
@@ -57,7 +59,12 @@ cause. Rule (c) is free, since every keyboard event is already visible.
   and poll-interval tests must be deterministic and instant.
 - **Exactly one** `endSession(reason: EndReason)` funnel. Every stop path goes through it.
 - `EndReason` is an enum: `.keyUp`, `.modifierReleased`, `.tapDisabled`, `.ceilingReached`,
-  `.pollDetectedRelease`, `.systemEvent(SystemTrigger)`, `.userCancelled`.
+  `.pollDetectedRelease`, `.toggledOff`, `.systemEvent(SystemTrigger)`, `.userCancelled`.
+  `.toggledOff` is toggle mode's stop (below): the next matching key-*down*, which is not a
+  `.keyUp` and must not be labelled as one.
+  As shipped these are grouped one level deep — `RetainedEndReason` for everything except
+  cancellation, wrapped as `EndReason.retained(_)` — so that the reasons owing their audio
+  downstream are a type rather than a convention. See `SessionOutcome`.
 - **Every terminal transition hands the captured buffer downstream.** Discard is not
   representable in the type — mirroring `ARCHITECTURE.md:294` ("an unexpectedly-ended session
   yields its transcript to custody rather than discarding it") and `CAPABILITY_ROADMAP.md:20`.
