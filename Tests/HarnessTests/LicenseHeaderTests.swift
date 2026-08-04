@@ -31,10 +31,18 @@ private enum LicenseHeaderTestError: Error, CustomStringConvertible {
     }
 }
 
-/// Enforces that every source file under `Sources/` and `Tests/` (except the SwiftPM manifest
-/// `Package.swift`, which must start with a `// swift-tools-version:` comment) begins with the
-/// exact Apache-2.0 header block.
+/// Enforces that every source file under `Sources/`, `Tests/` and `App/` (except the SwiftPM
+/// manifest `Package.swift`, which must start with a `// swift-tools-version:` comment) begins
+/// with the exact Apache-2.0 header block.
 final class LicenseHeaderTests: XCTestCase {
+    /// Directories scanned, relative to the package root.
+    ///
+    /// `App/` holds the Xcode app target's sources. It is outside the SwiftPM package, so it is
+    /// invisible to every other harness suite — which is exactly why it has to be named here. The
+    /// licence is a distribution obligation on shipped code, and `App/` is the only source in this
+    /// repository that literally ships.
+    private static let scannedDirectories = ["Sources", "Tests", "App"]
+
     /// File extensions the header rule applies to. C and headers are included because the
     /// package contains `.c`/`.h` sources; a `//`-comment header is valid in both.
     private static let coveredExtensions: Set<String> = ["swift", "c", "h"]
@@ -85,12 +93,12 @@ final class LicenseHeaderTests: XCTestCase {
         return results
     }
 
-    /// Every covered source file under `Sources/` and `Tests/`, excluding `Package.swift` (which
-    /// is not under either directory, but is guarded against explicitly in case that changes).
+    /// Every covered source file under ``scannedDirectories``, excluding `Package.swift` (which is
+    /// not under any of them, but is guarded against explicitly in case that changes).
     private func filesRequiringHeader() throws -> [URL] {
         let packageRoot = try findPackageRoot(from: #filePath)
         var files: [URL] = []
-        for subdirectory in ["Sources", "Tests"] {
+        for subdirectory in Self.scannedDirectories {
             let dir = packageRoot.appendingPathComponent(subdirectory)
             files.append(contentsOf: sourceFiles(under: dir))
         }
