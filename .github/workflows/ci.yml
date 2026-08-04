@@ -1,0 +1,183 @@
+# Copyright 2026 The Vocca Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Vocca CI
+#
+# Three jobs, and the split matters: the headless job proves the package compiles and behaves,
+# the two bundle jobs prove the *signed application* is configured the way macOS needs it to be.
+# Those are different claims. A green package says nothing about whether the shipped .app carries
+# the microphone entitlement, and a missing entitlement is denied by macOS with no prompt and no
+# error — silence, and nothing in any log.
+#
+# There are no secrets here and there must never be. The app target signs ad-hoc
+# (Config/Signing.xcconfig falls back to CODE_SIGN_IDENTITY = "-" when the host-local override is
+# absent), which needs no identity, no keychain and no Developer ID. That is the whole reason the
+# bundle assertions can be mandatory in CI rather than skipped. If a change to this file ever needs
+# a secret, the change is wrong.
+#
+# Read docs/SMOKE_CHECKLIST.md before reading a green badge as more than it is. Everything that
+# needs a microphone, an Accessibility grant or a real TCC prompt is structurally unreachable from a
+# hosted runner, and those are the parts of Vocca most likely to break.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A push to a PR branch triggers both events; the older run of the same ref is cancelled rather
+# than left burning runner minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Set deliberately rather than inherited. GitHub already exports CI=true and GITHUB_ACTIONS=true,
+  # and Tests/HarnessTests/NetworkInterposer.swift keys on either being present to raise the
+  # zero-network probe's settle window from 0.75s to 6s. Declaring it here means the raised window
+  # is a property of this workflow, not of a GitHub default that could change underneath us.
+  CI: "1"
+
+  # The package floor is macOS 15 and this pins the toolchain to match it. Selected explicitly
+  # below rather than inherited: a runner image bumping its default Xcode should be a job that
+  # fails loudly, not a quiet change in what is being tested.
+  XCODE_MAJOR: "16"
+
+jobs:
+  headless:
+    name: Headless suite (strict concurrency)
+    # Pinned, never macos-latest. The package declares .macOS(.v15); testing at the declared floor
+    # is what makes the declaration mean something, and a silent runner bump would otherwise change
+    # what is tested without a single line of diff.
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Select Xcode ${{ env.XCODE_MAJOR }}.x
+        run: |
+          set -euo pipefail
+          candidate="$(ls -d /Applications/Xcode_"$XCODE_MAJOR"*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$candidate" ]; then
+            echo "::error::No Xcode $XCODE_MAJOR.x is installed on this runner. Found: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')"
+            echo "Refusing to fall back to the runner default: an unpinned toolchain means the next image update silently changes what CI measures."
+            exit 1
+          fi
+          sudo xcode-select -s "$candidate/Contents/Developer"
+          xcodebuild -version
+          swift --version
+
+      - name: Confirm the CI environment the harness keys on
+        run: |
+          set -euo pipefail
+          echo "CI=${CI:-<unset>}  GITHUB_ACTIONS=${GITHUB_ACTIONS:-<unset>}"
+          # NetworkInterposer.Session.isContinuousIntegration returns true when either is present,
+          # which is what raises the probe's settle window to 6s. If neither reaches the job, the
+          # zero-network test still runs but with the 0.75s local window, and deferred egress that
+          # a loaded runner pushes past that window would pass unnoticed. That is a silent green,
+          # so it is checked rather than assumed.
+          if [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+            echo "::error::Neither CI nor GITHUB_ACTIONS is set, so the zero-network probe would use the 0.75s local settle window."
+            exit 1
+          fi
+
+      - name: Build tests under strict concurrency (any warning fails)
+        run: |
+          set -euo pipefail
+          swift build --build-tests -Xswiftc -strict-concurrency=complete 2>&1 | tee "$RUNNER_TEMP/build.log"
+          if grep -n "warning:" "$RUNNER_TEMP/build.log"; then
+            echo "::error::Strict-concurrency warnings above. This project is Swift 6 strict-concurrency clean and stays that way: a data race on the audio path is the hardest class of bug to reproduce and the easiest to ship."
+            exit 1
+          fi
+
+      # Never a bare `swift test`. It exits 0 when it discovers nothing, which would make this
+      # step — and both bundle jobs below — green while executing not one assertion. See the
+      # header of Scripts/test-with-floor.sh for the measurement.
+      - name: Run the suite (with a test-count floor)
+        run: ./Scripts/test-with-floor.sh
+
+  bundle:
+    # Two jobs, one per configuration, because the entitlement rules genuinely differ between them:
+    # Debug is allowed com.apple.security.get-task-allow so a debugger can attach, and Release must
+    # not have it — it exposes process memory (live audio and transcripts) to any same-user process
+    # and notarization rejects it.
+    name: Bundle contract (${{ matrix.configuration }})
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: Debug
+            derived_data: .build/xcode
+          - configuration: Release
+            derived_data: .build/xcode-release
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Select Xcode ${{ env.XCODE_MAJOR }}.x
+        run: |
+          set -euo pipefail
+          candidate="$(ls -d /Applications/Xcode_"$XCODE_MAJOR"*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$candidate" ]; then
+            echo "::error::No Xcode $XCODE_MAJOR.x is installed on this runner. Found: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')"
+            exit 1
+          fi
+          sudo xcode-select -s "$candidate/Contents/Developer"
+          xcodebuild -version
+
+      - name: Confirm the runner has no signing identity
+        run: |
+          set -euo pipefail
+          # Not a gate, a record. This job's premise is that ad-hoc signing needs nothing, and the
+          # log should say plainly what the runner had available when the bundle assertions passed.
+          security find-identity -v -p codesigning || true
+          test ! -f Config/Signing.local.xcconfig \
+            || echo "::warning::Config/Signing.local.xcconfig exists on a runner; it is gitignored host-local state and should never be checked in."
+
+      - name: Build Vocca.app (${{ matrix.configuration }})
+        run: |
+          set -euo pipefail
+          xcodebuild -project Vocca.xcodeproj -scheme Vocca \
+                     -configuration ${{ matrix.configuration }} \
+                     -derivedDataPath ${{ matrix.derived_data }} build
+
+      - name: Report what was actually signed
+        run: |
+          set -euo pipefail
+          app="${{ matrix.derived_data }}/Build/Products/${{ matrix.configuration }}/Vocca.app"
+          codesign -d --verbose=2 "$app" 2>&1 || true
+          codesign -d --entitlements :- --xml "$app" 2>/dev/null || true
+
+      # Same floor as the headless job, and for the same reason: with discovery broken this job
+      # would build a bundle, look at nothing, and report success.
+      - name: Run the suite against the built bundle (with a test-count floor)
+        env:
+          # With this set, a missing bundle is a hard failure instead of a skip. That is the point
+          # of the variable and the reason this job is not decorative.
+          VOCCA_APP_BUNDLE: ${{ matrix.derived_data }}/Build/Products/${{ matrix.configuration }}/Vocca.app
+          # And with this set, a bundle of the wrong configuration is a hard failure too. Without
+          # it, this job's correctness would rest entirely on the path string above: a Debug bundle
+          # satisfies every assertion in the suite legitimately, so a copy-pasted path would leave
+          # the Release job green forever while never once examining a Release build.
+          VOCCA_EXPECTED_CONFIGURATION: ${{ matrix.configuration }}
+        run: ./Scripts/test-with-floor.sh

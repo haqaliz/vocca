@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Exactly one entitlement, deliberately.
+
+	  Required: the hardened runtime is enabled, and under it a process without
+	  com.apple.security.device.audio-input is denied the microphone *without a
+	  prompt* — no dialog, no error, no audio.
+
+	  Deliberately absent, and asserted absent by the bundle tests:
+
+	    com.apple.security.app-sandbox
+	      would confine Vocca to a container and cut it off from the Accessibility
+	      API, global hotkey monitoring and system-wide text injection — the entire
+	      product.
+
+	    com.apple.security.cs.disable-library-validation
+	      would weaken the hardened runtime so unsigned or differently-signed
+	      libraries could be loaded into the process. Vocca links only its own code
+	      and Apple frameworks, so it buys nothing and costs a real guarantee.
+
+	  Every addition here widens what a signed Vocca binary is permitted to do on a
+	  user's machine. Add one only with an argument for it in the same change.
+	-->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

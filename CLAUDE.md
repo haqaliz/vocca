@@ -2,11 +2,35 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status:** planned, not built. The planning session is **done** — `docs/ROADMAP.md`,
-> `docs/technical/CAPABILITY_ROADMAP.md`, `docs/technical/ARCHITECTURE.md`, and
-> `docs/product/PRODUCT_SPEC.md` all exist. **`ARCHITECTURE.md` is now authoritative on
-> technical direction** (see "Tech direction" below). The next step is implementation,
-> starting at **C1** (audio capture + global hotkey). Keep these docs in sync as things ship.
+> **Status:** the **project skeleton for C1 exists**; the product does not. Implementation of C1
+> (audio capture + global hotkey) is under way and this is its scaffolding, not its behaviour.
+>
+> **What is built and enforced:**
+> - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
+>   `VoccaHotkey`, `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`,
+>   `VoccaBootstrap` — **every one a placeholder**. No audio, no hotkey, no ASR, no injection.
+> - `App/` + `Vocca.xcodeproj`: builds a signed, **unsandboxed, hardened-runtime** `Vocca.app`
+>   with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
+> - `Scripts/`: `dev-identity.sh` (stable self-signed identity so TCC grants survive rebuilds),
+>   `sign.sh`, `notarize.sh`, `test-with-floor.sh`.
+> - `Tests/HarnessTests/`: 33 tests — the **zero-network invariant** (a `dyld` interposer over
+>   `connect(2)` driving a probe binary), module-boundary lint, licence-header lint, package-manifest
+>   coverage guard, and the built-bundle/entitlement contracts.
+> - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
+>   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
+>   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.
+>
+> **What is NOT proven, and must not be claimed:**
+> - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no
+>   Apple Developer ID and no `notarytool` credential. Only its credential-detect-and-skip path
+>   is exercised.
+> - **CI cannot reach the parts most likely to break**: `CGEvent.tapCreate` returns `nil` with no
+>   Accessibility grant and TCC cannot be granted on a hosted runner; there is no microphone; and
+>   `AVAudioSinkNode` is unsupported in manual rendering mode, so the realtime capture path has no
+>   offline equivalent. See `docs/SMOKE_CHECKLIST.md` — it states the limits precisely.
+>
+> **`ARCHITECTURE.md` is authoritative on technical direction** (see "Tech direction" below).
+> Keep these docs in sync as things ship.
 
 ---
 
@@ -153,17 +177,24 @@ VISION.md                              # Narrative thesis, moat, non-goals ✅
 CLAUDE.md                              # This file
 docs/
   ROADMAP.md                           # P0–P5 phases: milestones, metrics, exit gates ✅
+  SMOKE_CHECKLIST.md                   # What CI structurally cannot cover + manual release steps ✅
   technical/CAPABILITY_ROADMAP.md      # C1–C14 independently-shippable build backlog ✅
   technical/ARCHITECTURE.md            # AUTHORITATIVE: types, seams, threading, failures ✅
   product/PRODUCT_SPEC.md              # Widget states, interaction, onboarding, settings ✅
+  planning/                            # Per-unit-of-work PRDs, aspect specs and tech plans ✅
+    <unit>/prd.md                      #   e.g. audio-capture-hotkey/prd.md
+    <unit>/<aspect>/spec.md            #   e.g. audio-capture-hotkey/project-skeleton/spec.md
 ```
 
 **Which doc wins when they disagree:** `ROADMAP.md` on *sequencing and gates*;
 `ARCHITECTURE.md` on *technical design*; `PRODUCT_SPEC.md` on *user-visible behavior*;
-`VISION.md` and this file on *scope and strategy*.
+`SMOKE_CHECKLIST.md` on *what a green CI badge does and does not mean*; `VISION.md` and this file
+on *scope and strategy*. `docs/planning/` is per-unit-of-work and is scoped to the unit it names —
+it never overrides the four above.
 
-**The immediate next artifact is code**, starting at C1 in `CAPABILITY_ROADMAP.md`. Every
-capability there names its acceptance as a test to write *before* the implementation.
+**The immediate next artifact is code**, continuing at C1 in `CAPABILITY_ROADMAP.md` — the skeleton
+above is C1's scaffolding, not C1. Every capability there names its acceptance as a test to write
+*before* the implementation.
 
 ## Two things a coding agent should know before touching anything
 

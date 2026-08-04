@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  FROZEN FOREVER. DO NOT CHANGE THIS VALUE AFTER THE FIRST RELEASE.
+
+	  macOS keys every TCC permission grant — Microphone, Accessibility, Input
+	  Monitoring — on the bundle identifier together with the code signature.
+	  Changing this string makes macOS treat the build as a different application:
+	  every existing user's grants are silently revoked, the permissions pane shows
+	  a stale duplicate entry, and there is no migration path and no warning. The
+	  user's first hint is that dictation stopped working.
+
+	  BundleConfigurationTests and BuiltBundleTests both pin this value, and
+	  BundleConfigurationTests additionally pins PRODUCT_BUNDLE_IDENTIFIER in
+	  Vocca.xcodeproj to the same string, so the two cannot drift apart.
+	-->
+	<key>CFBundleIdentifier</key>
+	<string>dev.vocca.Vocca</string>
+
+	<key>CFBundleName</key>
+	<string>Vocca</string>
+	<key>CFBundleDisplayName</key>
+	<string>Vocca</string>
+	<key>CFBundleExecutable</key>
+	<string>Vocca</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+
+	<!--
+	  Vocca is a background agent with a floating widget, not a windowed app: no
+	  Dock icon, no menu bar, and it must never steal focus. Taking focus would move
+	  the system's idea of the frontmost application away from whatever the user was
+	  typing in, which is precisely the field the transcript has to be injected into.
+	-->
+	<key>LSUIElement</key>
+	<true/>
+
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+
+	<!--
+	  Required, and load-bearing in a way that is easy to miss: with this key absent
+	  or empty, macOS denies microphone access and never presents a prompt. The app
+	  receives silence, no error is raised anywhere, and nothing appears in the
+	  Privacy pane to explain it.
+	-->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Vocca listens while you hold the dictation hotkey so it can turn your speech into text. Audio is transcribed on this Mac and never leaves it.</string>
+
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright 2026 The Vocca Authors. Licensed under the Apache License, Version 2.0.</string>
+
+	<!--
+	  Not an Apple key. This is how a built bundle tells the test suite which build
+	  configuration produced it, and it exists because the entitlement rules differ
+	  between the two: Debug legitimately carries
+	  com.apple.security.get-task-allow (no debugger can attach without it) and
+	  Release must not, because it lets any same-user process read the process's
+	  memory — for Vocca, live transcripts — and notarization rejects it outright.
+
+	  A check that cannot tell the configurations apart has to permit
+	  get-task-allow everywhere, which is exactly the hole that let a Release bundle
+	  carrying it pass 8/8 green.
+
+	  The value MUST stay the literal build-setting reference $(CONFIGURATION).
+	  Xcode substitutes it during the Process Info.plist phase, so the built bundle
+	  says "Debug" or "Release" and cannot say something the build did not do.
+	  Hardcoding a configuration name here would let a Release build claim to be
+	  Debug and buy back the permission it must not have — so
+	  BundleConfigurationTests.testInfoPlistDeclaresTheBuildConfigurationMarker
+	  pins this to the reference form, and BuiltBundleTests refuses to run at all
+	  when the built value is missing, unsubstituted, or not a configuration it
+	  knows the rules for.
+	-->
+	<key>VoccaBuildConfiguration</key>
+	<string>$(CONFIGURATION)</string>
+</dict>
+</plist>

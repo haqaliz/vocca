@@ -8,9 +8,11 @@ Your audio never has to leave your Mac.
 
 ---
 
-> ### ⚠️ Status: planning
+> ### ⚠️ Status: early — the skeleton exists, the product does not
 >
-> **Nothing is built yet.** This repository currently contains the plan: the vision, the phased roadmap, the capability backlog, the architecture, and the product spec. Implementation starts at **C1** (audio capture + global hotkey).
+> **There is nothing to dictate with yet.** What exists is the project skeleton for **C1** (audio capture + global hotkey): a nine-module Swift 6 package (every module a placeholder), an `App/` target that builds a signed, unsandboxed, hardened-runtime `Vocca.app`, signing and notarization scripts, and a three-job CI matrix that enforces the invariants — zero strict-concurrency warnings, zero network calls in the default configuration, module boundaries, licence headers, and the shipped bundle's entitlements.
+>
+> No audio is captured, no hotkey is registered, nothing is transcribed and nothing is injected. The plan — vision, phased roadmap, capability backlog, architecture, product spec — is all still here and still governs.
 >
 > If you're here from a link expecting a download — there isn't one yet. Star the repo if you want to know when there is.
 
@@ -65,7 +67,86 @@ Platform: **macOS on Apple Silicon.** No Windows or Linux until the Mac experien
 | [`docs/technical/CAPABILITY_ROADMAP.md`](docs/technical/CAPABILITY_ROADMAP.md) | C1–C14: the independently-shippable build backlog |
 | [`docs/technical/ARCHITECTURE.md`](docs/technical/ARCHITECTURE.md) | **Authoritative.** Types, seams, threading, failure semantics |
 | [`docs/product/PRODUCT_SPEC.md`](docs/product/PRODUCT_SPEC.md) | Widget states, interaction, onboarding, settings |
+| [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) | What CI structurally cannot cover, and the manual steps before a release |
 | [`CLAUDE.md`](CLAUDE.md) | Orientation for coding agents working in this repo |
+
+## Building & signing
+
+Vocca ships **unsandboxed** — `com.apple.security.app-sandbox` is deliberately absent from
+`App/Vocca.entitlements`. The sandbox would confine the process to a container and cut it off
+from the Accessibility API and system-wide text injection the whole product depends on, so it
+isn't an option here the way it is for most Mac apps.
+
+macOS keys every TCC permission grant (Microphone, Accessibility) on the app's **code identity**,
+not just its bundle identifier. Ad-hoc signing (`CODE_SIGN_IDENTITY = "-"`) mints a fresh identity
+on every build, which silently revokes those grants each rebuild. To avoid that during
+development:
+
+```sh
+./Scripts/dev-identity.sh          # once: creates a stable, local, self-signed "Vocca Development" identity
+xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \
+    -derivedDataPath .build/xcode build
+./Scripts/sign.sh                  # re-signs .build/xcode/Build/Products/Debug/Vocca.app with it
+```
+
+`dev-identity.sh` is idempotent and wires the identity in via `Config/Signing.local.xcconfig`
+(git-ignored, host-local). Without it, `Config/Signing.xcconfig` falls back to `-` — a fresh clone
+with no identity still builds, just back to the ad-hoc, re-grant-every-time behavior.
+
+**To reset the dev identity**, delete the keychain the script owns and rerun it:
+
+```sh
+security delete-keychain ~/Library/Keychains/vocca-dev.keychain-db
+rm -f ~/Library/Application\ Support/Vocca/dev-keychain.pass
+./Scripts/dev-identity.sh
+```
+
+That is also what to do if `dev-identity.sh` refuses to run because a certificate is present but
+not trusted — the state an earlier run leaves behind if it failed or was interrupted partway. It
+deliberately will not create a second certificate with the same name on top of the first: `codesign`
+would then be choosing between two leaf certificates, and which leaf signs the app is exactly what
+macOS keys your Microphone and Accessibility grants on.
+
+`Scripts/sign.sh` defaults to the **Debug** bundle. It reads `VoccaBuildConfiguration` out of the
+bundle and signs the two configurations differently — Debug additionally gets
+`com.apple.security.get-task-allow`, without which no debugger can attach; Release gets
+`App/Vocca.entitlements` and nothing else. For a release build, pass the path:
+`./Scripts/sign.sh .build/xcode-release/Build/Products/Release/Vocca.app`. The full release order is
+in [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md).
+
+This identity is self-signed and proves nothing to anyone but this Mac. **Notarization
+(`Scripts/notarize.sh`) is unproven** — there is no Apple Developer ID or `notarytool` credential
+configured yet, so the script has never run end to end. It detects that and exits 0 with an
+explicit skip message rather than failing; see the comment at the top of the script for how to
+configure real credentials once there's a Developer ID to notarize with.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and pull request, on a
+pinned `macos-15` runner with an explicitly selected Xcode. Three jobs:
+
+| Job | Runs | Proves |
+|---|---|---|
+| **Headless suite** | `swift build --build-tests -Xswiftc -strict-concurrency=complete`, then `swift test` | The package compiles with **zero** strict-concurrency warnings (any warning fails the job) and the whole suite passes — module boundaries, licence headers, the package manifest, and the zero-network invariant. |
+| **Bundle contract (Debug)** | `xcodebuild -configuration Debug`, then `swift test` with `VOCCA_APP_BUNDLE` set | A real signed `Vocca.app` carries the microphone entitlement and usage string, runs unsandboxed with the hardened runtime actually in the signature, and was built from the checked-in `App/` sources. |
+| **Bundle contract (Release)** | The same for Release | All of the above, **plus** that the Release bundle's entitlement set equals `App/Vocca.entitlements` exactly. Debug may carry `com.apple.security.get-task-allow`; Release may not, and the suite knows which bundle it is looking at. |
+
+**No secrets, ever.** The app target signs ad-hoc — `Config/Signing.xcconfig` falls back to
+`CODE_SIGN_IDENTITY = "-"` when the host-local override is absent — which needs no Developer ID, no
+keychain and no repository secret. That is what makes the bundle assertions *mandatory* in CI rather
+than skipped: with `VOCCA_APP_BUNDLE` set, a missing bundle is a hard failure, not a skip.
+
+CI also sets `CI=1`, which raises the zero-network probe's settle window from 0.75s to 6s so that
+deferred egress on a loaded runner cannot slip past it.
+
+### What CI does not run
+
+Everything that needs hardware or a permission grant, which is most of what can actually break:
+`CGEvent.tapCreate` returns `nil` without an Accessibility grant and TCC cannot be granted on a
+hosted runner; there is no microphone; and `AVAudioSinkNode` is unsupported in manual rendering
+mode, so the realtime capture path has no offline equivalent to exercise. Read
+[`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) — it states the limits precisely and lists the
+manual steps required before a release. **A green badge here is a narrower claim than it looks.**
 
 ## Non-goals
 
@@ -77,9 +158,9 @@ Platform: **macOS on Apple Silicon.** No Windows or Linux until the Mac experien
 
 ## Contributing
 
-Not yet — there's no code to contribute to. Once C1 lands, the seams in [`ARCHITECTURE.md`](docs/technical/ARCHITECTURE.md) are the extension points, and "add your own ASR engine" is an explicitly supported path.
+Early. What exists is the skeleton described at the top of this file — a package, an app bundle, signing scripts and CI — not a working product, so there is not yet much to build *on*. Once C1 lands, the seams in [`ARCHITECTURE.md`](docs/technical/ARCHITECTURE.md) are the extension points, and "add your own ASR engine" is an explicitly supported path.
 
-Issues and discussion about the plan itself are welcome now.
+If you do open a PR now, the bar it has to clear is CI: `swift test` (with the test-count floor in `Scripts/test-with-floor.sh`) and both bundle contracts, green. Issues and discussion about the plan itself are welcome too.
 
 ## License
 
