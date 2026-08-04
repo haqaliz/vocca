@@ -46,11 +46,12 @@
 
 set -euo pipefail
 
-# Deliberate, reviewed constant — not derived from the current run (see below for why). Set to
-# 36 after the package-root-helper consolidation (task 1 of session-lifecycle) took the suite from
-# 33 to 36 tests. Raise it by hand, in the commit that changes the count, whenever the suite grows
-# on purpose.
-MINIMUM_EXECUTED_TESTS=36
+# Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
+# 48 when the session vocabulary and its boundary lint (task 2 of session-lifecycle) added twelve
+# tests: four in CoreBoundaryTests and eight in SessionVocabularyTests. It was 36 after the
+# package-root-helper consolidation (task 1), and 33 before that. Raise it by hand, in the commit
+# that changes the count, whenever the suite grows on purpose.
+MINIMUM_EXECUTED_TESTS=48
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

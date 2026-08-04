@@ -56,20 +56,6 @@ final class PackageRootConsolidationTests: XCTestCase {
     /// a rewrite of the algorithm, not an incidental style diff.
     private static let walkFingerprint = "while dir.pathComponents.count > 1 {"
 
-    private func swiftFiles(under root: URL) -> [URL] {
-        guard
-            let enumerator = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: [.isDirectoryKey])
-        else {
-            return []
-        }
-        var results: [URL] = []
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
-            results.append(url)
-        }
-        return results
-    }
-
     /// Counts fingerprint occurrences across every `.swift` file directly or transitively under
     /// `directory`, relative to the package root. Fails rather than returning zero silently if
     /// the directory is missing or empty of Swift sources, so a moved or deleted directory cannot
@@ -85,7 +71,7 @@ final class PackageRootConsolidationTests: XCTestCase {
                 name: directory, expectedAt: root.path)
         }
 
-        let files = swiftFiles(under: root)
+        let files = SwiftSourceScanner.swiftFiles(under: root)
         guard !files.isEmpty else {
             throw PackageRootConsolidationTestError.noSwiftFilesScanned(under: root.path)
         }
@@ -102,9 +88,9 @@ final class PackageRootConsolidationTests: XCTestCase {
     }
 
     func testScansAtLeastOneSwiftFileInEachTestDirectory() throws {
-        XCTAssertGreaterThan(try swiftFiles(under: PackageRootLocator.find(from: #filePath)
+        XCTAssertGreaterThan(try SwiftSourceScanner.swiftFiles(under: PackageRootLocator.find(from: #filePath)
             .appendingPathComponent("Tests/HarnessTests")).count, 0)
-        XCTAssertGreaterThan(try swiftFiles(under: PackageRootLocator.find(from: #filePath)
+        XCTAssertGreaterThan(try SwiftSourceScanner.swiftFiles(under: PackageRootLocator.find(from: #filePath)
             .appendingPathComponent("Tests/XcodeHarnessBridge")).count, 0)
     }
 

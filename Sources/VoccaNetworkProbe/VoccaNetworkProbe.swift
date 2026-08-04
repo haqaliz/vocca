@@ -216,7 +216,12 @@ struct VoccaNetworkProbe {
         print("PROBE-BOOTSTRAP\tactivationPolicy=\(name(of: observedPolicy))")
 
         let placeholders: [Any.Type] = [
-            VoccaCorePlaceholder.self,
+            // VoccaCore no longer has a placeholder: it holds the session vocabulary now, and
+            // `SessionState` is a real type from it, which is all this list needs to keep the
+            // module inside the zero-network invariant. It is still only a metatype reference —
+            // module granularity, not work exercised. Driving VoccaCore's actual decision path
+            // from here is a later, deliberate step, not something this substitution claims.
+            SessionState.self,
             VoccaAudioPlaceholder.self,
             VoccaHotkeyPlaceholder.self,
             VoccaASRPlaceholder.self,
