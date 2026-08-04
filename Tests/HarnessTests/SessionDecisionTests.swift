@@ -33,6 +33,19 @@ private let chord = HotkeyConfiguration(keyCode: space, modifiers: [.option], ac
 /// a rule that fires anyway would be a stop nobody asked for.
 private let bareKey = HotkeyConfiguration(keyCode: 105, modifiers: [], activation: .holdToTalk)
 
+/// A **two-modifier** chord, and the reason it exists is that with 0 or 1 configured modifiers
+/// `⊇` is indistinguishable from "any configured modifier is still held".
+///
+/// A suite testing only ⌥Space and a bare key stays green while the chord predicate means
+/// *intersects* rather than *contains all* — measured, on this suite, at 75/75. Shipped, that is
+/// two defects at once, both of the class this aspect exists to prevent: a user who configured
+/// ⌃⌥Space releases Control but leaves Option resting on the key and the microphone never closes
+/// (Handy #840's user-visible failure, reached by a different route), and ⌥Space alone steals the
+/// hotkey. ⌃⌥Space, ⌘⇧Space and ⌃⌘Space are all ordinary bindings, and `PRODUCT_SPEC.md:127` names
+/// a two-modifier chord as the converse-mode default.
+private let twoModifier = HotkeyConfiguration(
+    keyCode: space, modifiers: [.control, .option], activation: .holdToTalk)
+
 private func event(
     _ kind: RawKeyEvent.Kind, _ keyCode: UInt16, _ modifiers: ModifierSet,
     autorepeat: Bool = false, at milliseconds: Int = 0
@@ -267,6 +280,91 @@ final class SessionDecisionTests: XCTestCase {
             decide(
                 event(.keyDown, space, [.option, .shift, .command, .capsLock, .function, .control]),
                 state: .idle, config: chord), start)
+    }
+
+    /// A chord is matched **as a whole**, not in part — on both the start and the stop side.
+    ///
+    /// Every other test here configures one modifier or none, and for those `⊇` cannot be told
+    /// apart from "any configured modifier is present". This is the test that separates them, and
+    /// each half names a real defect:
+    ///
+    /// - **Hotkey theft.** ⌥Space starting a session configured as ⌃⌥Space.
+    /// - **Stuck microphone.** Control released while Option stays resting on the key: half the
+    ///   chord is gone, the session must end, and an `intersects` reading leaves the mic open with
+    ///   the widget showing nothing.
+    func testAMultiModifierChordIsMatchedAsAWholeNotInPart() {
+        // Start: exact.
+        XCTAssertEqual(
+            decide(event(.keyDown, space, [.control, .option]), state: .idle, config: twoModifier),
+            start, "The exact configured chord must start a session.")
+
+        // Start: a superset. An extra modifier resting on the keyboard must not block the hotkey.
+        XCTAssertEqual(
+            decide(
+                event(.keyDown, space, [.control, .option, .capsLock]), state: .idle,
+                config: twoModifier), start)
+        XCTAssertEqual(
+            decide(
+                event(.keyDown, space, [.control, .option, .shift, .command]), state: .idle,
+                config: twoModifier), start)
+
+        // No start: any strict subset. Both halves, because a predicate that is wrong in one
+        // direction is usually wrong in only one.
+        for partial: ModifierSet in [[], [.option], [.control], [.shift], [.option, .shift]] {
+            XCTAssertEqual(
+                decide(event(.keyDown, space, partial), state: .idle, config: twoModifier),
+                ignorePassing,
+                """
+                Modifiers \(partial.rawValue) started a session configured as Control+Option. Part \
+                of a chord is not the chord — this is the hotkey being stolen from the user's \
+                actual binding, and the keystroke being eaten from the app that wanted it.
+                """)
+        }
+
+        // Stop: releasing ONE of the two required modifiers ends it. This is the one that matters.
+        XCTAssertEqual(
+            decide(event(.flagsChanged, 0, [.option]), state: .recording, config: twoModifier),
+            stop(.modifierReleased, .passThrough),
+            "Half a chord is not the chord. Control came up; the microphone must close.")
+        XCTAssertEqual(
+            decide(event(.flagsChanged, 0, [.control]), state: .recording, config: twoModifier),
+            stop(.modifierReleased, .passThrough),
+            "The other half, released on its own.")
+
+        // ...and rule (c): the same partial chord observed on any other kind of event.
+        for kind in [RawKeyEvent.Kind.keyDown, .keyUp] {
+            XCTAssertEqual(
+                decide(event(kind, letterA, [.option]), state: .recording, config: twoModifier),
+                stop(.modifierReleased, .passThrough),
+                "A \(kind) reporting half the chord is still a released modifier.")
+        }
+
+        // No spurious stop while the whole chord is genuinely held.
+        XCTAssertEqual(
+            decide(
+                event(.flagsChanged, 0, [.control, .option, .shift]), state: .recording,
+                config: twoModifier), ignorePassing,
+            "Adding Shift to a held chord is not releasing any part of it.")
+
+        // The whole gesture, in sequence: press both, release one, and the later key-up does
+        // nothing — B3 for a chord rather than for a single modifier.
+        var driver = SessionDriver(handoffEvents: 1)
+        driver.feed(
+            [
+                event(.flagsChanged, 0, [.control], at: 0),
+                event(.flagsChanged, 0, [.control, .option], at: 30),
+                event(.keyDown, space, [.control, .option], at: 60),
+                event(.keyDown, space, [.control, .option], autorepeat: true, at: 600),
+                // Control released; Option still resting on the key.
+                event(.flagsChanged, 0, [.option], at: 900),
+                event(.keyUp, space, [.option], at: 950),
+                event(.flagsChanged, 0, [], at: 980),
+            ], using: { decide($0, state: $1, config: twoModifier) })
+        XCTAssertEqual(driver.starts, 1)
+        XCTAssertEqual(
+            driver.stops, [.retained(.modifierReleased)],
+            "Exactly one stop, on the half-chord release — not on the key-up that follows it.")
+        XCTAssertFalse(driver.isStuck)
     }
 
     // MARK: - Stop rule (a): key-up
@@ -654,14 +752,18 @@ final class SessionDecisionTests: XCTestCase {
         }
     }
 
-    /// Sequences, not just events: 500 randomised runs through the driver, twice, must produce
+    /// Sequences, not just events: 10,000 randomised runs through the driver, twice, must produce
     /// identical traces — and must never leave a session open with no session ever started.
+    ///
+    /// Ten thousand because B11 says *sequences*. The test above runs 10,000 randomised **events**,
+    /// which is the stronger check for purity but is not what the criterion's text asks for; this
+    /// one meets it literally, at 20 events each.
     func testRandomisedSequencesAreReproducibleAndNeverDoubleStart() {
         var generator = SeededGenerator(seed: 0x5EED_0DEC_1DE0_0002)
         var mismatches = 0
         var checkedStarts = 0
 
-        for run in 0..<500 {
+        for run in 0..<10_000 {
             let events = (0..<20).map { index -> RawKeyEvent in
                 var testCase = randomCase(using: &generator)
                 testCase.event = RawKeyEvent(
@@ -670,7 +772,7 @@ final class SessionDecisionTests: XCTestCase {
                     timestamp: .milliseconds(index * 40))
                 return testCase.event
             }
-            let config = run.isMultiple(of: 2) ? chord : bareKey
+            let config = Self.configurations[run % Self.configurations.count]
             let decider: (RawKeyEvent, SessionState) -> Decision = {
                 decide($0, state: $1, config: config)
             }
@@ -700,7 +802,7 @@ final class SessionDecisionTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(mismatches, 0, "\(mismatches) of 500 sequences were not reproducible.")
+        XCTAssertEqual(mismatches, 0, "\(mismatches) of 10,000 sequences were not reproducible.")
         XCTAssertGreaterThan(
             checkedStarts, 0,
             "No randomised sequence ever started a session, so the invariants above checked nothing.")
@@ -742,97 +844,118 @@ final class SessionDecisionTests: XCTestCase {
             cancellations, 0,
             "A key event produced .userCancelled — the one reason permitted to discard audio.")
 
-        // The other half of the claim: `Decision` does carry every reason, so routing one through
-        // costs nothing. This is what "decide must accept it if routed through" amounts to for a
-        // function whose only input is a key event.
-        for reason in EndReason.allCases {
-            let routed = Decision(action: .stop(reason), eventPropagation: .passThrough)
-            guard case .stop(let carried) = routed.action else {
-                return XCTFail("Decision.stop did not carry \(reason).")
-            }
-            XCTAssertEqual(carried, reason)
-        }
+        // The complement, named rather than implied: exactly which reasons must come from
+        // somewhere else. Derived from `RetainedEndReason.allCases`, so it fails from either side
+        // — if `decide` starts producing one of these, or if a reason is dropped from the
+        // vocabulary and silently stops being anybody's responsibility.
+        //
+        // (The previous version of this block constructed `Decision(action: .stop(reason))` and
+        // asserted the same reason came back out. That tests that `Decision` is a storage struct;
+        // it cannot fail while `Action.stop` has an associated value. That `Decision` carries every
+        // reason — "decide must accept it if routed through" — is a compile-time fact, and
+        // `SessionVocabularyTests` is where the vocabulary's completeness is asserted.)
+        let ownedElsewhere = Set(RetainedEndReason.allCases).subtracting(produced)
+        XCTAssertEqual(
+            ownedElsewhere,
+            Set(
+                [.ceilingReached, .pollDetectedRelease, .toggledOff]
+                    + SystemTrigger.allCases.map(RetainedEndReason.systemEvent)),
+            """
+            The split between the reasons decide owns and the reasons it does not has moved. \
+            (e) ceiling and (f) poll are task 4's — one is a clock reading and the other a \
+            physical-key read, and neither has a RawKeyEvent to be decided from. .toggledOff is \
+            task 6's. The system triggers arrive on their own path.
+            """)
     }
 
     // MARK: - The whole input space
 
-    /// Every combination of kind, key, modifiers, autorepeat, state and configuration — checked
-    /// against the invariants rather than against a second copy of the table.
+    /// Every combination of kind, key, modifiers, autorepeat, state and configuration, checked
+    /// against a **literal truth table** written out by hand.
     ///
-    /// The golden rows above are exact and few. This is exhaustive and states properties, which is
-    /// the pairing that survives someone asking "what about the sequence you did not think of":
-    /// there is no such combination, because the space is enumerated.
+    /// ## Which layer is which
     ///
-    /// The load-bearing one is ``anyEventMeaningTheUserStoppedAsking``. If it holds for every cell,
-    /// no single event can leave the microphone open.
-    func testTheWholeInputSpaceSatisfiesTheSessionInvariants() {
+    /// The suite makes three different kinds of claim, and reading one as another overstates it:
+    ///
+    /// - The **golden rows** above are independently derived from the spec, one behaviour each, and
+    ///   are what carries the suite.
+    /// - **This** is exhaustive over the input space. Its expectations live in
+    ///   ``truthTable`` — 96 literal rows in a different *representation* from the implementation's
+    ///   chain of conditionals, so a precedence or ordering mistake cannot be shared between them,
+    ///   and changing the policy costs a visible table edit. The earlier version of this test
+    ///   recomputed the expectation with the same expressions the production code uses, which
+    ///   catches drift but cannot catch a shared misconception.
+    /// - Exhaustive means **over one event**. It says nothing about sequences — the driver tests do
+    ///   that — and the table encodes propagation decisions that are known trade-offs rather than
+    ///   settled truths. The `.ending` key-up rows are the live example: see `SessionRules.swift`,
+    ///   "What gets swallowed", and the plan's Phase 4.
+    func testTheWholeInputSpaceMatchesTheTruthTable() {
         let inputSpace = Self.wholeInputSpace()
         XCTAssertEqual(
-            inputSpace.count, 4 * 2 * 4 * 2 * 3 * 2,
+            inputSpace.count, 4 * 2 * 7 * 2 * 3 * 3,
             "The enumeration lost a dimension; it is no longer exhaustive over the inputs.")
 
+        let table = Self.parsedTruthTable()
+        XCTAssertEqual(
+            table.count, 96,
+            """
+            The truth table is not 3 states × 4 kinds × 2 key matches × 2 chord states × 2 \
+            autorepeat values = 96 rows. A missing row is a cell with no expectation; a duplicate \
+            is two expectations for one cell.
+            """)
+
+        // The six modifiers the independent derivation below sweeps must be every modifier there
+        // is, or "every configured modifier is held" silently means "every modifier I remembered".
+        let sweep: [ModifierSet] = [.control, .option, .shift, .command, .function, .capsLock]
+        XCTAssertEqual(
+            sweep.reduce(into: ModifierSet()) { $0.formUnion($1) }.rawValue, 0b11_1111,
+            "ModifierSet gained a modifier the chord derivation does not check.")
+
+        var exercised: Set<Cell> = []
         var starts = 0
         var stops = 0
         var swallows = 0
+
         for testCase in inputSpace {
             let event = testCase.event
             let config = testCase.config
-            let decision = decide(event, state: testCase.state, config: config)
-            let label =
-                "\(event.kind)/key=\(event.keyCode)/mods=\(event.modifiers.rawValue)/"
-                + "repeat=\(event.isAutorepeat)/state=\(testCase.state)/cfg=\(config.keyCode)"
+            let cell = Cell(
+                state: testCase.state, kind: event.kind,
+                keyMatches: event.keyCode == config.keyCode,
+                chordHeld: Self.everyConfiguredModifierIsHeld(event: event, config: config),
+                isAutorepeat: event.isAutorepeat)
+            exercised.insert(cell)
 
-            let matchesKey = event.keyCode == config.keyCode
-            let carriesChord = event.modifiers.isSuperset(of: config.modifiers)
-            let isKeyDown = event.kind == .keyDown
-            let startRuleHolds =
-                testCase.state == .idle && isKeyDown && matchesKey && carriesChord
-                && !event.isAutorepeat
-            let userStoppedAsking =
-                testCase.state == .recording
-                && (event.kind == .tapDisabled || (event.kind == .keyUp && matchesKey)
-                    || !carriesChord)
-
-            switch decision.action {
-            case .start:
-                starts += 1
-                XCTAssertTrue(startRuleHolds, "\(label): started a session the rule does not allow.")
-            case .stop(let reason):
-                stops += 1
-                XCTAssertEqual(
-                    testCase.state, .recording, "\(label): stopped with no session in flight.")
-                XCTAssertTrue(userStoppedAsking, "\(label): stopped for \(reason) with no rule met.")
-                // The attribution, pinned in the same order the rules are applied.
-                let expected: RetainedEndReason =
-                    event.kind == .tapDisabled
-                    ? .tapDisabled : (event.kind == .keyUp && matchesKey ? .keyUp : .modifierReleased)
-                XCTAssertEqual(reason, .retained(expected), "\(label): wrong reason.")
-            case .ignore:
-                XCTAssertFalse(startRuleHolds, "\(label): the start rule held and nothing started.")
-                XCTAssertFalse(
-                    userStoppedAsking,
-                    """
-                    \(label): the user stopped asking and the session did not end. This is the \
-                    stuck recording — a hot microphone with the widget showing nothing.
-                    """)
+            guard let expected = table[cell] else {
+                return XCTFail("No truth-table row for \(cell).")
             }
-
-            // Propagation: Vocca swallows the press that starts a session, and thereafter the key
-            // events for its own key while a session is in flight — the app never saw the key-down,
-            // so it must not see the repeats or the key-up. It swallows nothing else, because a
-            // tool that eats keystrokes it did not claim makes the whole machine feel broken.
-            let sessionInFlight = testCase.state != .idle
-            let claimsTheKey =
-                sessionInFlight && matchesKey
-                && (event.kind == .keyUp || (isKeyDown && carriesChord))
-            let shouldSwallow = startRuleHolds || claimsTheKey
-            if shouldSwallow { swallows += 1 }
+            let actual = decide(event, state: testCase.state, config: config)
             XCTAssertEqual(
-                decision.eventPropagation, shouldSwallow ? .swallow : .passThrough, "\(label)")
+                actual, expected,
+                """
+                \(cell), config modifiers \(config.modifiers.rawValue), event modifiers \
+                \(event.modifiers.rawValue): expected \(expected), got \(actual).
+                """)
+
+            switch actual.action {
+            case .start: starts += 1
+            case .stop: stops += 1
+            case .ignore: break
+            }
+            if actual.eventPropagation == .swallow { swallows += 1 }
         }
 
-        // Positive controls for the three branches above: an invariant that no case ever reaches is
-        // an invariant nobody has seen hold.
+        // Both directions. A table row no cell reaches is an expectation nobody has seen hold, and
+        // a cell with no row would have failed above — together they make "exhaustive" mean it.
+        XCTAssertEqual(
+            exercised.count, 96,
+            """
+            The input space reaches only \(exercised.count) of the 96 descriptor cells, so the \
+            table's other rows assert nothing. Missing: \
+            \(Set(table.keys).subtracting(exercised).map(String.init(describing:)).sorted())
+            """)
+
+        // Positive controls: an assertion loop that never sees an outcome cannot fail on it.
         XCTAssertGreaterThan(starts, 0, "No cell in the space started a session.")
         XCTAssertGreaterThan(stops, 0, "No cell in the space stopped one.")
         XCTAssertGreaterThan(swallows, 0, "No cell in the space was swallowed.")
@@ -845,7 +968,11 @@ final class SessionDecisionTests: XCTestCase {
         for testCase in Self.wholeInputSpace() where testCase.state == .recording {
             let event = testCase.event
             let matchesKey = event.keyCode == testCase.config.keyCode
-            let carriesChord = event.modifiers.isSuperset(of: testCase.config.modifiers)
+            // The independent derivation, not the implementation's set operation — otherwise a
+            // chord predicate meaning *intersects* would classify the cells the same wrong way it
+            // decides them, and this test would agree with the defect.
+            let carriesChord = Self.everyConfiguredModifierIsHeld(
+                event: event, config: testCase.config)
 
             let trigger: String?
             switch event.kind {
@@ -872,6 +999,225 @@ final class SessionDecisionTests: XCTestCase {
             "The input space stopped exercising one of the four rules decide owns.")
     }
 
+    // MARK: - The truth table
+
+    /// One cell of the decision space: everything `decide` is allowed to consult, and nothing else.
+    ///
+    /// The timestamp is deliberately absent — it is not an input to any rule, and the purity test
+    /// asserts that separately.
+    private struct Cell: Hashable, CustomStringConvertible {
+        let state: SessionState
+        let kind: RawKeyEvent.Kind
+        let keyMatches: Bool
+        let chordHeld: Bool
+        let isAutorepeat: Bool
+
+        var description: String {
+            "\(state)/\(kind)/key=\(keyMatches)/chord=\(chordHeld)/repeat=\(isAutorepeat)"
+        }
+    }
+
+    /// **Does the event carry every configured modifier?** — derived from the meaning of the rule,
+    /// one modifier at a time, rather than from the set operation the implementation calls.
+    ///
+    /// This is the point of Finding 1. `event.modifiers.isSuperset(of: config.modifiers)` as an
+    /// expectation is a transcription: it agrees with the code by construction, including when the
+    /// code is wrong. Asking instead "for each modifier the user configured, is that modifier
+    /// present in this event's own flags?" is the same question posed independently, and it
+    /// separates `⊇` from `==` and from *intersects* — which a suite configured with 0 or 1
+    /// modifiers cannot do at all.
+    private static func everyConfiguredModifierIsHeld(
+        event: RawKeyEvent, config: HotkeyConfiguration
+    ) -> Bool {
+        let everyModifier: [ModifierSet] = [
+            .control, .option, .shift, .command, .function, .capsLock,
+        ]
+        return everyModifier.allSatisfy { modifier in
+            !config.modifiers.contains(modifier) || event.modifiers.contains(modifier)
+        }
+    }
+
+    /// The complete policy, as a table rather than as code.
+    ///
+    /// 96 rows: 3 states × 4 kinds × key-matches × chord-held × autorepeat. Written out in full on
+    /// purpose — the whole policy is visible in one screen and can be read against `spec.md`'s rule
+    /// table by eye, which is not true of a chain of conditionals.
+    ///
+    /// Reading the columns: `key` is "this event's key code is the configured one"; `chord` is
+    /// "every configured modifier is present in this event's flags"; `rep` is autorepeat.
+    ///
+    /// Three groups of rows are worth arguing about before changing them:
+    ///
+    /// - `recording`/`keyUp`/`key=yes`/`chord=no` → `stop:keyUp`. Rule (a) beats (c): the user's own
+    ///   gesture is the more specific fact when a key-up happens to report no modifiers.
+    /// - `recording`/`tapDisabled` → `stop:tapDisabled` for every chord and key value. Rule (d) is
+    ///   applied first because such an event's modifier flags mean nothing.
+    /// - `ending`/`keyUp`/`key=yes` → `swallow`, while `ending`/`keyDown`/`key=yes`/`chord=no`
+    ///   passes through. That asymmetry is a **known trade, not a settled truth**: it can leave the
+    ///   focused app an unpaired key-down. A stateless function cannot do better, and Phase 4 of
+    ///   the plan owns the fix. Pinned here so it changes on purpose.
+    private static let truthTable = """
+        # state      kind          key  chord  rep  action                  propagation
+        idle         keyDown       yes  yes    no   start                   swallow
+        idle         keyDown       yes  yes    yes  ignore                  passThrough
+        idle         keyDown       yes  no     no   ignore                  passThrough
+        idle         keyDown       yes  no     yes  ignore                  passThrough
+        idle         keyDown       no   yes    no   ignore                  passThrough
+        idle         keyDown       no   yes    yes  ignore                  passThrough
+        idle         keyDown       no   no     no   ignore                  passThrough
+        idle         keyDown       no   no     yes  ignore                  passThrough
+        idle         keyUp         yes  yes    no   ignore                  passThrough
+        idle         keyUp         yes  yes    yes  ignore                  passThrough
+        idle         keyUp         yes  no     no   ignore                  passThrough
+        idle         keyUp         yes  no     yes  ignore                  passThrough
+        idle         keyUp         no   yes    no   ignore                  passThrough
+        idle         keyUp         no   yes    yes  ignore                  passThrough
+        idle         keyUp         no   no     no   ignore                  passThrough
+        idle         keyUp         no   no     yes  ignore                  passThrough
+        idle         flagsChanged  yes  yes    no   ignore                  passThrough
+        idle         flagsChanged  yes  yes    yes  ignore                  passThrough
+        idle         flagsChanged  yes  no     no   ignore                  passThrough
+        idle         flagsChanged  yes  no     yes  ignore                  passThrough
+        idle         flagsChanged  no   yes    no   ignore                  passThrough
+        idle         flagsChanged  no   yes    yes  ignore                  passThrough
+        idle         flagsChanged  no   no     no   ignore                  passThrough
+        idle         flagsChanged  no   no     yes  ignore                  passThrough
+        idle         tapDisabled   yes  yes    no   ignore                  passThrough
+        idle         tapDisabled   yes  yes    yes  ignore                  passThrough
+        idle         tapDisabled   yes  no     no   ignore                  passThrough
+        idle         tapDisabled   yes  no     yes  ignore                  passThrough
+        idle         tapDisabled   no   yes    no   ignore                  passThrough
+        idle         tapDisabled   no   yes    yes  ignore                  passThrough
+        idle         tapDisabled   no   no     no   ignore                  passThrough
+        idle         tapDisabled   no   no     yes  ignore                  passThrough
+        recording    keyDown       yes  yes    no   ignore                  swallow
+        recording    keyDown       yes  yes    yes  ignore                  swallow
+        recording    keyDown       yes  no     no   stop:modifierReleased   passThrough
+        recording    keyDown       yes  no     yes  stop:modifierReleased   passThrough
+        recording    keyDown       no   yes    no   ignore                  passThrough
+        recording    keyDown       no   yes    yes  ignore                  passThrough
+        recording    keyDown       no   no     no   stop:modifierReleased   passThrough
+        recording    keyDown       no   no     yes  stop:modifierReleased   passThrough
+        recording    keyUp         yes  yes    no   stop:keyUp              swallow
+        recording    keyUp         yes  yes    yes  stop:keyUp              swallow
+        recording    keyUp         yes  no     no   stop:keyUp              swallow
+        recording    keyUp         yes  no     yes  stop:keyUp              swallow
+        recording    keyUp         no   yes    no   ignore                  passThrough
+        recording    keyUp         no   yes    yes  ignore                  passThrough
+        recording    keyUp         no   no     no   stop:modifierReleased   passThrough
+        recording    keyUp         no   no     yes  stop:modifierReleased   passThrough
+        recording    flagsChanged  yes  yes    no   ignore                  passThrough
+        recording    flagsChanged  yes  yes    yes  ignore                  passThrough
+        recording    flagsChanged  yes  no     no   stop:modifierReleased   passThrough
+        recording    flagsChanged  yes  no     yes  stop:modifierReleased   passThrough
+        recording    flagsChanged  no   yes    no   ignore                  passThrough
+        recording    flagsChanged  no   yes    yes  ignore                  passThrough
+        recording    flagsChanged  no   no     no   stop:modifierReleased   passThrough
+        recording    flagsChanged  no   no     yes  stop:modifierReleased   passThrough
+        recording    tapDisabled   yes  yes    no   stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  yes    yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  no     no   stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  no     yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   no   yes    no   stop:tapDisabled        passThrough
+        recording    tapDisabled   no   yes    yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   no   no     no   stop:tapDisabled        passThrough
+        recording    tapDisabled   no   no     yes  stop:tapDisabled        passThrough
+        ending       keyDown       yes  yes    no   ignore                  swallow
+        ending       keyDown       yes  yes    yes  ignore                  swallow
+        ending       keyDown       yes  no     no   ignore                  passThrough
+        ending       keyDown       yes  no     yes  ignore                  passThrough
+        ending       keyDown       no   yes    no   ignore                  passThrough
+        ending       keyDown       no   yes    yes  ignore                  passThrough
+        ending       keyDown       no   no     no   ignore                  passThrough
+        ending       keyDown       no   no     yes  ignore                  passThrough
+        ending       keyUp         yes  yes    no   ignore                  swallow
+        ending       keyUp         yes  yes    yes  ignore                  swallow
+        ending       keyUp         yes  no     no   ignore                  swallow
+        ending       keyUp         yes  no     yes  ignore                  swallow
+        ending       keyUp         no   yes    no   ignore                  passThrough
+        ending       keyUp         no   yes    yes  ignore                  passThrough
+        ending       keyUp         no   no     no   ignore                  passThrough
+        ending       keyUp         no   no     yes  ignore                  passThrough
+        ending       flagsChanged  yes  yes    no   ignore                  passThrough
+        ending       flagsChanged  yes  yes    yes  ignore                  passThrough
+        ending       flagsChanged  yes  no     no   ignore                  passThrough
+        ending       flagsChanged  yes  no     yes  ignore                  passThrough
+        ending       flagsChanged  no   yes    no   ignore                  passThrough
+        ending       flagsChanged  no   yes    yes  ignore                  passThrough
+        ending       flagsChanged  no   no     no   ignore                  passThrough
+        ending       flagsChanged  no   no     yes  ignore                  passThrough
+        ending       tapDisabled   yes  yes    no   ignore                  passThrough
+        ending       tapDisabled   yes  yes    yes  ignore                  passThrough
+        ending       tapDisabled   yes  no     no   ignore                  passThrough
+        ending       tapDisabled   yes  no     yes  ignore                  passThrough
+        ending       tapDisabled   no   yes    no   ignore                  passThrough
+        ending       tapDisabled   no   yes    yes  ignore                  passThrough
+        ending       tapDisabled   no   no     no   ignore                  passThrough
+        ending       tapDisabled   no   no     yes  ignore                  passThrough
+        """
+
+    /// Parses ``truthTable``, failing loudly on anything it does not recognise.
+    ///
+    /// A parser that skipped a malformed row would silently shrink the table, and the count
+    /// assertion in the test is what would then be measuring the typo rather than the policy.
+    private static func parsedTruthTable() -> [Cell: Decision] {
+        var table: [Cell: Decision] = [:]
+        for line in truthTable.split(separator: "\n") {
+            let fields = line.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+            guard let first = fields.first, !first.hasPrefix("#") else { continue }
+            precondition(fields.count == 7, "Malformed truth-table row: \(line)")
+
+            let state: SessionState
+            switch fields[0] {
+            case "idle": state = .idle
+            case "recording": state = .recording
+            case "ending": state = .ending
+            default: preconditionFailure("Unknown state in truth table: \(fields[0])")
+            }
+
+            let kind: RawKeyEvent.Kind
+            switch fields[1] {
+            case "keyDown": kind = .keyDown
+            case "keyUp": kind = .keyUp
+            case "flagsChanged": kind = .flagsChanged
+            case "tapDisabled": kind = .tapDisabled
+            default: preconditionFailure("Unknown kind in truth table: \(fields[1])")
+            }
+
+            func flag(_ field: String) -> Bool {
+                switch field {
+                case "yes": return true
+                case "no": return false
+                default: preconditionFailure("Unknown flag in truth table: \(field)")
+                }
+            }
+
+            let action: Decision.Action
+            switch fields[5] {
+            case "start": action = .start
+            case "ignore": action = .ignore
+            case "stop:keyUp": action = .stop(.retained(.keyUp))
+            case "stop:modifierReleased": action = .stop(.retained(.modifierReleased))
+            case "stop:tapDisabled": action = .stop(.retained(.tapDisabled))
+            default: preconditionFailure("Unknown action in truth table: \(fields[5])")
+            }
+
+            let propagation: EventPropagation
+            switch fields[6] {
+            case "swallow": propagation = .swallow
+            case "passThrough": propagation = .passThrough
+            default: preconditionFailure("Unknown propagation in truth table: \(fields[6])")
+            }
+
+            let cell = Cell(
+                state: state, kind: kind, keyMatches: flag(fields[2]), chordHeld: flag(fields[3]),
+                isAutorepeat: flag(fields[4]))
+            precondition(table[cell] == nil, "Duplicate truth-table row for \(cell)")
+            table[cell] = Decision(action: action, eventPropagation: propagation)
+        }
+        return table
+    }
+
     // MARK: - Space and randomisation helpers
 
     private struct InputCase {
@@ -880,15 +1226,30 @@ final class SessionDecisionTests: XCTestCase {
         var state: SessionState
     }
 
+    /// The modifier states the space is swept over.
+    ///
+    /// Chosen so that **every configuration below sees all four relationships** to its own chord:
+    /// exact, strict superset, partial, and disjoint. The last two entries are what make the
+    /// two-modifier configuration meaningful — `[.control]` and `[.option]` are each *half* of
+    /// `twoModifier`'s chord, which is the only shape that distinguishes "contains all of" from
+    /// "intersects".
     private static let modifierValues: [ModifierSet] = [
-        [], [.option], [.option, .capsLock], [.shift],
+        [], [.option], [.option, .capsLock], [.shift], [.control], [.control, .option],
+        [.control, .option, .capsLock],
     ]
 
-    /// Every combination the rules can see: 4 kinds × 2 key codes × 4 modifier sets × 2 autorepeat
-    /// values × 3 states × 2 configurations = 384 cells.
+    /// Every configuration the space is swept over: no modifiers, one, and two.
+    ///
+    /// The arity matters, not the identity. With 0 or 1 configured modifiers, a chord predicate
+    /// meaning *intersects* behaves identically to one meaning *contains all*, so a space swept
+    /// over only those two hides the difference — measured, at 75/75 green.
+    private static let configurations: [HotkeyConfiguration] = [chord, bareKey, twoModifier]
+
+    /// Every combination the rules can see: 4 kinds × 2 key codes × 7 modifier sets × 2 autorepeat
+    /// values × 3 states × 3 configurations = 1,008 cells.
     private static func wholeInputSpace() -> [InputCase] {
         var cases: [InputCase] = []
-        for config in [chord, bareKey] {
+        for config in configurations {
             for kind in RawKeyEvent.Kind.allCases {
                 for keyCode in [config.keyCode, letterA] {
                     for modifiers in modifierValues {
@@ -919,7 +1280,8 @@ final class SessionDecisionTests: XCTestCase {
     private func randomCase(using generator: inout SeededGenerator) -> InputCase {
         let kinds = RawKeyEvent.Kind.allCases
         let states = SessionState.allCases
-        let config = Bool.random(using: &generator) ? chord : bareKey
+        let configurations = Self.configurations
+        let config = configurations[Int.random(in: 0..<configurations.count, using: &generator)]
         return InputCase(
             config: config,
             event: RawKeyEvent(

@@ -517,14 +517,23 @@ final class CoreBoundaryTests: XCTestCase {
     /// This is the structural half of the prohibition `decide(_:state:config:)` is written under:
     /// modifier state is derived from the event in hand and never accumulated. `decide` is a free
     /// function, so it has no storage of its own — the *only* place a running total could live is a
-    /// mutable global, and Swift 6's strict concurrency leaves exactly these spellings for one.
-    /// Each is a deliberate annotation; none of them belongs in a module of pure decision functions.
+    /// mutable global. Each token below is a deliberate annotation, and none of them belongs in a
+    /// module of pure decision functions.
     ///
-    /// The behavioural half lives in `SessionDecisionTests`: the purity test evaluates the same
-    /// inputs forwards and backwards and requires identical answers, which is what state carried
-    /// between calls would fail. Both halves, because either alone is escapable — a lint cannot see
-    /// state smuggled in behind a type, and a property test cannot see state that has not yet
-    /// desynchronised.
+    /// **This list is not exhaustive and must not be described as though it were.** Task 3's report
+    /// claimed the escape hatches were "enumerable and exactly what the lint matches"; that was one
+    /// notch too strong, and the reviewer demonstrated it. A `final class ... @unchecked Sendable`
+    /// holding a `var`, reached through a global `let`, is mutable global state carrying no
+    /// annotation on the global itself. `@unchecked Sendable` is on the list below now because of
+    /// that, but closing one route does not close the class — a mutable value can always be hidden
+    /// behind another layer of type.
+    ///
+    /// So this lint is one of two defences and never the argument on its own. The behavioural half
+    /// lives in `SessionDecisionTests`: the purity test evaluates the same inputs forwards and
+    /// backwards and requires identical answers, which is what state carried between calls fails.
+    /// On the reviewer's cache that half failed immediately and loudly while this half still
+    /// passed — which is the division of labour working, not a hole. A lint cannot see state
+    /// smuggled behind a type; a property test cannot see state that has not yet desynchronised.
     func testVoccaCoreHoldsNoMutableGlobalState() throws {
         let moduleRoot = try voccaCoreRoot()
         let files = SwiftSourceScanner.swiftFiles(under: moduleRoot)
@@ -562,11 +571,15 @@ final class CoreBoundaryTests: XCTestCase {
                 enum Typed { static var modifiers: ModifierSet = [] }
                 @MainActor final class Isolated {}
                 @globalActor actor Custom {}
+                final class ModifierCache: @unchecked Sendable { var held = ModifierSet() }
                 // nonisolated(unsafe) var commentedOut = 0
                 """)
         XCTAssertEqual(
             Set(caught),
-            ["nonisolated(unsafe)", "@MainActor", "@globalActor", "stored static var"],
+            [
+                "nonisolated(unsafe)", "@MainActor", "@globalActor", "@unchecked Sendable",
+                "stored static var",
+            ],
             "The lint cannot see a spelling of mutable global state, so it permits it.")
         XCTAssertEqual(
             caught.filter { $0 == "stored static var" }.count, 2,
@@ -600,7 +613,7 @@ final class CoreBoundaryTests: XCTestCase {
     /// Comments are stripped first, so a doc comment discussing the prohibition does not trip it.
     private static func mutableGlobalStateMarkers(in source: String) -> [String] {
         let stripped = SwiftSourceScanner.stripComments(from: source)
-        var found = ["nonisolated(unsafe)", "@MainActor", "@globalActor"]
+        var found = ["nonisolated(unsafe)", "@MainActor", "@globalActor", "@unchecked Sendable"]
             .filter { stripped.contains($0) }
 
         // A *stored* static var: `static var x =` or `static var x: T =`. A computed one is

@@ -47,8 +47,13 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 75 by task 3 of session-lifecycle, which added twenty-three: twenty-one in SessionDecisionTests
-# for the decision function, and two in CoreBoundaryTests (no mutable global state in VoccaCore, and
+# 76 by task 3's first review round, which added one: a multi-modifier chord must be matched as a
+# whole and not in part. Every other test configured a hotkey with one modifier or none, and for
+# those a chord predicate meaning *intersects* is indistinguishable from one meaning *contains all*
+# — the suite was green at 75/75 with that defect in place.
+#
+# It was 75 after task 3 itself, which added twenty-three: twenty-one in SessionDecisionTests for
+# the decision function, and two in CoreBoundaryTests (no mutable global state in VoccaCore, and
 # the SessionOutcome source pins).
 #
 # It was 52 after task 2, which added sixteen: six in CoreBoundaryTests and ten in
@@ -58,7 +63,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=75
+MINIMUM_EXECUTED_TESTS=76
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -67,6 +67,15 @@
 /// originating here; `SessionDecisionTests` pins the vocabulary this function does produce, so a
 /// later edit cannot invent a key event that claims to be a ceiling expiry.
 ///
+/// **A tap that dies outside `.recording` is `.ignore`, and that is not the whole story.** There is
+/// no session to stop, so there is nothing for this function to say — but the tap is still dead,
+/// and ``Decision`` deliberately has no vocabulary for "re-arm the tap", because re-creating a
+/// `CGEvent` tap is a system call and this module makes none. A caller that routes tap-disabled
+/// notifications through here and acts *only* on the returned action goes permanently deaf, in
+/// silence, and that is a sibling of the stuck-microphone bug rather than a lesser cousin.
+/// Re-enabling the tap belongs to `hotkey-source`, unconditionally and independently of whatever
+/// this function returns.
+///
 /// ## What gets swallowed
 ///
 /// Independent of the action, and narrow. Vocca swallows the key-down that starts a session, and
@@ -76,9 +85,31 @@
 /// claim makes the whole machine feel broken, and a swallowed modifier event would strand the
 /// focused app's idea of which modifiers are down.
 ///
-/// The one case that reads as an exception is not: a `.keyDown` on the configured key whose chord
-/// is *gone* passes through, because without the chord it is not Vocca's hotkey — it is the user
-/// typing a space, and they should get one, along with the stop that a lost chord always means.
+/// A `.keyDown` on the configured key whose chord is *gone* passes through, because without the
+/// chord it is not Vocca's hotkey — it is the user typing a space, and they should get one, along
+/// with the stop that a lost chord always means.
+///
+/// **That last rule is a known trade with two costs, and neither is fixable here.** Both begin the
+/// instant a rule-(b) stop fires while the key is still physically held:
+///
+/// 1. **Characters reach the field being dictated into.** The OS was already autorepeating the key
+///    throughout the session, and those repeats were swallowed. The moment the modifier comes up
+///    the chord is gone, so every subsequent repeat passes through — plain characters at the system
+///    repeat rate, landing in the field the transcript is about to be injected into, unless the
+///    user releases within one repeat interval (~30–60 ms).
+/// 2. **The key-up is claimed asymmetrically.** Swallowing below requires the chord for a
+///    `.keyDown` but *not* for a `.keyUp`, because a key-up is the release of a press this module
+///    swallowed whatever modifiers survive to report it. So a passed-through key-down can be
+///    followed by a swallowed key-up, leaving the focused app an **unpaired key-down** — a key it
+///    believes is still held. The reverse case, in `.idle`, leaves an unpaired key-up, which is
+///    inert by comparison.
+///
+/// A pure function cannot do better: knowing that a physically-held key is the tail of a press
+/// Vocca swallowed is a fact about the *session*, not about the event. The session must carry it —
+/// "the hotkey has not yet come back up" — and keep swallowing that key code until it does,
+/// regardless of chord. That is the state machine's, and it is written down as Phase 4 of this
+/// aspect's plan. Both behaviours are pinned by the truth table in `SessionDecisionTests`, so they
+/// change on purpose rather than by accident.
 ///
 /// - Parameters:
 ///   - event: The event as observed, with the modifiers **it** carried.
