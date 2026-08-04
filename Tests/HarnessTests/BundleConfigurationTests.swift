@@ -100,6 +100,66 @@ private enum BundleTestSupport {
         "com.apple.security.cs.disable-library-validation",
     ]
 
+    /// Deliberately **not** in ``forbiddenEntitlements``: Debug builds are supposed to carry it, and
+    /// listing it there would make every Debug bundle red. That exemption is precisely why the
+    /// configuration-aware check below has to exist — see ``BuildConfiguration``.
+    static let debugOnlyInjectedEntitlement = "com.apple.security.get-task-allow"
+
+    /// Non-Apple `Info.plist` key that records which build configuration produced a bundle.
+    ///
+    /// `App/Info.plist` sets it to the literal `$(CONFIGURATION)`; Xcode substitutes the real
+    /// configuration name during the *Process Info.plist* phase. See ``BuildConfiguration`` for why
+    /// the suite needs to know, and the plist's own comment for why the reference form is mandatory.
+    static let buildConfigurationKey = "VoccaBuildConfiguration"
+
+    /// The exact literal `App/Info.plist` must hold for ``buildConfigurationKey``.
+    static let buildConfigurationReference = "$(CONFIGURATION)"
+
+    /// The build configurations this suite knows the entitlement rules for.
+    ///
+    /// ## Why the suite needs this at all
+    ///
+    /// `com.apple.security.get-task-allow` lets any process running as the same user attach a
+    /// debugger and read the process's memory — for Vocca that means live audio buffers and
+    /// transcripts — and notarization rejects a binary carrying it. It is also *required* for Debug:
+    /// without it no debugger can attach to a debug build at all. So it is legitimate in one
+    /// configuration and disqualifying in the other, and a check with no notion of configuration has
+    /// to permit it unconditionally.
+    ///
+    /// That was measured, not theorised. Deleting `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO` from the
+    /// Release configuration, rebuilding Release, and running the full `VOCCA_APP_BUNDLE=` contract
+    /// gave **8/8 green against a Release bundle carrying `get-task-allow`**, for two independent
+    /// structural reasons:
+    ///
+    /// 1. `get-task-allow` is absent from ``forbiddenEntitlements`` — as it must be, or Debug breaks;
+    /// 2. ``BuiltBundleTests/testBuiltBundleWasBuiltFromTheCheckedInSources`` iterates the *source*
+    ///    entitlement keys, so an entitlement present in the bundle and absent from
+    ///    `App/Vocca.entitlements` is never looked at.
+    ///
+    /// ``BuiltBundleTests/testBuiltBundleEmbedsExactlyTheEntitlementsItsConfigurationAllows``
+    /// closes both by asserting set-equality, with this type supplying the one permitted exception.
+    enum BuildConfiguration: String, CaseIterable {
+        case debug = "Debug"
+        case release = "Release"
+
+        /// Entitlements Xcode is permitted to inject for this configuration on top of everything
+        /// `App/Vocca.entitlements` declares. Anything else in the signed bundle is a failure.
+        var permittedInjectedEntitlements: Set<String> {
+            switch self {
+            case .debug: [BundleTestSupport.debugOnlyInjectedEntitlement]
+            case .release: []
+            }
+        }
+    }
+
+    /// Environment variable naming the configuration the caller *believes* it is testing.
+    ///
+    /// When set it must equal the configuration the bundle itself reports, or the run fails. CI sets
+    /// it in both bundle jobs, which is what stops the Release job from silently measuring a Debug
+    /// bundle after a copy-pasted path — a mistake that is otherwise invisible, because a Debug
+    /// bundle passes every Debug-legal assertion perfectly.
+    static let expectedConfigurationVariable = "VOCCA_EXPECTED_CONFIGURATION"
+
     /// Environment variable naming an explicit `.app` to test. When set, a missing bundle is a
     /// failure rather than a skip.
     static let bundlePathVariable = "VOCCA_APP_BUNDLE"
@@ -150,6 +210,8 @@ enum BundleTestError: Error, CustomStringConvertible {
     case noSourcesBuildPhase
     case codesignFailed(status: Int32, stderr: String)
     case entitlementsUnreadable(detail: String)
+    case buildConfigurationUndetectable(bundle: String, reason: String)
+    case buildConfigurationMismatch(bundle: String, reported: String, contradictedBy: String)
 
     var description: String {
         switch self {
@@ -186,6 +248,29 @@ enum BundleTestError: Error, CustomStringConvertible {
             return "`codesign -d --entitlements` failed with status \(status): \(stderr)"
         case .entitlementsUnreadable(let detail):
             return "Could not parse the embedded entitlements: \(detail)"
+        case .buildConfigurationUndetectable(let bundle, let reason):
+            return """
+                Could not determine which build configuration produced \(bundle): \(reason).
+                This is a hard failure rather than a skip or a permissive default, and that is the \
+                whole point of the check. The entitlement rules differ by configuration — Debug may \
+                carry \(BundleTestSupport.debugOnlyInjectedEntitlement), Release may not — so a run \
+                that cannot tell them apart has to allow the union, which is exactly the hole a \
+                Release bundle carrying \(BundleTestSupport.debugOnlyInjectedEntitlement) walked \
+                through 8/8 green.
+                Fix the bundle, not the test: \(BundleTestSupport.buildConfigurationKey) must be \
+                present in the built Contents/Info.plist with a substituted value. App/Info.plist \
+                sets it to \(BundleTestSupport.buildConfigurationReference); if the built bundle \
+                still shows that literal, Info.plist build-setting expansion has been turned off \
+                (INFOPLIST_EXPAND_BUILD_SETTINGS), and if the key is missing entirely the bundle \
+                predates this check and needs rebuilding.
+                """
+        case .buildConfigurationMismatch(let bundle, let reported, let contradictedBy):
+            return """
+                \(bundle) reports build configuration '\(reported)', but \(contradictedBy).
+                Refusing to guess which is right. A bundle whose provenance is ambiguous is one \
+                whose entitlement rules are ambiguous, and picking the more permissive reading is \
+                how a Release binary keeps \(BundleTestSupport.debugOnlyInjectedEntitlement).
+                """
         }
     }
 }
@@ -264,6 +349,37 @@ final class BundleConfigurationTests: XCTestCase {
         XCTAssertEqual(
             plist["LSMinimumSystemVersion"] as? String, "15.0",
             "LSMinimumSystemVersion must match the package's .macOS(.v15) platform floor")
+    }
+
+    /// `App/Info.plist` must record the build configuration, and must do it as a *reference*.
+    ///
+    /// The literal `$(CONFIGURATION)` is not a stylistic choice, it is the entire security property.
+    /// Xcode substitutes it at build time, so the value in a built bundle is a statement the build
+    /// system made about itself and cannot be a claim the repository made on its behalf. Hardcoding
+    /// `Debug` here would make every Release bundle self-identify as Debug, and
+    /// ``BuiltBundleTests/testBuiltBundleEmbedsExactlyTheEntitlementsItsConfigurationAllows`` would
+    /// then hand a shipping Release binary the `\(BundleTestSupport.debugOnlyInjectedEntitlement)`
+    /// exemption — restoring the exact hole it was written to close, while staying green.
+    ///
+    /// Deliberately *not* added to ``BuiltBundleTests/pinnedKeysThatMayNotBeSubstituted``: this is
+    /// the one key that must be substituted.
+    func testInfoPlistDeclaresTheBuildConfigurationMarker() throws {
+        let plist = try infoPlist()
+        XCTAssertEqual(
+            plist[BundleTestSupport.buildConfigurationKey] as? String,
+            BundleTestSupport.buildConfigurationReference,
+            """
+            App/Info.plist must set \(BundleTestSupport.buildConfigurationKey) to exactly \
+            '\(BundleTestSupport.buildConfigurationReference)', and currently sets it to \
+            '\(String(describing: plist[BundleTestSupport.buildConfigurationKey] ?? "<absent>"))'.
+            That key is how a built bundle tells the suite whether it is allowed to carry \
+            \(BundleTestSupport.debugOnlyInjectedEntitlement). It has to be the build-setting \
+            reference so the answer comes from the build rather than from this file: a hardcoded \
+            'Debug' would let a Release bundle claim the debug exemption and ship an entitlement \
+            that exposes live transcripts to any same-user process and fails notarization.
+            Removing the key is not an option either — BuiltBundleTests fails closed when it cannot \
+            classify a bundle.
+            """)
     }
 
     // MARK: Entitlements
@@ -723,6 +839,9 @@ final class BuiltBundleTests: XCTestCase {
                   - LSUIElement == true
                   - entitlements contain \(BundleTestSupport.requiredEntitlement)
                   - entitlements omit \(BundleTestSupport.forbiddenEntitlements.joined(separator: ", "))
+                  - the embedded entitlement SET equals App/Vocca.entitlements, allowing
+                    \(BundleTestSupport.debugOnlyInjectedEntitlement) only for a Debug bundle
+                  - the bundle is the configuration the caller asked for
                   - hardened runtime is on in the embedded signature
                   - the bundle was built from the checked-in App/ sources
                   - no test-only target leaked into the bundle
@@ -967,8 +1086,12 @@ final class BuiltBundleTests: XCTestCase {
     /// Checks the two forbidden entitlements are absent rather than checking the whole set for
     /// equality, because Xcode injects `com.apple.security.get-task-allow` into Debug builds so a
     /// debugger can attach. That one is legitimate and disappears in Release.
-    /// ``BundleConfigurationTests.testEntitlementsFileContainsNothingElse`` is where the exact set
-    /// is pinned, against the source file the build actually consumes.
+    ///
+    /// This test is therefore a *named-offender* check and always was. It is kept because it names
+    /// the two entitlements whose presence has a specific, explainable consequence, but on its own
+    /// it is not sufficient — see
+    /// ``testBuiltBundleEmbedsExactlyTheEntitlementsItsConfigurationAllows``, which asserts the
+    /// whole set and is what actually stops an unlisted entitlement from shipping.
     func testBuiltBundleDoesNotEmbedTheSandboxOrLibraryValidationOptOut() throws {
         let entitlements = try embeddedEntitlements(of: try locateBundle())
         for forbidden in BundleTestSupport.forbiddenEntitlements {
@@ -981,6 +1104,190 @@ final class BuiltBundleTests: XCTestCase {
                 Embedded entitlements were: \(entitlements.keys.sorted())
                 """)
         }
+    }
+
+    // MARK: The whole entitlement set, judged against the configuration that produced the bundle
+
+    /// The signed bundle must carry **exactly** what `App/Vocca.entitlements` declares, plus only
+    /// the injections its own build configuration permits.
+    ///
+    /// ## The hole this closes, which was measured rather than imagined
+    ///
+    /// Deleting `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO` from the Release configuration, rebuilding
+    /// Release and running the full `VOCCA_APP_BUNDLE=` contract produced **8/8 green against a
+    /// Release bundle carrying `com.apple.security.get-task-allow`** — an entitlement that lets any
+    /// same-user process attach a debugger and read Vocca's memory, meaning live audio and
+    /// transcripts, and that notarization rejects outright. Two independent reasons, neither
+    /// fixable by adding to a list:
+    ///
+    /// 1. ``BundleTestSupport/forbiddenEntitlements`` cannot name `get-task-allow`, because Debug
+    ///    builds legitimately have it and would go permanently red.
+    /// 2. ``testBuiltBundleWasBuiltFromTheCheckedInSources`` iterates the keys of the *source*
+    ///    entitlements file, so an entitlement in the bundle that the source never mentions is
+    ///    never examined. Every entitlement anyone would inject by accident has that exact shape.
+    ///
+    /// So the check is inverted: instead of enumerating what may not be there, assert the set and
+    /// enumerate the small, configuration-specific set of exceptions. An entitlement nobody has
+    /// thought of yet fails by default, which is the direction that survives contact with a
+    /// build-setting change made two years from now.
+    ///
+    /// ``BundleConfigurationTests/testEntitlementsFileContainsNothingElse`` pins the source file to
+    /// one entitlement; this pins the *signed artefact*, which is the thing that ships and the only
+    /// one a build setting can quietly add to.
+    func testBuiltBundleEmbedsExactlyTheEntitlementsItsConfigurationAllows() throws {
+        let bundle = try locateBundle()
+        let configuration = try buildConfiguration(of: bundle)
+
+        let declared = Set(
+            try BundleTestSupport.readPropertyList(
+                at: try BundleTestSupport.packageRoot()
+                    .appendingPathComponent("App/Vocca.entitlements")
+            ).keys)
+        let embedded = Set(try embeddedEntitlements(of: bundle).keys)
+        let permitted = declared.union(configuration.permittedInjectedEntitlements)
+
+        let injectionsAllowed = configuration.permittedInjectedEntitlements.sorted()
+        let injectionSummary =
+            injectionsAllowed.isEmpty ? "nothing at all" : injectionsAllowed.joined(separator: ", ")
+
+        let unexpected = embedded.subtracting(permitted).sorted()
+        XCTAssertTrue(
+            unexpected.isEmpty,
+            """
+            The \(configuration.rawValue) bundle at \(bundle.path) is signed with entitlements \
+            nothing declares: \(unexpected.joined(separator: ", ")).
+            App/Vocca.entitlements declares \(declared.sorted().joined(separator: ", ")); a \
+            \(configuration.rawValue) build may additionally carry \(injectionSummary).
+            Anything beyond that came from a build setting rather than from a file anyone reviewed. \
+            If it is \(BundleTestSupport.debugOnlyInjectedEntitlement) in a Release bundle, \
+            CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO has been lost from the Release configuration: \
+            restore it. Every entitlement widens what the signed binary may do and has to be argued \
+            for in App/Vocca.entitlements, one at a time — not inherited.
+            """)
+
+        let missing = declared.subtracting(embedded).sorted()
+        XCTAssertTrue(
+            missing.isEmpty,
+            """
+            App/Vocca.entitlements declares \(missing.joined(separator: ", ")) but the signed \
+            \(configuration.rawValue) bundle does not carry \(missing.count == 1 ? "it" : "them"). \
+            The entitlements file is an input the build is free to ignore — CODE_SIGN_ENTITLEMENTS \
+            pointing somewhere else, or signing being skipped — and a missing \
+            \(BundleTestSupport.requiredEntitlement) means the microphone is denied at runtime with \
+            no prompt and no error.
+            """)
+    }
+
+    /// Fails a run that is testing a different configuration than the caller believes it is.
+    ///
+    /// Without this the Release CI job's correctness rests on one path string. A Debug bundle
+    /// satisfies every assertion in this suite — legitimately, it is a valid Debug bundle — so a
+    /// copy-pasted `VOCCA_APP_BUNDLE` pointing at `…/Debug/Vocca.app` would leave the Release job
+    /// green for the rest of the project's life while never once looking at a Release build. The
+    /// job would exist, run, take four minutes, and prove nothing.
+    ///
+    /// Unset means unconstrained, which is the local-convenience path; it cannot weaken CI, because
+    /// the workflow sets it in both bundle jobs and a workflow that stopped setting it is a visible
+    /// diff.
+    func testBundleUnderTestIsTheConfigurationTheCallerAskedFor() throws {
+        let bundle = try locateBundle()
+        let configuration = try buildConfiguration(of: bundle)
+
+        guard
+            let expected = ProcessInfo.processInfo.environment[
+                BundleTestSupport.expectedConfigurationVariable]?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !expected.isEmpty
+        else { return }
+
+        XCTAssertEqual(
+            configuration.rawValue, expected,
+            """
+            \(BundleTestSupport.expectedConfigurationVariable) is '\(expected)' but the bundle at \
+            \(bundle.path) was built \(configuration.rawValue). Whatever this run measured, it was \
+            not the configuration it was asked to measure.
+            """)
+    }
+
+    // MARK: Determining which configuration built the bundle
+
+    /// Which build configuration produced `bundle`, or a thrown error — never a default.
+    ///
+    /// ## Why the marker key, and not the alternatives
+    ///
+    /// The obvious detector is the derived-data path component (`…/Build/Products/Release/…`) and it
+    /// is the wrong one: it is a fact about where a file was copied to, not about how it was built.
+    /// `cp -R` into another directory relabels it, `-derivedDataPath` is caller-supplied, and
+    /// platform suffixes (`Release-maccatalyst`) break exact matching. Reading the Mach-O for
+    /// optimisation hints infers the configuration instead of asking, and infers it from something
+    /// a build setting can change independently.
+    ///
+    /// So the build system is asked directly: `App/Info.plist` carries
+    /// `\(BundleTestSupport.buildConfigurationKey)` set to the literal
+    /// `\(BundleTestSupport.buildConfigurationReference)`, which Xcode expands during *Process
+    /// Info.plist*. The value in a built bundle is therefore something the build system wrote about
+    /// itself. ``BundleConfigurationTests/testInfoPlistDeclaresTheBuildConfigurationMarker`` pins
+    /// the source to the reference form so it can never become a claim the repository makes on the
+    /// build's behalf.
+    ///
+    /// ## Failing closed, in all four ways it can fail
+    ///
+    /// A detector that answers "unknown" and lets the caller shrug is the same vacuous green this
+    /// check exists to remove, so every one of these throws:
+    ///
+    /// - the key is absent (bundle predates the check, or the plist lost it);
+    /// - the value still contains `$(` (expansion is off — the marker is a literal, not an answer);
+    /// - the value is a configuration name the rules do not cover (a third configuration must state
+    ///   its own entitlement policy before a bundle built from it can pass anything);
+    /// - the value contradicts an unambiguous products-directory name.
+    ///
+    /// The last is corroboration only and is applied in one direction: the marker is authoritative,
+    /// the path may only contradict it. A path component that is not exactly a known configuration
+    /// name says nothing and is ignored, so an app copied elsewhere still classifies — while
+    /// `…/Products/Release/Vocca.app` claiming to be Debug, which is what a tampered or
+    /// hand-assembled bundle looks like, cannot.
+    private func buildConfiguration(of bundle: URL) throws -> BundleTestSupport.BuildConfiguration {
+        let plist = try BundleTestSupport.readPropertyList(
+            at: bundle.appendingPathComponent("Contents/Info.plist"))
+
+        guard let raw = plist[BundleTestSupport.buildConfigurationKey] as? String,
+            !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw BundleTestError.buildConfigurationUndetectable(
+                bundle: bundle.path,
+                reason:
+                    "its Contents/Info.plist has no non-empty '\(BundleTestSupport.buildConfigurationKey)' key"
+            )
+        }
+
+        guard !raw.contains("$(") else {
+            throw BundleTestError.buildConfigurationUndetectable(
+                bundle: bundle.path,
+                reason:
+                    "'\(BundleTestSupport.buildConfigurationKey)' is still the unexpanded literal '\(raw)', so Xcode did not substitute it"
+            )
+        }
+
+        guard let configuration = BundleTestSupport.BuildConfiguration(rawValue: raw) else {
+            throw BundleTestError.buildConfigurationUndetectable(
+                bundle: bundle.path,
+                reason:
+                    "it was built with configuration '\(raw)', which has no entitlement policy here (known: \(BundleTestSupport.BuildConfiguration.allCases.map(\.rawValue).sorted().joined(separator: ", ")))"
+            )
+        }
+
+        // Corroboration. Only an exact configuration name counts as a contradiction; anything else
+        // is a directory that happens to hold an app and is ignored.
+        let enclosing = bundle.deletingLastPathComponent().lastPathComponent
+        if let fromPath = BundleTestSupport.BuildConfiguration(rawValue: enclosing),
+            fromPath != configuration
+        {
+            throw BundleTestError.buildConfigurationMismatch(
+                bundle: bundle.path,
+                reported: configuration.rawValue,
+                contradictedBy: "it sits in a build-products directory named '\(enclosing)'")
+        }
+
+        return configuration
     }
 
     /// Asserts the `runtime` flag is actually in the embedded signature, which is a different

@@ -57,5 +57,30 @@
 
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright 2026 The Vocca Authors. Licensed under the Apache License, Version 2.0.</string>
+
+	<!--
+	  Not an Apple key. This is how a built bundle tells the test suite which build
+	  configuration produced it, and it exists because the entitlement rules differ
+	  between the two: Debug legitimately carries
+	  com.apple.security.get-task-allow (no debugger can attach without it) and
+	  Release must not, because it lets any same-user process read the process's
+	  memory — for Vocca, live transcripts — and notarization rejects it outright.
+
+	  A check that cannot tell the configurations apart has to permit
+	  get-task-allow everywhere, which is exactly the hole that let a Release bundle
+	  carrying it pass 8/8 green.
+
+	  The value MUST stay the literal build-setting reference $(CONFIGURATION).
+	  Xcode substitutes it during the Process Info.plist phase, so the built bundle
+	  says "Debug" or "Release" and cannot say something the build did not do.
+	  Hardcoding a configuration name here would let a Release build claim to be
+	  Debug and buy back the permission it must not have — so
+	  BundleConfigurationTests.testInfoPlistDeclaresTheBuildConfigurationMarker
+	  pins this to the reference form, and BuiltBundleTests refuses to run at all
+	  when the built value is missing, unsubstituted, or not a configuration it
+	  knows the rules for.
+	-->
+	<key>VoccaBuildConfiguration</key>
+	<string>$(CONFIGURATION)</string>
 </dict>
 </plist>

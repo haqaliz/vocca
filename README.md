@@ -65,6 +65,7 @@ Platform: **macOS on Apple Silicon.** No Windows or Linux until the Mac experien
 | [`docs/technical/CAPABILITY_ROADMAP.md`](docs/technical/CAPABILITY_ROADMAP.md) | C1–C14: the independently-shippable build backlog |
 | [`docs/technical/ARCHITECTURE.md`](docs/technical/ARCHITECTURE.md) | **Authoritative.** Types, seams, threading, failure semantics |
 | [`docs/product/PRODUCT_SPEC.md`](docs/product/PRODUCT_SPEC.md) | Widget states, interaction, onboarding, settings |
+| [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) | What CI structurally cannot cover, and the manual steps before a release |
 | [`CLAUDE.md`](CLAUDE.md) | Orientation for coding agents working in this repo |
 
 ## Building & signing
@@ -95,6 +96,34 @@ This identity is self-signed and proves nothing to anyone but this Mac. **Notari
 configured yet, so the script has never run end to end. It detects that and exits 0 with an
 explicit skip message rather than failing; see the comment at the top of the script for how to
 configure real credentials once there's a Developer ID to notarize with.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and pull request, on a
+pinned `macos-15` runner with an explicitly selected Xcode. Three jobs:
+
+| Job | Runs | Proves |
+|---|---|---|
+| **Headless suite** | `swift build --build-tests -Xswiftc -strict-concurrency=complete`, then `swift test` | The package compiles with **zero** strict-concurrency warnings (any warning fails the job) and the whole suite passes — module boundaries, licence headers, the package manifest, and the zero-network invariant. |
+| **Bundle contract (Debug)** | `xcodebuild -configuration Debug`, then `swift test` with `VOCCA_APP_BUNDLE` set | A real signed `Vocca.app` carries the microphone entitlement and usage string, runs unsandboxed with the hardened runtime actually in the signature, and was built from the checked-in `App/` sources. |
+| **Bundle contract (Release)** | The same for Release | All of the above, **plus** that the Release bundle's entitlement set equals `App/Vocca.entitlements` exactly. Debug may carry `com.apple.security.get-task-allow`; Release may not, and the suite knows which bundle it is looking at. |
+
+**No secrets, ever.** The app target signs ad-hoc — `Config/Signing.xcconfig` falls back to
+`CODE_SIGN_IDENTITY = "-"` when the host-local override is absent — which needs no Developer ID, no
+keychain and no repository secret. That is what makes the bundle assertions *mandatory* in CI rather
+than skipped: with `VOCCA_APP_BUNDLE` set, a missing bundle is a hard failure, not a skip.
+
+CI also sets `CI=1`, which raises the zero-network probe's settle window from 0.75s to 6s so that
+deferred egress on a loaded runner cannot slip past it.
+
+### What CI does not run
+
+Everything that needs hardware or a permission grant, which is most of what can actually break:
+`CGEvent.tapCreate` returns `nil` without an Accessibility grant and TCC cannot be granted on a
+hosted runner; there is no microphone; and `AVAudioSinkNode` is unsupported in manual rendering
+mode, so the realtime capture path has no offline equivalent to exercise. Read
+[`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) — it states the limits precisely and lists the
+manual steps required before a release. **A green badge here is a narrower claim than it looks.**
 
 ## Non-goals
 
