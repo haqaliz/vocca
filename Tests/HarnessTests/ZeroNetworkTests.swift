@@ -18,6 +18,7 @@ import XCTest
 private enum ZeroNetworkTestError: Error, CustomStringConvertible {
     case packageRootNotFound(startingFrom: String)
     case noModulesDiscovered(sourcesRoot: String)
+    case everyModuleExcluded(candidates: [String], nonDrivable: [String])
 
     var description: String {
         switch self {
@@ -26,6 +27,13 @@ private enum ZeroNetworkTestError: Error, CustomStringConvertible {
         case .noModulesDiscovered(let root):
             return
                 "No module directories were found under \(root) — the probe's coverage was not checked against anything"
+        case .everyModuleExcluded(let candidates, let nonDrivable):
+            return """
+                Every module was subtracted from the coverage requirement, so the invariant would \
+                have been asserted against nothing. Candidates: \
+                \(candidates.joined(separator: ", ")). Non-drivable: \
+                \(nonDrivable.joined(separator: ", ")).
+                """
         }
     }
 }
@@ -244,10 +252,22 @@ final class ZeroNetworkTests: XCTestCase {
         // be driven (impossible) nor has to be excluded (which the shipping guard would rightly
         // refuse). Applied to the directory-derived half too, since a plugin target has a
         // `Sources/` directory like any other.
-        return
+        let required =
             candidates
             .subtracting(manifest.nonDrivableTargetNames)
             .subtracting(justifiedExclusions(manifest: manifest))
+
+        // Re-checked *after* the subtractions, not just before. `candidates` being non-empty says
+        // nothing about what survives them: if the two subtractions between them removed
+        // everything, Test B would compare an empty set against an empty set and pass while
+        // requiring nothing at all. No route to that is known today — it is closed because
+        // vacuous-green is the exact shape of every hole this file has had to fix.
+        guard !required.isEmpty else {
+            throw ZeroNetworkTestError.everyModuleExcluded(
+                candidates: candidates.sorted(),
+                nonDrivable: manifest.nonDrivableTargetNames.sorted())
+        }
+        return required
     }
 
     /// Filters ``candidateExclusions`` down to the ones the manifest actually justifies, and
@@ -256,6 +276,12 @@ final class ZeroNetworkTests: XCTestCase {
     /// An exclusion is honoured only when the manifest says the target is not reachable from any
     /// product whose name does not begin with `_`. So a module that ships — or that anything
     /// shipping depends on — cannot be excluded, no matter what is written in the list.
+    ///
+    /// That rests on the underscore vocabulary being **closed**, which it is:
+    /// `PackageManifest.permittedUnderscoredProducts` pins it to the one legitimate fixture
+    /// product. This is load-bearing, not bookkeeping. While the vocabulary was open, the rule
+    /// was self-service — renaming `VoccaSpeech`'s product to `_VoccaSpeech` took it out of the
+    /// shipping set, which made excluding it legal and lifted it out of the invariant entirely.
     ///
     /// **Residual limitation, stated rather than hidden:** a target that belongs to no product
     /// *and* that nothing shipping depends on is structurally not part of the app, so it can

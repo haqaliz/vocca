@@ -48,12 +48,28 @@ struct PackageManifest {
     let targets: [String: Target]
     let products: [String: Product]
 
+    /// The complete list of products permitted to opt out of the shipping set by wearing a
+    /// leading underscore.
+    ///
+    /// A **closed** vocabulary, deliberately. `shippingTargets` treats a leading underscore as
+    /// "not API", and while that set was open, renaming a single product was enough to lift a real
+    /// module out of the zero-network invariant: change `.library(name: "VoccaSpeech")` to
+    /// `"_VoccaSpeech"`, stop driving it from the probe, add it to the exclusion list, and the
+    /// suite went green with VoccaSpeech no longer covered at all. Two edited lines, one of them a
+    /// single character. The round-3 "something must ship" guard only caught the version of that
+    /// attack which underscored *every* product.
+    ///
+    /// Pinning it literally means a product can still be marked not-API — but not silently, and
+    /// not by a contributor who is really just trying to make a coverage failure go away.
+    static let permittedUnderscoredProducts: Set<String> = ["_VoccaNetworkInterposerTestFixture"]
+
     /// Targets that are part of something the package actually vends.
     ///
     /// Computed as the transitive closure of every product whose name does not begin with `_`,
     /// the Swift convention for "not API". That makes "does this ship?" a structural question
     /// about the manifest rather than a claim in a comment — which is what allows the coverage
-    /// exclusion list in `ZeroNetworkTests` to be self-defending.
+    /// exclusion list in `ZeroNetworkTests` to be self-defending. The underscore vocabulary is
+    /// closed by ``permittedUnderscoredProducts``, so opting out is not self-service.
     var shippingTargets: Set<String> {
         var reached: Set<String> = []
         var queue: [String] = products.values
@@ -188,6 +204,15 @@ struct PackageManifest {
         guard !manifest.shippingTargets.isEmpty else {
             throw PackageManifestError.noShippingTargets(productNames: products.keys.sorted())
         }
+
+        // Checked before the manifest is handed out, because everything downstream trusts
+        // "underscored means test-only" and that claim is only true while this set is closed.
+        let unsanctioned = products.keys
+            .filter { $0.hasPrefix("_") && !Self.permittedUnderscoredProducts.contains($0) }
+            .sorted()
+        guard unsanctioned.isEmpty else {
+            throw PackageManifestError.unsanctionedUnderscoredProducts(names: unsanctioned)
+        }
         return manifest
     }
 
@@ -206,6 +231,7 @@ enum PackageManifestError: Error, CustomStringConvertible {
     case malformedDump(String)
     case emptyManifest
     case noShippingTargets(productNames: [String])
+    case unsanctionedUnderscoredProducts(names: [String])
 
     var description: String {
         switch self {
@@ -225,6 +251,19 @@ enum PackageManifestError: Error, CustomStringConvertible {
                 on "you may not exclude a target that ships" — with an empty shipping set every \
                 exclusion would be permitted and the guard would pass while enforcing nothing. If \
                 the package genuinely vends nothing, fix the manifest.
+                """
+        case .unsanctionedUnderscoredProducts(let names):
+            return """
+                These products are named with a leading underscore, which marks them as not-API \
+                and removes them and their targets from the shipping set: \
+                \(names.joined(separator: ", ")).
+                Only \(PackageManifest.permittedUnderscoredProducts.sorted().joined(separator: ", ")) \
+                may do that. Opting a product out of the shipping set also opts it out of the \
+                zero-network invariant, which is not something a contributor may do silently — \
+                renaming one product was enough to lift a whole module out of coverage. If the \
+                product genuinely is a test fixture, add it to \
+                `PackageManifest.permittedUnderscoredProducts` in the same change, so the decision \
+                is visible in review.
                 """
         }
     }
