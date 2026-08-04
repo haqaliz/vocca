@@ -24,6 +24,7 @@
 		1A0000000000000000000010 /* VoccaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoccaApp.swift; sourceTree = "<group>"; };
 		1A0000000000000000000011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1A0000000000000000000012 /* Vocca.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Vocca.entitlements; sourceTree = "<group>"; };
+		1A0000000000000000000040 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,8 +51,17 @@
 			isa = PBXGroup;
 			children = (
 				1A0000000000000000000004 /* App */,
+				1A0000000000000000000041 /* Config */,
 				1A0000000000000000000003 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		1A0000000000000000000041 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1A0000000000000000000040 /* Signing.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		1A0000000000000000000003 /* Products */ = {
@@ -210,9 +220,9 @@
 		};
 		1A000000000000000000000A /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A0000000000000000000040 /* Signing.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = App/Vocca.entitlements;
-				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = YES;
@@ -241,10 +251,10 @@
 		};
 		1A000000000000000000000B /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A0000000000000000000040 /* Signing.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = App/Vocca.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = YES;

@@ -12,6 +12,12 @@ DerivedData/
 # macOS
 .DS_Store
 
+# Host-local signing state (see Scripts/dev-identity.sh). Never checked in: this is what wires
+# the checked-in Config/Signing.xcconfig to whichever identity exists on *this* machine, and a
+# committed copy would either be wrong on someone else's machine or leak nothing useful and just
+# rot.
+Config/Signing.local.xcconfig
+
 # Local model caches, recorded audio, and BYOK secrets never get committed.
 # Local-first promise: this data stays on the box (see CLAUDE.md).
 .env
