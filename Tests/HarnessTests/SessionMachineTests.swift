@@ -1247,6 +1247,67 @@ final class SessionMachineTests: XCTestCase {
         XCTAssertEqual(toggledOffImmediately.machine.state, .idle)
     }
 
+    /// **The stale-claim valve, in the mode where it is the only thing that can fire.**
+    ///
+    /// A claim goes stale when the key-up that would release it never arrives — a focus race, a
+    /// stalled tap, a hotkey stolen mid-press. Until it is released, Vocca swallows every press of
+    /// that key code, so the user's Space bar is dead.
+    ///
+    /// In hold-to-talk a stale claim lives at most one poll interval, because
+    /// `observePhysicalKey(isDown: false)` clears it. **In toggle there is no poll**, so the *only*
+    /// thing that ever clears it is this valve — a key-down macOS did not mark as an autorepeat,
+    /// which can only mean the key came back up while nobody was looking. The valve is therefore
+    /// strictly more load-bearing here than in the mode whose tests already cover it
+    /// (`testAClaimNeverOutlivesThePressAndAFreshPressClearsAStaleOne`), and two mutations that
+    /// skipped it in toggle survived the whole suite until this test existed.
+    ///
+    /// The probe is deliberately a **bare** press — no chord — so it is the user typing a space
+    /// rather than a toggle-off, and the assertion is that it reaches them.
+    func testAStaleClaimIsReleasedByAFreshPressInToggleModeWhereNoPollCanReleaseIt() throws {
+        let harness = Harness(configuration: toggleChord)
+
+        // The toggle-on press is swallowed and claimed — and its key-up never arrives.
+        XCTAssertEqual(harness.pressHotkey(), .started)
+        XCTAssertEqual(harness.machine.state, .recording)
+
+        // Premise: while the key is still believed held, its repeats are still Vocca's. Without
+        // this the test would pass against a machine that never claims anything at all.
+        XCTAssertEqual(
+            harness.autorepeat(modifiers: [.option]).eventPropagation, .swallow,
+            "The starting press was not claimed, so there is no stale claim to release below.")
+
+        // A fresh, unrepeated press of the bare key: the key must have come up unobserved, so the
+        // claim standing is stale and this keystroke is the user's.
+        let fresh = harness.feed(event(.keyDown, space, []))
+        XCTAssertEqual(
+            fresh.eventPropagation, .passThrough,
+            """
+            A stale claim survived a fresh press in toggle mode, so Vocca is eating a key the user \
+            is typing. Hold-to-talk recovers from this in one poll interval; toggle has no poll, so \
+            it recovers only when this valve fires.
+            """)
+        XCTAssertEqual(
+            fresh.effect, .unchanged, "A bare press is not the chord and must not toggle anything.")
+        XCTAssertEqual(harness.machine.state, .recording)
+
+        // And the claim is genuinely gone, not merely bypassed for this one event: the repeats of
+        // the press the user is now holding reach them too.
+        XCTAssertEqual(
+            harness.autorepeat(modifiers: []).eventPropagation, .passThrough,
+            "The valve let one keystroke through and took the claim straight back.")
+        XCTAssertEqual(
+            harness.feed(event(.keyUp, space, [])).eventPropagation, .passThrough,
+            "The user's own key-up was swallowed, leaving the app holding a key it saw go down.")
+        XCTAssertTrue(harness.keysTheAppBelievesAreDown.isEmpty)
+
+        // The session is untouched by all of it, and still ends on the real gesture.
+        let outcome = try endedOutcome(harness.tapHotkey())
+        switch outcome.content {
+        case .completed(let reason, _, _): XCTAssertEqual(reason, .toggledOff)
+        case .cancelled: XCTFail("Toggling off discarded its audio.")
+        }
+    }
+
     /// Cancellation is still the one path that discards, and in toggle it still closes the
     /// microphone.
     ///

@@ -155,14 +155,24 @@ once per machine without resetting state. Use a fresh user account or
     the invariant against the composition root; this confirms it for the shipping app, which
     contains one file (`App/VoccaApp.swift`) the probe cannot reach.
 
+15. **Toggle mode**, which CI can reach only through the seam and never through a real tap. Press,
+    release, talk, press again: confirm the microphone closed and the transcript survived, and
+    confirm the hotkey's bare key (Space, for `⌥Space`) still types normally *between* the two
+    presses. Both halves matter and neither is observable from the state machine's own tests:
+    a lost stopping press costs **up to 120 s of open microphone** in this mode — there is no
+    physical-key poll behind it — and a claim mistakenly held for the session would leave that key
+    dead for the same span. This is also the only place `SessionMachine.observePhysicalKey(isDown:)`
+    being deliberately mode-blind would be caught: if a session ends ~150 ms after every toggle-on,
+    something is calling it past the watchdog.
+
 ### If notarizing
 
-15. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
+16. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
     first real release must treat notarization as unproven and budget time for it, including for
     the possibility that a rejected entitlement or a missing hardened-runtime flag only shows up
     there.
 
-16. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
+17. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
     steps 1–4 built, signed and inspected. That is only true if step 2 was run with the Release path
     given explicitly; a bare `./Scripts/sign.sh` signs Debug and this step then submits an
     unmodified Release build.

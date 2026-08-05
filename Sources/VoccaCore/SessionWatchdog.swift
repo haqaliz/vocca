@@ -293,26 +293,50 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
             // 150 ms after the user started talking. Stop rule (f) would not be a weaker guarantee
             // in this mode; it would be a session that cannot happen at all.
             //
-            // Nothing replaces it because there is nothing at this seam to replace it *with*, and
-            // that is structural rather than an omission. Rule (f) works in hold-to-talk because
-            // the condition the session continues under — "the key is held" — is a state of the
-            // world, and `CGEventSourceKeyState` reads that state without going through the tap. A
-            // toggle session continues under "the user has not pressed again", which is not a state
-            // of anything: it is the absence of a future event, and no poll can read an absence.
+            // **Nothing replaces it at this seam** — a narrower claim than "nothing replaces it",
+            // and the narrowing is the point; see the end of this comment. Rule (f) works in
+            // hold-to-talk because the condition the session continues under — "the key is held" —
+            // is a state of the world, and `CGEventSourceKeyState` reads that state without going
+            // through the tap. A toggle session continues under "the user has not pressed again",
+            // which is not a state of anything: it is the absence of a future event, and no poll
+            // can read an absence.
             //
-            // Detecting the *press* instead was considered and rejected. It needs an edge, this
-            // seam offers a level, and reconstructing an edge from 150 ms samples misses an
-            // ordinary 60 ms tap outright — while `isKeyDown(_:)` carries no modifiers, so every
-            // bare press of the hotkey's key code would read as a toggle-off. A mechanism that
-            // fires late, sometimes, and stops sessions nobody ended is worse than none, because
-            // the hot-mic bound would then be quoted from it.
+            // Detecting the *press* instead was considered and rejected, on one decisive ground and
+            // one cost:
             //
-            // So what is left bounding a toggle session is: this ceiling, `.tapDisabled`, the five
+            // - **Decisive:** it needs an edge and this seam offers a level, so an edge has to be
+            //   reconstructed from samples — and at 150 ms an ordinary 60 ms tap falls between two
+            //   of them and is missed outright. A mechanism that fires late and only sometimes is
+            //   worse than none, because the hot-mic bound would then be quoted from it.
+            // - **A cost, not an impossibility:** `isKeyDown(_:)` takes one key code, so the chord
+            //   would have to be read modifier by modifier — the modifier keys have virtual key
+            //   codes of their own, left and right, readable through the same primitive. That is
+            //   several more calls per wake plus a `ModifierSet`-to-key-codes map, and the map is a
+            //   fact about the system, so it belongs to `hotkey-source` and would mean widening
+            //   this seam. Worth stating accurately rather than as a wall: a reader who checks this
+            //   and finds it overstated has cause to discount the decisive reason too.
+            //
+            // So what bounds a toggle session *today* is: this ceiling, `.tapDisabled`, the five
             // system triggers, cancellation, and the user's own next press. The ceiling is the only
             // *unconditional* one, which makes it load-bearing here rather than a backstop —
             // `SessionWatchdogTests` measures the difference (one poll interval against the full
             // ceiling) side by side rather than restating it, and the widget's
             // ``ceilingIsNear`` warning is the user-facing half of the same fact.
+            //
+            // **What would actually close the gap is not at this seam at all: a device-independent
+            // retained stop.** A widget click, a menu-bar item, a VoiceOver-reachable control — any
+            // input that does not travel through the `CGEvent` tap is immune to the failures that
+            // make the second press vanish (a higher-priority tap consuming it, a stalled tap, a
+            // focus race). Note that ``cancel()`` is *not* it: cancellation discards, so a toggle
+            // user whose stopping press is lost has exactly one way to stop inside that window and
+            // it throws their words away — which is the invariant this whole aspect exists to
+            // protect, failing in the mode that exists for accessibility.
+            //
+            // In this module that is one public method routed through the same stop funnel plus one
+            // ``RetainedEndReason``. It is deliberately **not built here**: the control it needs
+            // does not exist in `PRODUCT_SPEC.md` yet (§2's widget has no stop affordance and §11's
+            // menu bar lists only state, mode toggle, last transcript, Settings and Quit), so it is
+            // a product question first and `hotkey-source`'s to deliver second.
             //
             // The cadence is unchanged and deliberately so, even though this branch makes no system
             // call: ``SessionMachine/elapsed`` only advances when someone ticks, and the widget

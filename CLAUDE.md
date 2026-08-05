@@ -118,7 +118,9 @@ Decided in the planning session after a research pass on current local macOS ASR
 - **ASR:** **Parakeet TDT 0.6B v3 via FluidAudio** (CoreML/ANE) as default, **whisper.cpp
   large-v3-turbo shipped as a real second engine** behind `ASREngine` — not promised later.
 - **VAD/endpointing:** Silero VAD + **Parakeet EOU 120M** for turn detection. **Deferred to
-  P3** — P0 is hold-to-talk only, where the user's finger is the endpointer.
+  P3** — P0 has no endpointing at all. Hold-to-talk is the default, where the user's finger is
+  the endpointer; a **toggle alternative ships alongside it** (`PRODUCT_SPEC.md:257` makes it an
+  accessibility requirement), bounded by the 120 s ceiling rather than by a finger.
 - **TTS:** **Kokoro-82M** (Apache-2.0) behind `SpeechSynthesizer`, with macOS
   `AVSpeechSynthesizer` as the shipped second implementation.
 - **Cleanup:** deterministic rules by default (~0 MB, <5 ms, no network); Ollama and BYOK

@@ -304,10 +304,13 @@ private func holdToTalkDecision(
 /// in toggle mode at all** — see ``SessionWatchdog/wake()``, which is where that is decided and
 /// where the cost of it is written down.
 ///
-/// So a toggle session that loses its stopping press has no out-of-band evidence to recover it, and
-/// what bounds it is the ceiling. That is a real reduction against hold-to-talk's one poll interval,
-/// it is measured rather than asserted in `SessionWatchdogTests`, and it is the reason a toggle
-/// session's ceiling is load-bearing rather than a backstop.
+/// So a toggle session that loses its stopping press has no out-of-band evidence *at the keyboard*
+/// to recover it, and what bounds it today is the ceiling. That is a real reduction against
+/// hold-to-talk's one poll interval, it is measured rather than asserted in `SessionWatchdogTests`,
+/// and it is the reason a toggle session's ceiling is load-bearing rather than a backstop. It is not
+/// a permanent limit: a **device-independent retained stop** — an input that does not travel through
+/// the tap — would close it, and ``SessionWatchdog/wake()`` argues why that, rather than anything at
+/// the poll seam, is the route.
 ///
 /// ## What gets swallowed, in toggle
 ///

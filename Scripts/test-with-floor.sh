@@ -47,7 +47,14 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 141 by task 6, which added twenty for toggle mode: seven in SessionDecisionTests (including a
+# 142 by task 6's review round, which added one in SessionMachineTests: the stale-claim valve, in
+# toggle. Two mutations that skipped it in that mode survived 141/141. The valve is *more*
+# load-bearing in toggle than in hold-to-talk and was tested only in hold-to-talk — a stale claim
+# there lives at most one poll interval, because `observePhysicalKey(isDown: false)` clears it, and
+# in toggle there is no poll, so a fresh press is the only thing that ever releases it. Until then
+# every press of the hotkey's key code is swallowed instead of typed.
+#
+# It was 141 after task 6 itself, which added twenty for toggle mode: seven in SessionDecisionTests (including a
 # second 144-row truth table, because the two modes are two policies and a row given to the wrong
 # half of a combined table would read as a deliberate difference), five in SessionMachineTests, seven
 # in SessionWatchdogTests, and one in SessionVocabularyTests. Four of them carry the mode's whole
@@ -119,7 +126,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=141
+MINIMUM_EXECUTED_TESTS=142
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

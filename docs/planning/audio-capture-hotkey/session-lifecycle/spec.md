@@ -84,17 +84,36 @@ started. Task 5 therefore placed the poll inside a `switch` on the activation mo
 `default:`, so the file stops compiling at the line that must be re-decided the moment `.toggle`
 becomes constructible.
 
-**Task 6's answer: nothing replaces it, and the reason is structural rather than an omission.**
-Rule (f) works in hold-to-talk because the condition a session continues under — *"the key is
-held"* — is a state of the world, which `CGEventSourceKeyState` reads out of band, past the tap
-that failed. A toggle session continues under *"the user has not pressed again"*, which is not a
-state of anything: it is the absence of a future event, and no poll can read an absence. Detecting
-the *press* instead was considered and rejected — the seam offers a level and that needs an edge,
-150 ms sampling misses an ordinary 60 ms tap outright, and `isKeyDown(_:)` carries no modifiers, so
-every bare press of the hotkey's key code would read as a toggle-off.
+**Task 6's answer: nothing replaces it _at the poll seam_, and that much is structural.** Rule (f)
+works in hold-to-talk because the condition a session continues under — *"the key is held"* — is a
+state of the world, which `CGEventSourceKeyState` reads out of band, past the tap that failed. A
+toggle session continues under *"the user has not pressed again"*, which is not a state of
+anything: it is the absence of a future event, and no poll can read an absence.
 
-So a toggle session is bounded by: the **ceiling**, `.tapDisabled`, the five system triggers,
-cancellation, and the user's next press. Only the ceiling is unconditional, which makes it
+Detecting the *press* instead was considered and rejected on one decisive ground and one cost. The
+decisive one: it needs an edge where the seam offers a level, so an edge has to be reconstructed
+from samples, and at 150 ms an ordinary 60 ms tap falls between two of them and is missed. A
+mechanism that fires late and only sometimes is worse than none, because the hot-mic bound would
+then be quoted from it. The cost, stated accurately rather than as a wall: `isKeyDown(_:)` takes one
+key code, so the chord would have to be read modifier by modifier — the modifier keys have virtual
+key codes of their own and are readable through the same primitive — which is several more calls
+per wake plus a `ModifierSet`-to-key-codes map that is a system fact and therefore `hotkey-source`'s.
+
+**But the gap is not permanent, and the thing that closes it is not at this seam: a
+device-independent retained stop.** A widget click, a menu-bar item, a VoiceOver-reachable control —
+any input that does not travel through the `CGEvent` tap is immune to the failures that make the
+second press vanish (a higher-priority tap consuming it, a stalled tap, a focus race). This matters
+more than a nicety, because **`cancel()` discards**: a toggle user whose stopping press is lost has
+exactly one way to stop inside the window below, and it throws their words away — the invariant this
+aspect exists to protect, failing in the mode that exists for accessibility. In this module it is
+one public method through the same stop funnel plus one `RetainedEndReason`. It is **not built
+here**: `PRODUCT_SPEC.md` offers no such control today (§2's widget has no stop affordance, §11's
+menu bar lists only state / mode toggle / last transcript / Settings / Quit, and §10's *"every
+action reachable by keyboard"* does not name stop as an action), so it is a product question first
+and `hotkey-source`'s to deliver second.
+
+So a toggle session is bounded, **today**, by: the **ceiling**, `.tapDisabled`, the five system
+triggers, cancellation, and the user's next press. Only the ceiling is unconditional, which makes it
 load-bearing here rather than a backstop. **The cost is measured, not asserted**: the same accident
 — the user asks to stop and Vocca never hears it — costs **one poll interval (150 ms) in
 hold-to-talk and the remainder of the ceiling in toggle** (105 s from a press at t=15 s), pinned
