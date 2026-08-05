@@ -201,6 +201,28 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
 
     // MARK: - Inputs
 
+    /// One observed keyboard event, on its way to the machine.
+    ///
+    /// **This is the path that arms the watchdog, and it is the reason the wrapper exists.** A key
+    /// event is the only input that can move the machine into `.recording`, so it is the only one
+    /// after which ``schedule`` changes from `.stopped` to `.wake(every:)` and the owner must start
+    /// its timer. An owner that routed key events straight to the machine would be holding two
+    /// objects with overlapping responsibilities and reading the schedule off the one the session
+    /// did *not* start through — which is not a mistake anybody makes on purpose, and is exactly the
+    /// kind that gets made.
+    ///
+    /// Be precise about what this buys, because it is easy to overclaim: it does **not** force the
+    /// owner to re-read ``schedule``, and nothing in a module with no run loop could. What it buys
+    /// is that the owner never needs to hold the machine at all — every input a session has arrives
+    /// through this one object, so there is no second door for one to come in by unseen.
+    ///
+    /// The event's disposition is the machine's, returned unchanged. A wrapper that decided
+    /// propagation for itself would be a second opinion about whether the focused application sees
+    /// a keystroke, and one of the two would eventually be wrong.
+    public func observe(_ event: RawKeyEvent) -> SessionResponse<Audio> {
+        machine.observe(event)
+    }
+
     /// One turn of the owner's timer: **look at the key, then look at the clock.**
     ///
     /// Exactly one effect comes out, because at most one session can end per wake — once the first
@@ -217,10 +239,13 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
     /// session has ended must not cost a system call, and a poll answered for a session that no
     /// longer exists is an answer about somebody else's press.
     ///
-    /// The clock is only ever the machine's. This method advances nothing and remembers nothing;
-    /// if the owner's timer stops firing, the ceiling stops firing too, and that is stated here
-    /// rather than hidden because it is the one failure this whole aspect cannot recover from on
-    /// its own.
+    /// The clock is only ever the machine's. This method advances nothing and remembers nothing, so
+    /// **the ceiling rests on two things outside this module, and fails silently if either gives
+    /// way**: the owner's timer must keep firing, and the injected ``MonotonicClock`` must keep
+    /// advancing. They fail differently and both are worth naming here, because in each case
+    /// everything else goes on looking healthy. A timer that stops means nothing runs at all. A
+    /// clock that stalls means every wake still happens and the poll still answers correctly — see
+    /// ``MonotonicClock`` — while `elapsed` never moves and the ceiling is simply never reached.
     public func wake() -> SessionEffect<Audio> {
         switch machine.state {
         case .idle, .ending:
@@ -272,5 +297,24 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
     /// anybody an outcome.
     public func observe(_ trigger: SystemTrigger) -> SessionEffect<Audio> {
         machine.observe(trigger)
+    }
+
+    /// The user abandoned the session — Escape — on its way to the machine.
+    ///
+    /// Here for completeness, and completeness is the whole argument: wrapping the key-event path
+    /// and not this one would leave "every input arrives through one object" *nearly* true, which is
+    /// the state in which someone reasonably concludes they may keep a reference to the machine for
+    /// the one input the watchdog does not take, and then uses it for the ones it does.
+    ///
+    /// With this, the four inputs a session owner has — a key event, a system trigger, a
+    /// cancellation, a timer wake — are all here, and the machine's remaining public inputs
+    /// (`tick()`, `observePhysicalKey(isDown:)`) are the mechanism ``wake()`` drives on the owner's
+    /// behalf. An owner never has a reason to call those, and now never has a reason to hold the
+    /// machine.
+    ///
+    /// Cancelling still closes the microphone: discarding a transcript and holding the microphone
+    /// are different things, and only the first was ever asked for.
+    public func cancel() -> SessionEffect<Audio> {
+        machine.cancel()
     }
 }

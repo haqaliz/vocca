@@ -47,7 +47,15 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 117 by task 5, which added thirteen in SessionWatchdogTests: the watchdog policy — when to poll,
+# 119 by task 5's first review round, which added two in SessionWatchdogTests. A clock that never
+# advances disables the ceiling outright while every other mechanism keeps working — `elapsed`
+# accumulates deltas, so stalled readings do not delay the ceiling, they remove it — and the test
+# measures the half that bounds the damage too: the poll reads no clock, so it still ends the
+# session the moment the key comes up. And every input a session owner has now arrives through the
+# watchdog, including the key events that are the only thing that can *arm* it; that test pins the
+# arming path and that cancellation still closes the microphone.
+#
+# It was 117 after task 5 itself, which added thirteen in SessionWatchdogTests: the watchdog policy — when to poll,
 # what a release means, and how the system triggers map. The two that are not obvious from that
 # list are the ones that make the rest mean anything: a **positive control** proving the hot-mic
 # meter can detect a session that did stay open (a run whose only difference is a seam that never
@@ -90,7 +98,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=117
+MINIMUM_EXECUTED_TESTS=119
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

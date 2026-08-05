@@ -160,20 +160,29 @@ private final class WatchdogHarness {
 
     // MARK: The gestures
 
+    /// Every gesture below goes through the **watchdog**, not the machine, because that is the call
+    /// shape `hotkey-source` will use: the owner holds one object for every input a session has. A
+    /// harness that reached past it would leave the shipped arming path untested — which is what
+    /// the first round of this task did.
+    ///
     /// The user presses the hotkey, and the tap delivers it.
     @discardableResult
     func pressHotkey() -> Effect {
+        pressHotkeyObservingPropagation().effect
+    }
+
+    /// The same press, with the focused application's half of the answer kept.
+    @discardableResult
+    func pressHotkeyObservingPropagation() -> SessionResponse<RecordingSource.Buffer> {
         keyboard.press(configuration.keyCode)
-        return machine.observe(
-            event(.keyDown, configuration.keyCode, configuration.modifiers)
-        ).effect
+        return watchdog.observe(event(.keyDown, configuration.keyCode, configuration.modifiers))
     }
 
     /// The user lets go **and the key-up is delivered**. The ordinary ending.
     @discardableResult
     func releaseHotkey() -> Effect {
         keyboard.release(configuration.keyCode)
-        return machine.observe(event(.keyUp, configuration.keyCode, configuration.modifiers)).effect
+        return watchdog.observe(event(.keyUp, configuration.keyCode, configuration.modifiers)).effect
     }
 
     /// The user lets go and **no event ever arrives**: the hotkey was stolen, the tap stalled,
@@ -221,6 +230,26 @@ private final class WatchdogHarness {
 
     func run(steps: Int) {
         for _ in 0..<steps { _ = step() }
+    }
+
+    /// A turn of the timer during which **real time passes and the clock does not say so.**
+    ///
+    /// The distinction the frozen-clock test is about: the owner's timer is firing on schedule, the
+    /// poll is being asked and answering, and the only thing that has stopped is the one reading the
+    /// ceiling is measured against. `forwardTime` still advances, because it is real time;
+    /// `clock.now` does not, because that is the defect.
+    @discardableResult
+    func stepWithoutTheClockAdvancing() -> Effect {
+        let hot = source.isOpen && !keyboard.isHeld(configuration.keyCode)
+        forwardTime += interval
+        if hot { hotMicWindow += interval }
+
+        let effect = watchdog.wake()
+        switch effect {
+        case .ended(let outcome): outcomes.append(outcome)
+        case .unchanged, .started, .captureUnavailable: break
+        }
+        return effect
     }
 }
 
@@ -603,6 +632,49 @@ final class SessionWatchdogTests: XCTestCase {
             try reasonCarryingTheAudio(try XCTUnwrap(ended), from: harness.source), .ceilingReached)
     }
 
+    /// **A clock that never advances disables the ceiling — and nothing else.**
+    ///
+    /// Monotonicity is satisfied by a clock that never moves, and `MonotonicClock`'s contract did
+    /// not require advancement until this round. It has to, because `elapsed` accumulates deltas:
+    /// readings that stall do not delay the ceiling, they remove it, while every other mechanism
+    /// goes on looking healthy.
+    ///
+    /// Both halves are measured here, and the second is the load-bearing one — it is what makes the
+    /// residual *precisely* the physically-held-key case (§5(b)/(c) of the task report) rather than
+    /// a total loss of the guarantee.
+    func testAClockThatNeverAdvancesDisablesTheCeilingButNotThePoll() throws {
+        let harness = WatchdogHarness()
+        XCTAssertEqual(harness.pressHotkey(), .started)
+
+        // Ten thousand wakes at the policy cadence — twenty-five minutes of real time, more than
+        // twelve times the ceiling.
+        let wakes = 10_000
+        for _ in 0..<wakes { _ = harness.stepWithoutTheClockAdvancing() }
+
+        XCTAssertEqual(harness.forwardTime, WatchdogPolicy.pollInterval * wakes)
+        XCTAssertGreaterThan(harness.forwardTime, SessionCeiling.default)
+        XCTAssertEqual(
+            harness.machine.elapsed, .zero,
+            "The clock never moved, so no forward time can have been accumulated.")
+        XCTAssertEqual(
+            harness.machine.state, .recording,
+            "The ceiling ended a session against a stalled clock — then this test's premise is "
+                + "gone and MonotonicClock's new requirement is not the one that matters.")
+        XCTAssertTrue(harness.source.isOpen, "Twenty-five minutes, and the microphone is open.")
+        XCTAssertTrue(harness.outcomes.isEmpty)
+
+        // The poll is untouched: it reads no clock. So the session still ends the moment the key
+        // comes up, and what a stalled clock costs is exactly the *held-key* bound, not the poll.
+        XCTAssertEqual(
+            harness.keyState.reads, wakes, "The poll stopped running against a stalled clock.")
+        harness.releaseHotkeyUnobserved()
+        let outcome = try endedOutcome(
+            harness.stepWithoutTheClockAdvancing(), "the poll reads no clock and must still fire")
+        XCTAssertEqual(
+            try reasonCarryingTheAudio(outcome, from: harness.source), .pollDetectedRelease)
+        XCTAssertFalse(harness.source.isOpen)
+    }
+
     // MARK: - System triggers
 
     /// Each ``SystemTrigger`` ends the session with **its own** reason, hands over the audio, and
@@ -689,6 +761,65 @@ final class SessionWatchdogTests: XCTestCase {
         XCTAssertEqual(harness.source.closesWithoutOpen, 0)
     }
 
+    /// **Every input a session owner has arrives through the watchdog, and the timer settles after
+    /// each one.**
+    ///
+    /// The key-event path is the one that *arms* the watchdog — it is the only input that can move
+    /// the machine into `.recording` — and in the first round of this task it was the one input that
+    /// did not go through it. Wrapping it does not force an owner to re-read ``schedule`` (nothing
+    /// in a module with no run loop could), but it removes the second door: an owner never needs to
+    /// hold the machine, so no input can arrive by a route the schedule is not read after.
+    ///
+    /// `cancel()` is here for the same reason. Wrapping three of four inputs is the state in which
+    /// someone keeps a machine reference for the fourth and then uses it for the others.
+    func testEveryOwnerInputArrivesThroughTheWatchdogAndSettlesItsTimer() throws {
+        // 1. A key-down arms it — and the press is still swallowed. A wrapper that fabricated its
+        //    own answer instead of returning the machine's would type a space into the user's
+        //    document.
+        let arming = WatchdogHarness()
+        XCTAssertEqual(arming.watchdog.schedule, .stopped)
+        let press = arming.pressHotkeyObservingPropagation()
+        XCTAssertEqual(press.effect, .started)
+        XCTAssertEqual(
+            press.eventPropagation, .swallow,
+            "The watchdog's key-event path returned a propagation the machine did not decide.")
+        XCTAssertEqual(arming.watchdog.schedule, .wake(every: WatchdogPolicy.pollInterval))
+
+        // 2. A key-up disarms it.
+        _ = try endedOutcome(arming.releaseHotkey())
+        XCTAssertEqual(arming.watchdog.schedule, .stopped)
+
+        // 3. Escape, through the watchdog: the audio is discarded — that is what the user asked for
+        //    — the microphone is not, and the timer stops.
+        let cancelled = WatchdogHarness()
+        XCTAssertEqual(cancelled.pressHotkey(), .started)
+        cancelled.run(steps: 3)
+        let outcome = try endedOutcome(cancelled.watchdog.cancel())
+        switch outcome.content {
+        case .completed:
+            XCTFail("Escape is the one path that discards, and it did not.")
+        case .cancelled:
+            break
+        }
+        XCTAssertFalse(
+            cancelled.source.isOpen,
+            "Escape discarded the transcript and left the microphone open. Those are different "
+                + "things and only the first was asked for.")
+        XCTAssertEqual(cancelled.source.endCount, 1)
+        XCTAssertEqual(cancelled.watchdog.schedule, .stopped)
+        XCTAssertFalse(cancelled.watchdog.ceilingIsNear)
+
+        let readsAfterCancelling = cancelled.keyState.reads
+        cancelled.run(steps: 5)
+        XCTAssertEqual(
+            cancelled.keyState.reads, readsAfterCancelling,
+            "The poll kept reading the key after the user cancelled.")
+
+        // 4. And a cancelled machine is not wedged: the next press arms it again.
+        XCTAssertEqual(cancelled.pressHotkey(), .started)
+        XCTAssertEqual(cancelled.watchdog.schedule, .wake(every: WatchdogPolicy.pollInterval))
+    }
+
     // MARK: - The machine's strangest legal behaviour
 
     /// A session that lived and died **inside one key-down** leaves the watchdog nothing to watch.
@@ -700,18 +831,19 @@ final class SessionWatchdogTests: XCTestCase {
     /// so there is nothing to handle.
     func testASessionThatLivedAndDiedInsideOneKeyDownLeavesNothingToWatch() throws {
         let harness = WatchdogHarness()
-        let machine = harness.machine
+        let watchdog = harness.watchdog
         let keyboard = harness.keyboard
 
         keyboard.press(space)
         harness.source.duringBeginCapture = {
             // The key comes back up while `AVAudioEngine.start()` is still working, and the queued
-            // event is delivered underneath it.
+            // event is delivered underneath it — through the watchdog, because that is where the
+            // owner's tap callback delivers everything, re-entrant or not.
             keyboard.release(space)
-            _ = machine.observe(event(.keyUp, space, [.option]))
+            _ = watchdog.observe(event(.keyUp, space, [.option]))
         }
 
-        let effect = machine.observe(event(.keyDown, space, [.option])).effect
+        let effect = watchdog.observe(event(.keyDown, space, [.option])).effect
         let outcome = try endedOutcome(
             effect,
             "The premise of this test is gone: a key-down no longer reports `.ended` directly, so "

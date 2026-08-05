@@ -47,10 +47,21 @@
 ///
 /// **Monotonicity.** Readings must not go backwards. The machine does not *trust* that — it
 /// accumulates elapsed time from the deltas between readings and contributes nothing for a negative
-/// one, so a clock that steps backwards can extend a session by **at most one tick interval**
-/// rather than by the whole jump (see ``SessionMachine/tick()`` for the arithmetic). A conformance
-/// that reads a wall clock still fails the user in a way this module cannot see: it will jump
-/// forwards too, and a forward jump ends a session early.
+/// one, so a clock that steps backwards can extend a session by **at most one tick interval** *per
+/// backward step* rather than by the whole jump (see ``SessionMachine/tick()`` for the arithmetic).
+/// A conformance that reads a wall clock still fails the user in a way this module cannot see: it
+/// will jump forwards too, and a forward jump ends a session early.
+///
+/// **And it must advance.** Monotonicity on its own is satisfied by a clock that never moves, and
+/// that is the conformance this module cannot survive: ``SessionMachine/elapsed`` accumulates
+/// *deltas*, so readings that stall disable the 120 s ceiling outright — not delay it, disable it.
+/// Nothing looks wrong while it happens. The watchdog's timer goes on firing, and its poll goes on
+/// answering correctly, because the poll reads no clock at all. So the residual is exactly the case
+/// the ceiling exists to bound — a key reported physically down with nobody behind it — now with no
+/// bound whatsoever. A cached reading, or a frozen test double that reaches a release build, is all
+/// it takes. `SessionWatchdogTests.testAClockThatNeverAdvancesDisablesTheCeilingButNotThePoll`
+/// measures both halves of that: 10 000 wakes with `elapsed` at zero and the session still
+/// recording, and the poll still ending it the moment the key comes up.
 public protocol MonotonicClock {
     /// Time since an arbitrary, process-local origin. Never a wall-clock reading.
     var now: Duration { get }
