@@ -104,20 +104,43 @@ public enum TapEventTranslation {
     /// The events the tap asks for: `keyDown | keyUp | flagsChanged`, as a bit per event type.
     ///
     /// **The single most consequential number in this aspect**, and the reason it is here rather
-    /// than in the adapter is that both of its failure modes are silent:
+    /// than in the adapter is that every one of its failure modes is silent:
     ///
-    /// - **Too narrow** and the hotkey is deaf. Dropping `flagsChanged` in particular does not break
-    ///   loudly — it deletes stop rules (b) and (c), so `⌥Space` still starts a session and
-    ///   releasing Option before Space no longer ends one. A hot mic to the ceiling, every time, from
-    ///   one absent bit.
+    /// - **Too narrow** and the hotkey is deaf, or degraded in a way nothing announces. Dropping
+    ///   `keyDown` or `keyUp` is the loud version. Dropping **`flagsChanged`** is the quiet one, and
+    ///   it is worth stating precisely, because the obvious summary of it is wrong: it deletes stop
+    ///   rule (b) outright and narrows rule (c) to key events, so a session ends at the next
+    ///   autorepeat or at key-up rather than the instant the chord is released. `SessionRules.swift`
+    ///   puts `.keyDown` and `.flagsChanged` on the same branch and ends on a matching `.keyUp`
+    ///   without consulting modifiers at all, so **the session still ends, and never later than the
+    ///   finger** — this is a latency and extensibility bug (a modifier-only binding becomes
+    ///   impossible to add), not a hot mic. In toggle mode, where `.flagsChanged` is `.ignore`, it
+    ///   costs nothing whatsoever. The bit stays because the immediacy is the product, and because
+    ///   nothing about its absence is visible from outside.
     /// - **Too wide** and every mouse move on the machine is routed through the session rules, on
     ///   the callback, with the timeout that earns.
+    /// - **Too wide, and it is worse than that.** `CGEvent.h:274-280`: a tap that is not permitted to
+    ///   monitor keyboard events has *"the appropriate bits in the mask cleared"* at creation, and
+    ///   `tapCreate` returns `NULL` **only if that leaves the mask empty**. So `tapCreate` returning
+    ///   `nil` *is* the Accessibility permission check — inherited constraint 3, and the whole of
+    ///   acceptance H5 — **only because this mask is keyboard types and nothing else.** Add one mouse
+    ///   bit and a machine with no grant gets a successful creation, a `.started` report, and a tap
+    ///   that is enabled and permanently deaf, with no honest error anywhere: precisely the shape the
+    ///   health poll cannot see (`TapHealthPolicy.pollTapHealth()`), assigned to phase 6.
     ///
     /// Computed from ``keyEventTypes`` rather than written as a literal, so that the set the mask
     /// requests and the set the classifier understands are the same list read twice. The two
     /// disablements are deliberately absent: they are delivered to the callback whatever the mask
     /// says, and a bit set for them here would be a bit set outside the range of anything a mask is
     /// consulted for.
+    ///
+    /// **Every entry must be below 64.** A `CGEventMask` is 64 bits and Swift's `<<` is a smart
+    /// shift — it yields `0` for an over-shift rather than trapping — so a key type at or above 64
+    /// would classify as a key event while contributing no bit at all, and the "one list read twice"
+    /// property would be quietly false. The two disablement constants sitting two lines above this
+    /// table are `0xFFFF_FFFE` and `0xFFFF_FFFF`, so the wrong edit is within reach.
+    /// `TapEventClassificationTests.testEveryClassifiedKeyTypeIsRepresentableInTheMask` is what makes
+    /// it a failure rather than a silence.
     public static let eventsOfInterestMask: UInt64 = keyEventTypes.reduce(into: 0) {
         mask, entry in
         mask |= (1 << UInt64(entry.type))

@@ -286,19 +286,75 @@ final class CallbackSafeTapDisablementTests: XCTestCase {
     ///
     /// It captures the policy strongly on purpose. An owner that releases the observer between the
     /// callback and the next run-loop turn — a disarm racing a disablement — must not thereby leave
-    /// a tap that nothing ever re-enables, and a `[weak policy]` capture there would do exactly
-    /// that, silently, on a path no other test in this package visits.
+    /// a tap that nothing ever re-enables, and a `[weak policy]` capture there would do exactly that,
+    /// silently, on a path no other test in this package visits.
+    ///
+    /// ## Why this test does not use ``DisablementHarness``, which is the finding it was rewritten on
+    ///
+    /// The first version did, and **it did not measure this at all**: `DisablementHarness` holds
+    /// `let policy`, so releasing the observer left the policy alive anyway and the recovery ran
+    /// whatever the capture list said. `[weak policy]` passed the entire suite, including this test,
+    /// with a doc comment naming that exact mutant.
+    ///
+    /// The defect was in the harness's *ownership graph*, not in its assertions. Production is
+    /// `root → observer → policy → source ─weak→ observer`: the observer really is the policy's only
+    /// strong owner. A harness that owns more than production does cannot reproduce a lifetime bug,
+    /// however precisely its comment describes one — so the graph is built by hand here, with **no
+    /// strong handle on the policy anywhere in this scope**, and the liveness probe below is what says
+    /// so rather than assuming it.
     func testTheDeferredRecoveryStillRunsIfTheObserverIsReleasedFirst() {
-        let harness = DisablementHarness()
-        harness.armAndStartASessionThenLoseTheTap()
+        let clock = TestClock()
+        let microphone = RecordingSource()
+        let keyboard = Keyboard()
+        let effects = EffectLog()
+        let tap = FakeHotkeyEventSource()
+        var notes: [TapHealthNote] = []
+        var pending: [() -> Void] = []
 
-        harness.theCallbackReportsADisablement(.userInput)
-        harness.observer = nil
+        let machine = SessionMachine(
+            configuration: chord, ceiling: SessionCeiling.default, clock: clock,
+            audioSource: microphone)
+        let watchdog = SessionWatchdog(machine: machine, keyState: TruthfulKeyState(keyboard))
+        let sink = SessionEventSink(watchdog: watchdog) { effects.record($0) }
 
-        harness.runLoop.drain()
+        // The only handle on the policy that survives this scope, and it is deliberately weak.
+        weak var policyAfterTheObserverIsReleased: TapHealthPolicy?
 
-        XCTAssertEqual(harness.tap.resumeCount, 1, "The recovery was dropped with the observer.")
-        XCTAssertEqual(harness.notes, [.armed, .disabled(.userInput), .reenabled])
+        // Built inside a closure so the strong `policy` binding dies with the closure's scope. From
+        // the next line on, the observer is the policy's sole owner — which is what production looks
+        // like, and what the first version of this test did not reproduce.
+        var observer: CallbackSafeTapDisablement? = {
+            let policy = TapHealthPolicy(source: tap, sink: sink, clock: clock) { notes.append($0) }
+            policyAfterTheObserverIsReleased = policy
+            XCTAssertEqual(policy.arm(), .delivering)
+            return CallbackSafeTapDisablement(policy: policy) { pending.append($0) }
+        }()
+
+        keyboard.press(chord.keyCode)
+        tap.deliver(event(.keyDown, chord.keyCode, chord.modifiers))
+        XCTAssertTrue(microphone.isOpen, "the session must be recording before the tap dies")
+        tap.systemDisablesTheTap()
+
+        observer?.tapWasDisabledOnTheCallback(.userInput)
+        observer = nil
+
+        // **The load-bearing line.** Without it this test is satisfiable by any harness that happens
+        // to retain the policy some other way, which is exactly how the previous version came to pass
+        // against the mutation it was written to kill.
+        XCTAssertNotNil(
+            policyAfterTheObserverIsReleased,
+            """
+            The deferred block is not keeping the policy alive, so it is not the policy's remaining \
+            owner. A `[weak policy]` capture drops the recovery here — and a disarm racing a \
+            disablement then leaves a tap that nothing ever re-enables, in the one file no CI run can \
+            execute.
+            """)
+
+        for work in pending { work() }
+
+        XCTAssertEqual(tap.resumeCount, 1, "The recovery was dropped with the observer.")
+        XCTAssertEqual(notes, [.armed, .disabled(.userInput), .reenabled])
+        XCTAssertFalse(microphone.isOpen, "And the near half ran regardless, as it always does.")
     }
 
     // MARK: - The split changes when, and nothing else

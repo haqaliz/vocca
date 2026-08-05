@@ -69,22 +69,47 @@ import VoccaCore
 ///
 /// Not `Sendable`, like everything else it touches, and not annotated `@MainActor` for the same
 /// reason ``TapHealthPolicy`` is not: the seam it implements is a plain protocol, and one isolation
-/// domain here is a fact about how the object is *used*. What enforces it is
-/// ``MainActor/assumeIsolated(_:file:line:)`` in the callback — the tap is attached to the main run
-/// loop, so the callback arrives on the main thread, and an edit that attached it anywhere else
-/// would trap there rather than race the session machine silently.
+/// domain here is a fact about how the object is *used*.
+///
+/// **It is asserted at all five entrances, and it took a review to notice that four of them had no
+/// assertion at all.** `MainActor.assumeIsolated` in the callback proves the callback is on the main
+/// actor and nothing else; ``start(delivering:)``, ``stop()``, ``isDelivering`` and
+/// ``resumeDelivery()`` read and write the same three fields, so an owner arming from a background
+/// thread would race the callback with the file's one runtime check positioned to pass while it
+/// happened. Each now opens with `MainActor.preconditionIsolated` — see ``mustBeOnTheMainActor``.
+/// ``deinit`` is the one exception, and deliberately: it runs wherever the last release happens,
+/// which is not this object's choice.
 public final class CGEventTapSource: RecoverableHotkeyEventSource {
 
     /// Where a disablement is reported. **Weak, and the asymmetry is deliberate.**
     ///
     /// The shipped observer holds a ``TapHealthPolicy``, which holds this source — so a strong edge
     /// back would close a retain cycle around the one object whose deallocation frees a
-    /// `CFMachPort`, and the leak would be a live tap nobody can reach. The owner therefore holds the
-    /// observer; a `nil` here is an owner that did not, and it costs the recovery, not the ending —
-    /// the ~1 s health poll still finds the dead tap.
+    /// `CFMachPort`, and the leak would be a live tap nobody can reach.
     ///
     /// Settable rather than an initialiser parameter because the graph is circular by construction:
     /// the policy needs the source, and the observer needs the policy.
+    ///
+    /// ## **The composition root must hold the observer, and it is the least obvious object to hold**
+    ///
+    /// The graph is `observer ─strong→ policy ─strong→ source ─weak→ observer`, so **the observer is
+    /// the root of it** — while the policy is the thing with the API, and therefore the thing an owner
+    /// instinctively reaches for. A root that holds only the policy deallocates the observer
+    /// immediately, and nothing anywhere reports that: this property goes `nil`, the callback's
+    /// optional chain evaluates to nothing, and every keystroke still works.
+    ///
+    /// **What a `nil` costs is both halves of a disablement, not only the recovery**, which is the
+    /// correction a review made to the sentence that used to be here. The near half —
+    /// ``TapHealthPolicy/endAnyInFlightSessionWithoutRecovering()`` — is reached through this same
+    /// optional, so the *ending* does not happen either. It is not lost: `pollTapHealth()` ends any
+    /// in-flight session on the very next turn, so the residual is bounded by
+    /// ``TapHealthPolicy/pollTapHealth()``'s ~1 s cadence rather than by nothing. But it is up to a
+    /// second of open microphone instead of none, and "it costs the recovery, not the ending" would
+    /// have made leaving this un-wired look reasonable.
+    ///
+    /// Nothing in CI can see the difference, because nothing in CI can create a tap. The gesture that
+    /// can is in the report and belongs in `SMOKE_CHECKLIST.md`: provoke a `.timeout` and **time the
+    /// microphone indicator going out.** Immediate is wired; about a second is the poll saving it.
     public weak var disablementObserver: (any TapDisablementObserver)?
 
     /// The only way time enters this file. Used for ``RawKeyEvent/timestamp``, and for nothing else.
@@ -117,9 +142,31 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
         self.clock = clock
     }
 
+    /// The message on the four preconditions below.
+    ///
+    /// **The seam's four members assert their isolation, and the callback is not enough on its own.**
+    /// `MainActor.assumeIsolated` in the tap callback proves one direction — that the *callback* is on
+    /// the main actor — and proves nothing about the other four entry points, which read and write
+    /// ``tap``, ``runLoopSource`` and ``sink`` with no check at all. An owner that armed from a
+    /// background thread would race the callback, and the one runtime check in the file is positioned
+    /// to pass happily while it happened.
+    ///
+    /// `preconditionIsolated()` rather than `assumeIsolated { … }`, which is what this wanted to be:
+    /// wrapping a body in the latter captures `self` — non-`Sendable`, from a nonisolated method —
+    /// into a main-actor closure, and Swift 6 rejects it as a `sending` diagnostic. The precondition
+    /// takes no closure, captures nothing, and is exactly the assertion rather than an isolation
+    /// change. ``deinit`` deliberately makes no such assertion; see ``tearDown()``'s caller.
+    private let mustBeOnTheMainActor = """
+        A CGEventTapSource was used off the main actor. The tap is attached to the main run loop, so \
+        its callback arrives there, and every other object it touches — the sink, the watchdog, the \
+        session machine — is deliberately non-Sendable and lives in that one domain.
+        """
+
     // MARK: - HotkeyEventSource
 
     public func start(delivering sink: any HotkeyEventSink) -> HotkeyEventSourceStart {
+        MainActor.preconditionIsolated(mustBeOnTheMainActor)
+
         // A start on an already-started source is a stop followed by a start, which the protocol
         // documents as an obligation rather than a courtesy: overwriting the fields below would leak
         // a run-loop source and leave a second tap installed whose callback still points here.
@@ -128,6 +175,11 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
         // `tapCreate` returning nil **is** the permission check (inherited constraint 3). Reported,
         // never swallowed — what to *do* about it is `TapHealthPolicy.arm()`'s, and acceptance H5 is
         // that it reaches there at all rather than becoming a silent no-op.
+        //
+        // **It is the permission check only because the mask is keyboard types and nothing else.**
+        // `CGEvent.h:274-280`: without the grant the keyboard bits are cleared at creation, and NULL
+        // is returned only if that empties the mask. One non-keyboard bit in
+        // `eventsOfInterestMask` and this guard silently stops being H5 — see its doc comment.
         guard
             let tap = CGEvent.tapCreate(
                 tap: .cgSessionEventTap,
@@ -167,6 +219,36 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
     }
 
     public func stop() {
+        MainActor.preconditionIsolated(mustBeOnTheMainActor)
+        tearDown()
+    }
+
+    /// **The last line of defence for the unretained context pointer.**
+    ///
+    /// `CGEvent.h:282` — *"Releasing the `CFMachPortRef` will release the tap"* — is the whole
+    /// problem in one sentence read backwards: the run loop holds the source, the source holds the
+    /// port, and **nothing holds this object**, because its address went in through
+    /// `Unmanaged.passUnretained`. So an owner that drops the source without calling ``stop()``
+    /// leaves a live tap whose callback dereferences freed memory on every keystroke, in every
+    /// application, for as long as the process runs. That failure has no upper bound, and until this
+    /// existed the only thing standing against it was a paragraph of documentation.
+    ///
+    /// **Not a substitute for ``stop()``** — the owner still owes that, and a teardown that happens
+    /// whenever ARC gets round to it is not a teardown anybody can reason about. It is the net under
+    /// the case where the owner did not.
+    ///
+    /// It calls ``tearDown()`` rather than ``stop()`` and therefore skips the main-actor assertion the
+    /// other four members make. That is deliberate: a `deinit` runs wherever the last release
+    /// happens, which is not this object's choice, and trapping there would turn "an owner released
+    /// me on the wrong thread" into a crash at exit. The work itself is safe from any thread —
+    /// `CFRunLoopRemoveSource` and `CFMachPortInvalidate` are both thread-safe — and if `deinit` is
+    /// running there is by definition nothing left to race with.
+    deinit {
+        tearDown()
+    }
+
+    /// The teardown itself, with no isolation assertion on it, so that ``deinit`` can reach it.
+    private func tearDown() {
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
@@ -184,6 +266,7 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
     // MARK: - RecoverableHotkeyEventSource
 
     public var isDelivering: Bool {
+        MainActor.preconditionIsolated(mustBeOnTheMainActor)
         guard let tap else { return false }
         // Asked of the tap every time, never remembered. The whole value of the health poll is that
         // it is a question put to the system: the case it exists for is a tap that died and told
@@ -192,6 +275,8 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
     }
 
     public func resumeDelivery() -> TapResume {
+        MainActor.preconditionIsolated(mustBeOnTheMainActor)
+
         // No tap is `.failed`, decided at the protocol rather than here.
         guard let tap else { return .failed }
 

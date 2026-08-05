@@ -31,11 +31,15 @@ import XCTest
 /// **What makes it worth more than a table-copying exercise** is the mask. Both of its failure modes
 /// are silent in production and invisible to any other test in this package:
 ///
-/// - Drop `flagsChanged` and `⌥Space` still starts a session, while stop rules (b) and (c) quietly
-///   stop existing — releasing Option before Space no longer ends anything, so every session runs to
-///   the 120 s ceiling with the microphone open.
+/// - Drop `flagsChanged` and `⌥Space` still starts a session, while stop rule (b) disappears and
+///   rule (c) narrows to key events — so releasing Option ends the session at the next autorepeat or
+///   at key-up rather than at the instant the chord is released, and a modifier-only binding becomes
+///   impossible to add. **Never later than the finger**, which is what makes it a latency bug rather
+///   than a hot mic, and invisible in both directions, which is what makes it this suite's business.
 /// - Add a mouse type and every mouse move on the machine is adjudicated by the session rules, on
-///   the tap callback, with the `kCGEventTapDisabledByTimeout` that earns.
+///   the tap callback, with the `kCGEventTapDisabledByTimeout` that earns — and, worse,
+///   `tapCreate` stops being the Accessibility permission check, because `CGEvent.h:274-280` returns
+///   `NULL` only when the cleared keyboard bits leave the mask *empty*. That silently deletes H5.
 ///
 /// Neither is reachable from the adapter, because no hosted runner can create a tap. Here it is one
 /// integer comparison.
@@ -137,14 +141,58 @@ final class TapEventClassificationTests: XCTestCase {
     /// The bit that is easiest to lose and hardest to notice, named on its own.
     ///
     /// A mask of `keyDown | keyUp` looks like a working hotkey: press starts, release ends. What it
-    /// deletes is every modifier event, and with it stop rules (b) and (c) — so releasing Option
-    /// before Space leaves the microphone open to the ceiling, every time.
+    /// deletes is every modifier event, and with it **stop rule (b)** — the end at the instant the
+    /// chord is released. Rule (c) survives on key events, because `SessionRules.swift` puts
+    /// `.keyDown` and `.flagsChanged` on one branch and ends on a matching `.keyUp` without
+    /// consulting modifiers at all, so the session still ends at the next autorepeat and
+    /// unconditionally at key-up. Measured, rather than assumed, when the first version of this
+    /// comment claimed a hot mic to the ceiling and did not survive being driven through `decide`.
+    ///
+    /// The cost is the immediacy, plus the ability to ever add a modifier-only binding. Both are
+    /// real, and neither is visible from outside — which is the whole reason the mask is computed
+    /// from the classifier's own table rather than written out.
     func testTheMaskRequestsFlagsChanged() {
         XCTAssertNotEqual(
             TapEventTranslation.eventsOfInterestMask
                 & (1 << UInt64(CGEventType.flagsChanged.rawValue)),
             0,
-            "flagsChanged is absent from the mask: stop rules (b) and (c) can never fire.")
+            """
+            flagsChanged is absent from the mask, so stop rule (b) can never fire: a session would \
+            end at the next autorepeat or at key-up rather than the instant the chord is released, \
+            and a modifier-only binding could never be added.
+            """)
+    }
+
+    /// **Every key type must fit in the 64 bits a mask has**, and a mutation proved this was not
+    /// checked anywhere.
+    ///
+    /// Adding a fourth entry `(65, .keyDown)` to the classifier's table survived the whole suite:
+    /// Swift's `<<` is a smart shift, so `1 << 65` is `0` rather than a trap, and the classifier
+    /// claims an event type the mask never requests — the exact opposite of the "one list read twice"
+    /// property this file is built on. Every existing guard misses it: the agreement sweep and the
+    /// low-range sweep both stop at 64, the mask equality compares a three-term literal, and the bit
+    /// count is unchanged.
+    ///
+    /// Not exotic, either. `0xFFFF_FFFE` and `0xFFFF_FFFF` are two lines above the table, and folding
+    /// a disablement into it is the obvious wrong edit.
+    ///
+    /// One-sided on purpose: the two-sided form cannot be swept to `UInt32.max` in any usable time,
+    /// and the direction that matters is *classified but unrequested*.
+    func testEveryClassifiedKeyTypeIsRepresentableInTheMask() {
+        for rawType in UInt32(0)...UInt32(1024) {
+            guard case .key = TapEventTranslation.classify(rawEventType: rawType) else { continue }
+            XCTAssertNotEqual(
+                TapEventTranslation.eventsOfInterestMask & (1 << UInt64(rawType)), 0,
+                """
+                Event type \(rawType) classifies as a key event and the mask does not request it. \
+                A type at or above 64 produces no mask bit at all — `<<` yields 0 rather than \
+                trapping — so the tap would never be sent an event the classifier is waiting for.
+                """)
+        }
+
+        XCTAssertEqual(
+            TapEventTranslation.eventsOfInterestMask.nonzeroBitCount, 3,
+            "And the loop above is vacuous unless the mask still requests exactly three types.")
     }
 
     /// **The mask and the classifier are the same list read twice, and this is what says so.**

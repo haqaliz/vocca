@@ -48,8 +48,10 @@ public enum TapEventDispatch {
     ///     tap can be in — but the answer for it is forced rather than chosen: inherited constraint
     ///     4 is that anything Vocca does not claim reaches the application untouched, and a source
     ///     with nothing to ask claims nothing.
-    ///   - observer: where a disablement is reported. `nil` costs the recovery and not the ending;
-    ///     see ``CGEventTapSource/disablementObserver``.
+    ///   - observer: where a disablement is reported. **A `nil` costs both halves** — the ending as
+    ///     well as the recovery, because both are reached through this one optional — leaving the
+    ///     session to be closed by the ~1 s health poll instead of on this callback. Bounded, but not
+    ///     free; see ``CGEventTapSource/disablementObserver`` for why it is `nil` at all.
     /// - Returns: what the caller must tell the window server. ``EventPropagation/swallow`` is
     ///   `nil` from a tap callback and ``EventPropagation/passThrough`` is the event itself.
     public static func dispatch(

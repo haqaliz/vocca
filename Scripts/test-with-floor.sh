@@ -48,7 +48,35 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 266 by hotkey-source phase 4, **the only phase of this aspect whose own code CI cannot execute a
+# 267 by hotkey-source phase 4 review round 1, whose blocking-shaped finding was **a test that named
+# the exact mutant it existed to kill and did not kill it.**
+# `testTheDeferredRecoveryStillRunsIfTheObserverIsReleasedFirst` had a doc comment saying a
+# `[weak policy]` capture in the deferred block *"would do exactly that, silently, on a path no other
+# test in this package visits"* — and that mutation passed all 266 tests. The defect was in the test's
+# **ownership graph**, not its assertions: the harness held `let policy`, so releasing the observer
+# left the policy alive and the recovery ran whatever the capture list said. Production is
+# `root → observer → policy → source ─weak→ observer`, where the observer is the policy's only strong
+# owner. Rewritten to build that graph by hand with no strong handle on the policy, plus a weak
+# liveness probe asserted *before* the queue is drained — the load-bearing line, because without it the
+# test is satisfiable by any harness that retains the policy some other way. The mutation now fails on
+# three assertions.
+#
+# **The general lesson, carried into phase 5: a harness that owns more than production does cannot
+# reproduce a lifetime bug, however precisely its comment describes one.**
+#
+# The second test added this round kills the other survivor: a fourth entry in the classifier's table
+# at event type 65 claimed a key event the mask never requested, because Swift's `<<` yields 0 on an
+# over-shift rather than trapping, and every existing guard stopped at 64.
+#
+# Also corrected this round, and it is why this ledger is worth reading rather than skimming: **the
+# stated cost of dropping `flagsChanged` from the mask was false**, in five places including this
+# header and the phase-4 commit message. It does not produce "a hot mic to the ceiling, every time".
+# `SessionRules.swift` puts `.keyDown` and `.flagsChanged` on one branch and ends on a matching
+# `.keyUp` without consulting modifiers at all, so the session still ends — at the next autorepeat or
+# at key-up, never later than the finger. The real cost is the *immediacy* of stop rule (b) and the
+# ability to add a modifier-only binding. The bit stays; the justification is now the true one.
+#
+# It was 266 after hotkey-source phase 4, **the only phase of this aspect whose own code CI cannot execute a
 # line of.** `CGEvent.tapCreate` returns `nil` without an Accessibility grant and TCC cannot be
 # granted on a hosted runner, so `CGEventTapSource.swift` is untestable forever rather than untested
 # for now. Twenty-nine tests were added anyway, and the reason there are any is the point of the
@@ -60,10 +88,10 @@ set -euo pipefail
 # (`TapEventClassification`). `CGEventType`'s raw values are written out by hand there, as
 # `CGEventFlags`' are in the flag translation, so that no seam type reaches a file that is not the
 # adapter — and a test may import CoreGraphics where `Sources/` may not, which turns a transcription
-# error into a red suite. The load-bearing one is the mask: drop `flagsChanged` and `⌥Space` still
-# starts a session while stop rules (b) and (c) quietly stop existing, so every session runs to the
-# 120 s ceiling with the microphone open. The mask and the classifier are now built from one table
-# and a test walks all 64 bits requiring them to agree.
+# error into a red suite. The load-bearing one is the mask, whose every failure mode is silent: too
+# narrow costs stop rule (b)'s immediacy, and too wide costs the permission check itself, because
+# `tapCreate` returns NULL only when the cleared keyboard bits leave the mask empty. The mask and the
+# classifier are built from one table and a test walks all 64 bits requiring them to agree.
 #
 # Nine are the callback's own body, lifted into `TapEventDispatch` so that it has somewhere to run.
 # The load-bearing one is H6 in **both** directions at the last point before the C ABI: a dispatch
@@ -439,7 +467,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=266
+MINIMUM_EXECUTED_TESTS=267
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

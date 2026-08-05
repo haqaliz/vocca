@@ -19,13 +19,22 @@
 /// had to wait for a real one would be measuring a scheduler rather than a decision. Injected, so a
 /// test supplies a queue it drains by hand and sees the two halves of a disablement land in order.
 ///
-/// The shipped implementation is ``CGEventTapSource/deferralToALaterMainRunLoopTurn``, which is in
+/// The shipped implementation is ``CGEventTapSource/deferToALaterMainRunLoopTurn(_:)``, which is in
 /// the adapter's file because `CFRunLoopPerformBlock` is a seam type and only that file may name one.
 ///
-/// **An implementation must not run `work` before it returns.** One that did would be an identity
-/// function wearing a scheduler's name, and would put back the exact hazard the split removes — a
-/// `CFMachPort` invalidated inside its own callback — with every test in
-/// `CallbackSafeTapDisablementTests` still green, because they drive the deferral by hand.
+/// Two obligations, and both are the sort a plausible implementation satisfies only by accident.
+///
+/// **It must not run `work` before it returns.** One that did would be an identity function wearing a
+/// scheduler's name, and would put back the exact hazard the split removes — a `CFMachPort`
+/// invalidated inside its own callback — with every test in `CallbackSafeTapDisablementTests` still
+/// green, because they drive the deferral by hand.
+///
+/// **And it must schedule onto the run loop the tap is attached to**, which is the main one. Later is
+/// not enough: `work` re-enters ``TapHealthPolicy``, which holds the sink, the watchdog and the
+/// machine, none of them `Sendable`, all of them living in the one isolation domain the tap callback
+/// runs in. A deferral onto a background queue satisfies the first obligation perfectly and races the
+/// session machine — and it would do so silently, because the injected doubles this is tested with are
+/// synchronous by construction.
 public typealias RunLoopDeferral = (@escaping () -> Void) -> Void
 
 /// What the tap tells when the operating system switches it off underneath it.
