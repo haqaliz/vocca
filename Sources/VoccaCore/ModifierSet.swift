@@ -61,5 +61,30 @@ public struct ModifierSet: OptionSet, Sendable, Hashable {
     /// `fn` is a key a user holds, and ``ModifierSet/function`` documents it as a usable hotkey
     /// modifier on Apple keyboards. Treating it as a lock would silently make `fn`-prefixed bindings
     /// interchangeable with their unprefixed forms.
+    ///
+    /// ## `fn` carries two different meanings, and only the adapter can tell them apart
+    ///
+    /// macOS sets the `fn` bit on F1–F20, the arrow keys, Home/End/PgUp/PgDn, forward-Delete and
+    /// Help **with no user involvement at all**. So the bit means either *"the user is holding
+    /// `fn`"* or *"this key code carries it implicitly"*, and this type cannot distinguish them —
+    /// it never sees a key code.
+    ///
+    /// Left unhandled, that breaks exactly the bindings `PRODUCT_SPEC.md:257` calls an
+    /// accessibility requirement rather than a preference — single keys, *"for users who can't
+    /// hold chords"*. Both shapes fail, in opposite directions:
+    ///
+    /// | Binding | What happens |
+    /// |---|---|
+    /// | bare `F13`, configured `[]` | the event carries `[.function]`, so the chords are unequal and **the hotkey never fires** |
+    /// | `F13` configured `[.function]` | it starts, then hold-to-talk stop rule (c) fires on the first ordinary keystroke (`[] ⊉ [.function]`) and **the session ends on the user's first typed character** |
+    ///
+    /// **Decision (founder, at the end of `session-lifecycle`): `fn` stays bindable here, and
+    /// `VoccaHotkey` must strip it for key codes that carry it implicitly.** The adapter is the only
+    /// layer that knows the key code, so it is the only layer that can tell a held `fn` from a
+    /// hardware-set one. Adding `fn` to ``locking`` would fix the accessibility case and silently
+    /// break genuine `fn`-held bindings — the right symptom cured at the wrong layer.
+    ///
+    /// A `VoccaHotkey` that does not strip it inherits both failures above, and the tests in
+    /// `SessionDecisionTests` pin the current behaviour as correct, so nothing here will catch it.
     public static let locking: ModifierSet = [.capsLock]
 }
