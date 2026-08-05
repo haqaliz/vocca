@@ -206,7 +206,15 @@ final class HotkeyEventSourceTests: XCTestCase {
 
             // The watchdog runs for the whole hold, at the cadence its own policy names. A ceiling
             // that fired early, or a poll that misread a held key, shows up here and nowhere else.
+            //
+            // **The remainder is driven too, and that is not pedantry.** Advancing only inside the
+            // wake loop makes each session `floor(held / 150 ms) × 150 ms` long rather than `held` —
+            // and for cycle 0 that is *zero*: `wakes(covering: 80 ms)` is 0, so the 80 ms end of the
+            // range the comment above claims would run as a 0 ms session with no wake at all. The
+            // trailing partial interval is also the realistic shape, because a user releasing the
+            // key does not wait for the next tick.
             let turns = wakes(covering: held)
+            let whole = WatchdogPolicy.pollInterval * turns
             expectedPolls += turns
             var endedEarly = false
             for _ in 0..<turns {
@@ -217,7 +225,16 @@ final class HotkeyEventSourceTests: XCTestCase {
                     break
                 }
             }
+            if held > whole {
+                harness.advance(held - whole)
+                harness.wake()
+                expectedPolls += 1
+                if harness.machine.state != .recording { endedEarly = true }
+            }
             XCTAssertFalse(endedEarly, "cycle \(cycle) ended before the user let go")
+            XCTAssertEqual(
+                harness.machine.elapsed, held,
+                "cycle \(cycle) did not run for the hold duration this test claims to drive")
 
             XCTAssertEqual(
                 harness.release(), .swallow,
@@ -620,6 +637,49 @@ final class HotkeyEventSourceTests: XCTestCase {
                 XCTAssertEqual(harness.source.beginCount, 0)
             }
         }
+    }
+
+    /// **A second `start` tears the first down rather than leaving two taps installed.**
+    ///
+    /// This is the call the tap-health policy will make: its charter is "if re-enable fails, tear
+    /// down and re-create", and re-creating is calling `start` again. A source that merely
+    /// overwrote its sink there would leak a `CFMachPort` and a run-loop source, and leave a second
+    /// tap whose callback still points at the previous context — a use-after-free on the next
+    /// keystroke, reached by a caller who did everything the protocol documents.
+    ///
+    /// Two distinct sinks, so "the replacement receives" and "the replaced one no longer does" are
+    /// separate observations. One sink could not tell them apart.
+    func testASecondStartTearsDownTheFirstRatherThanLeavingTwoTapsInstalled() {
+        let harness = SeamHarness()
+        let replaced = AlwaysSwallowingSink()
+
+        XCTAssertEqual(harness.tap.start(delivering: replaced), .started)
+        harness.tap.deliver(event(.keyDown, letterA, []))
+        XCTAssertEqual(replaced.received, 1)
+        XCTAssertEqual(harness.tap.stopCount, 0)
+
+        // The re-create.
+        XCTAssertEqual(harness.arm(), .started)
+        XCTAssertEqual(
+            harness.tap.stopCount, 1,
+            "the second start did not tear the first down — two taps are now installed")
+        XCTAssertEqual(harness.tap.startCount, 2)
+        XCTAssertTrue(harness.tap.isDelivering)
+
+        XCTAssertEqual(harness.press(), .swallow)
+        XCTAssertEqual(
+            harness.source.beginCount, 1, "the replacement sink is not the one receiving events")
+        XCTAssertEqual(
+            replaced.received, 1, "the replaced sink is still being delivered to")
+
+        // And a re-create that **fails** leaves nothing attached. Deaf rather than double-tapped is
+        // the safe direction, and it is the one the policy has to be able to detect.
+        harness.tap.nextStart = .unavailable
+        XCTAssertEqual(harness.tap.start(delivering: replaced), .unavailable)
+        XCTAssertEqual(harness.tap.stopCount, 2, "the failed re-create left the old tap installed")
+        XCTAssertFalse(harness.tap.isDelivering)
+        XCTAssertEqual(harness.release(), .passThrough)
+        XCTAssertEqual(replaced.received, 1)
     }
 
     /// **A transcript survives the crossing.**

@@ -72,7 +72,47 @@ public protocol HotkeyEventSink: AnyObject {
     /// One observed keyboard event. Returns whether the focused application still sees it.
     ///
     /// Must not block: a slow return is what `kCGEventTapDisabledByTimeout` means, and the tap that
-    /// earns one is disabled by the OS mid-session.
+    /// earns one is disabled by the OS **mid-session** — which is the hot-mic case, arrived at by
+    /// the one route the session machine cannot see coming.
+    ///
+    /// ## The shipped conformance blocks, and resolving that is Phase 4's decision
+    ///
+    /// Stated here rather than left for the adapter to discover, because the discovery would happen
+    /// in the half of this capability CI cannot execute.
+    ///
+    /// ``SessionEventSink`` — the only conformance — routes
+    /// `watchdog.observe → machine.observe → beginSession → SessionAudioSource.beginCapture()`, and
+    /// the production `beginCapture()` is `AVAudioEngine.start()`. So the call above is synchronous
+    /// all the way down to an engine start, and `spec.md:38` (inherited constraint 7) forbids
+    /// exactly that: *"Do nothing in the tap callback. No I/O, no allocation, no `await`, no engine
+    /// start."*
+    ///
+    /// **Three constraints, not two, and the third is what makes this hard:**
+    ///
+    /// 1. The callback must return fast, or the OS disables the tap mid-session.
+    /// 2. `AVAudioEngine.start()` is slow — milliseconds, and this module's own test double says so
+    ///    in as many words.
+    /// 3. **The engine cannot be pre-warmed to make (2) go away.** `AVAudioEngine.h:465-466`: *"if
+    ///    the engine has at any point previously had its inputNode enabled and permission to record
+    ///    was granted, then any time the engine is running, the mic-in-use indicator will appear."*
+    ///    A warm engine therefore lights macOS's orange microphone dot **permanently, whether or not
+    ///    Vocca is recording** — which `ARCHITECTURE.md` §6 and `prd.md` M23 both call the single
+    ///    most damaging signal this product could emit, and which is why start-on-demand is mandated
+    ///    rather than merely preferred. Pre-warming does not remove the problem; it trades a tap
+    ///    timeout for a lit mic indicator.
+    ///
+    /// **The shape that satisfies all three** — the leading candidate, not a decision made here — is
+    /// that the callback *decides* and returns, and the capture start happens **off** the callback.
+    /// Deciding is already fast and already pure: ``decide(_:state:config:)`` reads three values and
+    /// allocates nothing. And the machine already models a capture start that takes real time —
+    /// `SessionMachine`'s `isOpeningTheMicrophone` flag and its deferred-stop path exist precisely
+    /// because `beginCapture()` is slow, and they apply a stop that arrives during the opening the
+    /// instant the session exists. So the machinery this needs is built and tested; what is missing
+    /// is the hop, and choosing where it goes is a Phase 4 design decision with a real cost either
+    /// way — a hop is a scheduling latency on the press the user is waiting for.
+    ///
+    /// Whichever way it goes, the number belongs next to the constraint: `prd.md` already requires
+    /// the engine-start cost to be **measured in C1** so that C7 optimises against data.
     func receive(_ event: RawKeyEvent) -> EventPropagation
 }
 
@@ -109,6 +149,27 @@ public protocol HotkeyEventSource: AnyObject {
     /// a real obligation rather than a hint: the tap adapter's callback reaches its context through
     /// an unretained pointer, so a context that is not strongly held for the tap's lifetime is a
     /// use-after-free on the next keystroke.
+    ///
+    /// **The idiom, spelled out, because the obvious form does not compile.** `sink` is a class-bound
+    /// *existential*, and `Unmanaged`'s `Instance` requires an actual class type, so
+    /// `Unmanaged.passUnretained(sink)` fails with *"generic struct 'Unmanaged' requires that 'any
+    /// HotkeyEventSink' be a class type"*. One token fixes it, and the round trip is the identical
+    /// object — verified under `-swift-version 6`, both directions:
+    ///
+    /// ```swift
+    /// let context = Unmanaged.passUnretained(sink as AnyObject).toOpaque()   // into the tap
+    /// let sink = Unmanaged<AnyObject>.fromOpaque(context)                    // and back, in the
+    ///     .takeUnretainedValue() as! any HotkeyEventSink                     //   C callback
+    /// ```
+    ///
+    /// **A `start` on an already-started source is a `stop()` followed by a `start`, and the
+    /// conformance must make it so.** This is not a tidiness rule: the tap-health policy's charter is
+    /// "if re-enable fails, tear down and re-create", and re-creating *is* calling this method again.
+    /// A conformance that merely overwrote its state there would leak a `CFMachPort` and a run-loop
+    /// source, and leave a **second tap installed whose callback still points at the previous
+    /// context** — the use-after-free the paragraph above warns about, reached by a caller who did
+    /// everything this protocol documents. A re-create that then fails leaves nothing attached, which
+    /// is the safe direction: deaf rather than double-tapped.
     ///
     /// Not `@discardableResult`, and it must never become one: an ignored ``unavailable`` is a Vocca
     /// that is silently deaf, which is the failure this whole aspect is arranged to make impossible

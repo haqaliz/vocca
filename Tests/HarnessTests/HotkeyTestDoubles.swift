@@ -73,6 +73,15 @@ final class FakeHotkeyEventSource: HotkeyEventSource {
     private(set) var eventsArrivingWhileStopped = 0
 
     func start(delivering sink: any HotkeyEventSink) -> HotkeyEventSourceStart {
+        // **A start on an already-started source is a stop followed by a start**, and this double
+        // models it because the real adapter must. Phase 3's charter is "if re-enable fails, tear
+        // down and re-create" and "re-create on didWakeNotification" — a caller that re-creates is a
+        // caller that calls `start` again, and a conformance that just overwrote its state there
+        // would leak a CFMachPort and a run-loop source, and leave a *second* tap installed whose
+        // callback still points at the previous context. Given the unretained-context idiom, that is
+        // a use-after-free on the next keystroke.
+        if isDelivering { stop() }
+
         startCount += 1
         guard nextStart == .started else { return .unavailable }
         self.sink = sink

@@ -382,13 +382,40 @@ final class HotkeySeamBoundaryTests: XCTestCase {
             [],
             "...and it must not report one for an ordinary extension, or every file is an offender.")
         XCTAssertEqual(
-            Self.seamCarryingReExports(inSource: "@_exported import CoreGraphics"),
+            Self.forbiddenReExports(inSource: "@_exported import CoreGraphics"),
             ["CoreGraphics"],
             "The re-export rule's predicate reported no violation for an outright violation.")
+
+        // The three review planted in the real tree and watched pass, plus the two the probe found
+        // that its proposed fix would still have missed. Each is asserted by name rather than as a
+        // count, because the defect was a *specific* framework being absent from a list — and a
+        // count over a list is satisfied by any five names at all.
+        for framework in ["AppKit", "Cocoa", "Quartz", "SwiftUI", "Foundation"] {
+            XCTAssertEqual(
+                Self.forbiddenReExports(inSource: "@_exported import \(framework)"),
+                [framework],
+                """
+                `@_exported import \(framework)` was not reported. Measured against the SDK: it \
+                brings CoreGraphics event types or CFMachPort into scope for every importer, with \
+                no forbidden identifier on the line that does it.
+                """)
+        }
+
         XCTAssertEqual(
-            Self.seamCarryingReExports(inSource: "@_exported import VoccaCore"),
+            Self.forbiddenReExports(inSource: "@_exported import VoccaCore"),
             [],
-            "...and a re-export of a Vocca module carries no CoreGraphics type with it.")
+            """
+            A re-export of a Vocca module is a module-boundary question that CoreBoundaryTests and \
+            ModuleBoundaryTests already own, and it cannot carry a CoreGraphics type in, because no \
+            Vocca module may name one.
+            """)
+        XCTAssertEqual(
+            Self.forbiddenReExports(inSource: "import AppKit"),
+            [],
+            """
+            A plain import must not be reported. This rule fires only on `@_exported`, and that is \
+            what makes listing AppKit, SwiftUI and Foundation free: every module may import them.
+            """)
     }
 
     // MARK: - The four other ways out of a text lint
@@ -405,24 +432,55 @@ final class HotkeySeamBoundaryTests: XCTestCase {
         SwiftSourceScanner.importStatements(inSource: source).filter(\.isReExported).map(\.module)
     }
 
-    /// The frameworks that carry the seam. Re-exporting any of them puts `CGEventFlags` and its
-    /// family in scope wherever the re-exporting module is imported.
-    private static let seamCarryingFrameworks: Set<String> = [
-        "CoreGraphics", "CoreFoundation", "ApplicationServices", "Carbon", "IOKit",
-    ]
-
-    /// The violations themselves, not the raw names.
+    /// Whether a module is one of this package's own.
     ///
-    /// Named rather than inlined into the loop below because of a **measured** hole: the real-tree
-    /// checks iterate a list that is empty or a tree that is clean, so a predicate that answered
-    /// "never a violation" would leave both of them passing. Mutating the filter to a constant
-    /// `false` survived the whole suite until this and ``coreGraphicsTypesExtended(inSource:)`` were
-    /// pulled out to where a positive control can run them against source that violates the rule.
-    private static func seamCarryingReExports(inSource source: String) -> [String] {
-        reExportedModules(inSource: source).filter { seamCarryingFrameworks.contains($0) }
+    /// The only re-exports permitted anywhere in `Sources/`. Re-exporting a *Vocca* module is a
+    /// module-boundary question — `CoreBoundaryTests` and `ModuleBoundaryTests` already own it, and
+    /// `SwiftSourceScanner` surfaces `isReExported` for exactly that reason — and it cannot carry a
+    /// CoreGraphics type in, because no Vocca module may name one.
+    private static func isVoccaModule(_ module: String) -> Bool {
+        module.hasPrefix("Vocca") || module.hasPrefix("CVocca")
     }
 
-    func testNoFileInSourcesReExportsAFrameworkThatCarriesTheSeam() throws {
+    /// Every re-export of something that is not ours.
+    ///
+    /// **This is a rule and not a list of frameworks, and the difference was earned twice.**
+    ///
+    /// The first version of this check held five names that say what they are — CoreGraphics,
+    /// CoreFoundation, ApplicationServices, Carbon, IOKit. Review broke it: `@_exported import
+    /// AppKit` planted in the real tree left the suite green at 182/0, because AppKit re-exports
+    /// CoreGraphics and is the import a macOS app is overwhelmingly more likely to write. The
+    /// proposed fix was five more names. Probing the SDK before adopting them showed the list
+    /// approach is worse than it looks in *both* directions — measured with
+    /// `swiftc -swift-version 6 -target arm64-apple-macos15 -typecheck` over `import <F>` plus each
+    /// forbidden type, 2026-08-05:
+    ///
+    /// | Re-exporting this | brings in |
+    /// |---|---|
+    /// | CoreGraphics, ApplicationServices, Carbon, AppKit, Cocoa, Quartz, QuartzCore, **SwiftUI** | the whole family — `CGEventFlags`, `CGKeyCode`, `CFMachPort`, `CFRunLoopSource` |
+    /// | CoreFoundation, **Foundation**, IOKit, CoreServices | the tap-handle half — `CFMachPort`, `CFRunLoopSource`, but no `CGEvent*` |
+    /// | Combine, Darwin | nothing |
+    ///
+    /// So the proposed list would have added `CoreServices`, which carries no `CGEvent` type at all,
+    /// while still missing **SwiftUI** — the one import `VoccaUI` certainly will have — and
+    /// **Foundation**, which carries `CFMachPort`, the tap handle itself. A list of frameworks is an
+    /// exclusion list that needs maintaining, and it had already gone stale twice before anyone
+    /// wrote a second module.
+    ///
+    /// The general rule costs nothing, because **it fires only on `@_exported`**. Every module here
+    /// may `import AppKit`, `import SwiftUI` and `import Foundation` as freely as it likes; what it
+    /// may not do is hand them on to its own importers. Nothing in `Sources/` re-exports anything
+    /// today, and there is no reason it ever should.
+    ///
+    /// Separated into a named function rather than inlined for a second measured reason: the
+    /// real-tree check walks a clean tree, so a predicate answering "never a violation" left it
+    /// passing. That mutation survived until this and ``coreGraphicsTypesExtended(inSource:)`` were
+    /// pulled out to where a positive control can run them against source that violates the rule.
+    private static func forbiddenReExports(inSource source: String) -> [String] {
+        reExportedModules(inSource: source).filter { !isVoccaModule($0) }
+    }
+
+    func testNoFileInSourcesReExportsAModuleThatIsNotOurs() throws {
         let root = try sourcesRoot()
         let files = SwiftSourceScanner.swiftFiles(under: root)
         guard !files.isEmpty else {
@@ -432,7 +490,7 @@ final class HotkeySeamBoundaryTests: XCTestCase {
         var offenders: [String] = []
         for file in files {
             let relativePath = file.path.replacingOccurrences(of: root.path + "/", with: "")
-            for module in Self.seamCarryingReExports(
+            for module in Self.forbiddenReExports(
                 inSource: try String(contentsOf: file, encoding: .utf8))
             {
                 offenders.append("\(relativePath): @_exported import \(module)")
@@ -442,11 +500,13 @@ final class HotkeySeamBoundaryTests: XCTestCase {
         XCTAssertEqual(
             offenders, [],
             """
-            A file re-exports a framework that carries the seam: \
-            \(offenders.joined(separator: "; ")). Every module that imports this one now has the \
-            CoreGraphics event types in scope without an import line of its own, which is a hole in \
-            H7 that the identifier scan cannot see — `@_exported import CoreGraphics` contains no \
-            forbidden identifier.
+            A file re-exports a module that is not ours: \(offenders.joined(separator: "; ")). \
+            Every module that imports this one now has that framework's types in scope without an \
+            import line of its own — and for AppKit, Cocoa, Quartz, QuartzCore, SwiftUI, Carbon and \
+            ApplicationServices those types include the whole CGEvent family, while Foundation and \
+            CoreFoundation carry CFMachPort. That is a hole the identifier scan structurally cannot \
+            see, because the line that opens it contains no forbidden identifier. Import it \
+            normally instead: a plain `import` is unaffected by this rule.
             """)
     }
 

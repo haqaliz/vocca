@@ -48,7 +48,28 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 182 by hotkey-source phase 2, which added seventeen: eleven in HotkeyEventSourceTests for the
+# 183 by hotkey-source phase 2 review round 1, which added one in HotkeyEventSourceTests: a second
+# `start(delivering:)` on an already-started source tears the first down rather than leaving two taps
+# installed. That is the exact call the tap-health policy will make — its charter is "if re-enable
+# fails, tear down and re-create", and re-creating is calling `start` again — and a source that
+# merely overwrote its sink there would leak a CFMachPort and a run-loop source and leave a second
+# tap whose callback still points at the previous context, which is a use-after-free on the next
+# keystroke reached by a caller who did everything the protocol documents.
+#
+# The round's Important finding added no test — it replaced a mechanism. The re-export rule held a
+# list of five frameworks named after what they are, and review broke it: `@_exported import AppKit`
+# planted in the real tree left the suite green at 182/0, because AppKit re-exports CoreGraphics. The
+# proposed fix was five more names. Probing the SDK before adopting them (`swiftc -swift-version 6
+# -typecheck` over `import <F>` plus each forbidden type) showed the list was wrong in *both*
+# directions: the proposal would have added CoreServices, which carries no CGEvent type at all, while
+# still missing SwiftUI — the one import VoccaUI certainly will have — and Foundation, which carries
+# CFMachPort, the tap handle itself. So the list is gone and the rule is now "a file in Sources/ may
+# re-export Vocca's own modules and nothing else", which cannot go stale and costs nothing because it
+# fires only on `@_exported`; every module may still `import AppKit` freely. Seven planted
+# `@_exported` lines now fail the suite where three used to pass, and reverting the rule to either the
+# original five-name list or the review's proposed ten-name list is caught by the control.
+#
+# It was 182 after hotkey-source phase 2, which added seventeen: eleven in HotkeyEventSourceTests for the
 # HotkeyEventSource seam and the session driven through it, and six in HotkeySeamBoundaryTests
 # hardening H7 against four further ways out of a text lint.
 #
@@ -219,7 +240,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=182
+MINIMUM_EXECUTED_TESTS=183
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
