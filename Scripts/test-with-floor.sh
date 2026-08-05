@@ -48,7 +48,43 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 227 by hotkey-source phase 3 review round 2, whose blocking finding was the previous round's own fix
+# 232 by hotkey-source phase 3 review round 3, whose blocking finding was a regression the previous
+# round introduced while fixing a diagnostics problem: **the rate limit sat above the ending, and
+# turned a one-second hot mic into a thirty-one-second one.**
+#
+# The guard was justified in a comment by "nothing should be in flight — every route that clears
+# aTapExists ends the session first". That is false, and false on the exact hazard this repository
+# added `duringStop` to model one round earlier: a key *down* queued behind a teardown, delivered
+# from inside `stop()` while the sink is still attached, starts a session **after** the entry point's
+# end and **before** the flag is cleared. Measured in both activation modes — no tap, and a recording
+# session, with no key-up possible because there is no tap, and in toggle no physical-key poll either:
+#
+#     stranded: tap attached = false   microphone open = true   state = recording
+#     polls (= seconds) of open microphone:  1   (was 31)
+#
+# The fix is the distinction the previous round failed to draw: **what is throttled is the recovery,
+# and never the ending.** A rate limit exists to save system calls, and a microphone is not a system
+# call. The ending now happens on every poll — one call into an idle state machine, which answers
+# `.ignore`, costing no syscall and no log line — and only the note, the re-enable and the
+# re-creation are gated.
+#
+# The bound also covers the branch it had missed. The poll has two ways to find persistent trouble;
+# the first version gated "no tap" and left "a tap that exists and never delivers" reproducing the
+# unbounded numbers **to the digit** (61 creates, 121 log lines a minute). Both are now bounded, and
+# measured: 3 creates and 5 log lines a minute for the second, 3 and 3 for the first.
+#
+# And the first discovery is never delayed, which is the trap on the other side of a rate limit: a
+# healthy poll re-arms the entitlement to recover at once, so a tap that dies five seconds after it
+# was created — or one that dies, is recovered, works, and dies again — is handled on the very next
+# poll. Only repetition is slowed. `TapHealth` gained a fourth case for the honest answer while
+# throttled: `.notDelivering`, because `permissionMissing` there would send a user to System Settings
+# to grant something they granted already.
+#
+# Mutation: 21 applied this round, 21 killed. The one that survived the first pass was the healthy-poll
+# re-arm — my test for it could not fail, because healthy polls never decrement the counter, so the
+# sequence had to become trouble → health → trouble before it measured anything.
+#
+# It was 227 after hotkey-source phase 3 review round 2, whose blocking finding was the previous round's own fix
 # containing the next hole: **the ordering defect closed on `disarm` was open on `pollTapHealth`**,
 # the entry point that round had just added to close a different gap. A key event queued behind the
 # disablement and delivered from inside `CGEventTapEnable` ended the session as `.keyUp` — a release
@@ -334,7 +370,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=227
+MINIMUM_EXECUTED_TESTS=232
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -190,7 +190,7 @@ once per machine without resetting state. Use a fresh user account or
 ### The tap adapter's conformance obligations — a code review, not a gesture
 
 *(Added 2026-08-05, `hotkey-source` phase 3.)* The tap-health policy is entirely testable and
-entirely tested. **Its correctness rests on four things the adapter must do that no CI run can ever
+entirely tested. **Its correctness rests on five things the adapter must do that no CI run can ever
 check**, because `CGEvent.tapCreate` returns `nil` without an Accessibility grant and TCC cannot be
 granted on a hosted runner. Each has a doc comment stating the obligation; a doc comment is the only
 enforcement there will ever be, so it is listed here as something a human confirms before a release.

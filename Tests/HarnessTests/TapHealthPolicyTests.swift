@@ -162,6 +162,7 @@ private final class LyingHarness {
     let health = NoteLog()
     let source: LyingSource
     let machine: SessionMachine<RecordingSource.Buffer>
+    let watchdog: SessionWatchdog<RecordingSource.Buffer>
     let sink: SessionEventSink<RecordingSource.Buffer>
     let policy: TapHealthPolicy
     let configuration: HotkeyConfiguration
@@ -173,6 +174,7 @@ private final class LyingHarness {
             configuration: configuration, ceiling: SessionCeiling.default, clock: clock,
             audioSource: microphone)
         let watchdog = SessionWatchdog(machine: machine, keyState: TruthfulKeyState(keyboard))
+        self.watchdog = watchdog
         let sink = SessionEventSink(watchdog: watchdog) { [effects] effect in
             effects.record(effect)
         }
@@ -187,14 +189,43 @@ private final class LyingHarness {
         _ = sink.receive(event(.keyDown, configuration.keyCode, configuration.modifiers))
     }
 
+    /// One turn of the watchdog's timer, with time actually passing — the only backstop left when
+    /// the tap is enabled and deaf, and therefore the one whose arrival has to be measured rather
+    /// than described.
+    func wake() {
+        clock.now += WatchdogPolicy.pollInterval
+        effects.record(watchdog.wake())
+    }
+
     var notes: [TapHealthNote] { health.notes }
+}
+
+/// Leaves `harness` with **no tap and a session recording** — the state whose impossibility a rate
+/// limit was once justified by.
+///
+/// The grant is revoked, `accessibilityGrantChanged()` tears the live tap down, and the key-down the
+/// user had already made is delivered from inside that teardown, while the sink is still attached.
+/// The replacement then fails, so the session that just started has no tap behind it and no key-up
+/// can ever arrive.
+///
+/// Shared by three tests, because it is the one construction that reaches the branch each of them is
+/// about.
+private func strandASessionOverAPolicyWithNoTap(
+    _ harness: PolicyHarness, file: StaticString = #filePath, line: UInt = #line
+) {
+    XCTAssertEqual(harness.policy.arm(), .delivering, file: file, line: line)
+    harness.tap.duringStop = { [weak harness] in harness?.press() }
+    harness.tap.nextStart = .unavailable
+
+    XCTAssertEqual(
+        harness.policy.accessibilityGrantChanged(), .permissionMissing, file: file, line: line)
 }
 
 // MARK: - The entry points, as a closed set
 
 /// Every way the outside world tells the policy something.
 ///
-/// A `CaseIterable` rather than six repeated test bodies, because the rule under test — *every one
+/// A `CaseIterable` rather than eight repeated test bodies, because the rule under test — *every one
 /// of them ends an in-flight session* — is a claim about the **set**, and a claim about a set that
 /// is written out one member at a time is a claim that quietly stops covering the member somebody
 /// adds next.
@@ -217,9 +248,9 @@ private enum PolicyEntryPoint: CaseIterable {
     /// array literal with a duplicate key code in it.
     ///
     /// **A name is not enough on its own, and that was a real hole.** `name` and ``invoke(on:)`` are
-    /// independent switches, so a case whose `invoke` called the wrong method left six distinct
-    /// names, a count of six, one entry point covered twice and another not at all. What closes it is
-    /// `testEveryEntryPointEndsAnInFlightSession` asserting that the six produce **distinguishable
+    /// independent switches, so a case whose `invoke` called the wrong method left eight distinct
+    /// names, a count of eight, one entry point covered twice and another not at all. What closes it is
+    /// `testEveryEntryPointEndsAnInFlightSession` asserting that the eight produce **distinguishable
     /// health logs** — which pins `invoke` against `name` with one assertion, because the entry
     /// points already say different things.
     var name: String {
@@ -235,7 +266,7 @@ private enum PolicyEntryPoint: CaseIterable {
         }
     }
 
-    /// The method this case calls. Seven methods, eight cases: the poll appears twice because the
+    /// The method this case calls. Six methods, eight cases: the poll appears twice because the
     /// condition it is in changes what it does, and that difference is the point of it.
     var method: String {
         switch self {
@@ -372,10 +403,10 @@ final class TapHealthPolicyTests: XCTestCase {
     /// `.permissionMissing`, and doing so would send a user who simply turned the hotkey off through
     /// a permission dialog for a grant they already have.
     func testEveryTapHealthCaseIsADistinctAnswer() {
-        XCTAssertEqual(TapHealth.allCases.count, 3)
-        XCTAssertEqual(Set(TapHealth.allCases).count, 3)
+        XCTAssertEqual(TapHealth.allCases.count, 4)
+        XCTAssertEqual(Set(TapHealth.allCases).count, 4)
         XCTAssertEqual(
-            Set(TapHealth.allCases), [.delivering, .permissionMissing, .notArmed],
+            Set(TapHealth.allCases), [.delivering, .permissionMissing, .notArmed, .notDelivering],
             "A case added here needs a decision at every call site that switches on it, which is "
                 + "what this assertion exists to force.")
     }
@@ -638,7 +669,7 @@ final class TapHealthPolicyTests: XCTestCase {
         harness.tap.nextStart = .unavailable
         XCTAssertEqual(harness.policy.arm(), .permissionMissing)
 
-        for _ in 0...TapHealthPolling.pollsBetweenCreationAttempts {
+        for _ in 0...TapHealthPolling.pollsBetweenRecoveryAttempts {
             XCTAssertEqual(harness.policy.pollTapHealth(), .permissionMissing)
         }
 
@@ -668,17 +699,22 @@ final class TapHealthPolicyTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            harness.tap.startCount, 1 + 1,
+            harness.tap.startCount, 1 + 2,
             """
-            One arm plus one retry in the first minute, not sixty. Creating a tap is tapCreate plus \
-            a run-loop source; asking a live tap whether it is enabled is one cheap read. The poll's \
-            cadence is the second question's and must not be inherited by the first.
+            One arm plus two retries in the first minute, not sixty. Creating a tap is tapCreate \
+            plus a run-loop source; asking a live tap whether it is enabled is one cheap read. The \
+            poll's cadence is the second question's and must not be inherited by the first.
             """)
         XCTAssertEqual(
-            harness.notes.count, 1 + 1,
-            "and a log a human can still read: two lines a minute, not a hundred and twenty")
+            harness.notes.count, 1 + 2,
+            "and a log a human can still read: three lines a minute, not a hundred and twenty")
         XCTAssertEqual(
-            harness.notes, [.permissionMissing, .recreationFailed(.noTapToReEnable)])
+            harness.notes,
+            [
+                .permissionMissing,
+                .recreationFailed(.noTapToReEnable),
+                .recreationFailed(.noTapToReEnable),
+            ])
         XCTAssertFalse(
             harness.notes.contains(.foundDeadByPoll),
             """
@@ -687,26 +723,146 @@ final class TapHealthPolicyTests: XCTestCase {
             most ordinary case there is.
             """)
         XCTAssertEqual(
-            harness.syntheticEvents.count, 1 + 1,
-            "one synthetic end per attempt, not one per poll")
+            harness.syntheticEvents.count, 1 + pollsInAMinute,
+            """
+            **And the ending is on every single poll**, which is the one thing the rate limit must \
+            never touch: a session can be stranded here — a key-down delivered from inside a \
+            teardown — and with no tap nothing else can ever close it. It costs one call into an \
+            idle state machine, which answers `.ignore`. No syscall, no log line. That is the trade, \
+            and it was got backwards once.
+            """)
     }
 
-    /// The retry still works, and a grant is picked up without any notification at all.
+    /// The retry still works, and a grant is picked up without any notification at all — **on the
+    /// very first poll**, because a policy that has never polled has never attempted a recovery and
+    /// so is not repeating anything.
     func testTheBoundedRetryStillPicksUpAGrantWithNoNotification() {
         let harness = PolicyHarness()
         harness.tap.nextStart = .unavailable
         XCTAssertEqual(harness.policy.arm(), .permissionMissing)
 
         harness.tap.nextStart = .started
-        for _ in 0..<TapHealthPolling.pollsBetweenCreationAttempts {
-            XCTAssertEqual(harness.policy.pollTapHealth(), .permissionMissing, "still waiting")
-        }
         XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
 
         harness.press()
         harness.release()
         XCTAssertEqual(harness.effects.starts, 1)
         XCTAssertEqual(harness.effects.endReasons, [.keyUp])
+    }
+
+    /// **The rate limit delays a repeat and never a discovery.**
+    ///
+    /// The case that makes this worth a test of its own: a tap that dies a few seconds after it was
+    /// created. A counter reset by the *creation* would make that wait out the remaining twenty-six
+    /// polls — a hotkey dead for half a minute in exchange for nothing, since no recovery had been
+    /// attempted. A healthy poll re-arms it instead.
+    func testATapThatDiesShortlyAfterBeingCreatedIsRecoveredOnTheNextPoll() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+
+        for _ in 0..<5 {
+            XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
+        }
+        harness.tap.systemDisablesTheTap()
+
+        XCTAssertEqual(harness.policy.pollTapHealth(), .delivering, "recovered on the next poll")
+        XCTAssertEqual(harness.notes, [.armed, .foundDeadByPoll, .reenabled])
+        XCTAssertTrue(harness.tap.isDelivering)
+
+        // **And again after a period of health**, which is the case the re-arm actually exists for:
+        // the counter is at zero from the recovery above, so without a healthy poll putting it back
+        // the second death would wait out thirty polls having been recovered from once.
+        for _ in 0..<3 {
+            XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
+        }
+        harness.tap.systemDisablesTheTap()
+
+        XCTAssertEqual(
+            harness.policy.pollTapHealth(), .delivering,
+            """
+            A tap that dies, is recovered, works for a while and dies again is two discoveries, not \
+            one repeat. The rate limit is there to stop Vocca hammering a tap it cannot fix, not to \
+            make it slow to notice a new fault.
+            """)
+        XCTAssertEqual(
+            harness.notes,
+            [.armed, .foundDeadByPoll, .reenabled, .foundDeadByPoll, .reenabled])
+    }
+
+    /// The second failing path, which the first version of the bound did not cover: a tap that
+    /// exists, never delivers, and is successfully recovered every single time.
+    ///
+    /// Ungated this reproduced the un-bounded numbers exactly — 61 creates and 121 log lines a
+    /// minute — on the branch the bound had not looked at.
+    func testATapThatIsRecoveredAndDiesAgainEverySecondIsAlsoBounded() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+        harness.press()
+        harness.tap.nextResume = .failed
+
+        let pollsInAMinute = 60
+        for _ in 0..<pollsInAMinute {
+            harness.tap.systemDisablesTheTap()
+            _ = harness.policy.pollTapHealth()
+        }
+
+        XCTAssertEqual(
+            harness.tap.startCount, 1 + 2,
+            "one arm plus two re-creations a minute, not sixty-one")
+        XCTAssertEqual(harness.tap.resumeCount, 2, "and two re-enable attempts, not sixty")
+        XCTAssertEqual(
+            harness.notes.count, 1 + 2 * 2,
+            "five log lines a minute, not a hundred and twenty-one")
+        XCTAssertEqual(
+            harness.microphone.isOpen, false,
+            "and the session that was running is closed, on the first poll that found the tap dead")
+        XCTAssertEqual(harness.effects.endReasons, [.tapDisabled], "exactly once")
+    }
+
+    /// **The retry route's own ordering**, which is the third way the poll reaches `start()` and the
+    /// one the six-leg ordering test cannot cover: it needs two hooks on one run — one to strand the
+    /// session and one to deliver the queued event during the re-creation — so it would break that
+    /// test's exact-crossing count, which is the thing keeping those legs honest.
+    func testAKeyEventArrivingDuringTheRetrysReCreationCannotEndTheStrandedSessionUnderTheWrongName() {
+        let harness = PolicyHarness()
+        strandASessionOverAPolicyWithNoTap(harness)
+        let deliveredBefore = harness.tap.deliveredEvents.count
+
+        harness.tap.nextStart = .started
+        harness.tap.duringStart = { [weak harness] in harness?.release() }
+
+        XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
+
+        XCTAssertEqual(
+            harness.tap.deliveredEvents.count, deliveredBefore + 1,
+            "the queued key-up never crossed the seam, so this test is measuring nothing")
+        XCTAssertEqual(
+            harness.effects.endReasons, [.tapDisabled],
+            """
+            The stranded session was ended by the key-up that arrived during the re-creation, which \
+            means it had not been ended before the re-creation began. `.keyUp` is a release nobody \
+            made — the user let go long before, into a tap that was already gone.
+            """)
+        XCTAssertFalse(harness.microphone.isOpen)
+    }
+
+    /// A poll that is rate-limited says so honestly rather than borrowing another case's meaning.
+    func testARateLimitedPollReportsThatTheTapIsNotDeliveringRatherThanBlamingPermission() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+        harness.tap.nextResume = .failed
+        harness.tap.systemDisablesTheTap()
+        XCTAssertEqual(harness.policy.pollTapHealth(), .delivering, "the first one recovers")
+
+        harness.tap.systemDisablesTheTap()
+
+        XCTAssertEqual(
+            harness.policy.pollTapHealth(), .notDelivering,
+            """
+            A tap exists, the owner armed it, and permission is fine — so `.permissionMissing` here \
+            would send a user to System Settings to grant something they granted already, which is \
+            the failure `.notArmed` exists to prevent in the other direction.
+            """)
     }
 
     /// **An explicit signal never waits out the counter.** A user who grants Accessibility gets the
@@ -729,9 +885,10 @@ final class TapHealthPolicyTests: XCTestCase {
     /// hypothetical: inherited constraint 3 says a tap created before the Accessibility grant has its
     /// mask cleared at creation, and Secure Input (phase 6) is the second instance.
     ///
-    /// So this test asserts a **gap**, deliberately. Two minutes of polling, a hot mic in both modes,
-    /// and a health log with nothing to say. If a later phase closes the gap — a delivery-liveness
-    /// check, or phase 6's `IsSecureEventInputEnabled` — this test fails, and updating it is the
+    /// So this test asserts a **gap**, deliberately, and it runs the clock rather than describing it:
+    /// polls interleaved with real watchdog wakes right up to the ceiling. In toggle mode the ceiling
+    /// is what finally closes the session — asserted, not claimed — which is what "bounded only by
+    /// the ceiling" means. If a later phase closes the gap, this test fails, and updating it is the
     /// deliberate act of recording that the limit has moved.
     func testThePollCannotSeeATapThatIsEnabledAndDeaf() {
         for configuration in bothActivationModes {
@@ -740,21 +897,33 @@ final class TapHealthPolicyTests: XCTestCase {
             harness.pressWhileTheTapStillWorked()
             XCTAssertTrue(harness.microphone.isOpen, "precondition")
 
-            for _ in 0..<120 {
+            // Up to one wake short of the ceiling, with a health poll on every turn.
+            for _ in 0..<(wakes(covering: SessionCeiling.default) - 1) {
                 XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
+                harness.wake()
             }
 
             XCTAssertTrue(
                 harness.microphone.isOpen,
                 """
-                \(configuration.activation): two minutes of polling over a tap that answers \
-                `CGEventTapIsEnabled` with `true` and delivers nothing. The poll closes the \
-                silently-*disabled* tap, not the silently-*deaf* one, and in toggle mode the second \
-                shape is still bounded only by the 120 s ceiling.
+                \(configuration.activation): a whole session's worth of polling over a tap that \
+                answers `CGEventTapIsEnabled` with `true` and delivers nothing. The poll closes the \
+                silently-*disabled* tap, not the silently-*deaf* one.
                 """)
             XCTAssertEqual(harness.machine.state, .recording)
             XCTAssertEqual(harness.effects.endReasons, [])
             XCTAssertEqual(harness.notes, [.armed], "and the log has nothing to say about it")
+
+            // And what finally ends it is the last backstop there is.
+            harness.wake()
+            XCTAssertFalse(harness.microphone.isOpen, "\(configuration.activation)")
+            XCTAssertEqual(
+                harness.effects.endReasons, [.ceilingReached],
+                """
+                \(configuration.activation): "bounded only by the ceiling", measured. Nothing \
+                between the tap going deaf and 120 s later reached this session.
+                """)
+            XCTAssertEqual(harness.machine.elapsed, SessionCeiling.default)
         }
     }
 
@@ -779,10 +948,27 @@ final class TapHealthPolicyTests: XCTestCase {
         XCTAssertEqual(source.resumeCount, 0, "and nothing was asked of a tap that is not there")
     }
 
-    /// Every route that leaves the policy without a tap ends the session on the way, so the poll's
-    /// skipped retry cannot strand one. Measured rather than trusted — an untested invariant is how
-    /// `aTapExists` came to be needed at all.
-    func testNoRouteLeavesThePolicyWithoutATapAndWithASessionRunning() {
+    /// Every **entry point** that leaves the policy without a tap ends the session on the way.
+    ///
+    /// **That is not the same as "a session can never be stranded", and the difference cost a
+    /// thirty-second hot mic.** A session can start *between* the end and the clearing of
+    /// `aTapExists` — a key-down delivered from inside the teardown — and this loop cannot see that,
+    /// because it installs no hooks. So the two claims are stated next to each other:
+    /// `testAStrandedSessionIsClosedByTheVeryNextPoll` owns the second one, and the rate limit is
+    /// built so that it stays true.
+    func testNoEntryPointLeavesThePolicyWithoutATapAndWithASessionRunning() {
+        // The construction the loop below is blind to, asserted here so the two facts are adjacent
+        // and nobody reads the loop as covering it.
+        let stranded = PolicyHarness()
+        strandASessionOverAPolicyWithNoTap(stranded)
+        XCTAssertTrue(
+            stranded.microphone.isOpen,
+            """
+            A session *can* be stranded over a policy with no tap. Any guard justified by the claim \
+            that it cannot is a guard justified by something false — which is exactly how the poll's \
+            rate limit came to sit above the ending.
+            """)
+
         for entryPoint in PolicyEntryPoint.allCases {
             let harness = PolicyHarness()
             XCTAssertEqual(harness.policy.arm(), .delivering, entryPoint.name)
@@ -798,6 +984,40 @@ final class TapHealthPolicyTests: XCTestCase {
                 harness.microphone.isOpen,
                 "\(entryPoint.name) left the policy with no tap and a session still running")
             XCTAssertEqual(harness.machine.state, .idle, entryPoint.name)
+        }
+    }
+
+    /// **A session can be in flight with no tap, and the poll is what closes it.**
+    ///
+    /// The construction is the hazard `duringStop` exists to model, in the direction the previous
+    /// round did not consider: a key **down** queued behind a teardown, delivered from inside
+    /// `stop()` while the sink is still attached, with the replacement then failing. The session
+    /// starts *after* the entry point's end and *before* `aTapExists` is cleared, so the claim
+    /// "nothing can be in flight here" — which a rate limit was once justified by — is false.
+    ///
+    /// Nothing else can close it: there is no tap, so the key-up can never arrive; in toggle there is
+    /// no physical-key poll either. **Whatever throttles the retry must not throttle this**, which is
+    /// the whole point of the assertion below being `1` and not `31`.
+    func testAStrandedSessionIsClosedByTheVeryNextPoll() {
+        for configuration in bothActivationModes {
+            let harness = PolicyHarness(configuration: configuration)
+            strandASessionOverAPolicyWithNoTap(harness)
+
+            XCTAssertFalse(harness.tap.isAttached, "precondition: no tap")
+            XCTAssertTrue(harness.microphone.isOpen, "precondition: and a session running")
+            XCTAssertEqual(harness.machine.state, .recording, "precondition")
+
+            XCTAssertEqual(harness.policy.pollTapHealth(), .permissionMissing)
+
+            XCTAssertFalse(
+                harness.microphone.isOpen,
+                """
+                \(configuration.activation): one poll, not thirty-one. Ending a session is never the \
+                thing to defer — a rate limit exists to save system calls, and a microphone is not \
+                a system call.
+                """)
+            XCTAssertEqual(harness.machine.state, .idle)
+            XCTAssertEqual(harness.effects.endReasons, [.tapDisabled])
         }
     }
 
