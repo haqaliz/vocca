@@ -218,6 +218,13 @@ enforcement there will ever be, so it is listed here as something a human confir
     told nobody. An adapter answering from a remembered value reports the last thing Vocca was told,
     which is precisely what the poll exists to bypass.
 
+**And one thing a conforming adapter still cannot do**, so that this list is not read as the whole of
+it: the health poll asks `CGEventTapIsEnabled`, which catches a tap that was *disabled* silently and
+**not** one that is enabled and deaf — created successfully, reporting itself enabled, delivering
+nothing. Two known instances: a mask cleared at creation before the Accessibility grant, and Secure
+Input. In toggle mode that second shape is still a 120 s hot mic bounded only by the ceiling. Until
+phase 6 lands, **step 15's toggle-mode check is the only place it would be noticed at all.**
+
 21. **The disable notifications reach `TapHealthPolicy.tapWasDisabled(_:)`, not the sink.** Routing
     `kCGEventTapDisabledByTimeout` / `…ByUserInput` into `HotkeyEventSink` ends the session correctly
     and leaves the tap dead forever — `SessionRules.swift:106-113` names that failure as a sibling of
@@ -226,12 +233,12 @@ enforcement there will ever be, so it is listed here as something a human confir
 
 ### If notarizing
 
-17. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
+22. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
     first real release must treat notarization as unproven and budget time for it, including for
     the possibility that a rejected entitlement or a missing hardened-runtime flag only shows up
     there.
 
-18. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
+23. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
     steps 1–4 built, signed and inspected. That is only true if step 2 was run with the Release path
     given explicitly; a bare `./Scripts/sign.sh` signs Debug and this step then submits an
     unmodified Release build.

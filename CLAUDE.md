@@ -27,7 +27,7 @@ This file orients a coding agent working in this repository. Read it first.
 >   with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
 > - `Scripts/`: `dev-identity.sh` (stable self-signed identity so TCC grants survive rebuilds),
 >   `sign.sh`, `notarize.sh`, `test-with-floor.sh`.
-> - `Tests/HarnessTests/`: 221 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 227 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and

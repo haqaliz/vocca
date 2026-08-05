@@ -334,6 +334,56 @@ final class ObservingSink: HotkeyEventSink {
     }
 }
 
+// MARK: - The tap that says it is fine
+
+/// **A tap that reports itself delivering and delivers nothing.**
+///
+/// Two different things wear this shape and the double serves both, because the *policy* cannot tell
+/// them apart — which is the point being made in each case.
+///
+/// 1. **A tap that is enabled and deaf.** Not hypothetical: inherited constraint 3 says a tap created
+///    before the Accessibility grant has its event mask **cleared at creation** — created, enabled,
+///    receiving nothing — and that is the whole reason
+///    ``TapHealthPolicy/accessibilityGrantChanged()`` must re-create rather than re-enable. Secure
+///    Input (phase 6) is the second instance. `CGEventTapIsEnabled` answers `true` for both, so the
+///    health poll's one read cannot see either, and a test that says so is the honest way to record
+///    the limit rather than letting the poll's documentation overclaim.
+/// 2. **A non-conforming adapter**, reporting delivery while holding no tap at all. That is what
+///    ``TapHealthPolicy``'s own `aTapExists` guard defends against, and a conforming double can never
+///    exercise it — leaving a decision that could be deleted with the suite green, which is a shape
+///    this repository has now been bitten by three times.
+final class LyingSource: RecoverableHotkeyEventSource {
+    /// What ``start(delivering:)`` reports. `.unavailable` gives configuration 2 above: no tap, and
+    /// `isDelivering` still `true`.
+    var nextStart: HotkeyEventSourceStart
+
+    private(set) var sink: (any HotkeyEventSink)?
+    private(set) var startCount = 0
+    private(set) var resumeCount = 0
+
+    /// Always `true`. The lie, and in configuration 1 it is not even a lie — `CGEventTapIsEnabled`
+    /// really does answer `true` for a tap whose mask was cleared at creation.
+    let isDelivering = true
+
+    init(nextStart: HotkeyEventSourceStart = .started) {
+        self.nextStart = nextStart
+    }
+
+    func start(delivering sink: any HotkeyEventSink) -> HotkeyEventSourceStart {
+        startCount += 1
+        guard nextStart == .started else { return .unavailable }
+        self.sink = sink
+        return .started
+    }
+
+    func stop() { sink = nil }
+
+    func resumeDelivery() -> TapResume {
+        resumeCount += 1
+        return .resumed
+    }
+}
+
 // MARK: - The two mutants, as sinks
 
 /// A sink that swallows everything. **The defect this aspect exists to make unreachable**, kept as a

@@ -48,7 +48,37 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 221 by hotkey-source phase 3 review round 1, which added eleven and fixed a Critical the review
+# 227 by hotkey-source phase 3 review round 2, whose blocking finding was the previous round's own fix
+# containing the next hole: **the ordering defect closed on `disarm` was open on `pollTapHealth`**,
+# the entry point that round had just added to close a different gap. A key event queued behind the
+# disablement and delivered from inside `CGEventTapEnable` ended the session as `.keyUp` — a release
+# nobody made — because the poll reaches both recovery calls by its own route through
+# `restoreDelivery()` and the four-leg ordering test covered neither. Two more legs; the answer was
+# already in the file, unused (`RecoveryRoute.recoveredByPoll`).
+#
+# Two behaviours this round bounded rather than merely recorded. The poll retried `tapCreate` **once
+# per second, forever, in the state every first run is in** — no Accessibility grant, which is also
+# where a user who declines it stays. Measured at 61 creates and 121 log lines a minute, which
+# destroys the diagnostic channel in exactly the state it most needs to be readable: eleven real
+# re-creations are invisible in it. The retry is kept, because a grant notification can be dropped,
+# and slowed to one attempt per 31 polls — measured at one create and one log line in the first
+# minute. `.foundDeadByPoll` is no longer spent on it either: nothing died silently there, `arm()`
+# said so loudly, and that note exists to mark the case worth knowing about.
+#
+# And the poll's claim is now bounded to what its one read can support. `CGEventTapIsEnabled` catches
+# a tap **disabled** silently; it cannot catch one **enabled and deaf** — created successfully,
+# reporting itself enabled, delivering nothing. That state is not hypothetical and this package
+# asserts elsewhere that it exists: a mask cleared at creation before the grant (the reason
+# `accessibilityGrantChanged()` re-creates rather than re-enables), and Secure Input. In toggle mode
+# the uncaught shape is still a 120 s hot mic. A test measures the gap — 120 polls, a hot mic in both
+# modes, a log with nothing to say — and it will fail when phase 6 closes it, which is how the limit
+# moves on purpose rather than by nobody noticing.
+#
+# Mutation: 15 applied this round, 15 killed, including all three the re-review found live (the poll's
+# ordering, its `aTapExists` half — which needed a source that violates the contract, since a
+# conforming one can never reach the guard — and a failed re-arming logged as a first arming).
+#
+# It was 221 after hotkey-source phase 3 review round 1, which added eleven and fixed a Critical the review
 # demonstrated: **the policy returned `.delivering` with no tap in existence.** After an `arm()` that
 # found no Accessibility grant, a disable notification called `resumeDelivery()` anyway and believed
 # the answer — so the return value said delivering, the health log said `.reenabled`, and every
@@ -304,7 +334,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=221
+MINIMUM_EXECUTED_TESTS=227
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

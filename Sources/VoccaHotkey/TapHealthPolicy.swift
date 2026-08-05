@@ -206,6 +206,24 @@ public enum TapHealthPolling {
     /// bound and costs a call; lengthening it is a decision about how long a hot mic may last, which
     /// is why the number is here, next to that sentence, rather than at the timer's call site.
     public static let interval: Duration = .seconds(1)
+
+    /// How many polls pass between attempts to **create** a tap when there is none.
+    ///
+    /// **Not the same question as the poll's own cadence, and it must not inherit it.** Asking a live
+    /// tap whether it is enabled is one cheap read; creating one is `CGEvent.tapCreate` plus a
+    /// run-loop source. And the state this governs is not exceptional — it is the state **every first
+    /// run is in**, and the state a user who declines Accessibility stays in forever. At the poll's
+    /// own cadence that is 60 `tapCreate` calls a minute, for as long as the app runs, plus a health
+    /// log receiving two lines a second: the diagnostic channel destroyed by noise in exactly the
+    /// state it most needs to be readable, since eleven real re-creations would be invisible in it.
+    ///
+    /// So the retry is kept — a grant is still picked up without waiting for a notification that
+    /// `DistributedNotificationCenter` can drop — and slowed to one attempt per 31 polls. 30 s is the worst
+    /// case for noticing a grant *if the notification never arrives*;
+    /// ``TapHealthPolicy/accessibilityGrantChanged()`` is the fast path and is unaffected by this,
+    /// as are ``TapHealthPolicy/arm()`` and ``TapHealthPolicy/systemDidWake()``. **Only the poll's
+    /// retry is slowed.**
+    public static let pollsBetweenCreationAttempts = 30
 }
 
 /// Whether a disabled tap started delivering again.
@@ -228,12 +246,13 @@ public enum TapResume: Sendable, Hashable, CaseIterable {
 /// Every decision in this aspect's recovery path, in one object with no system call in it. The tap
 /// itself arrives through ``RecoverableHotkeyEventSource``; `CGEvent.tapCreate`, `CGEventTapEnable`
 /// and the `@convention(c)` callback are all on the far side of that, in the half of this capability
-/// CI can never execute (`spec.md:19`). What is left here is the half worth testing: five entry
+/// CI can never execute (`spec.md:19`). What is left here is the half worth testing: six entry
 /// points, and what each of them does about the microphone.
 ///
 /// ## The one rule the whole class is arranged around
 ///
-/// **Every entry point ends any in-flight session, first, unconditionally.**
+/// **Every entry point ends any in-flight session, first, unconditionally — with one exception,
+/// argued at ``pollTapHealth()``.**
 ///
 /// Not "when a tap is re-created", not "when the disablement was a timeout" — every one of them,
 /// before anything that could fail or return early. The argument is short: a tap that died may have
@@ -278,7 +297,8 @@ public enum TapResume: Sendable, Hashable, CaseIterable {
 /// ## What the owner must do after every entry point
 ///
 /// **Re-read `SessionWatchdog.schedule`.** Ending a session moves it from `.wake(every:)` to
-/// `.stopped`, and every entry point here can end one, so the owner's timer must be reconsidered
+/// `.stopped`, and every entry point here can end one **except a health poll that found the tap
+/// working** — which is the one that fires most often — so the owner's timer must be reconsidered
 /// after each — exactly as it must after a key event. Getting it wrong costs a timer spinning over
 /// an idle machine rather than a hot mic (`tick()` and `wake()` both answer `.unchanged` in `.idle`),
 /// but phase 5 is the phase that wires that timer and is therefore the phase that would get it wrong.
@@ -318,6 +338,18 @@ public final class TapHealthPolicy {
     /// and this is written from one place — ``createTap(reportingSuccessAs:failureAs:)`` — so there
     /// is no second path that could set one and forget the other.
     private var aTapExists = false
+
+    /// Polls seen since the health poll last attempted to create a tap.
+    ///
+    /// Bookkeeping for one thing only — how often ``retryCreatingTheTap()`` fires — and read nowhere
+    /// else. It is deliberately **not** a third fact about the tap: `isArmed` and ``aTapExists`` are
+    /// the two facts, and adding a third that meant something about the tap's state is how the first
+    /// two came to be confused. This is a counter.
+    ///
+    /// Reset whenever something happens that could plausibly change the answer: a creation attempt,
+    /// and every notification-driven entry point. A user who grants Accessibility does not wait out a
+    /// counter — ``accessibilityGrantChanged()`` re-creates immediately.
+    private var pollsSinceLastCreationAttempt = 0
 
     /// - Parameters:
     ///   - source: The tap, injected. Everything this class does to it, it does through this seam.
@@ -407,7 +439,8 @@ public final class TapHealthPolicy {
     ///    decision with a real cost, and it belongs in the plan rather than in a discovery.
     /// 3. **Only this entry point has that shape.** ``systemDidWake()``,
     ///    ``accessibilityGrantChanged()`` and ``pollTapHealth()`` arrive on notifications and timers,
-    ///    not on the callback, so deferring all five would be paying the cost four times over.
+    ///    not on the callback, so deferring all six entry points would be paying the cost five
+    ///    times over for one entry point's problem.
     public func tapWasDisabled(_ reason: TapDisableReason) -> TapHealth {
         endAnyInFlightSession()
         note(.disabled(reason))
@@ -416,7 +449,7 @@ public final class TapHealthPolicy {
     }
 
     /// One turn of the ~1 s health poll (`spec.md:57`), and **the only thing that catches a tap that
-    /// dies without telling anyone.**
+    /// is *disabled* without anyone being told.**
     ///
     /// Every other entry point is driven by a notification. This one is driven by a question, and it
     /// exists because there is a failure with no notification at all: a tap can stop delivering
@@ -429,6 +462,25 @@ public final class TapHealthPolicy {
     /// says why in as many words — with the poll gone, rule (d) is *"the only stop that a dead tap
     /// can still deliver"*. So in toggle a silently dead tap is a two-minute hot mic bounded only by
     /// the ceiling. This is what turns that silence into a rule-(d) delivery.
+    ///
+    /// ## What it cannot see, stated because the sentence above invites the wrong conclusion
+    ///
+    /// **"Died without telling anyone" has two shapes and this catches one of them.** The detection
+    /// is a single read — `CGEventTapIsEnabled` — so it sees a tap that was *disabled* silently. It
+    /// cannot see a tap that is **enabled and deaf**: created successfully, reporting itself enabled,
+    /// delivering nothing.
+    ///
+    /// That state is not hypothetical and this package asserts elsewhere that it exists. Inherited
+    /// constraint 3 says a tap created before the Accessibility grant has its event mask **cleared at
+    /// creation** — which is the whole reason ``accessibilityGrantChanged()`` must re-create rather
+    /// than re-enable — and Secure Input (phase 6) is the second instance. In toggle mode that shape
+    /// is still a 120 s hot mic with nothing but the ceiling under it, exactly as before this method
+    /// existed. `TapHealthPolicyTests.testThePollCannotSeeATapThatIsEnabledAndDeaf` measures it:
+    /// 120 polls, a hot mic in both modes, and a health log with nothing to say.
+    ///
+    /// Closing it needs a read this layer does not have — evidence that events are *arriving*, or
+    /// phase 6's `IsSecureEventInputEnabled` for the one instance that has an API. Recorded rather
+    /// than fixed, because an overclaim here would stop anyone looking for it.
     ///
     /// ## The one entry point that does *not* end the session unconditionally
     ///
@@ -446,7 +498,14 @@ public final class TapHealthPolicy {
     ///   poll found nothing wrong.
     public func pollTapHealth() -> TapHealth {
         guard isArmed else { return .notArmed }
-        guard !(aTapExists && source.isDelivering) else { return .delivering }
+
+        // **Two situations, and only one of them is a discovery.** With no tap, nothing died
+        // silently: `arm()` already said so and logged `.permissionMissing` doing it. Reporting
+        // `.foundDeadByPoll` here would fire the one note that marks the case worth knowing about
+        // sixty times a minute for the most ordinary case there is.
+        guard aTapExists else { return retryCreatingTheTap() }
+
+        guard !source.isDelivering else { return .delivering }
 
         endAnyInFlightSession()
         note(.foundDeadByPoll)
@@ -499,6 +558,30 @@ public final class TapHealthPolicy {
 
     // MARK: Doing it
 
+    /// The poll's other half: there is no tap, so try to make one — **about twice a minute, not sixty
+    /// times.**
+    ///
+    /// See ``TapHealthPolling/pollsBetweenCreationAttempts`` for the whole argument. In short: this
+    /// is the state every first run is in, the retry is worth keeping because a grant notification
+    /// can be dropped, and at the poll's own cadence the cost is 60 `tapCreate` calls and 120 log
+    /// lines a minute, indefinitely, in the one state the log most needs to be readable.
+    ///
+    /// A skipped poll does nothing at all — no note, no call, no synthetic end — which is the same
+    /// shape as a poll that found the tap healthy, and honest for the same reason: nothing happened.
+    private func retryCreatingTheTap() -> TapHealth {
+        guard pollsSinceLastCreationAttempt >= TapHealthPolling.pollsBetweenCreationAttempts else {
+            pollsSinceLastCreationAttempt += 1
+            return .permissionMissing
+        }
+
+        // The class's rule, kept on the one path here that touches the tap. Nothing should be in
+        // flight — every route that clears ``aTapExists`` ends the session first — and
+        // `testNoRouteLeavesThePolicyWithoutATapAndWithASessionRunning` measures that rather than
+        // trusting it, because an untested invariant is how ``aTapExists`` came to be needed at all.
+        endAnyInFlightSession()
+        return recreate(because: .noTapToReEnable)
+    }
+
     /// Get the tap delivering again, from whatever state it is in. Shared by the disable
     /// notification and the health poll, because by this point the two situations are the same one:
     /// the tap is not delivering, the session is already over, and something has to bring it back.
@@ -537,6 +620,13 @@ public final class TapHealthPolicy {
     private func createTap(
         reportingSuccessAs succeeded: TapHealthNote, failureAs failed: TapHealthNote
     ) -> TapHealth {
+        // Every creation attempt restarts the poll's retry counter, whichever entry point made it.
+        // Reset here rather than at the three notification-driven call sites, for the same reason
+        // `aTapExists` is written here: one place that can be wrong instead of four. It also gives
+        // the right behaviour for free — a poll must not retry one second after a wake's attempt
+        // just failed.
+        pollsSinceLastCreationAttempt = 0
+
         switch source.start(delivering: sink) {
         case .started:
             aTapExists = true
