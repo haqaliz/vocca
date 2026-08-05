@@ -248,8 +248,31 @@ public enum TapHealthPolling {
     ///
     /// **And the first discovery is never delayed.** A poll that finds the tap healthy re-arms the
     /// entitlement to recover at once, so a tap that dies five seconds after it was created is
-    /// recovered on the very next poll. Only *repetition* is slowed — which is the thing that was
-    /// actually costing anything.
+    /// recovered on the very next poll.
+    ///
+    /// ## What this constant does *not* bound, stated exactly
+    ///
+    /// **It bounds a run of consecutive trouble, not a minute.** A tap that *flaps* — dies, is
+    /// recovered, works for one poll, dies again — is a new discovery every time by the rule above,
+    /// so every one of those is acted on. Measured at one death every other poll:
+    ///
+    /// | | recoveries | health-log lines |
+    /// |---|---|---|
+    /// | dies every other poll | 30 a minute | 60 a minute |
+    /// | dies every third poll | 20 a minute | 40 a minute |
+    /// | dies and stays dead | 2 a minute | 4 a minute |
+    ///
+    /// That is left alone deliberately, and it is a judgement rather than an oversight. Tightening it
+    /// means not re-arming on health, which reintroduces the failure the re-arm exists to prevent: a
+    /// genuinely new fault waiting out a counter earned by an old one. And the cost here is
+    /// proportional to something real — the tap is dying thirty times a minute and Vocca is fixing it
+    /// thirty times — so sixty log lines describing thirty successful recoveries is the diagnostic
+    /// anyone debugging that would want, not noise to be suppressed. The two states the bound *does*
+    /// cover are the ones where nothing changes between attempts and the log says the same thing
+    /// forever.
+    ///
+    /// `TapHealthPolicyTests.testAFlappingTapIsRecoveredEveryTimeAndTheCostIsProportional` pins the
+    /// numbers above, so this table cannot drift from the behaviour.
     ///
     /// The retry is kept rather than dropped, because a grant notification that
     /// `DistributedNotificationCenter` drops would otherwise leave Vocca deaf until the next wake.
@@ -296,6 +319,12 @@ public enum TapResume: Sendable, Hashable, CaseIterable {
 /// end has an ordering, a guard and an early return, and each of those is a place a mutation can
 /// skip it. There is no such place here. The session is ended before the policy has looked at
 /// whether it is armed, before it has asked the source for anything, and before any branch.
+///
+/// **And ending first is not sufficient on its own**, which is the correction this class needed
+/// three times before it was stated as a rule. A session can *start* during the work — see
+/// ``endAnyStrandedSession()`` — so the two operations that can leave the policy without a tap end
+/// again afterwards. The rule in full is: *end before, and again after, if what is left cannot end
+/// it itself.*
 ///
 /// ## How a session is ended from here
 ///
@@ -525,31 +554,26 @@ public final class TapHealthPolicy {
     /// session within one second of its start — the rule applied without thinking, producing the
     /// exact failure it exists to prevent, in the other direction.
     ///
-    /// So the shape is inverted here and only here: **ask first, and end only on the answer that
-    /// means the tap is gone.** Once it is gone, everything downstream is identical to a disable
-    /// notification, because the situation is identical — hence the shared ``restoreDelivery()``.
+    /// So the shape is inverted here and only here: **ask first, and end on every answer but one.**
+    ///
+    /// **That one answer is "the tap is delivering", and it is the only early return in this class
+    /// that skips an ending.** It is safe for a reason that has nothing to do with what a session is
+    /// doing: a delivering tap can still carry the key-up, so the session has its ordinary way out.
+    /// Every other answer — no tap, a dead tap, a disarmed policy — describes a session that no key
+    /// event can reach, so every one of them ends first.
+    ///
+    /// The arming check is **below** the ending, and that placement is the finding this method was
+    /// corrected on. `disarm()` clears `isArmed` and then tears the tap down, and the teardown is
+    /// where a queued key-down is delivered — so an unarmed policy really can hold a running session,
+    /// and it is the state with the fewest ways out of all of them: no tap, no key-up, and no reason
+    /// for an owner that has just disarmed to still be polling. `disarm()` closes that at the source
+    /// (see ``endAnyStrandedSession()``); this is the backstop, and it must not be the thing that
+    /// depends on a claim about what cannot be in flight.
     ///
     /// - Returns: where the tap stands. ``TapHealth/delivering`` is the ordinary answer and means the
     ///   poll found nothing wrong.
     public func pollTapHealth() -> TapHealth {
-        guard isArmed else { return .notArmed }
-
-        // **Two situations, and only one of them is a discovery.** With no tap, nothing died
-        // silently: `arm()` already said so and logged `.permissionMissing` doing it. Reporting
-        // `.foundDeadByPoll` here would fire the one note that marks the case worth knowing about
-        // sixty times a minute for the most ordinary case there is.
-        guard aTapExists else {
-            // **Ended first, and never gated.** A session *can* be in flight here — a key-down
-            // queued behind a teardown and delivered from inside `stop()`, before this flag was
-            // cleared — and with no tap there is nothing that can ever end it: no key-up, and in
-            // toggle mode no physical-key poll either. This is the one thing the poll must do on
-            // every single turn.
-            endAnyInFlightSession()
-            guard aRecoveryIsDue() else { return .permissionMissing }
-            return recreate(because: .noTapToReEnable)
-        }
-
-        guard !source.isDelivering else {
+        if aTapExists && source.isDelivering {
             // A healthy poll re-arms the entitlement to recover at once, so the *next* trouble is
             // treated as the new discovery it is rather than as a repeat of something already being
             // handled. Without this the rate limit would delay the ordinary case — a tap that dies a
@@ -560,6 +584,18 @@ public final class TapHealthPolicy {
         }
 
         endAnyInFlightSession()
+
+        guard isArmed else { return .notArmed }
+
+        // **Two situations, and only one of them is a discovery.** With no tap, nothing died
+        // silently: `arm()` already said so and logged `.permissionMissing` doing it. Reporting
+        // `.foundDeadByPoll` here would fire the one note that marks the case worth knowing about
+        // sixty times a minute for the most ordinary case there is.
+        guard aTapExists else {
+            guard aRecoveryIsDue() else { return .permissionMissing }
+            return recreate(because: .noTapToReEnable)
+        }
+
         guard aRecoveryIsDue() else { return .notDelivering }
 
         note(.foundDeadByPoll)
@@ -622,6 +658,7 @@ public final class TapHealthPolicy {
         isArmed = false
         aTapExists = false
         source.stop()
+        endAnyStrandedSession()
         note(.disarmed)
     }
 
@@ -675,20 +712,52 @@ public final class TapHealthPolicy {
     private func createTap(
         reportingSuccessAs succeeded: TapHealthNote, failureAs failed: TapHealthNote
     ) -> TapHealth {
-        switch source.start(delivering: sink) {
+        let outcome = source.start(delivering: sink)
+
+        // A failed creation has already destroyed whatever was there — `start` is documented as a
+        // `stop()` followed by a `start`, and a re-create that then fails leaves nothing attached.
+        // Deaf rather than double-tapped, and this field has to say so or the next recovery will try
+        // to re-enable a tap that was torn down on this line.
+        aTapExists = outcome == .started
+
+        // **One call, on both outcomes, so the condition inside it is what decides.** The teardown
+        // `start` performs can deliver a queued key-down and begin a session; that session is fine
+        // when this call succeeded — there is a tap now, and it will carry the key-up — and stranded
+        // when it did not. Putting the difference in the check rather than in two call sites is what
+        // stops it becoming a line that can be deleted with the suite green. It runs before the note
+        // because the note is the owner's closure and the microphone is not its business.
+        endAnyStrandedSession()
+
+        switch outcome {
         case .started:
-            aTapExists = true
             note(succeeded)
             return .delivering
         case .unavailable:
-            // A failed creation has already destroyed whatever was there — `start` is documented as
-            // a `stop()` followed by a `start`, and a re-create that then fails leaves nothing
-            // attached. Deaf rather than double-tapped, and this field has to say so or the next
-            // recovery will try to re-enable a tap that was torn down on this line.
-            aTapExists = false
             note(failed)
             return .permissionMissing
         }
+    }
+
+    /// **The post-condition every operation shares: if there is no tap, there is no session.**
+    ///
+    /// Ending *before* the work is not enough, and that is the class of mistake this file has now
+    /// made three times. A session can **start during** the work: `stop()` removes a run-loop source
+    /// and invalidates a port, which pumps the run loop, so a key-**down** queued behind the teardown
+    /// is delivered while the sink is still attached — after the entry point's ending and before the
+    /// tap is gone. If the work then leaves no tap, nothing can ever end that session. There is no
+    /// key-up, because there is no tap to carry one; in toggle mode there is no physical-key poll
+    /// either; and after a ``disarm()`` there is no reason for the owner to still be polling.
+    ///
+    /// Called from the two operations that *can* leave the policy without a tap — every creation,
+    /// whatever its outcome, and a deliberate teardown — rather than from every entry point, because
+    /// those two are the only ones after which the answer to *"can anything still end this?"* may be
+    /// no. **Whether it actually is, is the condition below and not the call site**: a creation that
+    /// succeeded leaves a tap that will carry the key-up, and this returns having done nothing. Costs
+    /// one call into an idle state machine, which answers `.ignore`, on the paths where nothing was
+    /// stranded.
+    private func endAnyStrandedSession() {
+        guard !aTapExists else { return }
+        endAnyInFlightSession()
     }
 
     /// End whatever session is in flight, by handing the sink the one event that says the tap died.

@@ -127,6 +127,14 @@ private final class PolicyHarness {
         tap.deliver(event)
     }
 
+    /// Start a session without the tap carrying the event — what a tap that existed a moment ago
+    /// did, and the only way to reach a stranded session now that the operations which used to
+    /// produce one close it themselves.
+    func startASessionBypassingTheTap() {
+        keyboard.press(configuration.keyCode)
+        _ = sink.receive(event(.keyDown, configuration.keyCode, configuration.modifiers))
+    }
+
     /// One turn of the owner's *watchdog* timer — the ceiling and the physical-key poll, which are a
     /// different timer from the tap-health one and a different backstop. Used to show what the
     /// watchdog can and cannot reach when the tap is the thing that is broken.
@@ -203,22 +211,31 @@ private final class LyingHarness {
 /// Leaves `harness` with **no tap and a session recording** — the state whose impossibility a rate
 /// limit was once justified by.
 ///
-/// The grant is revoked, `accessibilityGrantChanged()` tears the live tap down, and the key-down the
-/// user had already made is delivered from inside that teardown, while the sink is still attached.
-/// The replacement then fails, so the session that just started has no tap behind it and no key-up
-/// can ever arrive.
+/// **The two operations that used to reach this now close it themselves** — a failed re-creation and
+/// a disarm both end again once the tap is gone — so the session is started here by handing the sink
+/// a key-down directly, which is what a tap that existed a moment ago did. That is not a cheat: the
+/// poll's own guard is the backstop for this state, and a backstop nothing can reach is a backstop
+/// nothing measures. If a future path strands a session by some route nobody has thought of, this is
+/// what says the poll still closes it.
 ///
-/// Shared by three tests, because it is the one construction that reaches the branch each of them is
-/// about.
+/// - Parameter disarmed: whether to reach it through ``TapHealthPolicy/disarm()``, which additionally
+///   clears the arming — the state with the fewest ways out of any in this file.
 private func strandASessionOverAPolicyWithNoTap(
-    _ harness: PolicyHarness, file: StaticString = #filePath, line: UInt = #line
+    _ harness: PolicyHarness, disarmed: Bool = false,
+    file: StaticString = #filePath, line: UInt = #line
 ) {
     XCTAssertEqual(harness.policy.arm(), .delivering, file: file, line: line)
-    harness.tap.duringStop = { [weak harness] in harness?.press() }
-    harness.tap.nextStart = .unavailable
 
-    XCTAssertEqual(
-        harness.policy.accessibilityGrantChanged(), .permissionMissing, file: file, line: line)
+    if disarmed {
+        harness.policy.disarm()
+    } else {
+        harness.tap.nextStart = .unavailable
+        XCTAssertEqual(
+            harness.policy.accessibilityGrantChanged(), .permissionMissing, file: file, line: line)
+    }
+    XCTAssertFalse(harness.tap.isAttached, "the tap is gone", file: file, line: line)
+
+    harness.startASessionBypassingTheTap()
 }
 
 // MARK: - The entry points, as a closed set
@@ -226,9 +243,9 @@ private func strandASessionOverAPolicyWithNoTap(
 /// Every way the outside world tells the policy something.
 ///
 /// A `CaseIterable` rather than eight repeated test bodies, because the rule under test — *every one
-/// of them ends an in-flight session* — is a claim about the **set**, and a claim about a set that
-/// is written out one member at a time is a claim that quietly stops covering the member somebody
-/// adds next.
+/// of them ends an in-flight session, bar the one exception `endsAnInFlightSession` names* — is a
+/// claim about the **set**, and a claim about a set that is written out one member at a time is a
+/// claim that quietly stops covering the member somebody adds next.
 ///
 /// It cannot make a new public method a compile error; nothing can. What it does is make the set an
 /// object with a count, so the count can be asserted and the omission argued about in review rather
@@ -291,6 +308,21 @@ private enum PolicyEntryPoint: CaseIterable {
         case .arm, .disabledByTimeout, .disabledByUserInput, .pollFindingTheTapDead, .systemDidWake,
             .accessibilityGrantChanged, .disarm:
             return true
+        }
+    }
+
+    /// How many synthetic ends invoking this case mints.
+    ///
+    /// One for every entry point, and **two for `disarm`**: it ends, tears the tap down, and ends
+    /// again — because the teardown itself can start a session, and after a disarm nothing else
+    /// would ever close it. The second is a no-op whenever nothing was stranded, which is why the
+    /// count is stated here rather than smoothed away with an inequality.
+    var endsMinted: Int {
+        switch self {
+        case .disarm: return 2
+        case .arm, .disabledByTimeout, .disabledByUserInput, .pollFindingTheTapHealthy,
+            .pollFindingTheTapDead, .systemDidWake, .accessibilityGrantChanged:
+            return 1
         }
     }
 
@@ -723,13 +755,13 @@ final class TapHealthPolicyTests: XCTestCase {
             most ordinary case there is.
             """)
         XCTAssertEqual(
-            harness.syntheticEvents.count, 1 + pollsInAMinute,
+            harness.syntheticEvents.count, 2 + pollsInAMinute + 2,
             """
             **And the ending is on every single poll**, which is the one thing the rate limit must \
-            never touch: a session can be stranded here — a key-down delivered from inside a \
-            teardown — and with no tap nothing else can ever close it. It costs one call into an \
-            idle state machine, which answers `.ignore`. No syscall, no log line. That is the trade, \
-            and it was got backwards once.
+            never touch: a session can be stranded here and with no tap nothing else can ever close \
+            it. It costs one call into an idle state machine, which answers `.ignore`. No syscall, \
+            no log line. Two apiece for the arming and each retry, because a creation that fails \
+            ends again once the tap is gone; sixty for the polls.
             """)
     }
 
@@ -846,6 +878,35 @@ final class TapHealthPolicyTests: XCTestCase {
         XCTAssertFalse(harness.microphone.isOpen)
     }
 
+    /// **What the bound does not bound**, measured so the constant's doc cannot claim something
+    /// narrower than the behaviour.
+    ///
+    /// The rate limit bounds a *run of consecutive trouble*, not a minute. A flapping tap is a new
+    /// discovery every time — by the same rule that stops a genuinely new fault waiting out a
+    /// counter earned by an old one — so every death is acted on. That is a deliberate trade: the
+    /// cost is proportional to something real, and sixty log lines describing thirty successful
+    /// recoveries is what anyone debugging a flapping tap would want.
+    func testAFlappingTapIsRecoveredEveryTimeAndTheCostIsProportional() {
+        let everyOther = PolicyHarness()
+        XCTAssertEqual(everyOther.policy.arm(), .delivering)
+        for poll in 0..<60 {
+            if poll.isMultiple(of: 2) { everyOther.tap.systemDisablesTheTap() }
+            _ = everyOther.policy.pollTapHealth()
+        }
+        XCTAssertEqual(everyOther.tap.resumeCount, 30, "a recovery for every death")
+        XCTAssertEqual(everyOther.notes.count, 1 + 30 * 2, "and two log lines describing each")
+        XCTAssertEqual(everyOther.tap.startCount, 1, "none of them needed a new tap")
+
+        let everyThird = PolicyHarness()
+        XCTAssertEqual(everyThird.policy.arm(), .delivering)
+        for poll in 0..<60 {
+            if poll.isMultiple(of: 3) { everyThird.tap.systemDisablesTheTap() }
+            _ = everyThird.policy.pollTapHealth()
+        }
+        XCTAssertEqual(everyThird.tap.resumeCount, 20)
+        XCTAssertEqual(everyThird.notes.count, 1 + 20 * 2)
+    }
+
     /// A poll that is rate-limited says so honestly rather than borrowing another case's meaning.
     func testARateLimitedPollReportsThatTheTapIsNotDeliveringRatherThanBlamingPermission() {
         let harness = PolicyHarness()
@@ -957,17 +1018,31 @@ final class TapHealthPolicyTests: XCTestCase {
     /// `testAStrandedSessionIsClosedByTheVeryNextPoll` owns the second one, and the rate limit is
     /// built so that it stays true.
     func testNoEntryPointLeavesThePolicyWithoutATapAndWithASessionRunning() {
-        // The construction the loop below is blind to, asserted here so the two facts are adjacent
-        // and nobody reads the loop as covering it.
-        let stranded = PolicyHarness()
-        strandASessionOverAPolicyWithNoTap(stranded)
-        XCTAssertTrue(
-            stranded.microphone.isOpen,
-            """
-            A session *can* be stranded over a policy with no tap. Any guard justified by the claim \
-            that it cannot is a guard justified by something false — which is exactly how the poll's \
-            rate limit came to sit above the ending.
-            """)
+        // The hazard the loop below is blind to, driven here with the hook installed so the two
+        // facts are adjacent. The loop cannot see this — it installs no hooks — and the difference
+        // between "no entry point ends up here" and "no entry point can be *made* to end up here"
+        // is what a guard justified by "it cannot be stranded" was resting on.
+        for disarming in [false, true] {
+            let hooked = PolicyHarness()
+            XCTAssertEqual(hooked.policy.arm(), .delivering)
+            hooked.tap.duringStop = { [weak hooked] in hooked?.press() }
+            if disarming {
+                hooked.policy.disarm()
+            } else {
+                hooked.tap.nextStart = .unavailable
+                XCTAssertEqual(hooked.policy.accessibilityGrantChanged(), .permissionMissing)
+            }
+
+            XCTAssertFalse(hooked.tap.isAttached, "precondition: the teardown happened")
+            XCTAssertFalse(
+                hooked.microphone.isOpen,
+                """
+                A key-down delivered from inside the teardown starts a session *after* the entry \
+                point's ending and *before* the tap is gone. An operation that leaves no tap must \
+                close that itself — there is no key-up coming, and after a disarm there may be no \
+                further poll either.
+                """)
+        }
 
         for entryPoint in PolicyEntryPoint.allCases {
             let harness = PolicyHarness()
@@ -999,25 +1074,154 @@ final class TapHealthPolicyTests: XCTestCase {
     /// no physical-key poll either. **Whatever throttles the retry must not throttle this**, which is
     /// the whole point of the assertion below being `1` and not `31`.
     func testAStrandedSessionIsClosedByTheVeryNextPoll() {
+        // Armed, and disarmed. **The second is the one that matters**: an unarmed policy has no tap,
+        // no key-up, and no reason for the owner to still be polling, so it is the state with the
+        // fewest ways out in this file — and the arming guard used to return above every ending.
+        for disarmed in [false, true] {
+            for configuration in bothActivationModes {
+                let label = "\(configuration.activation)\(disarmed ? "/disarmed" : "")"
+                let harness = PolicyHarness(configuration: configuration)
+                strandASessionOverAPolicyWithNoTap(harness, disarmed: disarmed)
+
+                XCTAssertFalse(harness.tap.isAttached, "precondition: no tap — \(label)")
+                XCTAssertTrue(harness.microphone.isOpen, "precondition: a session running — \(label)")
+                XCTAssertEqual(harness.machine.state, .recording, "precondition — \(label)")
+
+                XCTAssertEqual(
+                    harness.policy.pollTapHealth(), disarmed ? .notArmed : .permissionMissing, label)
+
+                XCTAssertFalse(
+                    harness.microphone.isOpen,
+                    """
+                    \(label): one poll, not thirty-one and not never. Ending a session is never the \
+                    thing to put behind a guard — not behind a rate limit, and not behind the \
+                    arming check either. A rate limit exists to save system calls and a microphone \
+                    is not a system call; an arming check answers "does the owner want a tap", \
+                    which is not the same question as "is the microphone open".
+                    """)
+                XCTAssertEqual(harness.machine.state, .idle, label)
+                XCTAssertEqual(harness.effects.endReasons, [.tapDisabled], label)
+            }
+        }
+    }
+
+    /// **A teardown must not be able to strand the session it starts.**
+    ///
+    /// `disarm()` ends, then tears the tap down — and the teardown is where a queued key-**down** is
+    /// delivered, while the sink is still attached. That session begins after the ending and after
+    /// `isArmed` is cleared, so there is no tap, no arming, and **no reason for the owner to keep
+    /// polling**: it just disarmed. Nothing would ever close it but the 120 s ceiling, and only if
+    /// the owner happens to still be running the watchdog.
+    ///
+    /// So this is closed where it is caused. The poll's own guard is the backstop, and
+    /// `testAStrandedSessionIsClosedByTheVeryNextPoll` owns that half.
+    func testATeardownCannotStrandTheSessionItStarts() {
         for configuration in bothActivationModes {
             let harness = PolicyHarness(configuration: configuration)
-            strandASessionOverAPolicyWithNoTap(harness)
+            XCTAssertEqual(harness.policy.arm(), .delivering)
+            harness.tap.duringStop = { [weak harness] in harness?.press() }
 
-            XCTAssertFalse(harness.tap.isAttached, "precondition: no tap")
-            XCTAssertTrue(harness.microphone.isOpen, "precondition: and a session running")
-            XCTAssertEqual(harness.machine.state, .recording, "precondition")
+            harness.policy.disarm()
 
-            XCTAssertEqual(harness.policy.pollTapHealth(), .permissionMissing)
-
+            XCTAssertFalse(
+                harness.tap.isAttached, "precondition: the teardown happened")
             XCTAssertFalse(
                 harness.microphone.isOpen,
                 """
-                \(configuration.activation): one poll, not thirty-one. Ending a session is never the \
-                thing to defer — a rate limit exists to save system calls, and a microphone is not \
-                a system call.
+                \(configuration.activation): disarm() left a session running over a policy with no \
+                tap and no arming. After a disarm the owner has every reason to stop its timers, so \
+                there is no later poll to rely on — this has to be closed by the operation that \
+                caused it.
                 """)
             XCTAssertEqual(harness.machine.state, .idle)
             XCTAssertEqual(harness.effects.endReasons, [.tapDisabled])
+        }
+    }
+
+    /// **And the other side of the same condition: a re-creation that *succeeds* must keep it.**
+    ///
+    /// The post-condition is "if there is no tap, there is no session" — not "end whatever the
+    /// teardown started". When the replacement tap arrives, the session started inside the teardown
+    /// has a working tap behind it and its own key-up coming, so ending it would cut a dictation
+    /// short for no reason. This is what makes the condition in `endAnyStrandedSession` a decision
+    /// rather than a branch nothing can reach.
+    func testASuccessfulReCreationKeepsTheSessionItsTeardownStarted() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+        harness.tap.duringStop = { [weak harness] in harness?.press() }
+
+        XCTAssertEqual(harness.policy.accessibilityGrantChanged(), .delivering)
+
+        XCTAssertTrue(
+            harness.microphone.isOpen,
+            "there is a tap now, and it will carry this session's key-up")
+        XCTAssertEqual(harness.machine.state, .recording)
+        XCTAssertEqual(harness.effects.endReasons, [])
+
+        harness.release()
+        XCTAssertEqual(
+            harness.effects.endReasons, [.keyUp],
+            "and it does — the user's own gesture, through the replacement tap")
+        XCTAssertFalse(harness.microphone.isOpen)
+    }
+
+    /// The same post-condition on the other operation that can leave no tap: a re-creation whose
+    /// replacement fails, with the key-down delivered inside the teardown half of it.
+    func testAFailedReCreationCannotStrandTheSessionItsTeardownStarts() {
+        for configuration in bothActivationModes {
+            let harness = PolicyHarness(configuration: configuration)
+            XCTAssertEqual(harness.policy.arm(), .delivering)
+            harness.tap.duringStop = { [weak harness] in harness?.press() }
+            harness.tap.nextStart = .unavailable
+
+            XCTAssertEqual(harness.policy.accessibilityGrantChanged(), .permissionMissing)
+
+            XCTAssertFalse(harness.tap.isAttached, "precondition")
+            XCTAssertFalse(
+                harness.microphone.isOpen,
+                "\(configuration.activation): no tap, and a session nothing can ever end")
+            XCTAssertEqual(harness.machine.state, .idle)
+        }
+    }
+
+    /// **The class of defect, closed at the set rather than at its instances.**
+    ///
+    /// Three rounds of this review found the same shape three times: a guard justified by a claim
+    /// about what cannot be in flight, false on a path the file already models. The claim in every
+    /// case was some version of *"no reachable state has a live session and \<X\>"*, and the answer
+    /// each time was one more ending moved above one more guard.
+    ///
+    /// So the rule is asserted over the closed set instead: **every entry point ends a session it
+    /// finds stranded, whatever the policy's arming or tap state.** The unarmed case is the hard one
+    /// and the reason this exists — three mutants that moved an ending below an `isArmed` guard
+    /// survived every earlier round, because nothing reached a state where the guard could skip
+    /// anything.
+    ///
+    /// The healthy-poll exception does not apply here: it is conditioned on a *delivering tap*, and
+    /// there is none, so it too ends.
+    func testEveryEntryPointEndsAStrandedSessionEvenWhenTheOwnerHasDisarmed() {
+        for entryPoint in PolicyEntryPoint.allCases {
+            for configuration in bothActivationModes {
+                let label = "\(configuration.activation)/\(entryPoint.name)"
+                let harness = PolicyHarness(configuration: configuration)
+                strandASessionOverAPolicyWithNoTap(harness, disarmed: true)
+                XCTAssertTrue(harness.microphone.isOpen, "precondition — \(label)")
+
+                // No `prepare` here: there is no tap for the system to disable, and modelling one
+                // would be modelling something macOS cannot do.
+                entryPoint.invoke(on: harness.policy)
+
+                XCTAssertFalse(
+                    harness.microphone.isOpen,
+                    """
+                    \(label) walked past a session with no tap and no arming behind it. That state \
+                    has the fewest ways out of any in this file: no key-up, in toggle no \
+                    physical-key poll, and no reason for an owner that has just disarmed to still \
+                    be running a timer. What is left is the 120 s ceiling.
+                    """)
+                XCTAssertEqual(harness.machine.state, .idle, label)
+                XCTAssertEqual(harness.effects.endReasons, [.tapDisabled], label)
+            }
         }
     }
 
@@ -1201,12 +1405,12 @@ final class TapHealthPolicyTests: XCTestCase {
                     harness.microphone.handedOut.count, 1,
                     "\(label) must not lose the audio it captured")
                 XCTAssertEqual(
-                    harness.syntheticEvents.count, 2,
+                    harness.syntheticEvents.count, 1 + entryPoint.endsMinted,
                     """
-                    \(label): two entry points were called — the arming and this one — and each \
-                    must have minted exactly one end. A count of one here is an entry point that \
-                    reached its recovery without ending anything; a count above two is an end \
-                    applied more than once for a single event.
+                    \(label): the arming minted one end and this entry point owes \
+                    \(entryPoint.endsMinted). Fewer is an entry point that reached its recovery \
+                    without ending anything; more is an end applied where nothing can have started \
+                    a session in between.
                     """)
             }
 

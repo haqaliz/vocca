@@ -48,7 +48,40 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 232 by hotkey-source phase 3 review round 3, whose blocking finding was a regression the previous
+# 237 by hotkey-source phase 3 review round 4, which closed the *class* of defect the previous three
+# rounds closed one instance at a time: **a guard justified by a claim about what cannot be in
+# flight, false on a path the file already models.**
+#
+# The last instance was the poll's arming check, which returned above every ending. `disarm()` clears
+# `isArmed` and *then* tears the tap down, and the teardown is where a queued key-down is delivered —
+# so an unarmed policy really can hold a running session, and it is the state with the fewest ways out
+# in this file: no tap, no key-up, in toggle no physical-key poll, and no reason for an owner that has
+# just disarmed to still be running a timer. What was left under it was the 120 s ceiling.
+#
+# Two fixes, because the prescribed one-line fix is not sufficient on its own. The poll's guard moved
+# below the ending, which is the backstop; and — since after a disarm there may be no further poll —
+# the two operations that can leave the policy without a tap now **end again afterwards**. The rule in
+# full is no longer "end first" but *"end before, and again after, if what is left cannot end it
+# itself"*. That second ending is a real decision rather than a defensive line: a creation that
+# *succeeds* must keep the session its teardown started, because there is a tap now and it will carry
+# the key-up, and a test asserts exactly that.
+#
+# The sweep the review asked for found no further instances. Every early return in the class was
+# checked; the only one that skips an ending is the poll's healthy branch, and it is safe for a reason
+# that is not a claim about sessions at all — a delivering tap can carry the key-up, so the session
+# has its ordinary way out.
+#
+# Also measured rather than claimed: the recovery rate limit bounds a *run of consecutive trouble*,
+# not a minute. A flapping tap gets a recovery every time — 30 recoveries and 60 log lines a minute at
+# one death every other poll — and that is deliberate, because the cost is proportional to something
+# real and because tightening it would delay a genuinely new fault. The constant's doc now carries the
+# table, pinned by a test so it cannot drift.
+#
+# Mutation: 23 applied this round, 23 killed — including the three that survived every previous round
+# (an ending moved below the `isArmed` guard at `tapWasDisabled`, `systemDidWake` and
+# `accessibilityGrantChanged`), which the new closed-set test kills together.
+#
+# It was 232 after hotkey-source phase 3 review round 3, whose blocking finding was a regression the previous
 # round introduced while fixing a diagnostics problem: **the rate limit sat above the ending, and
 # turned a one-second hot mic into a thirty-one-second one.**
 #
@@ -370,7 +403,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=232
+MINIMUM_EXECUTED_TESTS=237
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
