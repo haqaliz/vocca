@@ -59,8 +59,21 @@ public enum HotkeyEventSourceStart: Sendable, Hashable, CaseIterable {
 /// Not only the hotkey's events. Stop rule (c) is "any event whose modifiers no longer carry the
 /// configured set", and the rules cannot apply it to events they never see — so a source that
 /// filtered by key code before delivering, which looks like an obvious optimisation, deletes stop
-/// rules (b) and (c) and leaves a session running to the ceiling every time the user releases Option
-/// before Space.
+/// rules (b) and (c) outright.
+///
+/// **What that costs is worth stating exactly, because the obvious summary of it is wrong and was
+/// written here first.** It is not "a session running to the ceiling every time the user releases
+/// Option before Space": stop rule (a) is `.keyUp` on the configured key code, and `SessionRules`
+/// reaches it via `matchesKey` **without consulting modifiers at all**, so a key-code filter that
+/// still passes the hotkey's own events ends the session at key-up as usual. What is lost is every
+/// end that does *not* come from the hotkey's key — the chord broken while the key is still held, and
+/// any future modifier-only binding — and, on a filter strict enough to drop `flagsChanged` for the
+/// bound key too, the *immediacy* of rules (b) and (c): the session then ends at the next autorepeat
+/// or at key-up rather than the instant the chord breaks.
+///
+/// The correction matters more than the sentence it replaces. A justification that overstates its
+/// case is discounted the first time someone checks it, and this one is guarding the seam's single
+/// most damaging conformance mistake — see the paragraph below.
 ///
 /// The consequence is worth stating plainly, because it sets the stakes for every conformance:
 /// **this method sees nearly every keystroke the user makes, all day, in every application.** A

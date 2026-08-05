@@ -240,9 +240,27 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
     /// It calls ``tearDown()`` rather than ``stop()`` and therefore skips the main-actor assertion the
     /// other four members make. That is deliberate: a `deinit` runs wherever the last release
     /// happens, which is not this object's choice, and trapping there would turn "an owner released
-    /// me on the wrong thread" into a crash at exit. The work itself is safe from any thread —
-    /// `CFRunLoopRemoveSource` and `CFMachPortInvalidate` are both thread-safe — and if `deinit` is
-    /// running there is by definition nothing left to race with.
+    /// me on the wrong thread" into a crash at exit. **The thread question is a clean no**: the two
+    /// calls are thread-safe, and both name `CFRunLoopGetMain()` absolutely rather than
+    /// `CFRunLoopGetCurrent()`, so the add and the remove are symmetric whichever thread each runs on.
+    ///
+    /// ## What this is *not* safe from, and the rule an owner has to keep
+    ///
+    /// **A `deinit` is not a race. It is re-entrancy, and this one can land inside the tap's own
+    /// callback.** The callback recovers its context with `takeUnretainedValue()`, which is `+1` — so
+    /// for the duration of ``receive(rawEventType:rawFlags:keyCode:isAutorepeat:)`` the callback's own
+    /// frame is a strong owner of this object. If anything reached from inside that call drops the
+    /// last *other* strong reference, the callback's release is the final one, `deinit` runs on the
+    /// callback's stack, and ``tearDown()`` invalidates the `CFMachPort` whose callback is executing.
+    /// That is precisely the hazard ``CallbackSafeTapDisablement`` exists to keep off this stack,
+    /// arrived at by a different road — and the deferral does not cover it, because the deferral
+    /// guards the *deliberate* teardown and this one is ARC's.
+    ///
+    /// So the rule, and it belongs to the owner rather than to this class: **nothing reachable from
+    /// the sink may release the source.** Today nothing is — the sink path bottoms out in the session
+    /// machine, which has never heard of a `HotkeyEventSource` — and the composition root that wires
+    /// these together (phase 5) is where that could stop being true. A `disarm()` that also dropped
+    /// the policy, driven by a widget action delivered on a keystroke, is the shape to watch for.
     deinit {
         tearDown()
     }

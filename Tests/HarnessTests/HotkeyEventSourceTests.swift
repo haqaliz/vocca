@@ -448,8 +448,16 @@ final class HotkeyEventSourceTests: XCTestCase {
     /// Stop rule (c) is "any event whose modifiers no longer carry the configured set", so the
     /// machine has to see keys it has no interest in. A source that filtered to the configured key
     /// code before delivering — an optimisation that looks obviously correct — removes rules (b) and
-    /// (c) entirely, and the session then runs to the ceiling every time the user releases Option
-    /// before Space.
+    /// (c) entirely.
+    ///
+    /// **Not "the session then runs to the ceiling", which is what this comment used to say and what
+    /// a review measured to be false.** Rule (a) is `.keyUp` on the configured key code and
+    /// `SessionRules` reaches it through `matchesKey` without consulting modifiers at all, so a filter
+    /// that still passes the hotkey's own events ends the session at key-up as usual. What such a
+    /// filter costs is every end that does not come from the bound key — the chord broken while the
+    /// key is still held, and any future modifier-only binding — and the *immediacy* of rules (b) and
+    /// (c), which is a session ending at the next autorepeat rather than at the instant the chord
+    /// breaks. Real, and worth this test; not a hot mic.
     func testEveryKindOfKeyEventCrossesTheSeamNotOnlyTheHotkeys() {
         let harness = SeamHarness()
         XCTAssertEqual(harness.arm(), .started)
