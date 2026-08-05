@@ -47,8 +47,13 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 102 by task 4, which added twenty-five: twenty-three in SessionMachineTests for the session state
-# machine and its custody funnel, and two in CoreBoundaryTests — that a SessionOutcome is
+# 104 by task 4's first review round, which added two in SessionMachineTests: a stop arriving inside
+# the microphone opening is now applied the moment the session exists rather than dropped (the
+# review measured the real recovery for a dropped `.tapDisabled` as the 120 s ceiling, not the one
+# poll interval the code claimed), and the bookkeeping on that same re-entrant path is pinned.
+#
+# It was 102 after task 4 itself, which added twenty-five: twenty-three in SessionMachineTests for
+# the session state machine and its custody funnel, and two in CoreBoundaryTests — that a SessionOutcome is
 # constructed in exactly one place in VoccaCore, and that the module reads no standard-library
 # clock. The second of those closes a gap the import allow-list structurally cannot: ContinuousClock
 # and SuspendingClock need no import, so `ContinuousClock().now` inside the session machine would
@@ -76,7 +81,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=102
+MINIMUM_EXECUTED_TESTS=104
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

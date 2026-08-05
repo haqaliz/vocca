@@ -74,7 +74,8 @@ public final class SessionMachine<Audio: CapturedAudio> {
 
     /// Forward time accumulated since this session started, and the reading it was last measured
     /// against. Accumulated rather than compared against an absolute deadline so that a clock which
-    /// steps backwards cannot *extend* the session — see ``tick()``.
+    /// steps backwards extends the session by at most one tick interval instead of by the whole
+    /// jump — see ``tick()``.
     private var elapsed: Duration = .zero
     private var lastReading: Duration = .zero
 
@@ -126,19 +127,40 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// otherwise, and inventing one would add a fourth case to every exhaustive switch in the module
     /// for an instant that is never observable from outside.
     ///
-    /// So the event is **refused**: `project-skeleton`'s carry-forward rule is that a component
+    /// So a *start* is **refused**: `project-skeleton`'s carry-forward rule is that a component
     /// which cannot classify its own state must fail closed.
     ///
     /// **The other transition needs no flag, and deliberately does not have one.** `.ending` already
     /// describes the handoff exactly, every rule and every method already refuses to act in it, and
     /// a flag shadowing that would make the state's own guard unreachable — untestable code
     /// pretending to be defence in depth.
-    ///
-    /// **The residual, stated rather than hidden:** a *stop* arriving inside the opening is dropped
-    /// with it. If the user's key-up lands in those few milliseconds, the session opens with the key
-    /// already up and stays open until the watchdog's next physical-key poll — which is precisely
-    /// the case that poll exists for, and bounds the window to one interval.
     private var isOpeningTheMicrophone = false
+
+    /// A stop that arrived while the microphone was opening, held until there is a session to apply
+    /// it to.
+    ///
+    /// Refusing a *start* inside the opening is right. Refusing a **stop** is not, and the first
+    /// version of this file did both — with a comment claiming the cost was bounded by one poll
+    /// interval. It was not, and the number mattered because the watchdog is being designed against
+    /// it. Three shapes can land in those few milliseconds and only one of them is what that comment
+    /// described:
+    ///
+    /// | Dropped stop | What actually recovered it |
+    /// |---|---|
+    /// | the user's key-up | the next physical-key poll — one interval, as claimed |
+    /// | Escape, or a system trigger while the key is still held | *not* the poll: it reports the key **down**. The key-up, or the 120 s ceiling |
+    /// | `.tapDisabled` | *not* the poll, and no key event can ever arrive again. The tap being re-armed, or the **ceiling** — a two-minute hot mic |
+    ///
+    /// One optional closes the whole class, and it is not a queue: the reason is recorded by
+    /// ``stopIfRecording(_:)`` — which every stop path already funnels through — and applied through
+    /// that same funnel the instant `sessionState` becomes `.recording`. So the single-funnel
+    /// guarantee is untouched, and the session ends with the audio it captured during the opening
+    /// rather than running to the ceiling.
+    ///
+    /// **First one wins.** If a key-up and a tap death both land there, the key-up is the user's own
+    /// gesture and the more specific fact — the same precedence the stop rules already use, for the
+    /// same reason: the log is the only evidence anyone gets.
+    private var stopDeferredByTheOpening: EndReason?
 
     /// Where the session is: `idle` while nothing is captured, `recording` while the microphone is
     /// open, `ending` only from inside the handoff itself.
@@ -168,11 +190,28 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// key-up the focused application is waiting for is delivered even when the rules would eat it.
     public func observe(_ event: RawKeyEvent) -> SessionResponse<Audio> {
         guard !isOpeningTheMicrophone else {
-            // Re-entered from inside the microphone opening. Nothing may move, but the press is
-            // still Vocca's if it was already claimed — dropping to `.passThrough` here would type
-            // the very character the claim exists to swallow.
-            return SessionResponse(
-                effect: .unchanged, eventPropagation: propagation(.passThrough, for: event))
+            // Re-entered from inside the microphone opening. No session may *start* here — that is
+            // the second-microphone bug — but a stop must not be dropped, so the event is asked
+            // what it would mean to the session that is a few instructions from existing.
+            //
+            // `decide` never returns `.start` from `.recording`, so asking it that way cannot open
+            // anything; the only thing it can produce is the stop that would otherwise be lost.
+            let effect: SessionEffect<Audio>
+            switch decide(event, state: .recording, config: configuration).action {
+            case .stop(let reason):
+                effect = stopIfRecording(reason)
+            case .start, .ignore:
+                effect = .unchanged
+            }
+
+            // The press is still Vocca's if it was already claimed — dropping to `.passThrough`
+            // here would type the very character the claim exists to swallow. The bookkeeping runs
+            // on this path too: a key-up forced through here and not accounted for leaves
+            // `applicationHoldsTheHotkeyKey` set, and the app gets one duplicate unpaired key-up on
+            // the next release.
+            let eventPropagation = propagation(.passThrough, for: event)
+            account(for: event, propagatedAs: eventPropagation)
+            return SessionResponse(effect: effect, eventPropagation: eventPropagation)
         }
 
         releaseStaleClaim(before: event)
@@ -204,9 +243,13 @@ public final class SessionMachine<Audio: CapturedAudio> {
     ///
     /// Elapsed time is **accumulated from the deltas between readings**, and a negative delta
     /// contributes nothing. The obvious implementation — remember the start, fire when
-    /// `now >= start + ceiling` — extends the session by exactly the size of a backwards jump,
-    /// because the absolute deadline moves out of reach. This shape cannot: a clock that steps back
-    /// and then runs forward still ends the session after one ceiling's worth of forward time.
+    /// `now >= start + ceiling` — extends the session by the *full* size of a backwards jump,
+    /// because the absolute deadline moves out of reach.
+    ///
+    /// This shape loses only what the jump and the tick straddling it have in common:
+    /// `min(jump, that tick's interval)` of forward time, so the session runs long by **at most one
+    /// tick interval** — 150 ms at the watchdog's planned cadence. Not zero, and it is worth stating
+    /// as a bound rather than as an absolute.
     ///
     /// The machine has no timer of its own. If nobody ticks, the ceiling never fires — which is why
     /// the watchdog that calls this is a separate, tested unit of work rather than an implicit
@@ -279,7 +322,11 @@ public final class SessionMachine<Audio: CapturedAudio> {
         }
     }
 
-    /// The safety valve, applied *before* the event is decided.
+    /// The safety valve, applied before ``propagation(_:for:)`` reads the claim.
+    ///
+    /// *Not* "before `decide`", which is how this used to read: `decide` is pure in
+    /// `(event, state, config)` and cannot see the claim at all, so moving this call past it changes
+    /// nothing. What must not happen is a stale claim still standing when propagation is chosen.
     ///
     /// A key-down that macOS did not mark as an autorepeat cannot be part of a press that is still
     /// held: the key must have come back up while nobody was looking — a disabled tap, a lost focus,
@@ -330,6 +377,15 @@ public final class SessionMachine<Audio: CapturedAudio> {
         let opening = source.beginCapture()
         isOpeningTheMicrophone = false
 
+        // **Taken**, not read, and this is the only line that clears it — so the field is non-nil
+        // only ever *inside* an opening. A deferred stop that outlived its own would end somebody
+        // else's session while the user's finger is still on the key, and the `.unavailable` path
+        // below has no session for it to end at all. Clearing it here rather than also before
+        // `beginCapture()`: two clears made each individually removable with the suite green, which
+        // is the shape flagged against `elapsed` and fixed in the same round.
+        let deferred = stopDeferredByTheOpening
+        stopDeferredByTheOpening = nil
+
         switch opening {
         case .unavailable:
             // No session, and deliberately still claimed: the user pressed Vocca's hotkey, so the
@@ -337,9 +393,18 @@ public final class SessionMachine<Audio: CapturedAudio> {
             return .captureUnavailable
         case .opened:
             sessionState = .recording
+            // Reset here and **only** here. `endSession` used to clear it too, and neither copy
+            // could then be removed on its own without the suite staying green — two mutants that
+            // were equivalent only because the other line existed. One reset, in the transition
+            // that owns the meaning: a session's clock starts when its microphone opens.
             elapsed = .zero
             lastReading = clock.now
-            return .started
+            guard let deferred else { return .started }
+            // A stop arrived while the microphone was opening. Apply it now, through the same
+            // funnel every other stop uses, rather than leaving a session nobody asked for running
+            // until the ceiling. The buffer is whatever those few milliseconds captured — which
+            // `SessionAudioSource.endCapture()` already states is a legitimate answer.
+            return stopIfRecording(deferred)
         }
     }
 
@@ -351,6 +416,14 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// may produce an outcome: there is no session, so there is no audio, and an outcome without
     /// audio is the shape this aspect exists to make unrepresentable.
     private func stopIfRecording(_ reason: EndReason) -> SessionEffect<Audio> {
+        guard !isOpeningTheMicrophone else {
+            // There is no session yet, but there is about to be, and this is a stop for it. Hold the
+            // first one; ``beginSession(claiming:)`` applies it through this same funnel the moment
+            // the session exists. See ``stopDeferredByTheOpening``.
+            if stopDeferredByTheOpening == nil { stopDeferredByTheOpening = reason }
+            return .unchanged
+        }
+
         switch sessionState {
         case .recording:
             return .ended(endSession(reason: reason))
@@ -383,7 +456,6 @@ public final class SessionMachine<Audio: CapturedAudio> {
         sessionState = .ending
         let captured = source.endCapture()
         let outcome = SessionOutcome.make(reason: reason, audio: captured)
-        elapsed = .zero
         sessionState = .idle
         return outcome
     }

@@ -47,9 +47,10 @@
 ///
 /// **Monotonicity.** Readings must not go backwards. The machine does not *trust* that — it
 /// accumulates elapsed time from the deltas between readings and contributes nothing for a negative
-/// one, so a clock that steps backwards shortens nothing and, more importantly, extends nothing (see
-/// ``SessionMachine/tick()``). A conformance that reads a wall clock still fails the user in a way
-/// this module cannot see: it will jump forwards too, and a forward jump ends a session early.
+/// one, so a clock that steps backwards can extend a session by **at most one tick interval**
+/// rather than by the whole jump (see ``SessionMachine/tick()`` for the arithmetic). A conformance
+/// that reads a wall clock still fails the user in a way this module cannot see: it will jump
+/// forwards too, and a forward jump ends a session early.
 public protocol MonotonicClock {
     /// Time since an arbitrary, process-local origin. Never a wall-clock reading.
     var now: Duration { get }

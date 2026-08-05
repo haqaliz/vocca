@@ -90,12 +90,18 @@ private final class RecordingSource: SessionAudioSource {
 
     func beginCapture() -> CaptureStart {
         if isOpen { overlappingBegins += 1 }
-        guard nextStart == .opened else { return .unavailable }
-        beginCount += 1
-        isOpen = true
+
+        // Fired before the outcome is decided, and on **both** paths. An engine that fails to start
+        // still spent the time trying, and events still arrive underneath it — a hook that only ran
+        // on success made the leak test below vacuous, and a mutation that let a deferred stop
+        // outlive its opening survived because of it.
         let hook = duringBeginCapture
         duringBeginCapture = nil
         hook?()
+
+        guard nextStart == .opened else { return .unavailable }
+        beginCount += 1
+        isOpen = true
         return .opened
     }
 
@@ -205,6 +211,18 @@ private final class Harness {
     /// typed into the field the transcript is about to be injected into.
     var strayCharacters: Int {
         appSaw.filter { $0.kind == .keyDown && $0.keyCode == configuration.keyCode }.count
+    }
+
+    /// Key-downs **and key-ups** the application received for `keyCode`.
+    ///
+    /// Separate from ``strayCharacters`` because that one counts presses, and a key-up let through
+    /// is invisible to it — which is how a whole branch of the claim went unpinned. A key-up types
+    /// nothing, so it is not a stray character; it is still an event for a gesture the app never
+    /// saw begin.
+    func keyEventsTheAppSaw(for keyCode: UInt16) -> Int {
+        appSaw.filter {
+            $0.keyCode == keyCode && ($0.kind == .keyDown || $0.kind == .keyUp)
+        }.count
     }
 
     /// The microphone is open exactly when the machine says a session is recording.
@@ -686,11 +704,25 @@ final class SessionMachineTests: XCTestCase {
             "\(harness.strayCharacters) characters reached the focused application.")
 
         // And the key-up that finally arrives is Vocca's to eat too: the app never saw the press.
-        XCTAssertEqual(harness.releaseHotkey(), .unchanged)
+        //
+        // Asserted on the **propagation**, not on the effect and not on `strayCharacters`. Both of
+        // those are blind here and were: `strayCharacters` counts key-*downs*, and
+        // `keysTheAppBelievesAreDown` removes from an already-empty set, so a key-up let through
+        // changes neither. The claim's key-*up* branch only bites in `.idle` — which is exactly the
+        // state a modifier-first stop leaves behind — so this line is the only thing standing
+        // between it and a later refactor deleting it with CI green.
+        let finalUp = harness.feed(event(.keyUp, space, []))
+        XCTAssertEqual(finalUp.effect, .unchanged)
+        XCTAssertEqual(
+            finalUp.eventPropagation, .swallow,
+            "The key-up of a press Vocca swallowed reached the app unpaired.")
         XCTAssertEqual(harness.strayCharacters, 0)
-        XCTAssertTrue(
-            harness.keysTheAppBelievesAreDown.isEmpty,
-            "The application was left holding \(harness.keysTheAppBelievesAreDown).")
+        XCTAssertEqual(
+            harness.keyEventsTheAppSaw(for: space), 0,
+            """
+            The focused application received an event for a press it never saw begin. Vocca \
+            swallowed the key-down; it owes the whole gesture — the repeats and the key-up.
+            """)
     }
 
     /// The other half: the application must never be left holding a key down.
@@ -808,6 +840,48 @@ final class SessionMachineTests: XCTestCase {
         XCTAssertEqual(harness.strayCharacters, 0)
     }
 
+    /// The bookkeeping runs on the re-entrant path too, or the app gets a key-up twice.
+    ///
+    /// The early return taken inside the microphone opening used to skip
+    /// `account(for:propagatedAs:)`, so a key-up **forced through** on that path — because the app
+    /// was waiting for it — never cleared the flag that forced it. The next release then delivered a
+    /// second key-up for a key the application no longer believed was down. Exactly one duplicate,
+    /// and inert, but an unexplained asymmetry in the one piece of bookkeeping the pass-through fix
+    /// rests on.
+    func testTheBookkeepingRunsOnTheReentrantPathToo() throws {
+        let harness = Harness()
+
+        // The app is holding Space: it was pressed without the chord, so Vocca had no interest.
+        harness.feed(event(.keyDown, space, []))
+        harness.feed(event(.flagsChanged, space, [.option]))
+        XCTAssertEqual(harness.keysTheAppBelievesAreDown, [space])
+
+        // A press Vocca does claim — and the key-up lands inside the opening, where it is forced
+        // through (the app is waiting for it) and ends the session as soon as there is one.
+        // Delivered through `feed`, not straight to the machine: the application model only sees
+        // what the harness forwarded, and this test is about what the application receives.
+        harness.source.duringBeginCapture = { [weak harness] in
+            _ = harness?.feed(event(.keyUp, space, [.option]))
+        }
+        _ = try endedOutcome(harness.feed(event(.keyDown, space, [.option])).effect)
+        XCTAssertTrue(
+            harness.keysTheAppBelievesAreDown.isEmpty, "The forced key-up did not reach the app.")
+
+        let eventsSoFar = harness.keyEventsTheAppSaw(for: space)
+
+        // A second, ordinary press. Vocca swallowed its key-down, so it owes the key-up nothing:
+        // the app must hear neither.
+        XCTAssertEqual(harness.pressHotkey(), .started)
+        _ = try endedOutcome(harness.releaseHotkey())
+
+        XCTAssertEqual(
+            harness.keyEventsTheAppSaw(for: space), eventsSoFar,
+            """
+            The focused application received a duplicate key-up for a key it does not believe is \
+            down. The re-entrant path forced a key-up through and never recorded that it had.
+            """)
+    }
+
     // MARK: - Re-entrancy
 
     /// An event arriving from *inside* the microphone opening must not open a second one.
@@ -835,33 +909,117 @@ final class SessionMachineTests: XCTestCase {
         XCTAssertEqual(harness.machine.state, .recording)
     }
 
-    /// The cost of refusing an event inside the opening, pinned rather than left to be discovered.
+    /// A stop that lands inside the microphone opening is applied the moment the session exists —
+    /// not left to the watchdog, and not left to the ceiling.
     ///
-    /// A *stop* can arrive there too — the user's key-up landing in the milliseconds an engine takes
-    /// to start — and refusing it means the session opens with the key already up. That is a hot mic
-    /// the user did not ask for, and it is bounded by exactly one thing: the physical-key poll, which
-    /// exists for missed key-ups and closes this one within one interval. The trade is deliberate;
-    /// the alternative is a replay queue inside a module that has no queues, to cover an event the
-    /// watchdog already covers.
-    func testAStopArrivingInsideTheOpeningIsRefusedAndThePollRecoversIt() throws {
-        let harness = Harness()
-        harness.source.duringBeginCapture = { [machine = harness.machine] in
+    /// Refusing a *start* there is right; refusing a *stop* was not. The three shapes below have
+    /// three different recoveries if the stop is dropped, and only the first is the poll:
+    ///
+    /// - **the key-up** — the poll reports the key up, one interval later;
+    /// - **Escape** — the poll reports the key still **down**, so it recovers nothing; the key-up or
+    ///   the ceiling does;
+    /// - **`.tapDisabled`** — no key event can ever arrive again and the key is still held, so
+    ///   nothing short of the tap being re-armed or the **120 s ceiling** closes it. A two-minute
+    ///   hot mic in a tool whose whole promise is that the microphone is not open when the widget
+    ///   says nothing is happening.
+    ///
+    /// Each is now ended immediately, carrying its own reason and the few milliseconds it captured.
+    func testAStopArrivingInsideTheOpeningIsAppliedTheMomentTheSessionExists() throws {
+        // The stop, the reason it must be reported under, and how it is delivered mid-opening.
+        let shapes: [(String, RetainedEndReason?, (SessionMachine<RecordingSource.Buffer>) -> Void)] =
+            [
+                ("the user's key-up", .keyUp, { _ = $0.observe(event(.keyUp, space, [.option])) }),
+                ("a dead tap", .tapDisabled, { _ = $0.observe(event(.tapDisabled, 0, [])) }),
+                ("a system trigger", .systemEvent(.willSleep), { _ = $0.observe(.willSleep) }),
+                ("Escape", nil, { _ = $0.cancel() }),
+            ]
+
+        for (label, expected, deliver) in shapes {
+            let harness = Harness()
+            harness.source.duringBeginCapture = { [machine = harness.machine] in deliver(machine) }
+
+            // Not `endedOutcome`, which throws: this loop must report **every** shape that broke,
+            // not stop at the first. The three recoveries differ, so which shapes fail is the
+            // finding — a run that aborts on the key-up says nothing about the dead tap.
+            let effect = harness.pressHotkey()
+            guard case .ended(let outcome) = effect else {
+                XCTFail(
+                    """
+                    \(label) inside the opening was dropped: got \(effect). The session is now \
+                    running with nothing holding it there, and what recovers it is not the poll.
+                    """)
+                continue
+            }
+
+            XCTAssertFalse(
+                harness.source.isOpen,
+                "\(label) inside the opening left the microphone running to the ceiling.")
+            XCTAssertEqual(harness.machine.state, .idle, label)
+            XCTAssertEqual(harness.source.beginCount, 1, label)
+            XCTAssertEqual(harness.source.endCount, 1, label)
+
+            switch (expected, outcome.content) {
+            case (let expected?, .completed(let reason, let audio, _)):
+                XCTAssertEqual(reason, expected, "\(label) was reported as \(reason).")
+                XCTAssertEqual(
+                    audio, try XCTUnwrap(harness.source.handedOut.last),
+                    "\(label) lost what those milliseconds captured.")
+            case (nil, .cancelled):
+                break
+            case (_?, .cancelled):
+                XCTFail("\(label) discarded audio the user never asked to abandon.")
+            case (nil, .completed):
+                XCTFail("Escape handed on audio the user asked to throw away.")
+            }
+        }
+
+        // Two stops in one opening: the **first** is the one reported. The key-up is the user's own
+        // gesture and the more specific fact, and the log is the only evidence anyone gets of a
+        // session that ended surprisingly — the same precedence the stop rules already apply.
+        let both = Harness()
+        both.source.duringBeginCapture = { [machine = both.machine] in
+            _ = machine.observe(event(.keyUp, space, [.option]))
+            _ = machine.observe(event(.tapDisabled, 0, []))
+        }
+        switch try endedOutcome(both.pressHotkey()).content {
+        case .completed(let reason, _, _):
             XCTAssertEqual(
-                machine.observe(event(.keyUp, space, [.option])).effect, .unchanged,
-                "The key-up was honoured mid-opening, against a session that does not exist yet.")
+                reason, .keyUp,
+                "The second stop to arrive in the opening overwrote the first, which is the cause.")
+        case .cancelled:
+            XCTFail("A key-up discarded its audio.")
+        }
+    }
+
+    /// The stop belongs to the session it was aimed at, and to no other.
+    ///
+    /// A deferred reason that outlived its opening would end the *next* session — one the user is
+    /// still holding the key for — which is the same hot-mic bug wearing the opposite sign. Two
+    /// cases: a microphone that refuses to open (there is no session for the deferred stop to end),
+    /// and the ordinary press that follows.
+    func testADeferredStopNeverLeaksIntoTheNextSession() throws {
+        let harness = Harness()
+        harness.source.nextStart = .unavailable
+        harness.source.duringBeginCapture = { [machine = harness.machine] in
+            _ = machine.observe(event(.keyUp, space, [.option]))
         }
 
-        XCTAssertEqual(harness.pressHotkey(), .started)
-        XCTAssertTrue(
-            harness.source.isOpen,
-            "Documented behaviour: the session opens even though the key is already up.")
+        // The stop is deferred inside an opening that then fails. There is no session for it to end,
+        // so it must be discarded rather than kept.
+        XCTAssertEqual(harness.pressHotkey(), .captureUnavailable)
+        XCTAssertEqual(harness.source.endCount, 0, "Nothing opened, so nothing may be closed.")
 
-        let outcome = try endedOutcome(harness.machine.observePhysicalKey(isDown: false))
-        switch outcome.content {
-        case .completed(let reason, _, _): XCTAssertEqual(reason, .pollDetectedRelease)
-        case .cancelled: XCTFail("The watchdog discarded what was captured.")
-        }
-        XCTAssertFalse(harness.source.isOpen, "The watchdog did not close the window it exists for.")
+        harness.source.nextStart = .opened
+        XCTAssertEqual(
+            harness.pressHotkey(), .started,
+            """
+            A stop deferred by an earlier opening ended a session the user had just begun — the \
+            same hot-mic bug with the opposite sign, and the user's finger is still on the key.
+            """)
+        XCTAssertTrue(harness.source.isOpen)
+
+        _ = try endedOutcome(harness.releaseHotkey())
+        XCTAssertEqual(harness.source.endCount, 1)
     }
 
     /// The same for the handoff. `.ending` exists for this moment: the previous session's audio is
