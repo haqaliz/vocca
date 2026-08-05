@@ -213,12 +213,18 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
     ///
     /// Be precise about what this buys, because it is easy to overclaim: it does **not** force the
     /// owner to re-read ``schedule``, and nothing in a module with no run loop could. What it buys
-    /// is that the owner never needs to hold the machine at all — every input a session has arrives
-    /// through this one object, so there is no second door for one to come in by unseen.
+    /// is that every input a session has arrives through this one object, so there is no second
+    /// door for one to come in by unseen. Reading is separate — see ``cancel()``.
     ///
-    /// The event's disposition is the machine's, returned unchanged. A wrapper that decided
-    /// propagation for itself would be a second opinion about whether the focused application sees
-    /// a keystroke, and one of the two would eventually be wrong.
+    /// **The event's disposition is the machine's, returned unchanged, and the stake in that is the
+    /// whole keyboard.** The tap delivers *every* key event here, not only the hotkey's, because
+    /// stop rule (c) is "any event whose flags no longer carry the configured modifier"
+    /// (`spec.md:47`) and the rules cannot apply it to events they never see. So this method sees
+    /// nearly every keystroke the user makes all day, and `decide` passes nearly all of them
+    /// straight back. A wrapper that decided propagation for itself would not mishandle an edge
+    /// case; a hard-coded `.swallow` here eats the user's entire keyboard, in every application, for
+    /// as long as Vocca runs. `SessionWatchdogTests` pins **both** directions across this seam —
+    /// the first round pinned only the swallow, and the mutation survived.
     public func observe(_ event: RawKeyEvent) -> SessionResponse<Audio> {
         machine.observe(event)
     }
@@ -309,8 +315,12 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
     /// With this, the four inputs a session owner has — a key event, a system trigger, a
     /// cancellation, a timer wake — are all here, and the machine's remaining public inputs
     /// (`tick()`, `observePhysicalKey(isDown:)`) are the mechanism ``wake()`` drives on the owner's
-    /// behalf. An owner never has a reason to call those, and now never has a reason to hold the
-    /// machine.
+    /// behalf. An owner never has a reason to call those.
+    ///
+    /// **That is a claim about inputs and nothing else.** Reading is a different matter and the
+    /// widget is the reason: it renders from ``SessionMachine/state`` and ``SessionMachine/elapsed``,
+    /// so something will hold the machine to read it. What the wrapping buys is that nothing *drives*
+    /// a session by a route the schedule is not read after — not that the machine is unreachable.
     ///
     /// Cancelling still closes the microphone: discarding a transcript and holding the microphone
     /// are different things, and only the first was ever asked for.

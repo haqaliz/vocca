@@ -22,6 +22,9 @@ private let space: UInt16 = 49
 /// F13, bound bare. A second binding, so that "the poll asks about the key this machine watches"
 /// is a claim with two data points rather than one that a hard-coded 49 would also satisfy.
 private let functionKey: UInt16 = 105
+/// `A`. A key Vocca has no interest in — which is nearly every key the user presses, and the
+/// direction of propagation that a wrapper hard-coding `.swallow` would destroy.
+private let letterA: UInt16 = 0
 
 private let chord = HotkeyConfiguration(
     keyCode: space, modifiers: [.option], activation: .holdToTalk)
@@ -176,6 +179,14 @@ private final class WatchdogHarness {
     func pressHotkeyObservingPropagation() -> SessionResponse<RecordingSource.Buffer> {
         keyboard.press(configuration.keyCode)
         return watchdog.observe(event(.keyDown, configuration.keyCode, configuration.modifiers))
+    }
+
+    /// Any event at all, through the watchdog — which is where `hotkey-source`'s tap delivers
+    /// **every** key event, not only the hotkey's: stop rule (c) is "any event whose flags no longer
+    /// carry the configured modifier", so the machine has to see the whole keyboard.
+    @discardableResult
+    func feed(_ event: RawKeyEvent) -> SessionResponse<RecordingSource.Buffer> {
+        watchdog.observe(event)
     }
 
     /// The user lets go **and the key-up is delivered**. The ordinary ending.
@@ -818,6 +829,89 @@ final class SessionWatchdogTests: XCTestCase {
         // 4. And a cancelled machine is not wedged: the next press arms it again.
         XCTAssertEqual(cancelled.pressHotkey(), .started)
         XCTAssertEqual(cancelled.watchdog.schedule, .wake(every: WatchdogPolicy.pollInterval))
+    }
+
+    /// **An event the machine passes through still reaches the application — through the wrapper.**
+    ///
+    /// The other direction, and the one with the blast radius. `hotkey-source`'s tap delivers
+    /// *every* key event to this object, because stop rule (c) is "any event whose flags no longer
+    /// carry the configured modifier" (`spec.md:47`) and the machine cannot apply that to events it
+    /// never sees. So a wrapper that hard-coded `.swallow` would not mishandle an edge case: it
+    /// would eat the user's entire keyboard, in every application, for as long as Vocca is running.
+    ///
+    /// The round-1 test pinned propagation in one direction only — the harmless one, where a key
+    /// that is supposed to be swallowed is. Every other `.passThrough` assertion in the repository
+    /// goes through `machine.observe` directly, where this wrapper is not in the path, so the whole
+    /// class was unpinned across the seam it was added to.
+    func testAnEventTheMachinePassesThroughStillReachesTheApplication() throws {
+        let harness = WatchdogHarness()
+
+        // 1. An ordinary keystroke with no session running. The overwhelmingly common case: Vocca
+        //    is a background app and this is every key the user types all day.
+        let idle = harness.feed(event(.keyDown, letterA, []))
+        XCTAssertEqual(idle.effect, .unchanged)
+        XCTAssertEqual(
+            idle.eventPropagation, .passThrough,
+            "Vocca swallowed an unrelated keystroke while idle — every key the user types, gone.")
+        XCTAssertEqual(harness.feed(event(.keyUp, letterA, [])).eventPropagation, .passThrough)
+
+        // 2. And while a session is recording, with the chord still held: the user is dictating,
+        //    not typing, but the keyboard is still theirs.
+        XCTAssertEqual(harness.pressHotkey(), .started)
+        let recording = harness.feed(event(.keyDown, letterA, [.option]))
+        XCTAssertEqual(
+            recording.eventPropagation, .passThrough,
+            "Vocca swallowed an unrelated keystroke during a session.")
+        XCTAssertEqual(
+            harness.machine.state, .recording,
+            "An unrelated keystroke that still carries the chord must not end the session.")
+
+        // 3. The event that *does* end it — stop rule (b)/(c), the modifier coming up — is a
+        //    modifier event, and those are never claimed in either direction: swallowing one would
+        //    strand the focused application's idea of which modifiers are down.
+        let dropped = harness.feed(event(.flagsChanged, harness.configuration.keyCode, []))
+        XCTAssertEqual(
+            dropped.eventPropagation, .passThrough,
+            "Vocca swallowed a modifier event, stranding the app's idea of what is held.")
+        let outcome = try endedOutcome(dropped.effect, "the configured modifier came up")
+        XCTAssertEqual(
+            try reasonCarryingTheAudio(outcome, from: harness.source), .modifierReleased)
+        XCTAssertFalse(harness.source.isOpen)
+    }
+
+    /// A key event delivered **from inside the handoff** gets the machine's own answer, not the
+    /// wrapper's.
+    ///
+    /// `.ending` is the one state in which a wrapper could plausibly justify a guard of its own —
+    /// and it must not have one, because the machine already answers correctly there and a second
+    /// opinion about propagation is the F-A1 defect in a narrower window. Two events go through in
+    /// the same handoff, and they must come back with *different* answers, so no fabricated constant
+    /// can satisfy both.
+    func testAKeyEventDeliveredFromInsideTheHandoffGetsTheMachinesOwnAnswer() throws {
+        let harness = WatchdogHarness()
+        XCTAssertEqual(harness.pressHotkey(), .started)
+
+        var unrelated: SessionResponse<RecordingSource.Buffer>?
+        var claimed: SessionResponse<RecordingSource.Buffer>?
+        harness.source.duringEndCapture = { [watchdog = harness.watchdog] in
+            unrelated = watchdog.observe(event(.keyDown, letterA, []))
+            claimed = watchdog.observe(event(.keyDown, space, [.option]))
+        }
+
+        _ = try endedOutcome(harness.releaseHotkey())
+
+        XCTAssertEqual(
+            try XCTUnwrap(unrelated).eventPropagation, .passThrough,
+            "An unrelated keystroke was eaten because it arrived during the handoff.")
+        XCTAssertEqual(try XCTUnwrap(unrelated).effect, .unchanged)
+        XCTAssertEqual(
+            try XCTUnwrap(claimed).eventPropagation, .swallow,
+            "The hotkey Vocca swallowed the press of came back through as the app's to type.")
+        XCTAssertEqual(
+            try XCTUnwrap(claimed).effect, .unchanged,
+            "A key event arriving inside the handoff started or ended something.")
+        XCTAssertEqual(harness.source.endCount, 1, "The microphone was closed twice.")
+        XCTAssertEqual(harness.source.closesWithoutOpen, 0)
     }
 
     // MARK: - The machine's strangest legal behaviour

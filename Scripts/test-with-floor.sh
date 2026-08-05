@@ -47,7 +47,16 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 119 by task 5's first review round, which added two in SessionWatchdogTests. A clock that never
+# 121 by task 5's second review round, which added two in SessionWatchdogTests — both about the
+# direction of propagation the first round left unpinned. The tap delivers *every* key event to the
+# watchdog, because stop rule (c) applies to any event whose flags drop the modifier, so a wrapper
+# that hard-coded `.swallow` would eat the user's entire keyboard in every application. Round 1
+# asserted propagation only for keys that are supposed to be swallowed; that mutation survived
+# 119/119. Now an event the machine passes through is asserted to reach the application across that
+# seam, in three states, and a key event delivered from inside the handoff gets the machine's own
+# answer rather than a fabricated constant.
+#
+# It was 119 after task 5's first review round, which added two in SessionWatchdogTests. A clock that never
 # advances disables the ceiling outright while every other mechanism keeps working — `elapsed`
 # accumulates deltas, so stalled readings do not delay the ceiling, they remove it — and the test
 # measures the half that bounds the damage too: the poll reads no clock, so it still ends the
@@ -98,7 +107,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=119
+MINIMUM_EXECUTED_TESTS=121
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
