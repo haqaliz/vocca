@@ -48,70 +48,12 @@ private func event(
 
 private typealias Effect = SessionEffect<RecordingSource.Buffer>
 
-/// The physical keyboard, as a **fact**.
-///
-/// The distinction this whole file turns on: what the hardware is doing is one thing, what Vocca has
-/// been *told* is another, and the gap between them is the defect. The hot-mic meter reads this; the
-/// watchdog only ever reads it through the injected seam. That is what lets a test hand the watchdog
-/// a seam that lies and still measure the truth.
-private final class Keyboard {
-    private(set) var held: Set<UInt16> = []
-
-    func press(_ keyCode: UInt16) { held.insert(keyCode) }
-    func release(_ keyCode: UInt16) { held.remove(keyCode) }
-    func isHeld(_ keyCode: UInt16) -> Bool { held.contains(keyCode) }
-}
-
-/// A reader that counts, so that "the poll ran and ended nothing" is distinguishable from "the poll
-/// stopped running" — which are the same green suite otherwise.
-private protocol CountingKeyStateReader: PhysicalKeyStateReader {
-    var reads: Int { get }
-    var keysAsked: Set<UInt16> { get }
-}
-
-/// The seam, reading the keyboard truthfully. What `hotkey-source` will implement over
-/// `CGEventSourceKeyState`.
-private final class TruthfulKeyState: CountingKeyStateReader {
-    private let keyboard: Keyboard
-    private(set) var reads = 0
-    private(set) var keysAsked: Set<UInt16> = []
-
-    init(_ keyboard: Keyboard) { self.keyboard = keyboard }
-
-    func isKeyDown(_ keyCode: UInt16) -> Bool {
-        reads += 1
-        keysAsked.insert(keyCode)
-        return keyboard.isHeld(keyCode)
-    }
-}
-
-/// A seam that never reports a release — **the world before this task**, and the positive control.
-///
-/// Not a straw man: it is exactly what a poll that is never run, run against the wrong key code, or
-/// answered from a stale event log looks like from the machine's side. Everything else about a
-/// harness built on it is identical, so a measurement that cannot tell the two apart is measuring
-/// nothing.
-private final class KeyAlwaysReportedDown: CountingKeyStateReader {
-    private(set) var reads = 0
-    private(set) var keysAsked: Set<UInt16> = []
-
-    func isKeyDown(_ keyCode: UInt16) -> Bool {
-        reads += 1
-        keysAsked.insert(keyCode)
-        return true
-    }
-}
-
-/// Milliseconds, for arithmetic `Duration` will not do directly.
-private func milliseconds(_ duration: Duration) -> Int64 {
-    let components = duration.components
-    return components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
-}
-
-/// How many wakes it takes to cover `duration` at the watchdog's cadence, rounded down.
-private func wakes(covering duration: Duration) -> Int {
-    Int(milliseconds(duration) / milliseconds(WatchdogPolicy.pollInterval))
-}
+// `Keyboard`, `CountingKeyStateReader`, `TruthfulKeyState`, `KeyAlwaysReportedDown`,
+// `milliseconds(_:)` and `wakes(covering:)` moved to `SessionTestDoubles.swift` when
+// `HotkeyEventSourceTests` needed the same physical keyboard behind the same seam. They are the
+// `PhysicalKeyStateReader` half of the pair that file already shares, and a second copy that
+// drifted from this one would let a seam test poll a keyboard that behaves differently from the
+// one the watchdog's own tests use.
 
 /// The machine, its microphone ledger, the physical keyboard, and the watchdog driving all three.
 ///

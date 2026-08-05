@@ -109,6 +109,40 @@ final class HotkeySeamBoundaryTests: XCTestCase {
         try PackageRootLocator.find(from: #filePath).appendingPathComponent("Sources")
     }
 
+    /// Every sighting under `root`, honouring `permitted`.
+    ///
+    /// Factored out of the real-tree test so that the **same code** can be run against a planted
+    /// tree. A lint whose positive control exercises a re-implementation of itself proves only that
+    /// the re-implementation works; this way the control walks the directory exactly as the real
+    /// check does, which is where the subdirectory question lives.
+    /// Symlinks are resolved on **both** sides before the prefix is removed, and that is not
+    /// defensive padding: a root reached through a symlink — every macOS temporary directory is one,
+    /// and a repository checked out under one behaves the same — yields absolute paths that do not
+    /// begin with the root's own, so the subtraction produces a mangled relative path. The permitted
+    /// list is keyed on that path, so the failure is a lint that names files nobody can find and
+    /// silently stops matching its own allow-list.
+    private static func sightings(
+        under root: URL, permitting permitted: Set<String>
+    ) throws -> [EventTypeSighting] {
+        let rootPath = root.resolvingSymlinksInPath().path
+        let files = SwiftSourceScanner.swiftFiles(under: root)
+        guard !files.isEmpty else {
+            throw HotkeySeamTestError.noSwiftFilesScanned(under: root.path)
+        }
+
+        var sightings: [EventTypeSighting] = []
+        for file in files {
+            let relativePath = file.resolvingSymlinksInPath().path
+                .replacingOccurrences(of: rootPath + "/", with: "")
+            guard !permitted.contains(relativePath) else { continue }
+            let source = try String(contentsOf: file, encoding: .utf8)
+            for identifier in eventTypeIdentifiers(inSource: source) {
+                sightings.append(EventTypeSighting(file: relativePath, identifier: identifier))
+            }
+        }
+        return sightings
+    }
+
     // MARK: - H7 against the real tree
 
     func testNoCoreGraphicsEventTypeEscapesIntoTheSourceTree() throws {
@@ -118,20 +152,8 @@ final class HotkeySeamBoundaryTests: XCTestCase {
             throw HotkeySeamTestError.moduleDirectoryMissing(expectedAt: adapterDirectory.path)
         }
 
-        let files = SwiftSourceScanner.swiftFiles(under: root)
-        guard !files.isEmpty else {
-            throw HotkeySeamTestError.noSwiftFilesScanned(under: root.path)
-        }
-
-        var sightings: [EventTypeSighting] = []
-        for file in files {
-            let relativePath = file.path.replacingOccurrences(of: root.path + "/", with: "")
-            guard !Self.filesPermittedToNameEventTypes.contains(relativePath) else { continue }
-            let source = try String(contentsOf: file, encoding: .utf8)
-            for identifier in Self.eventTypeIdentifiers(inSource: source) {
-                sightings.append(EventTypeSighting(file: relativePath, identifier: identifier))
-            }
-        }
+        let sightings = try Self.sightings(
+            under: root, permitting: Self.filesPermittedToNameEventTypes)
 
         XCTAssertEqual(
             sightings, [],
@@ -273,6 +295,264 @@ final class HotkeySeamBoundaryTests: XCTestCase {
             Self.typealiasNames(inSource: "// typealias TapHandle = CFMachPort"),
             [],
             "A commented-out alias is not a declaration.")
+    }
+
+    /// **A nested alias, and the extension in another file that uses it.**
+    ///
+    /// The composite a reviewer constructs next: the alias is not at file scope, so a rule that
+    /// looked for a top-level declaration would miss it, and the use site is an `extension` in a
+    /// different file — which is where the type would have been named if it had been named at all.
+    ///
+    /// Three assertions, and the middle one is why the first is not optional: with the declaration
+    /// undetected, both use sites scan clean and H7 is reopened across the whole tree with this
+    /// suite green.
+    func testTheTypealiasRuleSeesANestedDeclarationAndTheExtensionThatUsesIt() {
+        XCTAssertEqual(
+            Self.typealiasNames(
+                inSource: """
+                    public enum Seam {
+                        public typealias Handle = CFMachPort
+                    }
+                    """),
+            ["Handle"],
+            "An alias nested inside a type launders just as completely as one at file scope.")
+
+        XCTAssertEqual(
+            Self.eventTypeIdentifiers(inSource: "extension Seam.Handle { func arm() {} }"),
+            [],
+            """
+            The extension on the nested alias is invisible to the identifier scan — which is the \
+            whole reason the alias has to be caught at its declaration instead.
+            """)
+
+        XCTAssertEqual(
+            Self.eventTypeIdentifiers(inSource: "extension CFMachPort { func arm() {} }"),
+            ["CFMachPort"],
+            "...while an extension that names the type outright is still caught, in any file.")
+    }
+
+    /// The positive controls for the two rules added with the seam, both otherwise vacuous: the
+    /// permitted list is empty and nothing in `Sources/` re-exports anything.
+    func testTheReExportAndExtensionRulesDetectTheirOwnLaunderingRoutes() {
+        XCTAssertEqual(
+            Self.reExportedModules(inSource: "@_exported import CoreGraphics"),
+            ["CoreGraphics"],
+            "A re-exported framework is the hole the identifier scan structurally cannot see.")
+
+        XCTAssertEqual(
+            Self.eventTypeIdentifiers(inSource: "@_exported import CoreGraphics"),
+            [],
+            """
+            ...and this is why it needs its own rule: the module is not called CGEvent, so the \
+            identifier scan finds nothing to object to in the line that opens the hole.
+            """)
+
+        XCTAssertEqual(
+            Self.reExportedModules(inSource: "import CoreGraphics"),
+            [],
+            "An ordinary import re-exports nothing and must not be reported as if it did.")
+
+        XCTAssertEqual(
+            Self.extendedTypeNames(inSource: "extension CFMachPort: TapHandle {}"),
+            ["CFMachPort"],
+            "A conformance declared on a CoreGraphics type is the typealias hole wearing a protocol.")
+
+        XCTAssertEqual(
+            Self.eventTypeIdentifiers(inSource: "func arm(_ handle: any TapHandle) {}"),
+            [],
+            "And the use site of that protocol is invisible, exactly as the aliased one is.")
+
+        XCTAssertEqual(
+            Self.extendedTypeNames(inSource: "extension SessionMachine {}"),
+            ["SessionMachine"],
+            """
+            The extension scan must see ordinary extensions too, or the filter below would be \
+            applied to an empty list and the rule would pass for any file.
+            """)
+
+        // And the two **predicates**, not only the scans they are built on. Both real-tree checks
+        // iterate an empty permitted list or a clean tree, so a predicate that answered "never a
+        // violation" left them passing — measured, as two surviving mutants, before these ran.
+        XCTAssertEqual(
+            Self.coreGraphicsTypesExtended(inSource: "extension CFMachPort: TapHandle {}"),
+            ["CFMachPort"],
+            "The extension rule's predicate reported no violation for an outright violation.")
+        XCTAssertEqual(
+            Self.coreGraphicsTypesExtended(inSource: "extension SessionMachine {}"),
+            [],
+            "...and it must not report one for an ordinary extension, or every file is an offender.")
+        XCTAssertEqual(
+            Self.seamCarryingReExports(inSource: "@_exported import CoreGraphics"),
+            ["CoreGraphics"],
+            "The re-export rule's predicate reported no violation for an outright violation.")
+        XCTAssertEqual(
+            Self.seamCarryingReExports(inSource: "@_exported import VoccaCore"),
+            [],
+            "...and a re-export of a Vocca module carries no CoreGraphics type with it.")
+    }
+
+    // MARK: - The four other ways out of a text lint
+
+    /// A **re-exported** import makes the imported module's whole API visible to everything that
+    /// imports the re-exporting module — with no import line in any of those files for a lint to
+    /// see.
+    ///
+    /// `SwiftSourceScanner` already surfaces this (``SwiftSourceScanner/ImportStatement/isReExported``)
+    /// because `CoreBoundaryTests` needed it; H7 needs it for a different reason. The identifier scan
+    /// is blind to it in the direction that matters here: `@_exported import CoreGraphics` contains no
+    /// forbidden identifier at all, because the *module* is not called `CGEvent`.
+    private static func reExportedModules(inSource source: String) -> [String] {
+        SwiftSourceScanner.importStatements(inSource: source).filter(\.isReExported).map(\.module)
+    }
+
+    /// The frameworks that carry the seam. Re-exporting any of them puts `CGEventFlags` and its
+    /// family in scope wherever the re-exporting module is imported.
+    private static let seamCarryingFrameworks: Set<String> = [
+        "CoreGraphics", "CoreFoundation", "ApplicationServices", "Carbon", "IOKit",
+    ]
+
+    /// The violations themselves, not the raw names.
+    ///
+    /// Named rather than inlined into the loop below because of a **measured** hole: the real-tree
+    /// checks iterate a list that is empty or a tree that is clean, so a predicate that answered
+    /// "never a violation" would leave both of them passing. Mutating the filter to a constant
+    /// `false` survived the whole suite until this and ``coreGraphicsTypesExtended(inSource:)`` were
+    /// pulled out to where a positive control can run them against source that violates the rule.
+    private static func seamCarryingReExports(inSource source: String) -> [String] {
+        reExportedModules(inSource: source).filter { seamCarryingFrameworks.contains($0) }
+    }
+
+    func testNoFileInSourcesReExportsAFrameworkThatCarriesTheSeam() throws {
+        let root = try sourcesRoot()
+        let files = SwiftSourceScanner.swiftFiles(under: root)
+        guard !files.isEmpty else {
+            throw HotkeySeamTestError.noSwiftFilesScanned(under: root.path)
+        }
+
+        var offenders: [String] = []
+        for file in files {
+            let relativePath = file.path.replacingOccurrences(of: root.path + "/", with: "")
+            for module in Self.seamCarryingReExports(
+                inSource: try String(contentsOf: file, encoding: .utf8))
+            {
+                offenders.append("\(relativePath): @_exported import \(module)")
+            }
+        }
+
+        XCTAssertEqual(
+            offenders, [],
+            """
+            A file re-exports a framework that carries the seam: \
+            \(offenders.joined(separator: "; ")). Every module that imports this one now has the \
+            CoreGraphics event types in scope without an import line of its own, which is a hole in \
+            H7 that the identifier scan cannot see — `@_exported import CoreGraphics` contains no \
+            forbidden identifier.
+            """)
+    }
+
+    /// The permitted file is held to the stricter form: it may re-export **nothing at all**.
+    ///
+    /// It is the one file that legitimately speaks CoreGraphics, so it is the one file where a
+    /// re-export would look natural and would be maximally damaging. Vacuous today, and paired with
+    /// a positive control for exactly that reason.
+    func testAPermittedFileMayNotReExportAnythingAtAll() throws {
+        let root = try sourcesRoot()
+        for relativePath in Self.filesPermittedToNameEventTypes {
+            let file = root.appendingPathComponent(relativePath)
+            let reExports = Self.reExportedModules(
+                inSource: try String(contentsOf: file, encoding: .utf8))
+            XCTAssertEqual(
+                reExports, [],
+                """
+                \(relativePath) is permitted to name CoreGraphics event types, and re-exports \
+                \(reExports.joined(separator: ", )")). That hands the types it is trusted with to \
+                every module that imports this one. Express the seam in VoccaCore types instead.
+                """)
+        }
+    }
+
+    /// Every type an `extension` extends, by name.
+    ///
+    /// The laundering route the `typealias` rule does not cover, and the one a reviewer reaches for
+    /// next. In the permitted file, `extension CFMachPort: TapHandle {}` names the type legally — and
+    /// from then on `any TapHandle` reaches it from anywhere in `Sources/` under a name the
+    /// identifier scan has no reason to object to. It is the typealias hole wearing a protocol.
+    private static func extendedTypeNames(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        guard
+            let regex = try? NSRegularExpression(
+                pattern: "\\bextension\\s+([A-Za-z_][A-Za-z0-9_.]*)")
+        else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range(at: 1), in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// The violations, for the same reason ``seamCarryingReExports(inSource:)`` is separated out:
+    /// the list this is applied to is empty today, so a predicate that never reports a violation
+    /// passes the real-tree check — measured, as a surviving mutant, before it was pulled out here.
+    private static func coreGraphicsTypesExtended(inSource source: String) -> [String] {
+        extendedTypeNames(inSource: source).filter { name in
+            forbiddenIdentifierPrefixes.contains { name.hasPrefix($0) }
+        }
+    }
+
+    func testAPermittedFileMayNotExtendACoreGraphicsTypeUnderALocalProtocol() throws {
+        let root = try sourcesRoot()
+        for relativePath in Self.filesPermittedToNameEventTypes {
+            let file = root.appendingPathComponent(relativePath)
+            let extended = Self.coreGraphicsTypesExtended(
+                inSource: try String(contentsOf: file, encoding: .utf8))
+            XCTAssertEqual(
+                extended, [],
+                """
+                \(relativePath) extends \(extended.joined(separator: ", ")). A conformance declared \
+                there gives the extended CoreGraphics type a second name — the protocol's — that \
+                every other file in Sources/ may use without naming the type at all.
+                """)
+        }
+    }
+
+    /// **The scan reaches subdirectories**, proven by planting a violation in one and requiring the
+    /// real scanning code to report it.
+    ///
+    /// `Sources/VoccaHotkey/` is flat today and `ARCHITECTURE.md` §3 lays every other module out with
+    /// subdirectories, so the tap will very likely land in one. If the walk stopped at the top level
+    /// — a plausible edit, `contentsOfDirectory` for `enumerator` — every H7 test in this file would
+    /// keep passing while enforcing nothing about the file that matters most.
+    func testTheScanReachesAViolationPlantedInASubdirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-h7-\(UUID().uuidString)")
+        let nested = root.appendingPathComponent("VoccaHotkey/Tap/Deep")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try "let tap: CFMachPort? = nil\n".write(
+            to: nested.appendingPathComponent("Buried.swift"), atomically: true, encoding: .utf8)
+        try "let flags: CGEventFlags = []\n".write(
+            to: root.appendingPathComponent("VoccaHotkey/Shallow.swift"), atomically: true,
+            encoding: .utf8)
+
+        XCTAssertEqual(
+            try Self.sightings(under: root, permitting: []).sorted(by: { $0.file < $1.file }),
+            [
+                EventTypeSighting(
+                    file: "VoccaHotkey/Shallow.swift", identifier: "CGEventFlags"),
+                EventTypeSighting(
+                    file: "VoccaHotkey/Tap/Deep/Buried.swift", identifier: "CFMachPort"),
+            ],
+            "A CoreGraphics type buried in a subdirectory was not reported.")
+
+        // And the permission is keyed to the full relative path, so permitting the shallow file
+        // does not accidentally permit the deep one — or the reverse.
+        XCTAssertEqual(
+            try Self.sightings(under: root, permitting: ["VoccaHotkey/Shallow.swift"]),
+            [
+                EventTypeSighting(
+                    file: "VoccaHotkey/Tap/Deep/Buried.swift", identifier: "CFMachPort")
+            ],
+            "Permitting one file permitted another, or failed to permit the one named.")
     }
 
     /// Comments are stripped before the scan, and that is load-bearing rather than incidental: the

@@ -48,7 +48,52 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 165 by hotkey-source phase 1 review round 1, which added three in HotkeySeamBoundaryTests: H7's
+# 182 by hotkey-source phase 2, which added seventeen: eleven in HotkeyEventSourceTests for the
+# HotkeyEventSource seam and the session driven through it, and six in HotkeySeamBoundaryTests
+# hardening H7 against four further ways out of a text lint.
+#
+# The eleven are the C1 acceptance re-run over the seam the real tap will implement — 100 synthetic
+# key-down/key-up pairs at 80 ms to 60 s, through a fake source into the shipped sink, watchdog and
+# machine, with ~20,000 watchdog polls interleaved — plus **H6 pinned in both directions at the far
+# end of the seam**. That last distinction is the point of the file: `SessionWatchdogTests` already
+# pins propagation by reading the `SessionResponse` the watchdog returns, which is a claim about the
+# machine's answer, not about the answer surviving the journey back out to the caller. A source that
+# ignored the disposition it was handed passes every assertion phrased against the response and eats
+# the user's whole keyboard anyway, so `applicationSaw` is built from what the *source returns* and
+# every H6 assertion is made against it — with an always-swallowing and an always-passing sink run
+# beside it as controls, because the merged aspect's suite was green at 119/119 with a hard-coded
+# `.swallow` in the path.
+#
+# Twenty-seven mutations were applied and all twenty-seven died: the two hard-coded dispositions and
+# the inversion (3, 10 and 10 failures), the effect dropped entirely, dropped only when swallowing,
+# and dropped only for the outcome (3, 1, 3), the event never reaching the session (10), a stale
+# disposition returned after driving it (5), the source ignoring its answer (10) or pre-filtering to
+# the hotkey's key code (1), a stopped source swallowing rather than passing through (4), an
+# unavailable start attaching the sink anyway (2), `stop()` not releasing it (1), the event forwarded
+# with its modifiers stripped (10) or its autorepeat cleared (2), and six against the H7 lint. Two of
+# them shaped this commit: a filter that never reported a violation survived in *both* new lint rules
+# — the real-tree checks iterate an empty permitted list and a clean tree, so a predicate answering
+# "never" left them green — which is why both are now named functions under a positive control. A
+# third case added to `HotkeyEventSourceStart` and a `CGEvent` type planted in the seam both fail at
+# compile time.
+#
+# One is honestly untestable and is recorded rather than claimed: a sink holding the `SessionMachine`
+# directly instead of the `SessionWatchdog` is behaviourally identical, and the suite stays green.
+# What stops it is the constructor signature — there is no way to build the sink without a watchdog —
+# not a test.
+#
+# The six in HotkeySeamBoundaryTests close routes a reviewer would construct next. A `@_exported
+# import CoreGraphics` contains no forbidden identifier at all, because the module is not called
+# CGEvent, so it puts the whole family in scope wherever the re-exporting module is imported with
+# nothing for the identifier scan to see. A conformance declared on a CoreGraphics type in the
+# permitted file is the typealias hole wearing a protocol: `any TapHandle` then reaches it from
+# anywhere in Sources/. A `typealias` nested inside a type launders exactly as completely as one at
+# file scope. And the walk is now proven to reach a violation planted in a subdirectory — which found
+# a real defect in the scan itself: relative paths were computed by string subtraction without
+# resolving symlinks, so a root reached through one (every macOS temp dir, and any repository checked
+# out under one) yields mangled paths and an allow-list that silently stops matching.
+#
+# It was 165 after hotkey-source phase 1 review round 1, which added three in HotkeySeamBoundaryTests: H7's
 # "exactly one permitted file" claim, enforced rather than left in a comment; a prohibition on a
 # typealias in that permitted file; and its positive control.
 #
@@ -174,7 +219,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=165
+MINIMUM_EXECUTED_TESTS=182
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -110,6 +110,79 @@ final class RecordingSource: SessionAudioSource {
     }
 }
 
+// MARK: - The physical keyboard, and the seam that reads it
+
+/// The physical keyboard, as a **fact**.
+///
+/// The distinction the watchdog turns on: what the hardware is doing is one thing, what Vocca has
+/// been *told* is another, and the gap between them is the defect. A hot-mic meter reads this; the
+/// watchdog only ever reads it through the injected seam. That is what lets a test hand the watchdog
+/// a seam that lies and still measure the truth.
+///
+/// Shared with `HotkeyEventSourceTests` for the same reason ``RecordingSource`` is: a session driven
+/// through the `HotkeyEventSource` seam is polled by the same watchdog against the same keyboard, and
+/// a second copy that drifted from this one would let a seam test pass against a keyboard that
+/// behaves differently from the one the watchdog's own tests use.
+final class Keyboard {
+    private(set) var held: Set<UInt16> = []
+
+    func press(_ keyCode: UInt16) { held.insert(keyCode) }
+    func release(_ keyCode: UInt16) { held.remove(keyCode) }
+    func isHeld(_ keyCode: UInt16) -> Bool { held.contains(keyCode) }
+}
+
+/// A reader that counts, so that "the poll ran and ended nothing" is distinguishable from "the poll
+/// stopped running" — which are the same green suite otherwise.
+protocol CountingKeyStateReader: PhysicalKeyStateReader {
+    var reads: Int { get }
+    var keysAsked: Set<UInt16> { get }
+}
+
+/// The seam, reading the keyboard truthfully. What `hotkey-source` will implement over
+/// `CGEventSourceKeyState`.
+final class TruthfulKeyState: CountingKeyStateReader {
+    private let keyboard: Keyboard
+    private(set) var reads = 0
+    private(set) var keysAsked: Set<UInt16> = []
+
+    init(_ keyboard: Keyboard) { self.keyboard = keyboard }
+
+    func isKeyDown(_ keyCode: UInt16) -> Bool {
+        reads += 1
+        keysAsked.insert(keyCode)
+        return keyboard.isHeld(keyCode)
+    }
+}
+
+/// A seam that never reports a release — **the world before the watchdog**, and the positive
+/// control.
+///
+/// Not a straw man: it is exactly what a poll that is never run, run against the wrong key code, or
+/// answered from a stale event log looks like from the machine's side. Everything else about a
+/// harness built on it is identical, so a measurement that cannot tell the two apart is measuring
+/// nothing.
+final class KeyAlwaysReportedDown: CountingKeyStateReader {
+    private(set) var reads = 0
+    private(set) var keysAsked: Set<UInt16> = []
+
+    func isKeyDown(_ keyCode: UInt16) -> Bool {
+        reads += 1
+        keysAsked.insert(keyCode)
+        return true
+    }
+}
+
+/// Milliseconds, for arithmetic `Duration` will not do directly.
+func milliseconds(_ duration: Duration) -> Int64 {
+    let components = duration.components
+    return components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
+}
+
+/// How many wakes it takes to cover `duration` at the watchdog's cadence, rounded down.
+func wakes(covering duration: Duration) -> Int {
+    Int(milliseconds(duration) / milliseconds(WatchdogPolicy.pollInterval))
+}
+
 /// Unwraps the outcome of an effect that must have ended a session.
 ///
 /// Shared for the same reason the ledger above is: both suites end sessions and both have to fail

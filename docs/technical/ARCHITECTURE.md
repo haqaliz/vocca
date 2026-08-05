@@ -32,7 +32,7 @@ Vocca.app  (single process, Swift 6, strict concurrency)
 ├── VoccaUI        SwiftUI  — widget, settings, onboarding    @MainActor
 ├── VoccaCore      Swift    — orchestration, session state    actors
 ├── VoccaAudio     Swift    — capture, playback, VAD          realtime + actor
-├── VoccaHotkey    Swift    — HotkeyEventSource, CGEvent tap  tap callback + actor
+├── VoccaHotkey    Swift    — the CGEvent tap behind the seam tap callback + actor
 ├── VoccaASR       Swift    — ASREngine implementations       actor
 ├── VoccaText      Swift    — cleanup, dictionary             actor (pure-ish)
 ├── VoccaInject    Swift    — AX / Pasteboard / CGEvent       actor (never main)
@@ -77,7 +77,13 @@ Sources/
     Capture/                 # AudioCapture impls
     Playback/                # duckable output for barge-in
     VAD/                     # VoiceActivityDetector, TurnDetector
-  VoccaHotkey/               # HotkeyEventSource seam + the CGEvent tap behind it.
+  VoccaHotkey/               # The CGEvent tap, and the flag translation above it.
+                             #   The HotkeyEventSource seam it implements is declared
+                             #   in VoccaCore with every other seam (§2) — a module
+                             #   that imports nothing cannot name CGEventFlags, which
+                             #   makes half of acceptance H7 a compile-time property
+                             #   rather than a text lint. Amended `hotkey-source`,
+                             #   2026-08-05; this line used to place the seam here.
                              #   Separate from VoccaInject even though both speak
                              #   CGEvent: one reads the keyboard, one writes it, and
                              #   they fail for entirely different reasons.
