@@ -37,39 +37,9 @@ private func event(
         timestamp: .zero)
 }
 
-private typealias Effect = SessionEffect<RecordingSource.Buffer>
-
-/// Where a session's effects go once they are out of the machine — the transcribing actor's place in
-/// the pipeline, as a ledger.
-///
-/// **This is the only route by which a test in this file can observe an outcome**, and that is the
-/// point. ``HotkeyEventSink/receive(_:)`` returns an ``EventPropagation`` and nothing else, so a sink
-/// that dropped the ``SessionEffect`` would still answer the tap correctly and still swallow the
-/// right keys — and would lose every transcript. Reading outcomes from here rather than from a return
-/// value makes that failure visible.
-private final class EffectLog {
-    private(set) var effects: [Effect] = []
-
-    func record(_ effect: Effect) { effects.append(effect) }
-
-    var outcomes: [SessionOutcome<RecordingSource.Buffer>] {
-        effects.compactMap { effect in
-            switch effect {
-            case .ended(let outcome): return outcome
-            case .unchanged, .started, .captureUnavailable: return nil
-            }
-        }
-    }
-
-    var starts: Int {
-        effects.filter { effect in
-            switch effect {
-            case .started: return true
-            case .unchanged, .captureUnavailable, .ended: return false
-            }
-        }.count
-    }
-}
+// `Effect` and `EffectLog` are in `HotkeyTestDoubles.swift`: `TapHealthPolicyTests` drives the same
+// pipeline and reads outcomes by the same route, and two ledgers that drifted would let one suite's
+// session end look different from the other's.
 
 /// The whole pipeline, headlessly: **source → sink → watchdog → machine → microphone.**
 ///

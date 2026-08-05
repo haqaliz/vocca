@@ -48,7 +48,38 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 183 by hotkey-source phase 2 review round 1, which added one in HotkeyEventSourceTests: a second
+# 210 by hotkey-source phase 3, which added twenty-seven in TapHealthPolicyTests: the policy for a
+# dying event tap, decided over an injected tap handle with no CGEvent call anywhere in it.
+#
+# H3, H4 and H5 are one test each per branch — a disabled tap ends the in-flight session and is
+# switched back on; a re-enable that does not take is followed by a re-creation; a tapCreate that
+# returns nil leaves as "permission missing" and not as silence — but the test that matters most is
+# the one phrased over a closed set: **every entry point ends an in-flight session**, driven over a
+# `CaseIterable` of all six, asserted against the microphone's own ledger. A tap that died may have
+# dropped the key-up, and the key-up is the only thing that would have ended the session, so a
+# session that outlives its tap is a hot mic with the widget insisting it is closed.
+#
+# Eighteen mutations were applied and fifteen died. Three shaped the commit. The ordering mutation —
+# ending the session *after* the recovery rather than before it — **survived the first pass**, and it
+# survived honestly: nothing arrives during a recovery in a test double, so both orders produce the
+# same log. What kills it is the hazard the real system has and the double did not: switching a tap
+# back on runs through CoreFoundation, CoreFoundation pumps the run loop, and the key event queued
+# behind the disablement is delivered right there. So `FakeHotkeyEventSource` grew `duringResume` and
+# `duringStart` — the counterpart of the audio ledger's `duringEndCapture`, for the identical reason —
+# and with a stale key-up arriving mid-recovery the two orders differ: ending first leaves it ignored
+# by a session already over, and ending afterwards lets an event that came through a tap Vocca has
+# just declared untrustworthy end the session under the *user's* name. A `.keyUp` in the log for a
+# release nobody made, and the log is the only evidence anyone gets.
+#
+# Two are honestly equivalent and are recorded rather than claimed. (a) A re-creation that calls
+# `stop()` itself before `start` is behaviourally identical, because `start` is documented to do that
+# already; the objection is that it second-guesses a contract whose failure mode is a use-after-free,
+# which is a design argument and not a testable one. (b) Gating the end on `isArmed` is equivalent —
+# but only *because* `disarm()` ends the session too. The two are joined: pin one and the other
+# becomes vacuous, so the mutation that removes the end from `disarm()` (killed, three tests) is what
+# keeps this one equivalent rather than live.
+#
+# It was 183 after hotkey-source phase 2 review round 1, which added one in HotkeyEventSourceTests: a second
 # `start(delivering:)` on an already-started source tears the first down rather than leaving two taps
 # installed. That is the exact call the tap-health policy will make — its charter is "if re-enable
 # fails, tear down and re-create", and re-creating is calling `start` again — and a source that
@@ -240,7 +271,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=183
+MINIMUM_EXECUTED_TESTS=210
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

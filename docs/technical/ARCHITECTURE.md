@@ -360,6 +360,10 @@ So: every session carries a hard ceiling (default 120 s, configurable), *and* a 
 
 `CGEvent` tap health is monitored and re-armed on `tapDisabledByTimeout` / `tapDisabledByUserInput`, which macOS issues without warning.
 
+**Re-arming is only half of it, and the other half is the one that matters.** *(Amended 2026-08-05, `hotkey-source` phase 3.)* A disabled tap receives nothing at all, so the key-up that would have ended an in-flight session is never coming — which means every recovery must **end the session first**, before it does anything that could fail. That is unconditional across every route into `TapHealthPolicy`: the two disable notifications, `NSWorkspace.didWakeNotification` (taps die silently across sleep/wake), `com.apple.accessibility.api`, arming, and a deliberate teardown. A re-created tap always ends any in-flight session, because a tap that died may have dropped the key-up.
+
+The two disable reasons **recover identically and are reported distinctly**: `tapDisabledByTimeout` means our own callback was too slow, and `tapDisabledByUserInput` means it was not. Only the diagnosis differs, which is why the policy returns where the tap stands and reports what happened through a separate channel — the seam itself cannot carry the distinction, since `RawKeyEvent.Kind.tapDisabled` is one kind for both.
+
 ---
 
 ## 9. The injection ladder

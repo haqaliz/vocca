@@ -13,8 +13,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   custody funnel, a watchdog with a ceiling and physical-key poll, toggle mode as a second
 >   configuration of the same machine, and **the `HotkeyEventSource` seam plus the `SessionEventSink`
 >   that drives a session through it** — driven end-to-end by the zero-network probe. **`VoccaHotkey`
->   holds one thing: the pure translation from a macOS event-flag word plus a key code into
->   `ModifierSet`, applying the founder's `fn` rule.** It is the first adapter, so it is the first
+>   holds the pure translation from a macOS event-flag word plus a key code into `ModifierSet`,
+>   applying the founder's `fn` rule, and the tap-health policy — every decision about a dying event
+>   tap, taken over an *injected* tap handle with no `CGEvent` call in it.** It is the first adapter,
+>   so it is the first
 >   module to depend on `VoccaCore` (see `ARCHITECTURE.md` §2 — the graph points inward to the core,
 >   amended in that commit). The other seven modules remain placeholders. **There is still no event
 >   tap, no audio, no ASR and no injection** — the session machine reacts to synthetic key events and
@@ -25,12 +27,14 @@ This file orients a coding agent working in this repository. Read it first.
 >   with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
 > - `Scripts/`: `dev-identity.sh` (stable self-signed identity so TCC grants survive rebuilds),
 >   `sign.sh`, `notarize.sh`, `test-with-floor.sh`.
-> - `Tests/HarnessTests/`: 183 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 210 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
 >   invariant coverage, the hotkey flag translation with its `fn` rule, the `HotkeyEventSource` seam
->   with H6 pinned in **both** directions at the far end of it, and the H7 seam lint.
+>   with H6 pinned in **both** directions at the far end of it, the H7 seam lint, and the tap-health
+>   policy — where the load-bearing test is that **every** entry point ends an in-flight session,
+>   driven over a closed set of all six, because a session that outlives its tap is a hot mic.
 > - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
 >   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
 >   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.
