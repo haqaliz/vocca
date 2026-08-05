@@ -261,19 +261,58 @@ final class HotkeyFlagTranslationTests: XCTestCase {
 
     // MARK: - The `fn` rule (H1, H2)
 
+    /// Guards the fixture itself, before anything is measured against it.
+    ///
+    /// **Counting the array is not enough, and that is not a hypothetical.** Review sabotaged this
+    /// suite by replacing the `kVK_F20` row with a second `kVK_F16` row and deleting `0x5A` from the
+    /// implementation: the array stayed at 30, the *set* fell to 29, the implementation was missing
+    /// a key, and all 13 tests passed. `F20` bindings were silently dead.
+    ///
+    /// That is the same class as the `controlBit` superset mutation this phase set out to close — a
+    /// cardinality guard over a container that can hold a duplicate — and it was closed for the flag
+    /// constants and missed for the key codes. So all three cardinalities are asserted:
+    ///
+    /// - the **array**, so no row is deleted outright;
+    /// - the **set of codes**, so no row is duplicated to disguise a deletion;
+    /// - the **set of names**, because a row's `name` appears only in failure messages and is not
+    ///   pinned to its code. `NamedKeyCode("kVK_F20", kVK_F19)` would otherwise make a failure
+    ///   message lie about which key is broken, which is worse than no message.
+    private func assertTheImplicitKeyTableIsWellFormed(
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let expected = 30
+        let rationale =
+            "F1–F20 (20) + four arrows + Home/End/PageUp/PageDown (4) + forward-Delete + Help = 30."
+
+        XCTAssertEqual(
+            Self.implicitFunctionKeys.count, expected,
+            "\(rationale) A short list is a key code whose binding never fires, with this test "
+                + "still green.",
+            file: file, line: line)
+
+        XCTAssertEqual(
+            Set(Self.implicitFunctionKeys.map(\.code)).count, expected,
+            "\(rationale) Two rows naming the same key code make the array 30 while the set is 29 "
+                + "— the missing key's binding is then silently dead with every test still green. "
+                + "Measured: that exact sabotage passed 13/13 before this assertion existed.",
+            file: file, line: line)
+
+        XCTAssertEqual(
+            Set(Self.implicitFunctionKeys.map(\.name)).count, expected,
+            "\(rationale) Two rows carrying the same name mean a failure message names the wrong "
+                + "key. The name is only ever read by someone debugging, so a lying one costs more "
+                + "than a missing one.",
+            file: file, line: line)
+    }
+
     /// The founder's rule, one assertion per key code, each identifiable by its `kVK_` name in the
     /// failure message.
     ///
-    /// The list is required to be exactly 30 entries. Without that, deleting a key code from the
-    /// table would delete its test and leave the suite green — and the missing key would be a
-    /// binding that silently never fires, which is the failure this whole test exists to prevent.
+    /// The table is required to hold exactly 30 *distinct* key codes — see
+    /// ``assertTheImplicitKeyTableIsWellFormed(file:line:)``, which exists because counting the
+    /// array alone did not catch a deletion disguised by a duplicate.
     func testFunctionIsStrippedForEveryKeyCodeThatCarriesItImplicitly() {
-        XCTAssertEqual(
-            Self.implicitFunctionKeys.count, 30,
-            """
-            F1–F20 (20) + four arrows + Home/End/PageUp/PageDown (4) + forward-Delete + Help = 30. \
-            A short list is a key code whose binding never fires, with this test still green.
-            """)
+        assertTheImplicitKeyTableIsWellFormed()
 
         for key in Self.implicitFunctionKeys {
             let translated = HotkeyFlagTranslation.modifiers(
@@ -295,6 +334,11 @@ final class HotkeyFlagTranslationTests: XCTestCase {
     /// key code wrongly listed here can never be bound with a genuine `fn`, because the bit is
     /// removed before anything compares it.
     func testThePublishedImplicitFunctionKeySetIsExactlyTheDocumentedThirty() {
+        // Stands alone rather than relying on the other test having run: the comparison below is
+        // against a set derived from the fixture, so a duplicated row shrinks *both* sides at once
+        // and the equality holds while a key is missing.
+        assertTheImplicitKeyTableIsWellFormed()
+
         XCTAssertEqual(
             HotkeyFlagTranslation.keyCodesCarryingFunctionImplicitly,
             Set(Self.implicitFunctionKeys.map(\.code)),

@@ -165,14 +165,36 @@ once per machine without resetting state. Use a fresh user account or
     being deliberately mode-blind would be caught: if a session ends ~150 ms after every toggle-on,
     something is calling it past the watchdog.
 
+16. **The implicit-`fn` key codes**, which is the one part of the hotkey path whose *completeness* no
+    test can assert. Each of the 30 key codes in
+    `HotkeyFlagTranslation.keyCodesCarryingFunctionImplicitly` is pinned against `Events.h`, so none
+    of them is *wrong*. Nothing pins that none is **missing** — and a missing one produces no crash,
+    no log and no failing test, only a binding that never fires. So it has to be pressed.
+
+    Bind and press, confirming each starts a session on key-down and ends it on key-up:
+    - a bare **`F13`** — an F-key with no legacy system action attached, so nothing else intercepts it;
+    - a bare **arrow key** — these set `numericPad` *and* `fn`, so they exercise the drop rule too;
+    - a bare **Forward Delete** (`fn`+Backspace on a laptop, which the HID layer delivers as
+      `kVK_ForwardDelete`);
+    - a bare **Home** or **End** (`fn`+Left / `fn`+Right on a laptop) — laptops have no dedicated
+      key, and this is the reason those four codes are in the set at all.
+
+    Then the **inverse**, which is the failure the founder's decision exists to avoid causing: bind
+    **`fn`+`A`** and confirm it still fires. If stripping has been made unconditional, this one dies
+    while all of the above still pass.
+
+    If an **external, non-Apple keyboard** is to hand, repeat the F-key press on it. Its driver may
+    set the bit differently, and that case is not reachable from any test or from Apple's
+    documentation.
+
 ### If notarizing
 
-16. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
+17. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
     first real release must treat notarization as unproven and budget time for it, including for
     the possibility that a rejected entitlement or a missing hardened-runtime flag only shows up
     there.
 
-17. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
+18. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
     steps 1–4 built, signed and inspected. That is only true if step 2 was run with the Release path
     given explicitly; a bare `./Scripts/sign.sh` signs Debug and this step then submits an
     unmodified Release build.

@@ -48,7 +48,26 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 162 by hotkey-source phase 1, which added nineteen: thirteen in HotkeyFlagTranslationTests for the
+# 165 by hotkey-source phase 1 review round 1, which added three in HotkeySeamBoundaryTests: H7's
+# "exactly one permitted file" claim, enforced rather than left in a comment; a prohibition on a
+# typealias in that permitted file; and its positive control.
+#
+# The typealias rule is the one worth explaining. The H7 lint matches identifier text, so once the
+# tap adapter is on the permitted list, `public typealias TapHandle = CFMachPort` declared *there*
+# is invisible everywhere else in Sources/ — verified: the aliased use site scans clean. One alias
+# in one permitted file would reopen H7 across the whole tree with the suite green. `CGKeyCode` and
+# `CFRunLoop` joined the forbidden prefixes for the same reason: both carry the seam, and CGKeyCode
+# looks harmless because it is only a UInt16 typealias.
+#
+# The round's Important finding added no test — it added two assertions to an existing one. The
+# 30-count guard ran on the *array* while the set comparison ran on `Set(map(\.code))`, so a
+# duplicated fixture row made the array 30 and the set 29, and an implementation missing kVK_F20
+# passed 13/13 with F20 bindings silently dead. Reproduced exactly, then closed by asserting the
+# de-duplicated cardinality of both the codes and the names. Same class as the controlBit superset
+# mutation this phase set out to close — a cardinality guard over a container that admits duplicates
+# — closed for the flag constants and missed for the key codes.
+#
+# It was 162 after hotkey-source phase 1, which added nineteen: thirteen in HotkeyFlagTranslationTests for the
 # event-flag translation and the founder's `fn` rule, four in HotkeySeamBoundaryTests for acceptance
 # H7, and two in ModuleBoundaryTests.
 #
@@ -155,7 +174,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=162
+MINIMUM_EXECUTED_TESTS=165
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

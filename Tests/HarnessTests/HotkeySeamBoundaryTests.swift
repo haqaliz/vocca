@@ -79,7 +79,16 @@ final class HotkeySeamBoundaryTests: XCTestCase {
     /// `CGEventTap`, `CGEventTapProxy`, `CGEventType`, `CGEventSource` and every other member of
     /// the family by construction, which is why this is a prefix rule and not a list of names
     /// somebody has to keep current.
-    private static let forbiddenIdentifierPrefixes = ["CGEvent", "CFMachPort"]
+    ///
+    /// `CGKeyCode` and `CFRunLoop` are beyond the three types `spec.md` names, and are here because
+    /// review found them to be the two that would carry the seam anyway. `CGKeyCode` is only a
+    /// `UInt16` typealias, so it looks harmless — but a signature phrased in it is a signature that
+    /// needs CoreGraphics to read, which is the whole of what H7 is about. `CFRunLoopSource` is how
+    /// a tap is attached, and a tap handle that escapes as a run-loop source has escaped just as
+    /// completely as one that escapes as a `CFMachPort`.
+    private static let forbiddenIdentifierPrefixes = [
+        "CGEvent", "CFMachPort", "CGKeyCode", "CFRunLoop",
+    ]
 
     /// Every occurrence of a forbidden identifier in `source`, comments removed first.
     ///
@@ -152,6 +161,63 @@ final class HotkeySeamBoundaryTests: XCTestCase {
             """)
     }
 
+    // MARK: - The permitted file is one file, and it may not launder a type through a typealias
+
+    /// The "exactly one file" claim, enforced rather than asserted in a comment.
+    ///
+    /// Inert today, because the list is empty. It goes live the moment phase 4 adds the tap adapter,
+    /// which is exactly when it stops being obvious — a second entry is how "the untestable half"
+    /// grows without anyone deciding that it should.
+    func testAtMostOneFileMayNameEventTypes() {
+        XCTAssertLessThanOrEqual(
+            Self.filesPermittedToNameEventTypes.count, 1,
+            """
+            H7 permits one file: the tap adapter. Found \
+            \(Self.filesPermittedToNameEventTypes.sorted().joined(separator: ", ")). A second entry \
+            means a decision has moved below the seam, where no CI run can reach it.
+            """)
+    }
+
+    /// Every `typealias` declared in a file that is permitted to name event types.
+    ///
+    /// The reason this is a rule at all: the lint matches identifier *text*, so once the adapter
+    /// file is on the permitted list, `public typealias TapHandle = CFMachPort` declared **there**
+    /// and used anywhere else in `Sources/` is invisible to it. Review verified that —
+    /// `eventTypeIdentifiers(inSource: "func arm(_ h: TapHandle) -> RawKeyEvent? { nil }")` returns
+    /// nothing. The permitted file is the one place a rename like that would be both legal and
+    /// useless to detect afterwards, so the permission to name the types comes with a prohibition on
+    /// re-exporting them under another name.
+    ///
+    /// Currently vacuous — the list is empty — which is why it has a positive control below rather
+    /// than only a green run against the real tree.
+    private static func typealiasNames(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        guard
+            let regex = try? NSRegularExpression(
+                pattern: "\\btypealias\\s+([A-Za-z_][A-Za-z0-9_]*)")
+        else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range(at: 1), in: code).map { String(code[$0]) }
+        }
+    }
+
+    func testAPermittedFileMayNotReExportAnEventTypeUnderAnotherName() throws {
+        let root = try sourcesRoot()
+        for relativePath in Self.filesPermittedToNameEventTypes {
+            let file = root.appendingPathComponent(relativePath)
+            let aliases = Self.typealiasNames(
+                inSource: try String(contentsOf: file, encoding: .utf8))
+            XCTAssertEqual(
+                aliases, [],
+                """
+                \(relativePath) is permitted to name CoreGraphics event types, so a typealias \
+                declared there launders one past this lint everywhere else in Sources/. Found: \
+                \(aliases.joined(separator: ", ")). Express the seam in VoccaCore types instead.
+                """)
+        }
+    }
+
     // MARK: - Positive controls
 
     /// A rule that has only ever run against a tree satisfying it is a rule nobody has watched
@@ -172,6 +238,41 @@ final class HotkeySeamBoundaryTests: XCTestCase {
                 inSource: "func cb(_ proxy: CGEventTapProxy, _ type: CGEventType) {}"),
             ["CGEventTapProxy", "CGEventType"],
             "The prefix rule must cover the whole family without anyone listing its members.")
+
+        XCTAssertEqual(
+            Self.eventTypeIdentifiers(
+                inSource: "func attach(_ src: CFRunLoopSource, _ code: CGKeyCode) {}"),
+            ["CFRunLoopSource", "CGKeyCode"],
+            """
+            The two review found would carry the seam anyway. CGKeyCode is only a UInt16 typealias, \
+            but a signature phrased in it still needs CoreGraphics to read.
+            """)
+    }
+
+    /// The positive control for the `typealias` rule, which is otherwise vacuous until phase 4.
+    ///
+    /// The second assertion is the one that matters: it demonstrates the *hole* the rule closes —
+    /// the aliased use site is invisible to the identifier scan, which is precisely why the alias
+    /// has to be forbidden at its declaration instead.
+    func testTheTypealiasRuleDetectsALaunderedEventType() {
+        XCTAssertEqual(
+            Self.typealiasNames(inSource: "public typealias TapHandle = CFMachPort"),
+            ["TapHandle"],
+            "An alias declared in the permitted file is what the rule is for.")
+
+        XCTAssertEqual(
+            Self.eventTypeIdentifiers(inSource: "func arm(_ h: TapHandle) -> RawKeyEvent? { nil }"),
+            [],
+            """
+            And this is why: the aliased use site is invisible to the identifier scan. Without the \
+            declaration-site rule, one typealias in the permitted file reopens H7 across the whole \
+            of Sources/ with this suite green.
+            """)
+
+        XCTAssertEqual(
+            Self.typealiasNames(inSource: "// typealias TapHandle = CFMachPort"),
+            [],
+            "A commented-out alias is not a declaration.")
     }
 
     /// Comments are stripped before the scan, and that is load-bearing rather than incidental: the
