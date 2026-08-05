@@ -109,6 +109,16 @@ final class FakeHotkeyEventSource: RecoverableHotkeyEventSource {
     /// heavier of the two, so this is the likelier of the two to have an event arrive underneath it.
     var duringStart: (() -> Void)?
 
+    /// The same, for teardown, fired **while the sink is still attached** — which is what a real
+    /// teardown looks like from the inside.
+    ///
+    /// The third source call with this property, and the one the first round missed: removing a
+    /// run-loop source and invalidating a `CFMachPort` are CoreFoundation calls too, so a key event
+    /// queued behind the teardown is delivered right there. Without this hook the policy's ordering
+    /// argument was measured on two of the three calls, and the mutation that ends a *user-requested*
+    /// teardown under `.keyUp` — a release nobody made — survived.
+    var duringStop: (() -> Void)?
+
     func start(delivering sink: any HotkeyEventSink) -> HotkeyEventSourceStart {
         // **A start on an already-started source is a stop followed by a start**, and this double
         // models it because the real adapter must. Phase 3's charter is "if re-enable fails, tear
@@ -122,9 +132,6 @@ final class FakeHotkeyEventSource: RecoverableHotkeyEventSource {
         startCount += 1
         guard nextStart == .started else { return .unavailable }
         self.sink = sink
-        // A freshly created tap is not a disabled one. Carrying the old tap's disabled state onto a
-        // new one would make re-creation look like a recovery that never worked.
-        isDisabledBySystem = false
 
         // Fired once the tap would really be delivering, because that is when a queued event could
         // really arrive: before this point there is nothing installed for it to arrive through.
@@ -137,12 +144,30 @@ final class FakeHotkeyEventSource: RecoverableHotkeyEventSource {
 
     func stop() {
         stopCount += 1
+
+        // Fired **before** the sink is released, because that is the state a real teardown is in
+        // while it runs: the port is still alive and its callback can still be entered.
+        let hook = duringStop
+        duringStop = nil
+        hook?()
+
         sink = nil
+        // The single place the disabled flag is cleared. `start` needs no line of its own: it calls
+        // `stop()` first whenever a tap is attached, and `isDisabledBySystem` cannot be true while
+        // one is not — `systemDisablesTheTap()` enforces that. Two copies of one decision, each
+        // individually deletable with the suite green, is a shape this repository has been bitten by
+        // twice; this is one copy.
         isDisabledBySystem = false
     }
 
     func resumeDelivery() -> TapResume {
         resumeCount += 1
+
+        // **A tap that does not exist cannot be switched on.** The protocol says an adapter must
+        // answer `.failed` here, and the double has to model it or the policy's own guard against
+        // asking is measured against a fake that would have said yes.
+        guard isAttached else { return .failed }
+
         guard nextResume == .resumed else { return .failed }
         isDisabledBySystem = false
 
@@ -162,6 +187,10 @@ final class FakeHotkeyEventSource: RecoverableHotkeyEventSource {
     /// from having been told: a test that only told the policy would leave a tap that still delivers,
     /// and every "the tap recovered" assertion would pass without a recovery.
     func systemDisablesTheTap() {
+        // The invariant that lets `stop()` be the single place the flag is cleared, and it is the
+        // same truth the policy's own C1 defect was about: there is nothing to disable when there is
+        // no tap. A test that reached for this state would be modelling something macOS cannot do.
+        precondition(isAttached, "the system cannot disable a tap that does not exist")
         isDisabledBySystem = true
     }
 

@@ -37,9 +37,10 @@ private func event(
         timestamp: .zero)
 }
 
-// `Effect` and `EffectLog` are in `HotkeyTestDoubles.swift`: `TapHealthPolicyTests` drives the same
-// pipeline and reads outcomes by the same route, and two ledgers that drifted would let one suite's
-// session end look different from the other's.
+// `EffectLog` is in `HotkeyTestDoubles.swift`: `TapHealthPolicyTests` drives the same pipeline and
+// reads outcomes by the same route, and two ledgers that drifted would let one suite's session end
+// look different from the other's. There is deliberately **no** shared `Effect` typealias — that
+// file says why, at the declaration.
 
 /// The whole pipeline, headlessly: **source → sink → watchdog → machine → microphone.**
 ///

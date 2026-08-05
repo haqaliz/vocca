@@ -60,6 +60,22 @@ public enum TapRecreationCause: Sendable, Hashable, CaseIterable {
     /// down and re-create"*.
     case reenableFailed
 
+    /// **There was no tap to switch back on.** Something reported the tap dead — a disable
+    /// notification, or a health poll — while the policy held no tap at all, which is the ordinary
+    /// shape of a first run whose `arm()` found no Accessibility grant.
+    ///
+    /// It is a distinct cause rather than folded into ``reenableFailed`` because nothing was
+    /// attempted and nothing failed: a log reading "re-enable failed" for a call that was never made
+    /// sends the next reader after `CGEventTapEnable` instead of after the missing grant.
+    case noTapToReEnable
+
+    /// The owner armed a policy that already had a tap, so the old one was replaced.
+    ///
+    /// Reported as a re-creation rather than as a second ``TapHealthNote/armed`` because the note
+    /// channel exists to make *"the tap has been replaced eleven times in a minute"* visible, and a
+    /// log reading `[.armed, .armed]` cannot show that anything was replaced at all.
+    case rearmed
+
     /// The machine woke. **Taps die silently across sleep/wake** — no disable event, no error, and
     /// nothing to notice except that the hotkey has stopped working.
     case systemDidWake
@@ -109,6 +125,14 @@ public enum TapHealthNote: Sendable, Hashable {
     /// the fact the seam cannot carry: `RawKeyEvent.Kind.tapDisabled` is one kind for both.
     case disabled(TapDisableReason)
 
+    /// **A health poll found the tap not delivering, and nothing had said so.**
+    ///
+    /// Distinct from ``disabled(_:)`` because the two are different facts about the world: that one
+    /// is the OS telling us, this one is the OS *not* telling us and Vocca finding out by asking. A
+    /// log that conflated them would hide the case worth knowing about — a tap dying with no
+    /// notification of any kind is the only route by which a session outlives its tap.
+    case foundDeadByPoll
+
     /// A disabled tap was switched back on in place. No new tap was needed.
     case reenabled
 
@@ -137,6 +161,17 @@ public enum TapHealthNote: Sendable, Hashable {
 /// exactly as it does over every other: a re-enable that returned a `CFMachPort`, or took one, would
 /// have moved the decision below the seam where no CI run can reach it.
 public protocol RecoverableHotkeyEventSource: HotkeyEventSource {
+    /// Whether the tap is delivering **right now**, asked of the tap rather than remembered.
+    ///
+    /// The read the ~1 s health poll is made of (`spec.md:57`), and the whole value of it is that it
+    /// is a *question put to the system*. A conformance that answered from a cached flag would be
+    /// reporting the last thing Vocca was told — which is exactly what the poll exists to bypass,
+    /// because the case it is for is a tap that died and told nobody. `CGEventTapIsEnabled` is the
+    /// call; the adapter must make it every time.
+    ///
+    /// `false` when no tap exists, because a tap that is not there is not delivering.
+    var isDelivering: Bool { get }
+
     /// Switch delivery back on for a tap the system disabled, **without creating a new one**.
     ///
     /// The cheap recovery, and the one that keeps the tap's existing registration — which is why it
@@ -146,8 +181,31 @@ public protocol RecoverableHotkeyEventSource: HotkeyEventSource {
     /// `CGEventTapEnable` returns `Void`: it cannot fail loudly, so an adapter that returned
     /// ``TapResume/resumed`` because it made the call would report a dead tap as healthy, and the
     /// re-creation that acceptance H4 requires would never happen. The answer comes from asking the
-    /// tap whether it is enabled, afterwards.
+    /// tap whether it is enabled, afterwards — ``isDelivering`` is that question.
+    ///
+    /// **And when there is no tap at all, the answer is ``TapResume/failed``.** The read-back rule
+    /// above says *how* to answer; this says what to answer when there is nothing to ask. An adapter
+    /// holding an optional port has to decide that, and a decision left below the seam is the one
+    /// thing this aspect's organising constraint forbids — so it is decided here. ``TapHealthPolicy``
+    /// does not rely on it: it tracks tap existence itself and does not call this method without one.
+    /// Both are needed, because "healthy while deaf" must not have a second place it can be reached
+    /// from.
     func resumeDelivery() -> TapResume
+}
+
+/// How often the owner's timer must ask after the tap's health.
+///
+/// A named constant rather than a number for phase 5 to invent, in the same shape as
+/// `WatchdogPolicy.pollInterval`, because the two timers are siblings and will be wired by the same
+/// commit.
+public enum TapHealthPolling {
+    /// The cadence `spec.md:57` asks for, and the bound on how long a silently dead tap can hold a
+    /// microphone open with nobody notified.
+    ///
+    /// The trade is one system call per second against that bound. Shortening it buys a tighter
+    /// bound and costs a call; lengthening it is a decision about how long a hot mic may last, which
+    /// is why the number is here, next to that sentence, rather than at the timer's call site.
+    public static let interval: Duration = .seconds(1)
 }
 
 /// Whether a disabled tap started delivering again.
@@ -217,6 +275,14 @@ public enum TapResume: Sendable, Hashable, CaseIterable {
 /// not — and a single return value would have had to either flatten that or grow a case for a
 /// distinction no caller acts on.
 ///
+/// ## What the owner must do after every entry point
+///
+/// **Re-read `SessionWatchdog.schedule`.** Ending a session moves it from `.wake(every:)` to
+/// `.stopped`, and every entry point here can end one, so the owner's timer must be reconsidered
+/// after each — exactly as it must after a key event. Getting it wrong costs a timer spinning over
+/// an idle machine rather than a hot mic (`tick()` and `wake()` both answer `.unchanged` in `.idle`),
+/// but phase 5 is the phase that wires that timer and is therefore the phase that would get it wrong.
+///
 /// ## Isolation
 ///
 /// Not `Sendable`, and it cannot be: it holds a ``HotkeyEventSink``, which in the shipped
@@ -237,6 +303,21 @@ public final class TapHealthPolicy {
     /// ``TapHealth/permissionMissing`` — and the grant that arrives thirty seconds later must find a
     /// policy that still wants a tap, or the user grants permission and nothing happens.
     private var isArmed = false
+
+    /// Whether a tap exists to be acted on.
+    ///
+    /// **A second field, because it is a second fact, and conflating the two shipped a defect.** With
+    /// one flag, `tapWasDisabled` on a policy that wanted a tap but had none called
+    /// `resumeDelivery()` anyway — asking a conformance a question about an object it does not
+    /// have — and returned ``TapHealth/delivering`` with a `.reenabled` note over nothing at all.
+    /// Both channels wrong in the same call, and every session afterwards starting nothing: the
+    /// "healthy while deaf" failure this class's ``systemDidWake()`` documentation names.
+    ///
+    /// The two differ in exactly the case that matters. *Wanting* a tap survives a failed creation,
+    /// on purpose. *Having* one does not. So every branch has to be clear which it is asking about,
+    /// and this is written from one place — ``createTap(reportingSuccessAs:failureAs:)`` — so there
+    /// is no second path that could set one and forget the other.
+    private var aTapExists = false
 
     /// - Parameters:
     ///   - source: The tap, injected. Everything this class does to it, it does through this seam.
@@ -270,16 +351,17 @@ public final class TapHealthPolicy {
     /// is live.
     public func arm() -> TapHealth {
         endAnyInFlightSession()
+        // Wanting a tap survives a creation that fails. Having one does not — see ``aTapExists``.
         isArmed = true
 
-        switch source.start(delivering: sink) {
-        case .started:
-            note(.armed)
-            return .delivering
-        case .unavailable:
-            note(.permissionMissing)
-            return .permissionMissing
+        guard aTapExists else {
+            return createTap(reportingSuccessAs: .armed, failureAs: .permissionMissing)
         }
+        // Arming a policy that already has a tap replaces it, because `start(delivering:)` is
+        // documented as a `stop()` followed by a `start`. Reported as a re-creation so the log can
+        // show that something was replaced.
+        return createTap(
+            reportingSuccessAs: .recreated(.rearmed), failureAs: .recreationFailed(.rearmed))
     }
 
     /// The operating system disabled the tap, out of band.
@@ -290,22 +372,85 @@ public final class TapHealthPolicy {
     /// never coming: a disabled tap receives nothing at all, so every stop rule phrased in terms of a
     /// key event is now unreachable for this session.
     ///
-    /// Then the cheap recovery is tried — the tap still exists, and switching it back on keeps its
+    /// Then the cheap recovery is tried — if the tap still exists, switching it back on keeps its
     /// registration — and **only if that does not take** is the tap torn down and re-created. Both
     /// halves are needed: without the re-enable, every timeout would cost a new tap; without the
     /// re-creation, a tap that refuses to come back stays dead in silence.
+    ///
+    /// ## Phase 4: this whole method runs inside the tap's own callback, and that is a decision
+    ///
+    /// Stated here rather than left to be discovered in the half CI cannot execute, in the same
+    /// voice as ``HotkeyEventSink/receive(_:)``'s three-constraint tension, because this compounds
+    /// it. `kCGEventTapDisabledByTimeout` and `…ByUserInput` are delivered **to the callback**, as
+    /// event types, so the adapter's only route to this method is from inside a synchronous C
+    /// function that must return a disposition. What that callback then executes is:
+    ///
+    /// ```
+    /// tapWasDisabled(.timeout)
+    ///   ├─ endAnyInFlightSession() → sink → watchdog → machine → endSession
+    ///   │                                                └─ SessionAudioSource.endCapture()
+    ///   │                                                     = AVAudioEngine.stop()   ← slow I/O
+    ///   ├─ source.resumeDelivery()  = CGEventTapEnable + read-back
+    ///   └─ recreate() → source.start() = stop() + tapCreate + CFRunLoopAddSource
+    ///                    └─ stop() invalidates the port whose callback is on the stack right now
+    /// ```
+    ///
+    /// Three things follow, and none of them is this phase's to decide:
+    ///
+    /// 1. **Inherited constraint 7** — *"do nothing in the tap callback"* — is violated by the
+    ///    recovery path as much as by the start path, and it is **worse on the `.timeout` route**:
+    ///    that timeout was earned by the callback being slow, and this adds more slow work to the
+    ///    same callback.
+    /// 2. **Tearing a tap down from inside its own callback** is the concrete hazard. The likely
+    ///    shape — end the session synchronously, because immediacy is the entire point of it, and
+    ///    defer *only* the teardown-and-re-create to the next run-loop turn — is a real design
+    ///    decision with a real cost, and it belongs in the plan rather than in a discovery.
+    /// 3. **Only this entry point has that shape.** ``systemDidWake()``,
+    ///    ``accessibilityGrantChanged()`` and ``pollTapHealth()`` arrive on notifications and timers,
+    ///    not on the callback, so deferring all five would be paying the cost four times over.
     public func tapWasDisabled(_ reason: TapDisableReason) -> TapHealth {
         endAnyInFlightSession()
         note(.disabled(reason))
         guard isArmed else { return .notArmed }
+        return restoreDelivery()
+    }
 
-        switch source.resumeDelivery() {
-        case .resumed:
-            note(.reenabled)
-            return .delivering
-        case .failed:
-            return recreate(because: .reenableFailed)
-        }
+    /// One turn of the ~1 s health poll (`spec.md:57`), and **the only thing that catches a tap that
+    /// dies without telling anyone.**
+    ///
+    /// Every other entry point is driven by a notification. This one is driven by a question, and it
+    /// exists because there is a failure with no notification at all: a tap can stop delivering
+    /// silently, and then nothing that would end a session can ever arrive. Measured before it was
+    /// built — armed, delivering, session in flight, tap dies with no notification — the microphone
+    /// stays open and the machine stays `.recording`, in **both** activation modes.
+    ///
+    /// The remaining backstops do not cover it. The physical-key poll is hold-to-talk only and rests
+    /// on phase 5's timer; in toggle mode it does not exist at all, and `SessionRules.swift:357-359`
+    /// says why in as many words — with the poll gone, rule (d) is *"the only stop that a dead tap
+    /// can still deliver"*. So in toggle a silently dead tap is a two-minute hot mic bounded only by
+    /// the ceiling. This is what turns that silence into a rule-(d) delivery.
+    ///
+    /// ## The one entry point that does *not* end the session unconditionally
+    ///
+    /// The exception is the reason the rule is worth having, so it is stated rather than hidden: this
+    /// method is called every second for as long as Vocca runs, and the overwhelming majority of its
+    /// answers are *nothing happened*. A poll that ended the session unconditionally would end every
+    /// session within one second of its start — the rule applied without thinking, producing the
+    /// exact failure it exists to prevent, in the other direction.
+    ///
+    /// So the shape is inverted here and only here: **ask first, and end only on the answer that
+    /// means the tap is gone.** Once it is gone, everything downstream is identical to a disable
+    /// notification, because the situation is identical — hence the shared ``restoreDelivery()``.
+    ///
+    /// - Returns: where the tap stands. ``TapHealth/delivering`` is the ordinary answer and means the
+    ///   poll found nothing wrong.
+    public func pollTapHealth() -> TapHealth {
+        guard isArmed else { return .notArmed }
+        guard !(aTapExists && source.isDelivering) else { return .delivering }
+
+        endAnyInFlightSession()
+        note(.foundDeadByPoll)
+        return restoreDelivery()
     }
 
     /// The machine woke from sleep.
@@ -347,11 +492,30 @@ public final class TapHealthPolicy {
     public func disarm() {
         endAnyInFlightSession()
         isArmed = false
+        aTapExists = false
         source.stop()
         note(.disarmed)
     }
 
     // MARK: Doing it
+
+    /// Get the tap delivering again, from whatever state it is in. Shared by the disable
+    /// notification and the health poll, because by this point the two situations are the same one:
+    /// the tap is not delivering, the session is already over, and something has to bring it back.
+    private func restoreDelivery() -> TapHealth {
+        // **A tap that does not exist cannot be switched back on.** Asking anyway is asking a
+        // conformance a question about an object it does not have, and believing the answer is how
+        // this class came to return `.delivering` with a `.reenabled` note over nothing at all.
+        guard aTapExists else { return recreate(because: .noTapToReEnable) }
+
+        switch source.resumeDelivery() {
+        case .resumed:
+            note(.reenabled)
+            return .delivering
+        case .failed:
+            return recreate(because: .reenableFailed)
+        }
+    }
 
     /// Tear the tap down and build a new one.
     ///
@@ -362,12 +526,29 @@ public final class TapHealthPolicy {
     /// not call `stop` first: doing both would be this class second-guessing a contract the seam
     /// already makes, and the failure mode of getting *that* wrong is a use-after-free.
     private func recreate(because cause: TapRecreationCause) -> TapHealth {
+        createTap(
+            reportingSuccessAs: .recreated(cause), failureAs: .recreationFailed(cause))
+    }
+
+    /// **The only call to ``HotkeyEventSource/start(delivering:)`` in this class**, so that
+    /// ``aTapExists`` is written from one place and cannot be set on one path and forgotten on
+    /// another. That is not tidiness: the defect this class shipped was two facts sharing one field,
+    /// and two fields sharing four update sites would be the same defect with more places to hide.
+    private func createTap(
+        reportingSuccessAs succeeded: TapHealthNote, failureAs failed: TapHealthNote
+    ) -> TapHealth {
         switch source.start(delivering: sink) {
         case .started:
-            note(.recreated(cause))
+            aTapExists = true
+            note(succeeded)
             return .delivering
         case .unavailable:
-            note(.recreationFailed(cause))
+            // A failed creation has already destroyed whatever was there — `start` is documented as
+            // a `stop()` followed by a `start`, and a re-create that then fails leaves nothing
+            // attached. Deaf rather than double-tapped, and this field has to say so or the next
+            // recovery will try to re-enable a tap that was torn down on this line.
+            aTapExists = false
+            note(failed)
             return .permissionMissing
         }
     }

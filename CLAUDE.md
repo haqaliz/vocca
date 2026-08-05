@@ -27,14 +27,16 @@ This file orients a coding agent working in this repository. Read it first.
 >   with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
 > - `Scripts/`: `dev-identity.sh` (stable self-signed identity so TCC grants survive rebuilds),
 >   `sign.sh`, `notarize.sh`, `test-with-floor.sh`.
-> - `Tests/HarnessTests/`: 210 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 221 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
 >   invariant coverage, the hotkey flag translation with its `fn` rule, the `HotkeyEventSource` seam
 >   with H6 pinned in **both** directions at the far end of it, the H7 seam lint, and the tap-health
 >   policy — where the load-bearing test is that **every** entry point ends an in-flight session,
->   driven over a closed set of all six, because a session that outlives its tap is a hot mic.
+>   driven over a closed set of all eight, in both activation modes, because a session that outlives
+>   its tap is a hot mic. The one exception is the ~1 s health poll, which asserts the *opposite* and
+>   has to: it runs once a second for as long as Vocca runs.
 > - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
 >   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
 >   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.

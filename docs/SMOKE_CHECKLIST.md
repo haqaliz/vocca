@@ -187,6 +187,43 @@ once per machine without resetting state. Use a fresh user account or
     set the bit differently, and that case is not reachable from any test or from Apple's
     documentation.
 
+### The tap adapter's conformance obligations — a code review, not a gesture
+
+*(Added 2026-08-05, `hotkey-source` phase 3.)* The tap-health policy is entirely testable and
+entirely tested. **Its correctness rests on four things the adapter must do that no CI run can ever
+check**, because `CGEvent.tapCreate` returns `nil` without an Accessibility grant and TCC cannot be
+granted on a hosted runner. Each has a doc comment stating the obligation; a doc comment is the only
+enforcement there will ever be, so it is listed here as something a human confirms before a release.
+
+17. **`start(delivering:)` on an already-started source tears the old tap down first.** The policy
+    re-creates by calling `start` once and relies on this rather than calling `stop()` itself, because
+    doing both would second-guess the contract. An adapter that merely overwrote its stored port leaks
+    a `CFMachPort` and a run-loop source and leaves a **second tap installed whose callback still
+    points at the previous context** — a use-after-free on the next keystroke, reached by a caller who
+    did everything the protocol documents. `TapHealthPolicyTests` pins this against the *fake*; the
+    adapter can forget it entirely with the whole suite green.
+
+18. **`resumeDelivery()` reads the result back.** `CGEventTapEnable` returns `Void` and cannot fail
+    loudly, so an adapter that reports `.resumed` because it made the call reports a dead tap as
+    healthy — and the re-creation acceptance H4 requires never happens. Confirm the implementation
+    calls `CGEventTapIsEnabled` afterwards and answers from *that*.
+
+19. **`resumeDelivery()` answers `.failed` when it holds no tap**, and **`isDelivering` answers
+    `false`**. The policy tracks tap existence itself and does not ask without one, so this is
+    defence in depth — which is exactly why it needs confirming rather than assuming: it is the second
+    of the two places "healthy while deaf" could be reached from, and the first one shipped.
+
+20. **`isDelivering` is a question put to the system, never a cached flag.** It is the read the ~1 s
+    health poll is made of, and the whole point of that poll is to find out about a tap that died and
+    told nobody. An adapter answering from a remembered value reports the last thing Vocca was told,
+    which is precisely what the poll exists to bypass.
+
+21. **The disable notifications reach `TapHealthPolicy.tapWasDisabled(_:)`, not the sink.** Routing
+    `kCGEventTapDisabledByTimeout` / `…ByUserInput` into `HotkeyEventSink` ends the session correctly
+    and leaves the tap dead forever — `SessionRules.swift:106-113` names that failure as a sibling of
+    the stuck-microphone bug rather than a lesser cousin. Also confirm the two are **not** collapsed
+    into one call: one means Vocca's own callback was too slow and the other does not.
+
 ### If notarizing
 
 17. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The

@@ -48,7 +48,40 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 210 by hotkey-source phase 3, which added twenty-seven in TapHealthPolicyTests: the policy for a
+# 221 by hotkey-source phase 3 review round 1, which added eleven and fixed a Critical the review
+# demonstrated: **the policy returned `.delivering` with no tap in existence.** After an `arm()` that
+# found no Accessibility grant, a disable notification called `resumeDelivery()` anyway and believed
+# the answer — so the return value said delivering, the health log said `.reenabled`, and every
+# session afterwards started nothing. Both channels wrong in the same call, and it is the exact
+# hazard the class's own `systemDidWake` doc names: healthy while deaf.
+#
+# The root cause was one flag doing two jobs. `isArmed` means *the owner wants a tap*, which survives
+# a failed creation on purpose; there was no field for *a tap exists*, which does not. `aTapExists` is
+# that field, written from one place — the single call to `start(delivering:)` — because two fields
+# with four update sites would be the same defect with more places to hide. The fake now models the
+# same truth (a tap that does not exist cannot be switched on) and the protocol states it, so the
+# decision is above the seam in both halves rather than left for an adapter to invent.
+#
+# The other addition is a **~1 s health poll**, which `spec.md:57` puts in scope and which no phase of
+# the plan had. It is the only thing that catches a tap dying with **no** notification of any kind —
+# measured before it was built: armed, delivering, session in flight, tap dies silently, microphone
+# open and machine `.recording` in *both* activation modes. In toggle that is a two-minute hot mic
+# bounded only by the ceiling, because toggle has no physical-key poll behind it. The policy half is
+# built here; phase 5 owns the timer.
+#
+# It is also the one entry point that does **not** end the session unconditionally, and the test that
+# matters most about it asserts the opposite of its seven siblings: a poll runs once a second for as
+# long as Vocca runs, so a poll applying the class's rule without thinking would cut every session off
+# within a second of starting. Both directions are pinned.
+#
+# Mutation: 34 applied this round, 34 killed, including all four the review found live — the `disarm`
+# ordering hole (a third source call that pumps the run loop, now with a `duringStop` hook, and the
+# hook's own placement pinned so it cannot model nothing), the fake's redundant second copy of one
+# decision (deleted, so there is one copy and deleting it fails four tests), and the two entry-point
+# table mutants that left a method covered twice and another not at all (closed by requiring the eight
+# cases to produce eight distinguishable health logs, which pins `invoke` against `name`).
+#
+# It was 210 after hotkey-source phase 3, which added twenty-seven in TapHealthPolicyTests: the policy for a
 # dying event tap, decided over an injected tap handle with no CGEvent call anywhere in it.
 #
 # H3, H4 and H5 are one test each per branch — a disabled tap ends the in-flight session and is
@@ -271,7 +304,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=210
+MINIMUM_EXECUTED_TESTS=221
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
