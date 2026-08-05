@@ -48,7 +48,27 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 143 by task 7, which put VoccaCore's real work inside the zero-network invariant. The probe now
+# 162 by hotkey-source phase 1, which added nineteen: thirteen in HotkeyFlagTranslationTests for the
+# event-flag translation and the founder's `fn` rule, four in HotkeySeamBoundaryTests for acceptance
+# H7, and two in ModuleBoundaryTests.
+#
+# The two in ModuleBoundaryTests are a *replacement*, not an addition. VoccaHotkey stopped being a
+# leaf module in this commit — it implements a seam VoccaCore owns, so it depends on VoccaCore — and
+# leaving it in `leafModules` while it did so was impossible. Rather than delete the coverage, rule 3
+# restates it with exactly one import exempted, and its positive control runs it against a map that
+# violates it. Measured: with VoccaHotkey importing VoccaAudio, rule 3 fails exactly as rule 2 did.
+#
+# Of the thirteen, one is there because of a mutation that survived the other twelve. Changing
+# `controlBit` from 0x0004_0000 to 0x0004_0001 — a transcription slip, not sabotage — was invisible
+# to a table driven by known-good flag words, because `rawFlags & bit != 0` still matched whenever
+# the real bit was set and nothing in the suite ever set bit 0. Sweeping all 64 bit positions and
+# requiring that exactly six produce anything is what pins the constants. Six further mutations were
+# applied and all six died: a key code dropped from the implicit-`fn` set (3 failures), forward-Delete
+# confused with backspace (5), the `fn` strip made unconditional (12), `kVK_Function` wrongly added to
+# the set (3), an unrecognised bit folded into a modifier (2), and a CGEventFlags type planted in code
+# (H7, 1).
+#
+# It was 143 after task 7, which put VoccaCore's real work inside the zero-network invariant. The probe now
 # drives one complete session — press, three watchdog wakes, release, custody — through the real
 # SessionMachine and SessionWatchdog, and ZeroNetworkTests asserts the post-condition it reports.
 # The added test is the guard on that assertion: the expected post-condition is one string, and
@@ -135,7 +155,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=143
+MINIMUM_EXECUTED_TESTS=162
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -11,19 +11,22 @@ This file orients a coding agent working in this repository. Read it first.
 >   `VoccaBootstrap`. **`VoccaCore` now holds the session-lifecycle machine** — the session
 >   vocabulary, a sealed custody type, a pure decision function, a state machine with a single
 >   custody funnel, a watchdog with a ceiling and physical-key poll, and toggle mode as a second
->   configuration of the same machine — driven end-to-end by the zero-network probe. The other
->   eight modules remain placeholders. **No audio, no hotkey, no ASR, no injection is implemented
->   yet** — the session machine reacts to synthetic key events and an injected clock, not to a real
->   `CGEvent` tap or a real microphone.
+>   configuration of the same machine — driven end-to-end by the zero-network probe. **`VoccaHotkey`
+>   holds one thing: the pure translation from a macOS event-flag word plus a key code into
+>   `ModifierSet`, applying the founder's `fn` rule.** It is the first adapter, so it is the first
+>   module to depend on `VoccaCore` (see `ARCHITECTURE.md` §2 — the graph points inward to the core,
+>   amended in that commit). The other seven modules remain placeholders. **There is still no event
+>   tap, no audio, no ASR and no injection** — the session machine reacts to synthetic key events and
+>   an injected clock, not to a real `CGEvent` tap or a real microphone.
 > - `App/` + `Vocca.xcodeproj`: builds a signed, **unsandboxed, hardened-runtime** `Vocca.app`
 >   with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
 > - `Scripts/`: `dev-identity.sh` (stable self-signed identity so TCC grants survive rebuilds),
 >   `sign.sh`, `notarize.sh`, `test-with-floor.sh`.
-> - `Tests/HarnessTests/`: 143 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 162 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
->   built-bundle/entitlement contracts, and the session machine's own decision-table, mutation, and
->   invariant coverage.
+>   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
+>   invariant coverage, and the hotkey flag translation with its `fn` rule and the H7 seam lint.
 > - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
 >   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
 >   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.

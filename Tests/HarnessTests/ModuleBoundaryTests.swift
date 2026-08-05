@@ -40,12 +40,45 @@ private enum ModuleBoundaryTestError: Error, CustomStringConvertible {
 ///
 /// 1. No leaf module imports `VoccaCore`.
 /// 2. No leaf module imports another leaf module.
-/// 3. `VoccaUI` imports only `VoccaCore` among Vocca modules.
-/// 4. Only `VoccaNetworkProbe` imports `VoccaBootstrap`.
+/// 3. An **adapter** module imports `VoccaCore` and nothing else among Vocca modules.
+/// 4. `VoccaUI` imports only `VoccaCore` among Vocca modules.
+/// 5. Only `VoccaNetworkProbe` imports `VoccaBootstrap`.
+///
+/// ## Why rule 3 exists, and why `VoccaHotkey` moved under it
+///
+/// `ARCHITECTURE.md` used to declare the graph as `VoccaCore → {leaves}` — the core depending on
+/// the leaves — while ``CoreBoundaryTests`` enforces that `VoccaCore` imports **nothing at all**.
+/// Those two were never consistent: the declared arrow could not be realised without an import the
+/// other lint forbids, so it never was. Nobody noticed, because every leaf was a placeholder with
+/// nothing to depend on and nothing to be depended upon.
+///
+/// `hotkey-source` is the first time a leaf has to *implement* a seam the core owns — the flag
+/// translation returns a ``ModifierSet``, and `ModifierSet.swift` pins the founder's decision that
+/// the translation belongs in `VoccaHotkey`. That made the contradiction load-bearing, and it was
+/// resolved in favour of ports-and-adapters: the core owns the seams and imports nothing, adapters
+/// depend on the core to implement them. `VoccaCore` importing an adapter would be the actual
+/// architectural error — it is what would drag `CGEvent` and `AVAudioEngine` into the one module
+/// that must have neither, and make every branch below them untestable forever.
+///
+/// So `VoccaHotkey` is no longer a leaf. It is not thereby *unconstrained*: rule 3 is rule 2 with
+/// exactly one import added, so an adapter importing `VoccaAudio` is still caught — see
+/// ``testTheAdapterRuleDetectsAnAdapterImportingALeafModule``, which proves it against a mutation
+/// rather than asserting it.
+///
+/// `VoccaAudio` will need the same move when `SessionAudioSource` gets a real implementation. It
+/// is deliberately still a leaf today: it imports nothing, so moving it now would loosen a rule
+/// that currently holds for free.
 final class ModuleBoundaryTests: XCTestCase {
     private static let leafModules: Set<String> = [
-        "VoccaAudio", "VoccaHotkey", "VoccaASR", "VoccaText", "VoccaInject", "VoccaSpeech",
+        "VoccaAudio", "VoccaASR", "VoccaText", "VoccaInject", "VoccaSpeech",
     ]
+
+    /// Modules that implement a seam `VoccaCore` owns, and may therefore import it.
+    ///
+    /// Membership is a deliberate, reviewed edit — moving a module here is how a leaf stops being
+    /// bound by rule 1, so it must be visible in a diff rather than inferred from what a module
+    /// happens to import today.
+    private static let adapterModules: Set<String> = ["VoccaHotkey"]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.
     private static let compositionRoot = "VoccaBootstrap"
@@ -59,7 +92,7 @@ final class ModuleBoundaryTests: XCTestCase {
 
     /// Every module directory this task's `Package.swift` is expected to declare. Used to
     /// catch a deleted/renamed module directory passing a rule by absence rather than fact.
-    private static let expectedModules: Set<String> = leafModules.union([
+    private static let expectedModules: Set<String> = leafModules.union(adapterModules).union([
         "VoccaCore", "VoccaUI", compositionRoot, permittedCompositionRootImporter,
     ])
 
@@ -163,6 +196,81 @@ final class ModuleBoundaryTests: XCTestCase {
             Too few: \(Self.permittedCompositionRootImporter) driving \
             AppBootstrap.configure(_:) is what places Vocca's real start-up code inside the \
             zero-network invariant. Without that import there is no coverage of it at all.
+            """)
+    }
+
+    /// The rule itself, as a pure function over an import map, so that it can be shown to reject a
+    /// violation as well as to accept the tree as it stands.
+    ///
+    /// Returns the Vocca modules `imports` names that an adapter is not allowed to name. Only
+    /// `VoccaCore` is permitted, so this is rule 2 with one exemption — not an absence of a rule.
+    private static func adapterImportViolations(
+        imports: Set<String>, amongVoccaModules voccaModules: Set<String>
+    ) -> Set<String> {
+        imports.intersection(voccaModules).subtracting(["VoccaCore"])
+    }
+
+    /// Rule 3 against the real tree.
+    ///
+    /// Asserts membership too. An adapter that imports nothing satisfies the violation check
+    /// vacuously, and an adapter that no longer exists satisfies it even more vacuously — so the
+    /// module directory is required to be present (via ``expectedModules``) and the set of adapters
+    /// is required to be non-empty, or this test is measuring an empty loop.
+    func testAdapterModulesImportOnlyVoccaCoreAmongVoccaModules() throws {
+        let map = try moduleImportMap()
+        let voccaModuleNames = Set(map.keys)
+
+        XCTAssertFalse(
+            Self.adapterModules.isEmpty,
+            "The adapter list is empty, so this rule was evaluated against nothing.")
+
+        for adapter in Self.adapterModules {
+            let imports = map[adapter] ?? []
+            let violations = Self.adapterImportViolations(
+                imports: imports, amongVoccaModules: voccaModuleNames)
+            XCTAssertTrue(
+                violations.isEmpty,
+                """
+                \(adapter) is an adapter: it may import VoccaCore, to implement a seam VoccaCore \
+                owns, and no other Vocca module. Found: \(violations.sorted().joined(separator: ", ")). \
+                Being an adapter lifts rule 1 only — it does not lift rule 2.
+                """)
+        }
+    }
+
+    /// The positive control for rule 3, and the thing that makes moving `VoccaHotkey` out of
+    /// ``leafModules`` a *replacement* of coverage rather than a removal of it.
+    ///
+    /// Rule 2 used to forbid `VoccaHotkey` from importing another leaf. Rule 3 has to still forbid
+    /// it, and a rule that has only ever been run against a tree that satisfies it is a rule nobody
+    /// has watched work. So it is run here against a map that violates it, in both shapes that
+    /// matter: another leaf, and the composition root.
+    func testTheAdapterRuleDetectsAnAdapterImportingALeafModule() {
+        let voccaModules: Set<String> = [
+            "VoccaCore", "VoccaHotkey", "VoccaAudio", "VoccaUI", "VoccaBootstrap",
+        ]
+
+        XCTAssertEqual(
+            Self.adapterImportViolations(
+                imports: ["VoccaCore", "VoccaAudio"], amongVoccaModules: voccaModules),
+            ["VoccaAudio"],
+            "An adapter importing a leaf module must be reported, exactly as rule 2 reported it.")
+
+        XCTAssertEqual(
+            Self.adapterImportViolations(
+                imports: ["VoccaCore", "VoccaBootstrap"], amongVoccaModules: voccaModules),
+            ["VoccaBootstrap"],
+            "An adapter importing the composition root points a dependency backwards.")
+
+        XCTAssertEqual(
+            Self.adapterImportViolations(
+                imports: ["VoccaCore", "Foundation", "CoreGraphics"],
+                amongVoccaModules: voccaModules),
+            [],
+            """
+            System frameworks are not Vocca modules and must not be reported. An adapter exists to \
+            speak to the system; a rule that flagged CoreGraphics here would be deleted within a \
+            week, and rule 3 would go with it.
             """)
     }
 
