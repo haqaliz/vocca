@@ -29,3 +29,7 @@ recordings/
 
 # SDD scratch workspace (ledger, briefs, review packages)
 .superpowers/
+
+# Xcode per-user state, at any depth (the two patterns above miss the nested
+# project.xcworkspace/xcuserdata/ that Xcode creates on first open).
+**/xcuserdata/
