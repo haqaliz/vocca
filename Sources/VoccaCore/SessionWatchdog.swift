@@ -51,9 +51,14 @@ public enum WatchdogPolicy {
     /// and this poll is the only thing that ever sees it. The microphone therefore stays open for up
     /// to one interval after the user has stopped asking for it, and that interval *is* this number.
     ///
+    /// **In toggle mode it is not that number**, because there is no poll there — see
+    /// ``SessionWatchdog/wake()``. A toggle session whose stopping press is lost stays open until the
+    /// ceiling, and quoting this interval as *the* worst-case hot mic would be quoting hold-to-talk's
+    /// figure for a mode that does not have it.
+    ///
     /// **Faster costs battery,** and it costs it during exactly the moments the user is talking: one
-    /// `CGEventSourceKeyState` call plus one timer wake per interval, for the whole session. 150 ms
-    /// is 800 wakes across a full 120 s session.
+    /// `CGEventSourceKeyState` call plus one timer wake per interval, for the whole session — the
+    /// system call being hold-to-talk's alone. 150 ms is 800 wakes across a full 120 s session.
     ///
     /// It is also the ceiling's resolution, because one timer drives both — see
     /// ``SessionWatchdog/wake()``. A 120 s ceiling measured to 150 ms is not a compromise anybody
@@ -229,7 +234,8 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
         machine.observe(event)
     }
 
-    /// One turn of the owner's timer: **look at the key, then look at the clock.**
+    /// One turn of the owner's timer: **look at the key, then look at the clock** — in hold-to-talk.
+    /// In toggle mode there is no key to look at, and the branch below says why at length.
     ///
     /// Exactly one effect comes out, because at most one session can end per wake — once the first
     /// of the two ends it there is nothing left for the second to end.
@@ -266,13 +272,6 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
             // not held is a session that should not be running. The machine decides what to do
             // about the answer — including that `isDown: true` is a no-op — so the poll reports
             // what it read rather than deciding on its way in.
-            //
-            // Switched over the activation mode without a `default:`, and that is the point. Toggle
-            // mode runs its whole session with the key *released*, so applying this rule to it
-            // would end the session on the first wake. `spec.md:77` says stop rules (d)–(f) still
-            // apply in toggle mode; (d) and (e) do, and (f) is the one that has to be re-decided.
-            // When `.toggle` becomes constructible this line stops compiling, which is where that
-            // decision gets made.
             let polled = machine.observePhysicalKey(
                 isDown: keyState.isKeyDown(machine.configuration.keyCode))
 
@@ -287,6 +286,40 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
                 // that leaves the microphone open.
                 return machine.tick()
             }
+
+        case .toggle:
+            // **Rule (f) is not applied, and nothing replaces it.** A toggle session runs with the
+            // key released for its whole life, so `isKeyDown` answers `false` on the first wake,
+            // 150 ms after the user started talking. Stop rule (f) would not be a weaker guarantee
+            // in this mode; it would be a session that cannot happen at all.
+            //
+            // Nothing replaces it because there is nothing at this seam to replace it *with*, and
+            // that is structural rather than an omission. Rule (f) works in hold-to-talk because
+            // the condition the session continues under — "the key is held" — is a state of the
+            // world, and `CGEventSourceKeyState` reads that state without going through the tap. A
+            // toggle session continues under "the user has not pressed again", which is not a state
+            // of anything: it is the absence of a future event, and no poll can read an absence.
+            //
+            // Detecting the *press* instead was considered and rejected. It needs an edge, this
+            // seam offers a level, and reconstructing an edge from 150 ms samples misses an
+            // ordinary 60 ms tap outright — while `isKeyDown(_:)` carries no modifiers, so every
+            // bare press of the hotkey's key code would read as a toggle-off. A mechanism that
+            // fires late, sometimes, and stops sessions nobody ended is worse than none, because
+            // the hot-mic bound would then be quoted from it.
+            //
+            // So what is left bounding a toggle session is: this ceiling, `.tapDisabled`, the five
+            // system triggers, cancellation, and the user's own next press. The ceiling is the only
+            // *unconditional* one, which makes it load-bearing here rather than a backstop —
+            // `SessionWatchdogTests` measures the difference (one poll interval against the full
+            // ceiling) side by side rather than restating it, and the widget's
+            // ``ceilingIsNear`` warning is the user-facing half of the same fact.
+            //
+            // The cadence is unchanged and deliberately so, even though this branch makes no system
+            // call: ``SessionMachine/elapsed`` only advances when someone ticks, and the widget
+            // renders both the elapsed time and the warning from it. A slower toggle timer would
+            // buy battery the poll was already paying for and spend it on a stuttering clock in
+            // front of the user.
+            return machine.tick()
         }
     }
 

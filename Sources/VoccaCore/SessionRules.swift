@@ -45,6 +45,14 @@
 /// event already carries the complete current modifier state. That is also what makes stop rule (c)
 /// free.
 ///
+/// ## Two modes, one function
+///
+/// ``HotkeyConfiguration/Activation`` branches once, at the top, into ``holdToTalkDecision(_:state:config:)``
+/// and ``toggleDecision(_:state:config:)``. The **start rule is identical** in both — same key, same
+/// exact chord, same autorepeat exclusion, same `.idle` requirement — and everything below this
+/// heading describes hold-to-talk, which is the mode with more rules. Toggle's are on its own
+/// function, and the ways the two differ are argued there.
+///
 /// ## The rules
 ///
 /// **Start** — `.keyDown` on the configured key, carrying **exactly** the configured modifiers, not
@@ -104,7 +112,7 @@
 /// Re-enabling the tap belongs to `hotkey-source`, unconditionally and independently of whatever
 /// this function returns.
 ///
-/// ## What gets swallowed
+/// ## What gets swallowed, in hold-to-talk
 ///
 /// Independent of the action, and narrow. Vocca swallows the key-down that starts a session, and
 /// thereafter the key events for **its own key** while a session is in flight — the focused app
@@ -152,14 +160,16 @@ public func decide(
     switch config.activation {
     case .holdToTalk:
         return holdToTalkDecision(event, state: state, config: config)
+    case .toggle:
+        return toggleDecision(event, state: state, config: config)
     }
 }
 
-/// Hold-to-talk, which is every mode there is today.
+/// Hold-to-talk: the session lasts as long as the key is held.
 ///
-/// Split from ``decide(_:state:config:)`` so that the mode switch above stays a single, obvious
-/// line: when toggle mode arrives it fails to compile there, next to the one other implementation,
-/// rather than somewhere in the middle of a rule table.
+/// Split from ``decide(_:state:config:)`` so that the mode switch above stays two obvious lines
+/// rather than a rule table with a mode threaded through it. A third mode fails to compile there,
+/// next to these two.
 private func holdToTalkDecision(
     _ event: RawKeyEvent, state: SessionState, config: HotkeyConfiguration
 ) -> Decision {
@@ -254,4 +264,112 @@ private func holdToTalkDecision(
     return Decision(
         action: action,
         eventPropagation: startsASession || claimsThisEvent ? .swallow : .passThrough)
+}
+
+/// Toggle: one press starts the session, the next press ends it.
+///
+/// `PRODUCT_SPEC.md:257` calls this a real accessibility need rather than a preference, and that is
+/// the frame for every decision below: the mode has to be *safe*, and it must not be made worse to
+/// use in order to get there.
+///
+/// ## The whole rule, in one predicate
+///
+/// A toggle gesture is a `.keyDown` on the configured key, carrying **exactly** the configured
+/// modifiers, that macOS did not mark as an autorepeat. That is the same predicate the start rule
+/// uses in both modes; the only thing that differs between starting and stopping is the state it
+/// arrives in. Toggle is genuinely one rule read twice, and writing it as one is what keeps the two
+/// halves from drifting — a stop predicate looser than the start predicate would end sessions on
+/// presses that could never have begun one.
+///
+/// **The chord is compared for equality, not containment, and that is not inherited carelessly from
+/// the start rule.** Containment on the stop side is right for hold-to-talk, where the question is
+/// *"is the user still holding what they pressed?"*; here the question is *"which binding did the
+/// user just press?"*, which is the starting question and must be unambiguous for the same reason.
+/// `PRODUCT_SPEC.md:127` binds `⌥Space` to dictate and `⌥⇧Space` to converse: under containment,
+/// pressing the converse hotkey would end a running dictate session, which is implicit mode
+/// switching by another route. Locks are masked from both sides first, so a toggle session still
+/// starts and stops with Caps Lock on.
+///
+/// ## What is not here, and what it costs
+///
+/// Stop rules (a) key-up, (b) modifier released and (c) any event that lost the chord are all
+/// **replaced** by the gesture above. The user's finger is off the key for the whole session — that
+/// is the point of the mode — so a rule that ends the session when the key comes up would end it on
+/// the key-up of the very press that started it, and a rule that ends it when the modifiers drop
+/// would end it a few milliseconds later.
+///
+/// Rule (d), the tap dying, still applies and is checked first for the same reason as in
+/// hold-to-talk: such an event's modifier flags mean nothing. Rules (e) the ceiling and the system
+/// triggers are not decided here in either mode. **Rule (f), the physical-key poll, does not exist
+/// in toggle mode at all** — see ``SessionWatchdog/wake()``, which is where that is decided and
+/// where the cost of it is written down.
+///
+/// So a toggle session that loses its stopping press has no out-of-band evidence to recover it, and
+/// what bounds it is the ceiling. That is a real reduction against hold-to-talk's one poll interval,
+/// it is measured rather than asserted in `SessionWatchdogTests`, and it is the reason a toggle
+/// session's ceiling is load-bearing rather than a backstop.
+///
+/// ## What gets swallowed, in toggle
+///
+/// **The two gestures, and nothing else.** Between them the hotkey's key code belongs to the user:
+/// with `⌥Space` bound, a bare Space typed during a toggle session is a space, and a claim that
+/// covered the whole session would leave that user with a dead Space bar for two minutes at a time.
+///
+/// That leaves the key-ups of the two presses Vocca *did* swallow, and this function deliberately
+/// does not try to catch them. Which key-ups are Vocca's is a fact about *which presses it
+/// swallowed* — a fact about the session, not about the event in hand — and ``SessionMachine``
+/// already carries exactly that fact and applies it to key-downs and key-ups alike. Guessing at it
+/// here from `state` would get the starting press's key-up right (`.recording`) and the stopping
+/// press's wrong (`.idle` by then), which is worse than not guessing. `SessionMachineTests` pins the
+/// whole-cycle result: the focused application receives no event at all for either press.
+private func toggleDecision(
+    _ event: RawKeyEvent, state: SessionState, config: HotkeyConfiguration
+) -> Decision {
+    // The prohibition, as in hold-to-talk: read from the event in hand, never from anything
+    // remembered. Locks masked from both sides first; see `ModifierSet.locking`.
+    let heldChord = event.modifiers.subtracting(.locking)
+    let requiredChord = config.modifiers.subtracting(.locking)
+
+    // Switched rather than compared with `==`, so a fifth event kind has to state whether it can be
+    // the gesture instead of inheriting `false` from a comparison nobody revisits.
+    let isTheToggleGesture: Bool
+    switch event.kind {
+    case .keyDown:
+        isTheToggleGesture =
+            event.keyCode == config.keyCode && heldChord == requiredChord && !event.isAutorepeat
+    case .keyUp, .flagsChanged, .tapDisabled:
+        isTheToggleGesture = false
+    }
+
+    let action: Decision.Action
+    switch state {
+    case .idle:
+        // Including `.tapDisabled`: there is no session to stop, and re-arming the tap is
+        // `hotkey-source`'s unconditionally — see the note on the enclosing function.
+        action = isTheToggleGesture ? .start : .ignore
+
+    case .recording:
+        switch event.kind {
+        case .tapDisabled:
+            // Rule (d), first, and in toggle it matters more than it does in hold-to-talk: with the
+            // poll gone this is the only stop that a *dead tap* can still deliver, and every other
+            // rule left in this mode needs a key event that can no longer arrive.
+            action = .stop(.retained(.tapDisabled))
+        case .keyDown:
+            action = isTheToggleGesture ? .stop(.retained(.toggledOff)) : .ignore
+        case .keyUp, .flagsChanged:
+            // Rules (a), (b) and (c), deliberately absent. The key is up for the whole session.
+            action = .ignore
+        }
+
+    case .ending:
+        // As in hold-to-talk: the previous session's audio is still on its way downstream, so
+        // nothing starts and nothing ends. The press is still swallowed below — it is Vocca's
+        // gesture, and eating it costs the user one more press where passing it through would put a
+        // character in their document.
+        action = .ignore
+    }
+
+    return Decision(
+        action: action, eventPropagation: isTheToggleGesture ? .swallow : .passThrough)
 }

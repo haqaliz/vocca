@@ -82,8 +82,24 @@ implementation caught it. A toggle session runs with the key *released* for its 
 poll that ends the session on "the key is up" would end it on the first wake, 150 ms after it
 started. Task 5 therefore placed the poll inside a `switch` on the activation mode with no
 `default:`, so the file stops compiling at the line that must be re-decided the moment `.toggle`
-becomes constructible. Task 6 must decide what, if anything, replaces (f) for toggle — the ceiling
-is the only unconditional backstop it inherits.
+becomes constructible.
+
+**Task 6's answer: nothing replaces it, and the reason is structural rather than an omission.**
+Rule (f) works in hold-to-talk because the condition a session continues under — *"the key is
+held"* — is a state of the world, which `CGEventSourceKeyState` reads out of band, past the tap
+that failed. A toggle session continues under *"the user has not pressed again"*, which is not a
+state of anything: it is the absence of a future event, and no poll can read an absence. Detecting
+the *press* instead was considered and rejected — the seam offers a level and that needs an edge,
+150 ms sampling misses an ordinary 60 ms tap outright, and `isKeyDown(_:)` carries no modifiers, so
+every bare press of the hotkey's key code would read as a toggle-off.
+
+So a toggle session is bounded by: the **ceiling**, `.tapDisabled`, the five system triggers,
+cancellation, and the user's next press. Only the ceiling is unconditional, which makes it
+load-bearing here rather than a backstop. **The cost is measured, not asserted**: the same accident
+— the user asks to stop and Vocca never hears it — costs **one poll interval (150 ms) in
+hold-to-talk and the remainder of the ceiling in toggle** (105 s from a press at t=15 s), pinned
+side by side in `SessionWatchdogTests`. The compensating control the user actually sees is the
+widget's ceiling warning at ceiling − 10 s, which is derived and therefore fires in both modes.
 
 ### Watchdog policy
 Owned here as **policy**; the physical-key read itself is injected (it is a system call, and

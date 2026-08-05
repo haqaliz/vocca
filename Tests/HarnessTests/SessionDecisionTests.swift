@@ -57,6 +57,20 @@ private let twoModifier = HotkeyConfiguration(
 private let converse = HotkeyConfiguration(
     keyCode: space, modifiers: [.option, .shift], activation: .holdToTalk)
 
+/// The same four bindings again, in toggle mode.
+///
+/// Deliberately the *same* key codes and modifier sets, so that every difference the toggle tests
+/// find is a difference of mode and not of binding — and so that the collision `converse` exists to
+/// pin (`⌥Space` dictate against `⌥⇧Space` converse) is reachable in toggle too, where it is the
+/// argument for comparing the stopping chord by equality.
+private let toggleChord = HotkeyConfiguration(
+    keyCode: space, modifiers: [.option], activation: .toggle)
+private let toggleBareKey = HotkeyConfiguration(keyCode: 105, modifiers: [], activation: .toggle)
+private let toggleTwoModifier = HotkeyConfiguration(
+    keyCode: space, modifiers: [.control, .option], activation: .toggle)
+private let toggleConverse = HotkeyConfiguration(
+    keyCode: space, modifiers: [.option, .shift], activation: .toggle)
+
 private func event(
     _ kind: RawKeyEvent.Kind, _ keyCode: UInt16, _ modifiers: ModifierSet,
     autorepeat: Bool = false, at milliseconds: Int = 0
@@ -784,6 +798,325 @@ final class SessionDecisionTests: XCTestCase {
             ignoreSwallowing)
     }
 
+    // MARK: - Toggle mode
+
+    private func decideToggle(_ event: RawKeyEvent, _ state: SessionState) -> Decision {
+        decide(event, state: state, config: toggleChord)
+    }
+
+    /// The mode, in the gesture a user makes: press, talk with the key released, press again.
+    ///
+    /// Two full cycles, because one cycle cannot tell "the second press ends it" from "the machine
+    /// only ever runs one session" — and the key-up of each press is delivered in its proper place,
+    /// since in toggle mode the key comes up immediately and the session has to survive it.
+    func testAToggleSessionStartsAndStopsOnSuccessiveMatchingKeyDowns() {
+        for handoffEvents in [0, 1, 3] {
+            var driver = SessionDriver(handoffEvents: handoffEvents)
+
+            XCTAssertEqual(
+                driver.feed(event(.keyDown, space, [.option], at: 0), using: decideToggle), start,
+                "handoff=\(handoffEvents): the toggle-on press must start a session.")
+            XCTAssertEqual(
+                driver.feed(event(.keyUp, space, [.option], at: 60), using: decideToggle),
+                ignorePassing,
+                """
+                handoff=\(handoffEvents): the key-up of the starting press ended the toggle \
+                session. In toggle mode the user's finger comes off the key immediately and stays \
+                off — a session that cannot survive its own key-up is a mode that does not work.
+                """)
+            XCTAssertEqual(driver.state, .recording)
+
+            // Seconds of speech with nothing held.
+            driver.feed(
+                [
+                    event(.flagsChanged, 0, [], at: 100),
+                    event(.keyDown, letterA, [], at: 4_000),
+                    event(.keyUp, letterA, [], at: 4_050),
+                ], using: decideToggle)
+            XCTAssertEqual(
+                driver.state, .recording,
+                "handoff=\(handoffEvents): an ordinary keystroke ended the toggle session.")
+
+            XCTAssertEqual(
+                driver.feed(event(.keyDown, space, [.option], at: 9_000), using: decideToggle),
+                stop(.toggledOff, .swallow),
+                """
+                handoff=\(handoffEvents): the second press must end the session as .toggledOff — \
+                not as .keyUp, which would file a key-*down* under the name of a key-up in the one \
+                log anybody gets to read.
+                """)
+            driver.feed(event(.keyUp, space, [.option], at: 9_060), using: decideToggle)
+
+            // Drain the handoff: `.ending` lasts `handoffEvents` events and the key-up above was
+            // the first of them, so this is the remainder.
+            for filler in 0..<max(0, handoffEvents - 1) {
+                driver.feed(event(.keyDown, letterA, [], at: 10_000 + filler), using: decideToggle)
+            }
+            XCTAssertEqual(
+                driver.state, .idle,
+                "handoff=\(handoffEvents): the handoff never finished, so the second cycle below "
+                    + "would be testing `.ending` rather than a fresh session.")
+
+            // And again, from idle: the mode is a cycle, not a one-shot.
+            driver.feed(
+                [
+                    event(.keyDown, space, [.option], at: 20_000),
+                    event(.keyUp, space, [.option], at: 20_060),
+                    event(.keyDown, space, [.option], at: 30_000),
+                    event(.keyUp, space, [.option], at: 30_060),
+                ], using: decideToggle)
+
+            XCTAssertEqual(driver.starts, 2, "handoff=\(handoffEvents)")
+            XCTAssertEqual(
+                driver.stops, [.retained(.toggledOff), .retained(.toggledOff)],
+                "handoff=\(handoffEvents): got \(driver.stops).")
+            XCTAssertFalse(
+                driver.isStuck, "handoff=\(handoffEvents): the microphone was left open.")
+        }
+    }
+
+    /// Stop rules (a), (b) and (c) are **replaced**, not inherited — with the control that proves
+    /// the sequence really is a stop somewhere.
+    ///
+    /// Each event below ends a hold-to-talk session, and the same event through the same driver
+    /// must leave a toggle session recording. Running both halves is what makes this a measurement:
+    /// asserting only that toggle ignored them would pass just as well for a decider that ignores
+    /// everything.
+    func testTheKeyUpAndModifierStopRulesAreReplacedInToggleModeNotInherited() {
+        let stoppers: [(String, RawKeyEvent, RetainedEndReason)] = [
+            ("(a) the key-up of the starting press", event(.keyUp, space, [.option]), .keyUp),
+            ("(b) the modifier released", event(.flagsChanged, 0, []), .modifierReleased),
+            ("(c) any event that lost the chord", event(.keyDown, letterA, []), .modifierReleased),
+            ("(a)+(c) a key-up reporting no modifiers", event(.keyUp, space, []), .keyUp),
+        ]
+
+        for (label, stopper, reason) in stoppers {
+            // The control: hold-to-talk, same event, same state.
+            XCTAssertEqual(
+                decide(stopper, state: .recording, config: chord).action, .stop(.retained(reason)),
+                """
+                \(label) no longer ends a hold-to-talk session, so the toggle half of this test is \
+                comparing against nothing.
+                """)
+
+            var driver = SessionDriver()
+            driver.feed(event(.keyDown, space, [.option], at: 0), using: decideToggle)
+            let decision = driver.feed(stopper, using: decideToggle)
+
+            XCTAssertEqual(
+                decision.action, .ignore,
+                "\(label) ended a toggle session. It is a hold-to-talk rule and toggle replaced it.")
+            XCTAssertEqual(driver.state, .recording, label)
+            XCTAssertEqual(driver.stops, [], label)
+        }
+    }
+
+    /// The stopping press is matched by **equality** on the chord, exactly as the starting press is.
+    ///
+    /// `PRODUCT_SPEC.md:127` binds `⌥Space` to dictate and `⌥⇧Space` to converse. Containment on the
+    /// stop side — which is right for hold-to-talk, where the question is whether the user is still
+    /// holding what they pressed — would mean pressing the converse hotkey silently ends a running
+    /// dictate session. That is implicit mode switching by another route, and the spec's "no
+    /// implicit mode switching, ever" is what rules it out.
+    func testToggleOffRequiresTheExactChordSoTheConverseBindingDoesNotEndADictateSession() {
+        var dictate = SessionDriver()
+        dictate.feed(event(.keyDown, space, [.option], at: 0), using: decideToggle)
+        XCTAssertEqual(dictate.state, .recording)
+
+        XCTAssertEqual(
+            dictate.feed(event(.keyDown, space, [.option, .shift], at: 500), using: decideToggle),
+            ignorePassing,
+            """
+            The converse binding's press ended a dictate session. Under containment ⌥⇧Space matches \
+            ⌥Space, and the mode the user is in changes without them asking.
+            """)
+        XCTAssertEqual(dictate.state, .recording)
+
+        // Nor the other way about: a dictate press must not end a converse session.
+        var converseDriver = SessionDriver()
+        let decideConverse: (RawKeyEvent, SessionState) -> Decision = {
+            decide($0, state: $1, config: toggleConverse)
+        }
+        converseDriver.feed(event(.keyDown, space, [.option, .shift], at: 0), using: decideConverse)
+        XCTAssertEqual(converseDriver.state, .recording)
+        XCTAssertEqual(
+            converseDriver.feed(event(.keyDown, space, [.option], at: 500), using: decideConverse),
+            ignorePassing, "A dictate press ended a converse session.")
+        XCTAssertEqual(converseDriver.state, .recording)
+
+        // Half a two-modifier chord is not the chord either, in either direction.
+        var half = SessionDriver()
+        let decideTwo: (RawKeyEvent, SessionState) -> Decision = {
+            decide($0, state: $1, config: toggleTwoModifier)
+        }
+        half.feed(event(.keyDown, space, [.control, .option], at: 0), using: decideTwo)
+        XCTAssertEqual(
+            half.feed(event(.keyDown, space, [.option], at: 500), using: decideTwo), ignorePassing,
+            "Half the configured chord toggled a session off. The chord is matched as a whole.")
+        XCTAssertEqual(half.state, .recording)
+
+        // And Caps Lock is still masked, in both directions, exactly as it is for starting.
+        var locked = SessionDriver()
+        locked.feed(event(.keyDown, space, [.option, .capsLock], at: 0), using: decideToggle)
+        XCTAssertEqual(
+            locked.starts, 1, "Caps Lock stopped a toggle session from starting.")
+        XCTAssertEqual(
+            locked.feed(event(.keyDown, space, [.option, .capsLock], at: 500), using: decideToggle),
+            stop(.toggledOff, .swallow),
+            "Caps Lock stopped a toggle session from being toggled off — a dead hotkey until the "
+                + "user notices the light.")
+    }
+
+    /// **The key is held down for a moment, so macOS repeats it.** Neither press may be doubled.
+    ///
+    /// A toggle-on press held for half a second produces a stream of repeats, and a stop rule
+    /// without the autorepeat exclusion turns the first of them into a toggle-off — a session that
+    /// ends roughly 500 ms after it starts, every time, for a user who does not tap crisply. That is
+    /// the accessibility case this mode exists for, so it is the case most likely to hit it.
+    func testAutorepeatOfTheHeldToggleKeyNeitherRestartsNorEndsTheSession() {
+        var driver = SessionDriver()
+        driver.feed(event(.keyDown, space, [.option], at: 0), using: decideToggle)
+
+        for repeatIndex in 1...40 {
+            let decision = driver.feed(
+                event(.keyDown, space, [.option], autorepeat: true, at: 500 + repeatIndex * 30),
+                using: decideToggle)
+            XCTAssertEqual(
+                decision, ignorePassing,
+                """
+                Autorepeat #\(repeatIndex) of the held toggle-on key must change nothing. Ending on \
+                one cuts the user off half a second into every session; starting on one is the \
+                double-start bug.
+                """)
+        }
+        driver.feed(event(.keyUp, space, [.option], at: 2_000), using: decideToggle)
+
+        XCTAssertEqual(driver.starts, 1)
+        XCTAssertEqual(driver.stops, [])
+        XCTAssertTrue(driver.isStuck, "The session must still be running; only a press ends it.")
+
+        // Repeats in `.idle` start nothing either — the tail of a press whose session already ended.
+        var idle = SessionDriver()
+        for repeatIndex in 0..<10 {
+            idle.feed(
+                event(.keyDown, space, [.option], autorepeat: true, at: repeatIndex * 30),
+                using: decideToggle)
+        }
+        XCTAssertEqual(idle.starts, 0)
+    }
+
+    /// **In toggle mode, almost every event legitimately leaves the microphone open — and that is
+    /// the finding, not a gap in the sweep.**
+    ///
+    /// The hold-to-talk twin of this test (``testNoSingleEventCanLeaveTheMicrophoneOpen``) can
+    /// assert that four separate rules catch a user who stopped asking. Toggle has two: the user's
+    /// own second press, and a dead tap. Everything else — the key-up, the modifiers dropping, a
+    /// keystroke in another application — is a session that goes on running, correctly, because the
+    /// user asked for it to.
+    ///
+    /// So the assertion is exact in **both** directions over the whole input space: those two stop,
+    /// and nothing else does. A rule quietly added to toggle (a poll's release, a modifier drop
+    /// inherited from hold-to-talk) fails here by name, and so does one quietly removed.
+    func testInToggleModeExactlyTwoEventsEndARecordingSessionAndNothingElseDoes() {
+        var stopping: Set<String> = []
+        var running = 0
+
+        for testCase in Self.wholeInputSpace(configurations: Self.toggleConfigurations)
+        where testCase.state == .recording {
+            let event = testCase.event
+            let config = testCase.config
+            // Derived from the meaning of the rule, not from the implementation's expressions.
+            let isTheGesture =
+                event.kind == .keyDown && event.keyCode == config.keyCode
+                && Self.chordRelation(event: event, config: config) == .exact && !event.isAutorepeat
+
+            let expected: RetainedEndReason?
+            switch event.kind {
+            case .tapDisabled: expected = .tapDisabled
+            case .keyDown: expected = isTheGesture ? .toggledOff : nil
+            case .keyUp, .flagsChanged: expected = nil
+            }
+
+            let action = decide(event, state: .recording, config: config).action
+            switch (expected, action) {
+            case (let expected?, .stop(.retained(let reason))):
+                stopping.insert(expected == .tapDisabled ? "d/tapDisabled" : "toggledOff")
+                XCTAssertEqual(reason, expected, "\(event.kind) key \(event.keyCode)")
+            case (nil, .ignore):
+                running += 1
+            case (nil, .stop(let reason)):
+                return XCTFail(
+                    """
+                    A toggle session was ended by \(event.kind), key \(event.keyCode), modifiers \
+                    \(event.modifiers.rawValue), repeat \(event.isAutorepeat), as \(reason). Toggle \
+                    replaced rules (a), (b) and (c); a session that ends on one of them ends while \
+                    the user is still talking.
+                    """)
+            case (_?, _), (nil, .start):
+                return XCTFail(
+                    """
+                    Expected \(String(describing: expected)) for \(event.kind), key \
+                    \(event.keyCode), modifiers \(event.modifiers.rawValue); got \(action). The \
+                    microphone is open with nothing left to close it but the ceiling.
+                    """)
+            }
+        }
+
+        XCTAssertEqual(
+            stopping, ["d/tapDisabled", "toggledOff"],
+            "The input space stopped exercising one of the two rules that can end a toggle session.")
+        XCTAssertGreaterThan(
+            running, 0, "No cell left a toggle session running, so the sweep asserted nothing.")
+    }
+
+    /// **The gesture is the only thing swallowed in toggle mode, and nothing else is.**
+    ///
+    /// The blast radius is the whole keyboard: `hotkey-source` delivers every key event the user
+    /// makes to these rules, so a propagation mistake in this mode is not an edge case but every
+    /// keystroke in every application. And toggle is where it is easiest to make — the obvious
+    /// reading of "Vocca owns its hotkey while a session is in flight" claims the key for the whole
+    /// session, which in toggle means a dead Space bar for two minutes at a time rather than for as
+    /// long as a finger rests on it.
+    func testOnlyTheToggleGestureIsSwallowedInToggleMode() {
+        var swallowed = 0
+        var passed = 0
+
+        for testCase in Self.wholeInputSpace(configurations: Self.toggleConfigurations) {
+            let event = testCase.event
+            let config = testCase.config
+            let isTheGesture =
+                event.kind == .keyDown && event.keyCode == config.keyCode
+                && Self.chordRelation(event: event, config: config) == .exact && !event.isAutorepeat
+
+            let propagation = decide(
+                event, state: testCase.state, config: config
+            ).eventPropagation
+            if isTheGesture {
+                swallowed += 1
+                XCTAssertEqual(
+                    propagation, .swallow,
+                    """
+                    The toggle gesture reached the focused application in \(testCase.state) — a \
+                    character typed into the field the transcript is about to be injected into, \
+                    every time the user starts or stops dictating.
+                    """)
+            } else {
+                passed += 1
+                XCTAssertEqual(
+                    propagation, .passThrough,
+                    """
+                    \(event.kind), key \(event.keyCode), modifiers \(event.modifiers.rawValue), \
+                    repeat \(event.isAutorepeat), state \(testCase.state) was swallowed in toggle \
+                    mode. Every key the user types passes through these rules; anything eaten here \
+                    is eaten in every application for as long as Vocca runs.
+                    """)
+            }
+        }
+
+        XCTAssertGreaterThan(swallowed, 0, "No cell was swallowed, so the first branch is vacuous.")
+        XCTAssertGreaterThan(passed, 0, "No cell passed through, so the second branch is vacuous.")
+    }
+
     // MARK: - Purity
 
     /// Same inputs, same output — across 10,000 randomised events, and independent of the order
@@ -854,7 +1187,7 @@ final class SessionDecisionTests: XCTestCase {
                     timestamp: .milliseconds(index * 40))
                 return testCase.event
             }
-            let config = Self.configurations[run % Self.configurations.count]
+            let config = Self.everyConfiguration[run % Self.everyConfiguration.count]
             let decider: (RawKeyEvent, SessionState) -> Decision = {
                 decide($0, state: $1, config: config)
             }
@@ -892,22 +1225,30 @@ final class SessionDecisionTests: XCTestCase {
 
     // MARK: - The reasons this function does not own
 
-    /// `decide` produces exactly three reasons, and the other five come from somewhere else.
+    /// `decide` produces exactly four reasons across both modes, and the rest come from somewhere
+    /// else.
     ///
-    /// The ceiling (e) and the poll (f) have no `RawKeyEvent` representation at all — task 4 fires
-    /// them from the clock and the physical-key read, and routes them through the same stop funnel.
-    /// `.toggledOff` is task 6's. `.systemEvent` and `.userCancelled` arrive on their own paths.
-    /// Asserting the vocabulary here is what keeps a future edit from inventing a key event that
-    /// claims to be a ceiling expiry — which would put a timing decision inside a function with no
-    /// clock, where it could never be tested.
+    /// The ceiling (e) and the poll (f) have no `RawKeyEvent` representation at all — they are fired
+    /// from the clock and the physical-key read and routed through the same stop funnel.
+    /// `.systemEvent` and `.userCancelled` arrive on their own paths. Asserting the vocabulary here
+    /// is what keeps a future edit from inventing a key event that claims to be a ceiling expiry —
+    /// which would put a timing decision inside a function with no clock, where it could never be
+    /// tested.
+    ///
+    /// `.toggledOff` moved across this line when toggle mode shipped, and `.pollDetectedRelease` did
+    /// not move the other way: rule (f) is still a real rule, in one of the two modes. The sweep
+    /// covers both modes, so a `.toggledOff` produced from a hold-to-talk configuration — or a
+    /// `.keyUp` produced from a toggle one — fails here.
     func testDecideNeverProducesAReasonItDoesNotOwn() {
         var produced: Set<RetainedEndReason> = []
+        var producedByMode: [HotkeyConfiguration.Activation: Set<RetainedEndReason>] = [:]
         var cancellations = 0
 
-        for testCase in Self.wholeInputSpace() {
+        for testCase in Self.wholeInputSpace(configurations: Self.everyConfiguration) {
             switch decide(testCase.event, state: testCase.state, config: testCase.config).action {
             case .stop(.retained(let reason)):
                 produced.insert(reason)
+                producedByMode[testCase.config.activation, default: []].insert(reason)
             case .stop(.userCancelled):
                 cancellations += 1
             case .start, .ignore:
@@ -916,15 +1257,30 @@ final class SessionDecisionTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            produced, [.keyUp, .modifierReleased, .tapDisabled],
+            produced, [.keyUp, .modifierReleased, .tapDisabled, .toggledOff],
             """
-            decide's reason vocabulary changed. It owns (a), (b)/(c) and (d); the ceiling, the \
-            poll, toggle-off, the system triggers and cancellation are decided elsewhere and \
-            merely travel through `Decision`.
+            decide's reason vocabulary changed. Across both modes it owns (a), (b)/(c), (d) and \
+            toggle-off; the ceiling, the poll, the system triggers and cancellation are decided \
+            elsewhere and merely travel through `Decision`.
             """)
         XCTAssertEqual(
             cancellations, 0,
             "A key event produced .userCancelled — the one reason permitted to discard audio.")
+
+        // And the split between the modes, which the union above cannot see. A hold-to-talk
+        // configuration producing `.toggledOff` — or a toggle one producing `.keyUp` — is a mode
+        // inheriting the other's rules, which is the whole failure this task's exhaustive switches
+        // exist to make impossible.
+        XCTAssertEqual(
+            producedByMode[.holdToTalk], [.keyUp, .modifierReleased, .tapDisabled],
+            "Hold-to-talk's reason vocabulary changed; toggle's stop is not one of its rules.")
+        XCTAssertEqual(
+            producedByMode[.toggle], [.toggledOff, .tapDisabled],
+            """
+            Toggle's reason vocabulary changed. It owns exactly two: the next matching key-down, \
+            and the tap dying. (a), (b) and (c) are replaced — a toggle session ending on a key-up \
+            ends while the user is still talking.
+            """)
 
         // The complement, named rather than implied: exactly which reasons must come from
         // somewhere else. Derived from `RetainedEndReason.allCases`, so it fails from either side
@@ -940,13 +1296,13 @@ final class SessionDecisionTests: XCTestCase {
         XCTAssertEqual(
             ownedElsewhere,
             Set(
-                [.ceilingReached, .pollDetectedRelease, .toggledOff]
+                [.ceilingReached, .pollDetectedRelease]
                     + SystemTrigger.allCases.map(RetainedEndReason.systemEvent)),
             """
             The split between the reasons decide owns and the reasons it does not has moved. \
-            (e) ceiling and (f) poll are task 4's — one is a clock reading and the other a \
-            physical-key read, and neither has a RawKeyEvent to be decided from. .toggledOff is \
-            task 6's. The system triggers arrive on their own path.
+            (e) ceiling and (f) poll belong to the session machine — one is a clock reading and the \
+            other a physical-key read, and neither has a RawKeyEvent to be decided from. The system \
+            triggers arrive on their own path.
             """)
     }
 
@@ -972,20 +1328,6 @@ final class SessionDecisionTests: XCTestCase {
     ///   settled truths. The `.ending` key-up rows are the live example: see `SessionRules.swift`,
     ///   "What gets swallowed", and the plan's Phase 4.
     func testTheWholeInputSpaceMatchesTheTruthTable() {
-        let inputSpace = Self.wholeInputSpace()
-        XCTAssertEqual(
-            inputSpace.count, 4 * 3 * 9 * 2 * 3 * 4,
-            "The enumeration lost a dimension; it is no longer exhaustive over the inputs.")
-
-        let table = Self.parsedTruthTable()
-        XCTAssertEqual(
-            table.count, 144,
-            """
-            The truth table is not 3 states × 4 kinds × 2 key matches × 3 chord relations × 2 \
-            autorepeat values = 144 rows. A missing row is a cell with no expectation; a duplicate \
-            is two expectations for one cell.
-            """)
-
         // Round 2 finding N1. These reduce the *same arrays the derivation uses* — the previous
         // version reduced a duplicate literal declared here, so four of six modifiers could be
         // deleted from the derivation with the suite green. Verified by the reviewer.
@@ -1014,6 +1356,65 @@ final class SessionDecisionTests: XCTestCase {
             Self.configurations.contains { $0.modifiers.contains(.shift) },
             "No configuration binds Shift, so the derivation's Shift branch is never exercised.")
 
+        sweep(Self.configurations, against: Self.truthTable, named: "hold-to-talk")
+    }
+
+    /// The same sweep, over the same input space, against **toggle mode's own 144 rows.**
+    ///
+    /// A separate table rather than a mode column on the existing one, because the modes are
+    /// separate policies: a row written into the wrong half of a combined table reads as a
+    /// deliberate difference between the modes, which is exactly the mistake that would be
+    /// invisible. Two tables disagree loudly instead.
+    ///
+    /// Read against `spec.md:74-86` by eye. Every `recording` row that is not the gesture and not a
+    /// dead tap says `ignore`, and that is the mode: the microphone stays open because the user
+    /// asked for it to, and the ceiling is what bounds the case where they stopped asking without
+    /// Vocca hearing them.
+    func testTheWholeToggleInputSpaceMatchesItsOwnTruthTable() {
+        // The same guards, because the toggle sweep depends on the same derivation and the same
+        // arity: with 0 or 1 configured modifiers, equality on the stopping chord is
+        // indistinguishable from containment, which is the one thing this mode's table is here to
+        // pin.
+        XCTAssertTrue(
+            Self.toggleConfigurations.contains { $0.modifiers.rawValue.nonzeroBitCount >= 2 },
+            "No toggle configuration binds two modifiers, so a chord predicate meaning *intersects* "
+                + "would be indistinguishable from one meaning *contains all*.")
+        XCTAssertTrue(
+            Self.toggleConfigurations.contains { $0.modifiers.contains(.shift) },
+            "No toggle configuration binds Shift, so the converse-binding collision is unreachable.")
+        XCTAssertEqual(
+            Set(Self.toggleConfigurations.map(\.activation)), [.toggle],
+            "A hold-to-talk configuration is being swept against the toggle table.")
+
+        sweep(Self.toggleConfigurations, against: Self.toggleTruthTable, named: "toggle")
+    }
+
+    /// The mechanism both table tests run: every cell of the space, against a literal table, in
+    /// both directions.
+    ///
+    /// Shared rather than copied for the reason `spec.md` gives about the five `packageRoot`
+    /// walkers — a second copy is a second thing to keep in step — and the two tables are what stop
+    /// the sharing from collapsing the two policies into one.
+    private func sweep(
+        _ configurations: [HotkeyConfiguration], against table: String, named mode: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let inputSpace = Self.wholeInputSpace(configurations: configurations)
+        XCTAssertEqual(
+            inputSpace.count, 4 * 3 * 9 * 2 * 3 * configurations.count,
+            "\(mode): the enumeration lost a dimension; it is no longer exhaustive over the inputs.",
+            file: file, line: line)
+
+        let parsed = Self.parsedTruthTable(table)
+        XCTAssertEqual(
+            parsed.count, 144,
+            """
+            \(mode): the truth table is not 3 states × 4 kinds × 2 key matches × 3 chord relations \
+            × 2 autorepeat values = 144 rows. A missing row is a cell with no expectation; a \
+            duplicate is two expectations for one cell.
+            """,
+            file: file, line: line)
+
         var exercised: Set<Cell> = []
         var starts = 0
         var stops = 0
@@ -1029,16 +1430,17 @@ final class SessionDecisionTests: XCTestCase {
                 isAutorepeat: event.isAutorepeat)
             exercised.insert(cell)
 
-            guard let expected = table[cell] else {
-                return XCTFail("No truth-table row for \(cell).")
+            guard let expected = parsed[cell] else {
+                return XCTFail("\(mode): no truth-table row for \(cell).", file: file, line: line)
             }
             let actual = decide(event, state: testCase.state, config: config)
             XCTAssertEqual(
                 actual, expected,
                 """
-                \(cell), config modifiers \(config.modifiers.rawValue), event modifiers \
+                \(mode): \(cell), config modifiers \(config.modifiers.rawValue), event modifiers \
                 \(event.modifiers.rawValue): expected \(expected), got \(actual).
-                """)
+                """,
+                file: file, line: line)
 
             switch actual.action {
             case .start: starts += 1
@@ -1053,22 +1455,33 @@ final class SessionDecisionTests: XCTestCase {
         XCTAssertEqual(
             exercised.count, 144,
             """
-            The input space reaches only \(exercised.count) of the 144 descriptor cells, so the \
-            table's other rows assert nothing. Missing: \
-            \(Set(table.keys).subtracting(exercised).map(String.init(describing:)).sorted())
-            """)
+            \(mode): the input space reaches only \(exercised.count) of the 144 descriptor cells, \
+            so the table's other rows assert nothing. Missing: \
+            \(Set(parsed.keys).subtracting(exercised).map(String.init(describing:)).sorted())
+            """,
+            file: file, line: line)
 
         // Positive controls: an assertion loop that never sees an outcome cannot fail on it.
-        XCTAssertGreaterThan(starts, 0, "No cell in the space started a session.")
-        XCTAssertGreaterThan(stops, 0, "No cell in the space stopped one.")
-        XCTAssertGreaterThan(swallows, 0, "No cell in the space was swallowed.")
+        XCTAssertGreaterThan(
+            starts, 0, "\(mode): no cell in the space started a session.", file: file, line: line)
+        XCTAssertGreaterThan(
+            stops, 0, "\(mode): no cell in the space stopped one.", file: file, line: line)
+        XCTAssertGreaterThan(
+            swallows, 0, "\(mode): no cell in the space was swallowed.", file: file, line: line)
     }
 
     /// A `.recording` cell must be a stop exactly when the user stopped asking — restated as its
     /// own test so the failure names the defect rather than one assertion among a dozen.
+    ///
+    /// **Hold-to-talk only**, and the toggle twin
+    /// (``testInToggleModeExactlyTwoEventsEndARecordingSessionAndNothingElseDoes``) is not a copy of
+    /// this with a different config: in toggle, "the user stopped asking" is not a fact any single
+    /// event carries, so the same sweep there asserts the opposite for almost every cell. That
+    /// difference is the mode's whole risk profile and is why the two are written out separately.
     func testNoSingleEventCanLeaveTheMicrophoneOpen() {
         var covered: Set<String> = []
-        for testCase in Self.wholeInputSpace() where testCase.state == .recording {
+        for testCase in Self.wholeInputSpace(configurations: Self.configurations)
+        where testCase.state == .recording {
             let event = testCase.event
             let matchesKey = event.keyCode == testCase.config.keyCode
             // The independent derivation, not the implementation's set operation — otherwise a
@@ -1340,13 +1753,186 @@ final class SessionDecisionTests: XCTestCase {
         ending       tapDisabled   no   broken  yes  ignore                  passThrough
         """
 
-    /// Parses ``truthTable``, failing loudly on anything it does not recognise.
+    /// **Toggle mode's complete policy**, in the same 144 cells and the same columns.
+    ///
+    /// Diff it against ``truthTable`` and the whole task is visible in the differences:
+    ///
+    /// - `recording`/`keyDown`/`key=yes`/`chord=exact`/`rep=no` is the only row that changed from
+    ///   `ignore` to a stop, and the reason it carries is `toggledOff` — a key-*down*, so calling it
+    ///   `keyUp` would put a false statement in the one log anybody gets to read.
+    /// - Every `recording` `keyUp` and `flagsChanged` row went from a stop to `ignore`. Those are
+    ///   rules (a), (b) and (c), replaced rather than inherited: the user's finger is off the key
+    ///   for the whole session, so each of them would end it within milliseconds of the start.
+    /// - Every `recording` `tapDisabled` row is unchanged. Rule (d) is the only *event-driven* stop
+    ///   toggle keeps, and with the poll gone it is the only one that can still arrive when the tap
+    ///   itself is what failed.
+    /// - The swallow column collapsed onto the gesture. In hold-to-talk the hotkey's key belongs to
+    ///   Vocca for as long as the finger rests on it; in toggle it belongs to the user between the
+    ///   two presses, and the key-ups of the presses Vocca *did* swallow are the session machine's
+    ///   claim to handle rather than something these rules can see.
+    ///
+    /// What is **not** here is any replacement for rule (f). There is no row a poll could be
+    /// written into: it has no `RawKeyEvent`, and in this mode it has no meaning either. See
+    /// `SessionWatchdog.wake()`.
+    private static let toggleTruthTable = """
+        # state      kind          key  chord   rep  action                  propagation
+        idle         keyDown       yes  exact   no   start                   swallow
+        idle         keyDown       yes  exact   yes  ignore                  passThrough
+        idle         keyDown       yes  extra   no   ignore                  passThrough
+        idle         keyDown       yes  extra   yes  ignore                  passThrough
+        idle         keyDown       yes  broken  no   ignore                  passThrough
+        idle         keyDown       yes  broken  yes  ignore                  passThrough
+        idle         keyDown       no   exact   no   ignore                  passThrough
+        idle         keyDown       no   exact   yes  ignore                  passThrough
+        idle         keyDown       no   extra   no   ignore                  passThrough
+        idle         keyDown       no   extra   yes  ignore                  passThrough
+        idle         keyDown       no   broken  no   ignore                  passThrough
+        idle         keyDown       no   broken  yes  ignore                  passThrough
+        idle         keyUp         yes  exact   no   ignore                  passThrough
+        idle         keyUp         yes  exact   yes  ignore                  passThrough
+        idle         keyUp         yes  extra   no   ignore                  passThrough
+        idle         keyUp         yes  extra   yes  ignore                  passThrough
+        idle         keyUp         yes  broken  no   ignore                  passThrough
+        idle         keyUp         yes  broken  yes  ignore                  passThrough
+        idle         keyUp         no   exact   no   ignore                  passThrough
+        idle         keyUp         no   exact   yes  ignore                  passThrough
+        idle         keyUp         no   extra   no   ignore                  passThrough
+        idle         keyUp         no   extra   yes  ignore                  passThrough
+        idle         keyUp         no   broken  no   ignore                  passThrough
+        idle         keyUp         no   broken  yes  ignore                  passThrough
+        idle         flagsChanged  yes  exact   no   ignore                  passThrough
+        idle         flagsChanged  yes  exact   yes  ignore                  passThrough
+        idle         flagsChanged  yes  extra   no   ignore                  passThrough
+        idle         flagsChanged  yes  extra   yes  ignore                  passThrough
+        idle         flagsChanged  yes  broken  no   ignore                  passThrough
+        idle         flagsChanged  yes  broken  yes  ignore                  passThrough
+        idle         flagsChanged  no   exact   no   ignore                  passThrough
+        idle         flagsChanged  no   exact   yes  ignore                  passThrough
+        idle         flagsChanged  no   extra   no   ignore                  passThrough
+        idle         flagsChanged  no   extra   yes  ignore                  passThrough
+        idle         flagsChanged  no   broken  no   ignore                  passThrough
+        idle         flagsChanged  no   broken  yes  ignore                  passThrough
+        idle         tapDisabled   yes  exact   no   ignore                  passThrough
+        idle         tapDisabled   yes  exact   yes  ignore                  passThrough
+        idle         tapDisabled   yes  extra   no   ignore                  passThrough
+        idle         tapDisabled   yes  extra   yes  ignore                  passThrough
+        idle         tapDisabled   yes  broken  no   ignore                  passThrough
+        idle         tapDisabled   yes  broken  yes  ignore                  passThrough
+        idle         tapDisabled   no   exact   no   ignore                  passThrough
+        idle         tapDisabled   no   exact   yes  ignore                  passThrough
+        idle         tapDisabled   no   extra   no   ignore                  passThrough
+        idle         tapDisabled   no   extra   yes  ignore                  passThrough
+        idle         tapDisabled   no   broken  no   ignore                  passThrough
+        idle         tapDisabled   no   broken  yes  ignore                  passThrough
+        recording    keyDown       yes  exact   no   stop:toggledOff         swallow
+        recording    keyDown       yes  exact   yes  ignore                  passThrough
+        recording    keyDown       yes  extra   no   ignore                  passThrough
+        recording    keyDown       yes  extra   yes  ignore                  passThrough
+        recording    keyDown       yes  broken  no   ignore                  passThrough
+        recording    keyDown       yes  broken  yes  ignore                  passThrough
+        recording    keyDown       no   exact   no   ignore                  passThrough
+        recording    keyDown       no   exact   yes  ignore                  passThrough
+        recording    keyDown       no   extra   no   ignore                  passThrough
+        recording    keyDown       no   extra   yes  ignore                  passThrough
+        recording    keyDown       no   broken  no   ignore                  passThrough
+        recording    keyDown       no   broken  yes  ignore                  passThrough
+        recording    keyUp         yes  exact   no   ignore                  passThrough
+        recording    keyUp         yes  exact   yes  ignore                  passThrough
+        recording    keyUp         yes  extra   no   ignore                  passThrough
+        recording    keyUp         yes  extra   yes  ignore                  passThrough
+        recording    keyUp         yes  broken  no   ignore                  passThrough
+        recording    keyUp         yes  broken  yes  ignore                  passThrough
+        recording    keyUp         no   exact   no   ignore                  passThrough
+        recording    keyUp         no   exact   yes  ignore                  passThrough
+        recording    keyUp         no   extra   no   ignore                  passThrough
+        recording    keyUp         no   extra   yes  ignore                  passThrough
+        recording    keyUp         no   broken  no   ignore                  passThrough
+        recording    keyUp         no   broken  yes  ignore                  passThrough
+        recording    flagsChanged  yes  exact   no   ignore                  passThrough
+        recording    flagsChanged  yes  exact   yes  ignore                  passThrough
+        recording    flagsChanged  yes  extra   no   ignore                  passThrough
+        recording    flagsChanged  yes  extra   yes  ignore                  passThrough
+        recording    flagsChanged  yes  broken  no   ignore                  passThrough
+        recording    flagsChanged  yes  broken  yes  ignore                  passThrough
+        recording    flagsChanged  no   exact   no   ignore                  passThrough
+        recording    flagsChanged  no   exact   yes  ignore                  passThrough
+        recording    flagsChanged  no   extra   no   ignore                  passThrough
+        recording    flagsChanged  no   extra   yes  ignore                  passThrough
+        recording    flagsChanged  no   broken  no   ignore                  passThrough
+        recording    flagsChanged  no   broken  yes  ignore                  passThrough
+        recording    tapDisabled   yes  exact   no   stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  exact   yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  extra   no   stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  extra   yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  broken  no   stop:tapDisabled        passThrough
+        recording    tapDisabled   yes  broken  yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   no   exact   no   stop:tapDisabled        passThrough
+        recording    tapDisabled   no   exact   yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   no   extra   no   stop:tapDisabled        passThrough
+        recording    tapDisabled   no   extra   yes  stop:tapDisabled        passThrough
+        recording    tapDisabled   no   broken  no   stop:tapDisabled        passThrough
+        recording    tapDisabled   no   broken  yes  stop:tapDisabled        passThrough
+        ending       keyDown       yes  exact   no   ignore                  swallow
+        ending       keyDown       yes  exact   yes  ignore                  passThrough
+        ending       keyDown       yes  extra   no   ignore                  passThrough
+        ending       keyDown       yes  extra   yes  ignore                  passThrough
+        ending       keyDown       yes  broken  no   ignore                  passThrough
+        ending       keyDown       yes  broken  yes  ignore                  passThrough
+        ending       keyDown       no   exact   no   ignore                  passThrough
+        ending       keyDown       no   exact   yes  ignore                  passThrough
+        ending       keyDown       no   extra   no   ignore                  passThrough
+        ending       keyDown       no   extra   yes  ignore                  passThrough
+        ending       keyDown       no   broken  no   ignore                  passThrough
+        ending       keyDown       no   broken  yes  ignore                  passThrough
+        ending       keyUp         yes  exact   no   ignore                  passThrough
+        ending       keyUp         yes  exact   yes  ignore                  passThrough
+        ending       keyUp         yes  extra   no   ignore                  passThrough
+        ending       keyUp         yes  extra   yes  ignore                  passThrough
+        ending       keyUp         yes  broken  no   ignore                  passThrough
+        ending       keyUp         yes  broken  yes  ignore                  passThrough
+        ending       keyUp         no   exact   no   ignore                  passThrough
+        ending       keyUp         no   exact   yes  ignore                  passThrough
+        ending       keyUp         no   extra   no   ignore                  passThrough
+        ending       keyUp         no   extra   yes  ignore                  passThrough
+        ending       keyUp         no   broken  no   ignore                  passThrough
+        ending       keyUp         no   broken  yes  ignore                  passThrough
+        ending       flagsChanged  yes  exact   no   ignore                  passThrough
+        ending       flagsChanged  yes  exact   yes  ignore                  passThrough
+        ending       flagsChanged  yes  extra   no   ignore                  passThrough
+        ending       flagsChanged  yes  extra   yes  ignore                  passThrough
+        ending       flagsChanged  yes  broken  no   ignore                  passThrough
+        ending       flagsChanged  yes  broken  yes  ignore                  passThrough
+        ending       flagsChanged  no   exact   no   ignore                  passThrough
+        ending       flagsChanged  no   exact   yes  ignore                  passThrough
+        ending       flagsChanged  no   extra   no   ignore                  passThrough
+        ending       flagsChanged  no   extra   yes  ignore                  passThrough
+        ending       flagsChanged  no   broken  no   ignore                  passThrough
+        ending       flagsChanged  no   broken  yes  ignore                  passThrough
+        ending       tapDisabled   yes  exact   no   ignore                  passThrough
+        ending       tapDisabled   yes  exact   yes  ignore                  passThrough
+        ending       tapDisabled   yes  extra   no   ignore                  passThrough
+        ending       tapDisabled   yes  extra   yes  ignore                  passThrough
+        ending       tapDisabled   yes  broken  no   ignore                  passThrough
+        ending       tapDisabled   yes  broken  yes  ignore                  passThrough
+        ending       tapDisabled   no   exact   no   ignore                  passThrough
+        ending       tapDisabled   no   exact   yes  ignore                  passThrough
+        ending       tapDisabled   no   extra   no   ignore                  passThrough
+        ending       tapDisabled   no   extra   yes  ignore                  passThrough
+        ending       tapDisabled   no   broken  no   ignore                  passThrough
+        ending       tapDisabled   no   broken  yes  ignore                  passThrough
+        """
+
+    /// Parses a truth table, failing loudly on anything it does not recognise.
     ///
     /// A parser that skipped a malformed row would silently shrink the table, and the count
     /// assertion in the test is what would then be measuring the typo rather than the policy.
-    private static func parsedTruthTable() -> [Cell: Decision] {
+    ///
+    /// Takes its source as a parameter so that ``truthTable`` and ``toggleTruthTable`` are read
+    /// by the same code: a parser that accepted one and quietly dropped rows from the other
+    /// would be the same defect as a table with a missing row, one layer down.
+    private static func parsedTruthTable(_ source: String) -> [Cell: Decision] {
         var table: [Cell: Decision] = [:]
-        for line in truthTable.split(separator: "\n") {
+        for line in source.split(separator: "\n") {
             let fields = line.split(separator: " ").map(String.init).filter { !$0.isEmpty }
             guard let first = fields.first, !first.hasPrefix("#") else { continue }
             precondition(fields.count == 7, "Malformed truth-table row: \(line)")
@@ -1391,6 +1977,7 @@ final class SessionDecisionTests: XCTestCase {
             case "stop:keyUp": action = .stop(.retained(.keyUp))
             case "stop:modifierReleased": action = .stop(.retained(.modifierReleased))
             case "stop:tapDisabled": action = .stop(.retained(.tapDisabled))
+            case "stop:toggledOff": action = .stop(.retained(.toggledOff))
             default: preconditionFailure("Unknown action in truth table: \(fields[5])")
             }
 
@@ -1441,13 +2028,30 @@ final class SessionDecisionTests: XCTestCase {
         chord, bareKey, twoModifier, converse,
     ]
 
+    /// The same four bindings in toggle mode. Swept separately, against a table of its own, because
+    /// the two modes have different policies and one table covering both would have to encode the
+    /// mode as a column — at which point a row could be given to the wrong mode and read as an
+    /// intentional difference.
+    private static let toggleConfigurations: [HotkeyConfiguration] = [
+        toggleChord, toggleBareKey, toggleTwoModifier, toggleConverse,
+    ]
+
+    /// Every configuration the rules will ever be asked about, both modes, for the tests whose claim
+    /// is about `decide` as a whole rather than about one mode's policy.
+    private static let everyConfiguration: [HotkeyConfiguration] =
+        configurations + toggleConfigurations
+
     /// Every combination the rules can see: 4 kinds × 3 key codes × 9 modifier sets × 2 autorepeat
     /// values × 3 states × 4 configurations = 2,592 cells.
     ///
     /// The third key code is round 2 finding N3: the space swept only `[config.keyCode, letterA]`,
     /// so a "this stray key code is also the hotkey" mutation was killed by exactly one assertion
     /// in one unrelated test that happened to use `letterB`. The descriptor cells stay at 144.
-    private static func wholeInputSpace() -> [InputCase] {
+    ///
+    /// The configurations are a parameter rather than a constant so that the toggle sweep is the
+    /// *same* enumeration and cannot drift into covering less; there is no default, so a caller has
+    /// to say which mode's space it means.
+    private static func wholeInputSpace(configurations: [HotkeyConfiguration]) -> [InputCase] {
         var cases: [InputCase] = []
         for config in configurations {
             for kind in RawKeyEvent.Kind.allCases {
@@ -1480,7 +2084,10 @@ final class SessionDecisionTests: XCTestCase {
     private func randomCase(using generator: inout SeededGenerator) -> InputCase {
         let kinds = RawKeyEvent.Kind.allCases
         let states = SessionState.allCases
-        let configurations = Self.configurations
+        // Both modes. Purity and reproducibility are claims about `decide`, not about hold-to-talk,
+        // and a randomised sweep that never constructs a toggle configuration would leave the whole
+        // toggle branch outside them.
+        let configurations = Self.everyConfiguration
         let config = configurations[Int.random(in: 0..<configurations.count, using: &generator)]
         return InputCase(
             config: config,

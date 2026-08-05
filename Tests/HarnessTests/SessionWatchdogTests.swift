@@ -30,6 +30,10 @@ private let chord = HotkeyConfiguration(
     keyCode: space, modifiers: [.option], activation: .holdToTalk)
 private let bareKey = HotkeyConfiguration(
     keyCode: functionKey, modifiers: [], activation: .holdToTalk)
+/// The same binding as `chord`, in toggle mode — so every difference the tests below find between
+/// the two is a difference of *mode*, not of key or chord.
+private let toggleChord = HotkeyConfiguration(
+    keyCode: space, modifiers: [.option], activation: .toggle)
 
 private func event(
     _ kind: RawKeyEvent.Kind, _ keyCode: UInt16, _ modifiers: ModifierSet
@@ -132,12 +136,36 @@ private final class WatchdogHarness {
     let configuration: HotkeyConfiguration
 
     /// **The hot-mic meter.** Forward clock time during which the microphone was open while the
-    /// hotkey was not physically held.
+    /// user was not asking for it.
     ///
     /// `PRODUCT_SPEC.md:11` — "there is no state where Vocca is listening and doesn't look like it"
-    /// — in a number. Measured against the ``Keyboard`` and the ``RecordingSource`` ledger, never
-    /// against anything the machine or the watchdog reports about itself.
+    /// — in a number. Measured against the ``Keyboard``, ``userIsAskingToRecord`` and the
+    /// ``RecordingSource`` ledger, never against anything the machine or the watchdog reports about
+    /// itself.
     private(set) var hotMicWindow: Duration = .zero
+
+    /// Whether the user, right now, is asking to be recorded.
+    ///
+    /// **The two modes answer this differently, and that difference is the whole of this task.** In
+    /// hold-to-talk it is a fact about the world — the key is physically held — which is why
+    /// `CGEventSourceKeyState` can read it out of band and stop rule (f) can close a missed key-up
+    /// within one interval. In toggle there is no such fact: the answer is a model of the user's
+    /// intent, maintained *here in the test*, because nothing in the running system can observe it.
+    /// A poll has nothing to read.
+    ///
+    /// Switched without a `default:`, so a third mode has to say what asking means in it before the
+    /// meter will compile — and a meter that guessed would be a hot-mic measurement of the wrong
+    /// thing, which is worse than none.
+    private var userIsAskingToRecord: Bool {
+        switch configuration.activation {
+        case .holdToTalk: return keyboard.isHeld(configuration.keyCode)
+        case .toggle: return userHasToggledOn
+        }
+    }
+
+    /// The toggle half of ``userIsAskingToRecord``: flipped by the gestures, including the gesture
+    /// Vocca never sees.
+    private var userHasToggledOn = false
 
     /// Forward clock time this harness has run, which is **not** the clock's reading: a test that
     /// steps the clock backwards makes those two different, and the difference is the point.
@@ -205,6 +233,41 @@ private final class WatchdogHarness {
         keyboard.release(configuration.keyCode)
     }
 
+    /// **The toggle gesture**: the key goes down and comes straight back up, and both events are
+    /// delivered through the watchdog.
+    ///
+    /// The key-up is asserted here rather than left to each caller, because it is the event that
+    /// would end the session if toggle had inherited stop rule (a) — so every toggle test in this
+    /// file pins it, by construction.
+    ///
+    /// Returns the key-*down*'s effect, which is the one that starts or stops the session.
+    @discardableResult
+    func tapHotkey(file: StaticString = #filePath, line: UInt = #line) -> Effect {
+        userHasToggledOn.toggle()
+        keyboard.press(configuration.keyCode)
+        let down = watchdog.observe(event(.keyDown, configuration.keyCode, configuration.modifiers))
+        keyboard.release(configuration.keyCode)
+        let up = watchdog.observe(event(.keyUp, configuration.keyCode, configuration.modifiers))
+        XCTAssertEqual(
+            up.effect, .unchanged,
+            "The key-up of a toggle press changed the session; the mode lasts about sixty "
+                + "milliseconds if it does.",
+            file: file, line: line)
+        record(down.effect)
+        return down.effect
+    }
+
+    /// **The user taps the hotkey to stop, and Vocca never sees it.**
+    ///
+    /// The toggle twin of ``releaseHotkeyUnobserved()``, and the reason this file has to measure two
+    /// different numbers. In hold-to-talk the same shape is recovered by the physical-key poll one
+    /// interval later; here nothing recovers it, because what went missing is an *event* and the
+    /// thing it was evidence of — "the user has pressed again" — leaves no trace in the world for a
+    /// poll to find.
+    func tapHotkeyUnobserved() {
+        userHasToggledOn.toggle()
+    }
+
     // MARK: The owner's timer
 
     /// The interval the watchdog has asked for.
@@ -225,22 +288,31 @@ private final class WatchdogHarness {
     /// would credit the watchdog with the interval it took to notice.
     @discardableResult
     func step() -> Effect {
-        let hot = source.isOpen && !keyboard.isHeld(configuration.keyCode)
+        let hot = source.isOpen && !userIsAskingToRecord
         let elapsing = interval
         clock.now += elapsing
         forwardTime += elapsing
         if hot { hotMicWindow += elapsing }
 
         let effect = watchdog.wake()
-        switch effect {
-        case .ended(let outcome): outcomes.append(outcome)
-        case .unchanged, .started, .captureUnavailable: break
-        }
+        record(effect)
         return effect
     }
 
     func run(steps: Int) {
         for _ in 0..<steps { _ = step() }
+    }
+
+    /// Keeps the outcome ledger, for whichever input produced this effect.
+    ///
+    /// One copy, because three sites produce outcomes — the timer's two shapes and the toggle
+    /// gesture — and a copy that drifted would let a test count outcomes from one path and miss
+    /// them from another.
+    private func record(_ effect: Effect) {
+        switch effect {
+        case .ended(let outcome): outcomes.append(outcome)
+        case .unchanged, .started, .captureUnavailable: break
+        }
     }
 
     /// A turn of the timer during which **real time passes and the clock does not say so.**
@@ -251,15 +323,12 @@ private final class WatchdogHarness {
     /// `clock.now` does not, because that is the defect.
     @discardableResult
     func stepWithoutTheClockAdvancing() -> Effect {
-        let hot = source.isOpen && !keyboard.isHeld(configuration.keyCode)
+        let hot = source.isOpen && !userIsAskingToRecord
         forwardTime += interval
         if hot { hotMicWindow += interval }
 
         let effect = watchdog.wake()
-        switch effect {
-        case .ended(let outcome): outcomes.append(outcome)
-        case .unchanged, .started, .captureUnavailable: break
-        }
+        record(effect)
         return effect
     }
 }
@@ -912,6 +981,405 @@ final class SessionWatchdogTests: XCTestCase {
             "A key event arriving inside the handoff started or ended something.")
         XCTAssertEqual(harness.source.endCount, 1, "The microphone was closed twice.")
         XCTAssertEqual(harness.source.closesWithoutOpen, 0)
+    }
+
+    // MARK: - Toggle mode: the ceiling is the whole backstop
+
+    /// **The ceiling still fires in toggle mode, through the watchdog** — and this is the hot-mic
+    /// guarantee for a mode with no finger behind it.
+    ///
+    /// Driven wake by wake through ``SessionWatchdog/wake()``, not through `machine.tick()`, because
+    /// the mutation this exists to kill lives in `wake()`: a toggle branch that returns `.unchanged`
+    /// instead of ticking compiles, passes every rules test, passes every machine test that ticks
+    /// directly, and leaves a toggle session running until the process exits.
+    ///
+    /// The elapsed assertion at wake 799 is the other half. Without it, a branch that ticked only on
+    /// the last wake — or one whose clock never advanced — would reach the same ending.
+    func testTheCeilingStillEndsAToggleSessionAndDoesSoThroughTheWatchdog() throws {
+        let harness = WatchdogHarness(configuration: toggleChord)
+        let deadline = wakes(covering: SessionCeiling.default)
+        XCTAssertEqual(deadline, 800, "120 s at 150 ms is 800 wakes; the arithmetic moved.")
+
+        XCTAssertEqual(harness.tapHotkey(), .started)
+        XCTAssertEqual(
+            harness.watchdog.schedule, .wake(every: WatchdogPolicy.pollInterval),
+            "A toggle session asked for no timer. The ceiling is the only unconditional thing "
+                + "bounding it, and the timer is what drives the ceiling.")
+
+        for wake in 1..<deadline {
+            XCTAssertEqual(
+                harness.step(), .unchanged,
+                "The ceiling fired at wake \(wake) of \(deadline) — early, on a user mid-sentence.")
+        }
+        XCTAssertTrue(harness.source.isOpen)
+        XCTAssertEqual(
+            harness.machine.elapsed, SessionCeiling.default - WatchdogPolicy.pollInterval,
+            "The wakes ran but the session's clock did not advance with them, so the ceiling below "
+                + "is being reached by something other than elapsed time.")
+
+        let outcome = try endedOutcome(harness.step(), "at exactly the deadline")
+        XCTAssertEqual(try reasonCarryingTheAudio(outcome, from: harness.source), .ceilingReached)
+        XCTAssertFalse(harness.source.isOpen, "The ceiling fired and the microphone stayed open.")
+        XCTAssertEqual(harness.machine.elapsed, SessionCeiling.default)
+        XCTAssertEqual(harness.watchdog.schedule, .stopped)
+
+        // Nothing was hot: the user never stopped asking, they were cut off. And the poll was never
+        // run — 800 wakes and not one system call.
+        XCTAssertEqual(harness.hotMicWindow, .zero)
+        XCTAssertEqual(harness.keyState.reads, 0)
+    }
+
+    /// **The physical key is never read in toggle mode — and is read on every wake in
+    /// hold-to-talk.**
+    ///
+    /// Both halves in one test, because `reads == 0` on its own is satisfied by a harness that never
+    /// wakes, by a watchdog that returns early, and by a mode that does not exist. The hold-to-talk
+    /// run is the positive control: same harness, same number of wakes, same seam, one read each.
+    ///
+    /// And the toggle run must still be *doing* something with each wake, or "no reads" is being
+    /// bought by a branch that returns before the tick — which is the mutation that removes the
+    /// ceiling. `elapsed` moving at the poll cadence is what says the wake did its remaining job.
+    func testThePhysicalKeyIsNeverReadInToggleModeAndIsReadOnEveryWakeInHoldToTalk() {
+        let wakeCount = 200
+
+        let held = WatchdogHarness(configuration: chord)
+        XCTAssertEqual(held.pressHotkey(), .started)
+        held.run(steps: wakeCount)
+        XCTAssertEqual(
+            held.keyState.reads, wakeCount,
+            "The control did not poll, so `reads == 0` below is not evidence of anything.")
+        XCTAssertEqual(held.keyState.keysAsked, [space])
+        XCTAssertEqual(held.machine.state, .recording)
+
+        let toggled = WatchdogHarness(configuration: toggleChord)
+        XCTAssertEqual(toggled.tapHotkey(), .started)
+        toggled.run(steps: wakeCount)
+
+        XCTAssertEqual(
+            toggled.keyState.reads, 0,
+            """
+            The physical key was read \(toggled.keyState.reads) times during a toggle session. The \
+            key is up for the whole session, so the first of those readings ends it — toggle mode \
+            lasts one poll interval if rule (f) is applied to it.
+            """)
+        XCTAssertEqual(toggled.keyState.keysAsked, [])
+        XCTAssertEqual(toggled.machine.state, .recording, "The toggle session ended on its own.")
+        XCTAssertTrue(toggled.source.isOpen)
+        XCTAssertEqual(
+            toggled.machine.elapsed, WatchdogPolicy.pollInterval * wakeCount,
+            """
+            The toggle wake made no system call and also advanced nothing, so it is returning \
+            before the tick — which is not "rule (f) does not apply here", it is "the ceiling does \
+            not apply here either", and the ceiling is all this mode has.
+            """)
+        XCTAssertEqual(toggled.hotMicWindow, .zero, "The user is still asking; nothing is hot.")
+    }
+
+    /// **What rule (f) is worth, measured in both modes side by side.**
+    ///
+    /// The same accident in each: the user asks for the session to end and Vocca never hears it.
+    /// In hold-to-talk the key is physically up afterwards, so the poll finds it within one
+    /// interval. In toggle the world looks *identical* before and after the press — that is what a
+    /// press is — so nothing finds it, and the microphone stays open until the ceiling.
+    ///
+    /// The numbers are the deliverable of this task and are asserted exactly, not as inequalities:
+    /// **one poll interval (150 ms) against 700 of them (105 s)**, with the session started at the
+    /// same wake in both runs. An implementation that quietly polls in toggle fails here; so does
+    /// one that quietly drops the ceiling.
+    func testALostStoppingGestureCostsOneIntervalInHoldToTalkAndTheRestOfTheCeilingInToggle() throws {
+        let deadline = wakes(covering: SessionCeiling.default)
+        let lostAt = 100
+
+        // Hold-to-talk: the key comes up and no event arrives.
+        let held = WatchdogHarness(configuration: chord)
+        XCTAssertEqual(held.pressHotkey(), .started)
+        held.run(steps: lostAt)
+        held.releaseHotkeyUnobserved()
+        let heldOutcome = try endedOutcome(held.step(), "one interval after the key came up")
+        XCTAssertEqual(
+            try reasonCarryingTheAudio(heldOutcome, from: held.source), .pollDetectedRelease)
+        XCTAssertEqual(
+            held.hotMicWindow, WatchdogPolicy.pollInterval,
+            "Hold-to-talk's bound is one poll interval, and it moved.")
+
+        // Toggle: the user presses again and Vocca never sees it. Nothing about the world differs
+        // from a user who is still talking.
+        let toggled = WatchdogHarness(configuration: toggleChord)
+        XCTAssertEqual(toggled.tapHotkey(), .started)
+        toggled.run(steps: lostAt)
+        toggled.tapHotkeyUnobserved()
+        XCTAssertTrue(
+            toggled.source.isOpen,
+            "Premise: nothing has told Vocca, so it cannot yet have acted.")
+
+        var wake = lostAt
+        var ended: SessionOutcome<RecordingSource.Buffer>?
+        // Bounded by a `while` condition rather than an assertion inside the loop: XCTAssert records
+        // and carries on, so a policy that never ends the session would hang rather than fail.
+        while ended == nil && wake <= deadline + 1 {
+            wake += 1
+            switch toggled.step() {
+            case .ended(let outcome): ended = outcome
+            case .unchanged, .started, .captureUnavailable: break
+            }
+        }
+        XCTAssertNotNil(
+            ended,
+            """
+            A toggle session whose stopping press was lost never ended at all. The ceiling is the \
+            only unconditional backstop this mode has; without it the microphone is open until the \
+            process exits.
+            """)
+        XCTAssertEqual(
+            wake, deadline,
+            "The toggle session ended at wake \(wake) rather than at the ceiling's \(deadline).")
+        XCTAssertEqual(
+            try reasonCarryingTheAudio(try XCTUnwrap(ended), from: toggled.source), .ceilingReached)
+        XCTAssertFalse(toggled.source.isOpen)
+
+        // The number, exactly: from the lost press to the ceiling.
+        XCTAssertEqual(
+            toggled.hotMicWindow, WatchdogPolicy.pollInterval * (deadline - lostAt),
+            "Toggle's worst-case hot mic is the ceiling minus however long the user had already "
+                + "been talking, and it moved.")
+        XCTAssertEqual(toggled.hotMicWindow, .seconds(105))
+        XCTAssertEqual(
+            milliseconds(toggled.hotMicWindow) / milliseconds(held.hotMicWindow), 700,
+            """
+            The gap between the two modes' worst cases is 700 poll intervals. This is not a bug in \
+            either of them — it is the price of a mode with no physical fact behind it, and it is \
+            asserted so that a later change which appears to close it has to say how.
+            """)
+    }
+
+    /// **A stalled clock costs hold-to-talk one poll interval and costs toggle everything.**
+    ///
+    /// Task 5 established that a `MonotonicClock` whose readings stop advancing does not delay the
+    /// ceiling, it removes it — while every other mechanism goes on looking healthy — and bounded
+    /// the damage by measuring the half that still works: the poll reads no clock, so hold-to-talk
+    /// still ends the session the moment the key comes up.
+    ///
+    /// **Toggle has no such half.** With rule (f) gone, the ceiling is the only unconditional
+    /// backstop, and a stalled clock is precisely the failure that removes it. So this is the one
+    /// residual worth naming out loud rather than leaving to a report: two things in the layer
+    /// outside this module — the owner's timer firing, and the injected clock advancing — carry a
+    /// toggle session's entire guarantee, and if either gives way nothing inside `VoccaCore`
+    /// notices.
+    ///
+    /// Both runs here share the same stall and differ only in mode, so the difference is measured.
+    /// The end of the test is what a toggle user is actually left with: a system trigger, or Escape.
+    func testAStalledClockCostsHoldToTalkOneIntervalAndCostsToggleItsOnlyBackstop() throws {
+        let stalled = 10_000  // 25 minutes of real time at the policy cadence, twelve ceilings.
+
+        // Hold-to-talk under the stall: the poll still ends it one interval after the key comes up.
+        let held = WatchdogHarness(configuration: chord)
+        XCTAssertEqual(held.pressHotkey(), .started)
+        for _ in 0..<stalled { _ = held.stepWithoutTheClockAdvancing() }
+        XCTAssertEqual(held.machine.elapsed, .zero, "The clock stalled; nothing may accumulate.")
+        XCTAssertEqual(held.machine.state, .recording, "Premise: the ceiling is gone in both runs.")
+        held.releaseHotkeyUnobserved()
+        let heldOutcome = try endedOutcome(
+            held.stepWithoutTheClockAdvancing(), "the poll reads no clock and must still fire")
+        XCTAssertEqual(
+            try reasonCarryingTheAudio(heldOutcome, from: held.source), .pollDetectedRelease)
+        XCTAssertEqual(held.hotMicWindow, WatchdogPolicy.pollInterval)
+
+        // Toggle under the same stall: nothing recovers it, however long it runs.
+        let toggled = WatchdogHarness(configuration: toggleChord)
+        XCTAssertEqual(toggled.tapHotkey(), .started)
+        for _ in 0..<stalled { _ = toggled.stepWithoutTheClockAdvancing() }
+        XCTAssertEqual(toggled.machine.elapsed, .zero)
+        XCTAssertEqual(toggled.machine.state, .recording)
+        XCTAssertEqual(toggled.keyState.reads, 0, "The toggle wake made a system call after all.")
+
+        toggled.tapHotkeyUnobserved()
+        for _ in 0..<stalled { _ = toggled.stepWithoutTheClockAdvancing() }
+        XCTAssertTrue(
+            toggled.source.isOpen,
+            """
+            The premise of this test is gone — something other than the ceiling ended a toggle \
+            session under a stalled clock. That would be good news, and it would mean the residual \
+            named here has a mechanism behind it that should be documented rather than discovered.
+            """)
+        XCTAssertEqual(toggled.machine.state, .recording)
+        XCTAssertEqual(
+            toggled.hotMicWindow, WatchdogPolicy.pollInterval * stalled,
+            "Twenty-five minutes of microphone after the user asked for it to stop.")
+        XCTAssertGreaterThan(toggled.hotMicWindow, SessionCeiling.default)
+        XCTAssertGreaterThan(
+            milliseconds(toggled.hotMicWindow) / milliseconds(held.hotMicWindow), 9_000,
+            "The gap between the two modes under a stalled clock is at least four orders of "
+                + "magnitude, and it is unbounded rather than merely large.")
+
+        // What the toggle user is left with. Both of these read no clock, so both still work — and
+        // they are the whole list.
+        let outcome = try endedOutcome(toggled.watchdog.observe(.willSleep))
+        XCTAssertEqual(
+            try reasonCarryingTheAudio(outcome, from: toggled.source), .systemEvent(.willSleep))
+        XCTAssertFalse(toggled.source.isOpen)
+
+        let escaped = WatchdogHarness(configuration: toggleChord)
+        XCTAssertEqual(escaped.tapHotkey(), .started)
+        for _ in 0..<100 { _ = escaped.stepWithoutTheClockAdvancing() }
+        switch try endedOutcome(escaped.watchdog.cancel()).content {
+        case .cancelled: break
+        case .completed: XCTFail("Escape is the one path that discards, and it did not.")
+        }
+        XCTAssertFalse(escaped.source.isOpen, "Escape left the microphone open under a stalled clock.")
+    }
+
+    /// The widget's ceiling warning fires in toggle mode too — and it is the only warning this mode
+    /// gives before its only backstop.
+    ///
+    /// In hold-to-talk the warning is a courtesy: the user is holding a key and knows they are
+    /// recording. In toggle it is the compensating control for everything above — a user who
+    /// pressed to stop and was not heard has ten seconds of it before the session is cut off,
+    /// and that is the whole of their warning.
+    func testTheCeilingWarningStillFiresInToggleMode() throws {
+        let harness = WatchdogHarness(configuration: toggleChord)
+        let threshold = WatchdogPolicy.warningThreshold(before: SessionCeiling.default)
+        XCTAssertEqual(harness.watchdog.warningThreshold, threshold)
+        XCTAssertFalse(harness.watchdog.ceilingIsNear, "Warned with no session running.")
+
+        XCTAssertEqual(harness.tapHotkey(), .started)
+        // 110 s is not a whole number of 150 ms intervals, so the last wake below the threshold is
+        // the `covering`th. Computed rather than written as a literal, exactly as the hold-to-talk
+        // twin does, so a changed cadence moves both together instead of failing here.
+        let covering = wakes(covering: threshold)
+        let landsOnAWake = WatchdogPolicy.pollInterval * covering == threshold
+        harness.run(steps: landsOnAWake ? covering - 1 : covering)
+        XCTAssertLessThan(harness.machine.elapsed, threshold)
+        XCTAssertFalse(
+            harness.watchdog.ceilingIsNear, "Warned at \(harness.machine.elapsed) of a 120 s ceiling.")
+
+        harness.run(steps: 1)
+        XCTAssertGreaterThanOrEqual(harness.machine.elapsed, threshold)
+        XCTAssertTrue(
+            harness.watchdog.ceilingIsNear,
+            "No warning at \(harness.machine.elapsed) — the user gets no notice at all before the "
+                + "one backstop this mode has ends their session.")
+
+        // A warning is not a stop.
+        XCTAssertEqual(harness.machine.state, .recording)
+        XCTAssertTrue(harness.source.isOpen)
+        XCTAssertTrue(harness.outcomes.isEmpty)
+
+        // And it clears when the user toggles off.
+        _ = try endedOutcome(harness.tapHotkey())
+        XCTAssertFalse(harness.watchdog.ceilingIsNear)
+        XCTAssertEqual(harness.watchdog.schedule, .stopped)
+    }
+
+    /// The stops toggle **does** keep, through the watchdog: a dead tap, each system trigger, and
+    /// Escape — each ending the session with its own reason and settling the timer.
+    ///
+    /// Worth driving through the watchdog rather than trusting the machine's own tests: with rule
+    /// (f) gone these are, together with the user's next press, the entire list of things that can
+    /// end a toggle session before the ceiling. If one of them stopped working in this mode the
+    /// list would be the ceiling alone.
+    func testTheStopsToggleKeepsAllStillWorkThroughTheWatchdog() throws {
+        // (d), the tap dying — which in toggle is the only stop a *dead tap* can still deliver,
+        // since every other event-driven rule left in this mode needs an event that cannot arrive.
+        let deadTap = WatchdogHarness(configuration: toggleChord)
+        XCTAssertEqual(deadTap.tapHotkey(), .started)
+        deadTap.run(steps: 10)
+        let tapOutcome = try endedOutcome(deadTap.feed(event(.tapDisabled, 0, [])).effect)
+        XCTAssertEqual(
+            try reasonCarryingTheAudio(tapOutcome, from: deadTap.source), .tapDisabled)
+        XCTAssertFalse(deadTap.source.isOpen)
+        XCTAssertEqual(deadTap.watchdog.schedule, .stopped)
+
+        // Every system trigger.
+        for trigger in SystemTrigger.allCases {
+            let harness = WatchdogHarness(configuration: toggleChord)
+            XCTAssertEqual(harness.tapHotkey(), .started, "\(trigger)")
+            harness.run(steps: 10)
+
+            let outcome = try endedOutcome(harness.watchdog.observe(trigger), "\(trigger)")
+            XCTAssertEqual(
+                try reasonCarryingTheAudio(outcome, from: harness.source, "\(trigger)"),
+                .systemEvent(trigger),
+                "\(trigger) was logged as something else — the log is the only evidence anyone gets.")
+            XCTAssertFalse(harness.source.isOpen, "\(trigger) left the microphone open.")
+            XCTAssertEqual(
+                harness.watchdog.schedule, .stopped,
+                "\(trigger) ended the toggle session and left the timer running.")
+
+            let readsBefore = harness.keyState.reads
+            harness.run(steps: 5)
+            XCTAssertEqual(
+                harness.outcomes.count, 0,
+                "\(trigger) produced a second outcome from the timer after ending the session.")
+            XCTAssertEqual(harness.keyState.reads, readsBefore)
+            XCTAssertEqual(harness.hotMicWindow, .zero, "\(trigger)")
+        }
+
+        // Escape: the audio is discarded, which is what the user asked for; the microphone is not.
+        let cancelled = WatchdogHarness(configuration: toggleChord)
+        XCTAssertEqual(cancelled.tapHotkey(), .started)
+        cancelled.run(steps: 3)
+        switch try endedOutcome(cancelled.watchdog.cancel()).content {
+        case .completed: XCTFail("Escape is the one path that discards, and it did not.")
+        case .cancelled: break
+        }
+        XCTAssertFalse(
+            cancelled.source.isOpen,
+            "Escape discarded the transcript and left the microphone open — and in toggle mode "
+                + "nothing but the ceiling would have closed it.")
+        XCTAssertEqual(cancelled.watchdog.schedule, .stopped)
+
+        // And a cancelled toggle machine is not wedged: the next tap arms it again.
+        XCTAssertEqual(cancelled.tapHotkey(), .started)
+        XCTAssertEqual(cancelled.watchdog.schedule, .wake(every: WatchdogPolicy.pollInterval))
+    }
+
+    /// **An event the machine passes through still reaches the application — in toggle, through the
+    /// wrapper.**
+    ///
+    /// The same blast radius as the hold-to-talk twin above, and a fresh chance to get it wrong:
+    /// this is new code on the same seam, and toggle is the mode where the tempting mistake —
+    /// "Vocca owns its hotkey while a session is in flight" — costs the user their space bar for
+    /// two minutes at a time rather than for as long as a finger rests on it.
+    func testAnEventTheMachinePassesThroughStillReachesTheApplicationInToggleMode() throws {
+        let harness = WatchdogHarness(configuration: toggleChord)
+
+        // Idle: every key the user types all day.
+        XCTAssertEqual(
+            harness.feed(event(.keyDown, letterA, [])).eventPropagation, .passThrough,
+            "Vocca swallowed an unrelated keystroke while idle — every key the user types, gone.")
+
+        // The gesture itself is swallowed, in both directions of the toggle.
+        let on = harness.tapHotkey()
+        XCTAssertEqual(on, .started)
+
+        // Recording, with nothing held: the user's whole keyboard is still theirs, *including* the
+        // hotkey's own key code without its chord.
+        XCTAssertEqual(
+            harness.feed(event(.keyDown, letterA, [])).eventPropagation, .passThrough,
+            "Vocca swallowed an unrelated keystroke during a toggle session.")
+        XCTAssertEqual(
+            harness.feed(event(.keyDown, space, [])).eventPropagation, .passThrough,
+            "Vocca ate the user's space bar for the length of a toggle session.")
+        XCTAssertEqual(
+            harness.feed(event(.keyUp, space, [])).eventPropagation, .passThrough)
+        XCTAssertEqual(
+            harness.feed(event(.flagsChanged, space, [.option])).eventPropagation, .passThrough,
+            "Vocca swallowed a modifier event, stranding the app's idea of what is held.")
+        XCTAssertEqual(
+            harness.machine.state, .recording,
+            "One of those events ended a toggle session that only a press may end.")
+
+        // And the press that does end it is Vocca's, so the application hears nothing of it.
+        let press = harness.watchdog.observe(event(.keyDown, space, [.option]))
+        XCTAssertEqual(
+            press.eventPropagation, .swallow,
+            "The toggle-off press reached the application — a character typed into the field the "
+                + "transcript is about to be injected into.")
+        let outcome = try endedOutcome(press.effect)
+        XCTAssertEqual(try reasonCarryingTheAudio(outcome, from: harness.source), .toggledOff)
+        XCTAssertEqual(
+            harness.watchdog.observe(event(.keyUp, space, [.option])).eventPropagation, .swallow,
+            "The key-up of a press Vocca swallowed reached the app unpaired.")
     }
 
     // MARK: - The machine's strangest legal behaviour

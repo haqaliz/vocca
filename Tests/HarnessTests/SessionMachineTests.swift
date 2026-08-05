@@ -25,6 +25,23 @@ private let letterA: UInt16 = 0
 private let chord = HotkeyConfiguration(
     keyCode: space, modifiers: [.option], activation: .holdToTalk)
 
+/// The same binding in toggle mode. Same key, same chord — so every difference these tests find is
+/// a difference of mode.
+private let toggleChord = HotkeyConfiguration(
+    keyCode: space, modifiers: [.option], activation: .toggle)
+
+/// The configuration this suite uses for an activation mode.
+///
+/// Written as an exhaustive switch rather than a dictionary so that a third mode fails to compile
+/// here: the property tests below iterate `Activation.allCases`, and a mode with no configuration
+/// would otherwise be skipped by whatever `nil` handling the lookup happened to have.
+private func configuration(for activation: HotkeyConfiguration.Activation) -> HotkeyConfiguration {
+    switch activation {
+    case .holdToTalk: return chord
+    case .toggle: return toggleChord
+    }
+}
+
 private func event(
     _ kind: RawKeyEvent.Kind, _ keyCode: UInt16, _ modifiers: ModifierSet,
     autorepeat: Bool = false
@@ -89,6 +106,42 @@ private final class Harness {
     @discardableResult
     func releaseHotkey() -> Effect {
         feed(event(.keyUp, configuration.keyCode, configuration.modifiers)).effect
+    }
+
+    /// **The toggle gesture: the key goes down and comes straight back up, and both events are
+    /// delivered.**
+    ///
+    /// The key-up is not incidental — it is the event that would end the session if toggle had
+    /// inherited stop rule (a), so it is asserted here rather than left to the caller to remember.
+    /// Every toggle test in this file goes through this method, so a mode that cannot survive its
+    /// own key-up fails all of them at once and by name.
+    ///
+    /// Returns the key-*down*'s effect, which is the one that starts or stops the session.
+    @discardableResult
+    func tapHotkey(file: StaticString = #filePath, line: UInt = #line) -> Effect {
+        let down = pressHotkey()
+        XCTAssertEqual(
+            releaseHotkey(), .unchanged,
+            """
+            The key-up of a toggle press changed the session. In toggle mode the user's finger comes \
+            off the key immediately and stays off for the whole session; a mode whose own key-up \
+            ends it lasts about sixty milliseconds.
+            """,
+            file: file, line: line)
+        return down
+    }
+
+    /// Starts a session with **this harness's own mode's** gesture: a press that stays down, or a
+    /// tap.
+    ///
+    /// Switched without a `default:`, so a third activation mode has to say how a session begins in
+    /// it before the property tests below can run — rather than silently starting none and passing.
+    @discardableResult
+    func startSession(file: StaticString = #filePath, line: UInt = #line) -> Effect {
+        switch configuration.activation {
+        case .holdToTalk: return pressHotkey()
+        case .toggle: return tapHotkey(file: file, line: line)
+        }
     }
 
     /// The user lets go of Option while still resting on Space — stop rule (b), and the single
@@ -265,67 +318,93 @@ final class SessionMachineTests: XCTestCase {
     /// Then the same input is delivered a second time and must change nothing: an outcome emitted
     /// twice is the same words injected twice.
     func testEveryEndReasonEmitsThatSessionsAudioExactlyOnce() throws {
-        var driven: Set<EndReasonTag> = []
+        var driven: Set<String> = []
+        var unreachable: Set<String> = []
 
-        for reason in EndReason.allCases {
-            guard let drive = Self.driver(for: reason) else {
+        for activation in HotkeyConfiguration.Activation.allCases {
+            for reason in EndReason.allCases {
+                let label = "\(activation) × \(reason)"
+                guard let drive = Self.driver(for: reason, in: activation) else {
+                    unreachable.insert(label)
+                    continue
+                }
+                driven.insert(label)
+
+                let harness = Harness(configuration: configuration(for: activation))
+                XCTAssertEqual(harness.startSession(), .started, "\(label): no session to end")
+                let closesBefore = harness.source.endCount
+
+                let outcome = try endedOutcome(drive(harness), label)
+
                 XCTAssertEqual(
-                    reason, .retained(.toggledOff),
-                    "\(reason) has no way to be reached through the machine, and only toggle mode "
-                        + "is allowed to be in that position.")
-                continue
-            }
-            driven.insert(EndReasonTag(reason))
+                    harness.source.endCount, closesBefore + 1,
+                    "\(label) closed the microphone \(harness.source.endCount - closesBefore) times.")
+                XCTAssertFalse(harness.source.isOpen, "\(label) left the microphone open.")
+                XCTAssertEqual(harness.machine.state, .idle, "\(label) left the machine mid-flight.")
 
-            let harness = Harness()
-            XCTAssertEqual(harness.pressHotkey(), .started, "\(reason): no session to end")
-            let closesBefore = harness.source.endCount
+                let captured = try XCTUnwrap(harness.source.handedOut.last, label)
+                switch (reason, outcome.content) {
+                case (.retained(let expected), .completed(let carried, let audio, _)):
+                    XCTAssertEqual(carried, expected, "\(label) was reported as \(carried).")
+                    let payload: RecordingSource.Buffer = audio
+                    XCTAssertEqual(
+                        payload, captured,
+                        """
+                        \(label) emitted a buffer that is not the one this session captured. \
+                        Expected \(captured), got \(payload).
+                        """)
+                case (.userCancelled, .cancelled):
+                    break
+                case (.retained, .cancelled):
+                    XCTFail("\(label) discarded audio the user never asked to abandon.")
+                case (.userCancelled, .completed):
+                    XCTFail("Cancellation handed audio downstream the user asked to throw away.")
+                }
 
-            let outcome = try endedOutcome(drive(harness), "\(reason)")
-
-            XCTAssertEqual(
-                harness.source.endCount, closesBefore + 1,
-                "\(reason) closed the microphone \(harness.source.endCount - closesBefore) times.")
-            XCTAssertFalse(harness.source.isOpen, "\(reason) left the microphone open.")
-            XCTAssertEqual(harness.machine.state, .idle, "\(reason) left the machine mid-flight.")
-
-            let captured = try XCTUnwrap(harness.source.handedOut.last, "\(reason)")
-            switch (reason, outcome.content) {
-            case (.retained(let expected), .completed(let carried, let audio, _)):
-                XCTAssertEqual(carried, expected, "\(reason) was reported as \(carried).")
-                let payload: RecordingSource.Buffer = audio
+                // Exactly once, from the other side: the same cause again produces no second
+                // outcome. There is one cause for which "again" is not a no-op, and it is the
+                // mode's defining property rather than an exception — toggle's stop *is* a press,
+                // and a press against an idle machine starts the next session. Named exactly, so
+                // that any other cause reporting `.started` here still fails.
+                let repeatStartsAFreshSession =
+                    activation == .toggle && reason == .retained(.toggledOff)
+                let repeated = drive(harness)
                 XCTAssertEqual(
-                    payload, captured,
-                    """
-                    \(reason) emitted a buffer that is not the one this session captured. \
-                    Expected \(captured), got \(payload).
-                    """)
-            case (.userCancelled, .cancelled):
-                break
-            case (.retained, .cancelled):
-                XCTFail("\(reason) discarded audio the user never asked to abandon.")
-            case (.userCancelled, .completed):
-                XCTFail("Cancellation handed audio downstream that the user asked to throw away.")
+                    repeated, repeatStartsAFreshSession ? .started : .unchanged,
+                    "\(label): the repeated cause did not do what this mode says it should.")
+                XCTAssertEqual(
+                    harness.source.endCount, closesBefore + 1,
+                    "\(label) emitted its audio twice — the same words, injected twice.")
             }
-
-            // Exactly once, from the other side: the same cause again is a no-op.
-            let repeated = drive(harness)
-            XCTAssertEqual(repeated, .unchanged, "\(reason) ended a second, non-existent session.")
-            XCTAssertEqual(
-                harness.source.endCount, closesBefore + 1,
-                "\(reason) emitted its audio twice — the same words, injected twice.")
         }
 
-        // The exclusion is deliberate and self-falsifying: `.toggledOff` is toggle mode's stop and
-        // toggle mode does not exist yet (`HotkeyConfiguration.Activation` has one case). When it
-        // arrives, this count fails until its driver is written above.
+        // **Which pairs have no cause, named rather than counted.** A count says how many holes
+        // there are; this says which, so a reason that quietly becomes unreachable in a mode — or
+        // one that quietly becomes reachable in a mode whose policy says it is not — fails here.
+        //
+        // `pollDetectedRelease` in toggle is the one worth reading twice. The *machine* would
+        // honour `observePhysicalKey(isDown:)` in either mode; what makes it unreachable is that
+        // `SessionWatchdog.wake()` never asks in toggle mode, because the key is released for the
+        // whole session and rule (f) would end it on the first wake. That is a policy, it lives in
+        // exactly one place, and `SessionWatchdogTests` is where it is pinned — this line records
+        // the consequence rather than the mechanism.
         XCTAssertEqual(
-            driven.count, EndReason.allCases.count - 1,
+            unreachable,
+            [
+                "holdToTalk × retained(VoccaCore.RetainedEndReason.toggledOff)",
+                "toggle × retained(VoccaCore.RetainedEndReason.keyUp)",
+                "toggle × retained(VoccaCore.RetainedEndReason.modifierReleased)",
+                "toggle × retained(VoccaCore.RetainedEndReason.pollDetectedRelease)",
+            ],
             """
-            \(EndReason.allCases.count - driven.count) reasons were not driven through the machine, \
-            and exactly one — .toggledOff — is allowed to be. Add the new reason's cause to \
-            `driver(for:)` rather than lowering this number.
+            The set of (mode, reason) pairs with no cause has changed. Add the new pair's cause to \
+            `driver(for:in:)` rather than adding it to this list — and if a pair belongs on this \
+            list, say in its comment which mode's policy puts it there.
             """)
+        XCTAssertEqual(
+            driven.count + unreachable.count,
+            EndReason.allCases.count * HotkeyConfiguration.Activation.allCases.count,
+            "Some (mode, reason) pair was neither driven nor declared unreachable.")
     }
 
     /// Cancellation is the one path that discards — and it still has to close the microphone.
@@ -959,6 +1038,244 @@ final class SessionMachineTests: XCTestCase {
         XCTAssertEqual(harness.machine.state, .idle)
     }
 
+    // MARK: - Toggle mode
+
+    /// The cycle a user who cannot hold a key actually performs: tap, talk, tap.
+    ///
+    /// Everything is read off ``RecordingSource``, not off the machine — the machine agreeing with
+    /// itself is not evidence — and the second tap's outcome must carry `.toggledOff` with *that*
+    /// session's buffer. `.keyUp` would be a false statement about a key-*down* in the one log
+    /// anybody gets to read.
+    func testAToggleCycleOpensAndClosesTheMicrophoneOnSuccessivePresses() throws {
+        let harness = Harness(configuration: toggleChord)
+
+        XCTAssertEqual(harness.tapHotkey(), .started)
+        XCTAssertEqual(harness.machine.state, .recording)
+        XCTAssertTrue(harness.source.isOpen, "The hotkey was tapped and the microphone did not open.")
+
+        // Twenty seconds of speech with nothing held at all.
+        for second in 1...20 {
+            harness.advance(.seconds(1))
+            XCTAssertEqual(
+                harness.machine.tick(), .unchanged, "The session ended at second \(second).")
+            XCTAssertTrue(harness.source.isOpen)
+        }
+
+        let outcome = try endedOutcome(harness.tapHotkey(), "the second tap")
+        XCTAssertEqual(harness.machine.state, .idle)
+        XCTAssertFalse(harness.source.isOpen, "The second tap left the microphone open.")
+        XCTAssertEqual(harness.source.beginCount, 1)
+        XCTAssertEqual(harness.source.endCount, 1)
+        XCTAssertEqual(harness.source.overlappingBegins, 0)
+
+        switch outcome.content {
+        case .completed(let reason, let audio, _):
+            XCTAssertEqual(reason, .toggledOff)
+            XCTAssertEqual(audio, try XCTUnwrap(harness.source.handedOut.last))
+        case .cancelled:
+            XCTFail("Toggling off discarded twenty seconds the user never asked to abandon.")
+        }
+    }
+
+    /// **B1 for toggle**: 100 tap-talk-tap cycles, exactly 100 started, 100 ended, 0 overlapping,
+    /// 0 orphaned.
+    ///
+    /// The durations sweep 80 ms to 60 s with a `tick()` inside each, as the hold-to-talk twin does.
+    /// The long ones matter more here: hold-to-talk's poll ends a stray session within 150 ms, so a
+    /// leak there shows up as a wrong *reason*; in toggle a session that fails to end at the second
+    /// tap runs to the ceiling, and the sweep's 60 s cases are where the two become distinguishable.
+    func testOneHundredSyntheticToggleCyclesEachStartAndEndExactlyOnce() throws {
+        let harness = Harness(configuration: toggleChord)
+        let cycles = 100
+        var outcomes: [SessionOutcome<RecordingSource.Buffer>] = []
+
+        for cycle in 0..<cycles {
+            let spoken = Duration.milliseconds(80 + (60_000 - 80) * cycle / (cycles - 1))
+
+            XCTAssertEqual(harness.tapHotkey(), .started, "cycle \(cycle) did not start")
+            XCTAssertTrue(harness.micAgreesWithState, "cycle \(cycle): mic out of step while open")
+
+            harness.advance(spoken)
+            XCTAssertEqual(harness.machine.tick(), .unchanged, "cycle \(cycle) ended early")
+
+            outcomes.append(try endedOutcome(harness.tapHotkey(), "cycle \(cycle)"))
+            XCTAssertTrue(harness.micAgreesWithState, "cycle \(cycle): mic out of step after")
+        }
+
+        XCTAssertEqual(harness.source.beginCount, cycles, "not exactly 100 toggle sessions started")
+        XCTAssertEqual(harness.source.endCount, cycles, "not exactly 100 toggle sessions ended")
+        XCTAssertEqual(harness.source.overlappingBegins, 0, "two sessions were open at once")
+        XCTAssertEqual(harness.source.closesWithoutOpen, 0, "a session was closed that never opened")
+        XCTAssertFalse(harness.source.isOpen, "the microphone was left open — an orphaned session")
+        XCTAssertEqual(harness.machine.state, .idle)
+
+        for (index, outcome) in outcomes.enumerated() {
+            switch outcome.content {
+            case .completed(let reason, let audio, _):
+                XCTAssertEqual(reason, .toggledOff, "cycle \(index)")
+                XCTAssertEqual(audio, harness.source.handedOut[index], "cycle \(index)")
+            case .cancelled:
+                XCTFail("cycle \(index) discarded its audio")
+            }
+        }
+        XCTAssertEqual(Set(outcomes.map(\.hashOfSession)).count, cycles, "buffers were reused")
+
+        // 200 presses and 200 releases, and the focused application heard none of them.
+        XCTAssertEqual(
+            harness.keyEventsTheAppSaw(for: space), 0,
+            """
+            The application received \(harness.keyEventsTheAppSaw(for: space)) events for the \
+            hotkey across 100 toggle cycles. Vocca swallowed each press, so it owes each key-up too.
+            """)
+    }
+
+    /// **The claim is scoped to the press, not to the session — and in toggle those are different.**
+    ///
+    /// In hold-to-talk the two coincide: the key is physically down for the whole session, so
+    /// "Vocca owns this key until it comes up" and "Vocca owns this key until the session ends" are
+    /// the same sentence. In toggle they are not, and picking the wrong one is the failure this
+    /// mode invites — a claim held for the session leaves the user with a dead Space bar for up to
+    /// two minutes at a stretch, in every application, and it would look correct in every test that
+    /// only ever pressed the hotkey.
+    ///
+    /// So: the two presses are swallowed whole, and between them the key is the user's.
+    func testInToggleModeTheHotkeyKeyBelongsToTheUserBetweenTheTwoPresses() throws {
+        let harness = Harness(configuration: toggleChord)
+        XCTAssertEqual(harness.tapHotkey(), .started)
+
+        // The user types three spaces into the field they are dictating into. Bare Space is not the
+        // binding, so each one is theirs — and none of them may end the session.
+        for index in 0..<3 {
+            let down = harness.feed(event(.keyDown, space, []))
+            XCTAssertEqual(down.effect, .unchanged, "space #\(index) ended the toggle session")
+            XCTAssertEqual(
+                down.eventPropagation, .passThrough,
+                """
+                Vocca ate the user's space bar during a toggle session. The hotkey is ⌥Space; a \
+                bare Space is a space, and the claim on the press ended when that press did.
+                """)
+            XCTAssertEqual(harness.feed(event(.keyUp, space, [])).eventPropagation, .passThrough)
+        }
+        XCTAssertEqual(
+            harness.strayCharacters, 3, "The three spaces the user typed did not reach the app.")
+        XCTAssertTrue(
+            harness.keysTheAppBelievesAreDown.isEmpty,
+            "The application is holding \(harness.keysTheAppBelievesAreDown) after three complete "
+                + "key presses of its own.")
+        XCTAssertEqual(harness.machine.state, .recording)
+
+        // An unrelated key, and a modifier event, are equally the user's.
+        XCTAssertEqual(
+            harness.feed(event(.keyDown, letterA, [])).eventPropagation, .passThrough)
+        XCTAssertEqual(
+            harness.feed(event(.flagsChanged, 0, [.option])).eventPropagation, .passThrough,
+            "A swallowed modifier event strands the app's idea of which modifiers are down.")
+        XCTAssertEqual(harness.machine.state, .recording)
+
+        // And the session still ends on the real gesture, with the app hearing nothing of it.
+        let eventsBefore = harness.keyEventsTheAppSaw(for: space)
+        let outcome = try endedOutcome(harness.tapHotkey())
+        switch outcome.content {
+        case .completed(let reason, _, _): XCTAssertEqual(reason, .toggledOff)
+        case .cancelled: XCTFail("Toggling off discarded its audio.")
+        }
+        XCTAssertEqual(
+            harness.keyEventsTheAppSaw(for: space), eventsBefore,
+            "The toggle-off press or its key-up reached the focused application.")
+    }
+
+    /// **The key-up of the starting press, delivered from inside the microphone opening.**
+    ///
+    /// This is the sequence toggle mode produces most often and hold-to-talk almost never does: a
+    /// tap is 60 ms, `AVAudioEngine.start()` is milliseconds of real work on a real run loop, so the
+    /// key-up genuinely arrives underneath it. In hold-to-talk that key-up is a stop, and the
+    /// machine defers it and applies it the instant the session exists — which is right there and
+    /// catastrophic here. A toggle session that inherited it would end inside its own opening, every
+    /// time, and the user would see the widget flicker and get nothing.
+    ///
+    /// The stop that *is* deferred correctly in toggle is a second press landing in the same window,
+    /// and the second half of this test drives that: the two behaviours are one line apart and only
+    /// asserting both distinguishes "toggle ignores the key-up" from "toggle drops everything".
+    func testAToggleSessionSurvivesTheKeyUpOfItsOwnStartingPressInsideTheOpening() throws {
+        let survives = Harness(configuration: toggleChord)
+        survives.source.duringBeginCapture = { [weak survives] in
+            _ = survives?.feed(event(.keyUp, space, [.option]))
+        }
+
+        XCTAssertEqual(
+            survives.pressHotkey(), .started,
+            """
+            The key-up of the starting press ended the toggle session from inside the microphone \
+            opening. Every tap shorter than the engine's start-up time would produce a session the \
+            user never got.
+            """)
+        XCTAssertEqual(survives.machine.state, .recording)
+        XCTAssertTrue(survives.source.isOpen)
+        XCTAssertEqual(survives.source.endCount, 0)
+        XCTAssertEqual(
+            survives.keyEventsTheAppSaw(for: space), 0,
+            "The re-entrant key-up reached the app for a press it never saw begin.")
+
+        // And the session is a real one: the next tap ends it, as `.toggledOff`.
+        let outcome = try endedOutcome(survives.tapHotkey())
+        switch outcome.content {
+        case .completed(let reason, _, _): XCTAssertEqual(reason, .toggledOff)
+        case .cancelled: XCTFail("Toggling off discarded its audio.")
+        }
+
+        // The other half: a *press* arriving in the opening is a genuine toggle-off and must not be
+        // dropped. Without this, "ignores the key-up" and "ignores everything re-entrant" are the
+        // same green suite — and the second leaves a session running that the user has ended.
+        let toggledOffImmediately = Harness(configuration: toggleChord)
+        toggledOffImmediately.source.duringBeginCapture = { [weak toggledOffImmediately] in
+            _ = toggledOffImmediately?.feed(event(.keyDown, space, [.option]))
+        }
+        let immediate = try endedOutcome(
+            toggledOffImmediately.pressHotkey(),
+            "A second press inside the opening was dropped. Nothing recovers it in toggle mode "
+                + "except the 120 s ceiling — there is no poll here.")
+        switch immediate.content {
+        case .completed(let reason, let audio, _):
+            XCTAssertEqual(reason, .toggledOff)
+            XCTAssertEqual(
+                audio, try XCTUnwrap(toggledOffImmediately.source.handedOut.last),
+                "The milliseconds captured during the opening were lost.")
+        case .cancelled:
+            XCTFail("A second press discarded audio the user never asked to abandon.")
+        }
+        XCTAssertFalse(toggledOffImmediately.source.isOpen)
+        XCTAssertEqual(toggledOffImmediately.machine.state, .idle)
+    }
+
+    /// Cancellation is still the one path that discards, and in toggle it still closes the
+    /// microphone.
+    ///
+    /// Worth its own toggle case rather than leaving it to the property test: Escape is the only
+    /// input a toggle user has that ends a session *without* pressing the hotkey again, so it is
+    /// their only escape from a session whose stopping press is not being seen.
+    func testEscapeStillCancelsAToggleSessionAndStillClosesTheMicrophone() throws {
+        let harness = Harness(configuration: toggleChord)
+        XCTAssertEqual(harness.tapHotkey(), .started)
+        harness.advance(.seconds(5))
+
+        let outcome = try endedOutcome(harness.machine.cancel())
+        switch outcome.content {
+        case .cancelled: break
+        case .completed(let reason, _, _):
+            XCTFail("Escape handed the audio on anyway, attributed to \(reason).")
+        }
+        XCTAssertFalse(
+            harness.source.isOpen,
+            "Escape discarded the transcript and left the microphone open — and in toggle mode "
+                + "nothing but the ceiling would have closed it.")
+        XCTAssertEqual(harness.source.endCount, 1)
+        XCTAssertEqual(harness.machine.state, .idle)
+
+        // Not wedged: the next tap starts a session, and the one after ends it.
+        XCTAssertEqual(harness.tapHotkey(), .started)
+        _ = try endedOutcome(harness.tapHotkey())
+    }
+
     // MARK: - The whole input space
 
     /// Two thousand randomised sequences of every input the machine accepts, checked against
@@ -972,14 +1289,23 @@ final class SessionMachineTests: XCTestCase {
     /// 1. The microphone is open exactly when the machine says a session is recording.
     /// 2. No two captures overlap, and nothing is closed that was never opened.
     /// 3. Exactly one outcome per capture, carrying *that* capture's buffer.
-    /// 4. After the key is released and the poll confirms it, the focused application is not left
-    ///    holding it.
+    /// 4. After the sequence is wound up by the route the mode actually gives the user, the
+    ///    focused application is not left holding the hotkey key.
     ///
-    /// Seeded, so a failure is replayable from the number in the message.
+    /// Run over **both activation modes**, because every one of those invariants is a property of
+    /// the machine rather than of hold-to-talk, and the machine is mode-blind everywhere except the
+    /// rules it consults. Seeded, so a failure is replayable from the mode and number in the
+    /// message.
     func testNoRandomisedSequenceOfInputsBreaksTheInvariants() throws {
-        for seed in UInt64(1)...2_000 {
+        // Both modes, 2,000 seeds each. Flattened rather than nested so the body below keeps its
+        // indentation — and so that a mode added later is 2,000 more runs rather than a copy.
+        let runs = HotkeyConfiguration.Activation.allCases.flatMap { activation in
+            (UInt64(1)...2_000).map { (activation, $0) }
+        }
+        for (activation, seed) in runs {
+            let run = "\(activation) seed \(seed)"
             var random = SeededGenerator(seed: seed)
-            let harness = Harness()
+            let harness = Harness(configuration: configuration(for: activation))
             var outcomes: [SessionOutcome<RecordingSource.Buffer>] = []
 
             func record(_ effect: Effect, _ step: Int) {
@@ -989,14 +1315,14 @@ final class SessionMachineTests: XCTestCase {
                 }
                 XCTAssertTrue(
                     harness.micAgreesWithState,
-                    "seed \(seed) step \(step): the microphone and the machine disagree.")
+                    "\(run) step \(step): the microphone and the machine disagree.")
                 XCTAssertEqual(
-                    harness.source.overlappingBegins, 0, "seed \(seed) step \(step): overlap")
+                    harness.source.overlappingBegins, 0, "\(run) step \(step): overlap")
                 XCTAssertEqual(
-                    harness.source.closesWithoutOpen, 0, "seed \(seed) step \(step): stray close")
+                    harness.source.closesWithoutOpen, 0, "\(run) step \(step): stray close")
                 XCTAssertEqual(
                     outcomes.count, harness.source.endCount,
-                    "seed \(seed) step \(step): outcomes and captures diverged.")
+                    "\(run) step \(step): outcomes and captures diverged.")
             }
 
             for step in 0..<24 {
@@ -1035,23 +1361,36 @@ final class SessionMachineTests: XCTestCase {
                     case .flagsChanged, .tapDisabled:
                         XCTAssertEqual(
                             response.eventPropagation, .passThrough,
-                            "seed \(seed) step \(step): a \(kind) event was swallowed.")
+                            "\(run) step \(step): a \(kind) event was swallowed.")
                     case .keyDown, .keyUp:
                         break
                     }
                 }
             }
 
-            // However the sequence ended: the user lets go, and the watchdog confirms it.
+            // However the sequence ended, the user gets out of it — by the route their own mode
+            // actually gives them. Switched without a `default:`: a mode whose tail was wrong would
+            // otherwise leave every assertion below asserting something about a session that was
+            // still running.
             record(harness.releaseHotkey(), 24)
-            record(harness.machine.observePhysicalKey(isDown: false), 25)
+            switch activation {
+            case .holdToTalk:
+                // The key is up and the watchdog's poll confirms it.
+                record(harness.machine.observePhysicalKey(isDown: false), 25)
+            case .toggle:
+                // Neither the key-up nor a poll ends a toggle session, and this tail must not
+                // pretend otherwise — using the poll here would quietly assert the opposite of the
+                // policy in `SessionWatchdog.wake()`. What a toggle user actually has left is a
+                // system trigger or the ceiling; the machine sleeping is the shorter of the two.
+                record(harness.machine.observe(.willSleep), 25)
+            }
 
-            XCTAssertEqual(harness.machine.state, .idle, "seed \(seed): not idle after release")
-            XCTAssertFalse(harness.source.isOpen, "seed \(seed): the microphone was left open")
+            XCTAssertEqual(harness.machine.state, .idle, "\(run): not idle after the tail")
+            XCTAssertFalse(harness.source.isOpen, "\(run): the microphone was left open")
             XCTAssertFalse(
                 harness.keysTheAppBelievesAreDown.contains(space),
                 """
-                seed \(seed): the focused application is still holding the hotkey key. Vocca \
+                \(run): the focused application is still holding the hotkey key. Vocca \
                 swallowed a key-up the application was waiting for.
                 """)
 
@@ -1061,7 +1400,7 @@ final class SessionMachineTests: XCTestCase {
             for (index, outcome) in outcomes.enumerated() {
                 switch outcome.content {
                 case .completed(_, let audio, _):
-                    XCTAssertEqual(audio, harness.source.handedOut[index], "seed \(seed)")
+                    XCTAssertEqual(audio, harness.source.handedOut[index], run)
                 case .cancelled:
                     break
                 }
@@ -1101,39 +1440,64 @@ final class SessionMachineTests: XCTestCase {
     /// table trivial and would also let any caller attribute a session's end to whatever it liked;
     /// ``SessionOutcome`` calls that the one residual hole it cannot close, and a public API shaped
     /// like it would be an invitation to walk through.
-    private static func driver(for reason: EndReason) -> ((Harness) -> Effect)? {
-        switch reason {
-        case .retained(.keyUp):
-            return { $0.releaseHotkey() }
-        case .retained(.modifierReleased):
-            return { $0.releaseModifier() }
-        case .retained(.tapDisabled):
-            return { $0.tapDies() }
-        case .retained(.ceilingReached):
-            return {
-                $0.advance(SessionCeiling.default)
-                return $0.machine.tick()
+    private static func driver(
+        for reason: EndReason, in activation: HotkeyConfiguration.Activation
+    ) -> ((Harness) -> Effect)? {
+        // Two nested exhaustive switches rather than one over a tuple, because the shape *is* two
+        // policies: each mode's list can be read straight through against `spec.md`'s rule table,
+        // and a third mode is a compile error with nowhere to inherit a branch from.
+        switch activation {
+        case .holdToTalk:
+            switch reason {
+            case .retained(.keyUp):
+                return { $0.releaseHotkey() }
+            case .retained(.modifierReleased):
+                return { $0.releaseModifier() }
+            case .retained(.tapDisabled):
+                return { $0.tapDies() }
+            case .retained(.ceilingReached):
+                return {
+                    $0.advance(SessionCeiling.default)
+                    return $0.machine.tick()
+                }
+            case .retained(.pollDetectedRelease):
+                return { $0.machine.observePhysicalKey(isDown: false) }
+            case .retained(.systemEvent(let trigger)):
+                return { $0.machine.observe(trigger) }
+            case .retained(.toggledOff):
+                // Toggle's stop. A fresh press while recording is `.ignore` in hold-to-talk — a
+                // missed key-up is what the ceiling and the poll are for, and restarting would be
+                // the double-start bug.
+                return nil
+            case .userCancelled:
+                return { $0.machine.cancel() }
             }
-        case .retained(.pollDetectedRelease):
-            return { $0.machine.observePhysicalKey(isDown: false) }
-        case .retained(.systemEvent(let trigger)):
-            return { $0.machine.observe(trigger) }
-        case .retained(.toggledOff):
-            // Toggle mode is a later unit of work and `HotkeyConfiguration.Activation` has one
-            // case, so nothing the machine accepts today can produce this. The count assertion in
-            // the property test is what stops that from being forgotten.
-            return nil
-        case .userCancelled:
-            return { $0.machine.cancel() }
-        }
-    }
-}
 
-/// A hashable stand-in for ``EndReason``, so the property test can count what it drove.
-private struct EndReasonTag: Hashable {
-    private let description: String
-    init(_ reason: EndReason) {
-        self.description = "\(reason)"
+        case .toggle:
+            switch reason {
+            case .retained(.toggledOff):
+                return { $0.tapHotkey() }
+            case .retained(.tapDisabled):
+                return { $0.tapDies() }
+            case .retained(.ceilingReached):
+                return {
+                    $0.advance(SessionCeiling.default)
+                    return $0.machine.tick()
+                }
+            case .retained(.systemEvent(let trigger)):
+                return { $0.machine.observe(trigger) }
+            case .userCancelled:
+                return { $0.machine.cancel() }
+            case .retained(.keyUp), .retained(.modifierReleased):
+                // Stop rules (a), (b) and (c), replaced rather than inherited. The key is up for
+                // the whole session, so either of these would end it in the first few milliseconds.
+                return nil
+            case .retained(.pollDetectedRelease):
+                // Stop rule (f). Not a rule in this mode at all — see `SessionWatchdog.wake()`,
+                // which is the one place that decides not to ask.
+                return nil
+            }
+        }
     }
 }
 

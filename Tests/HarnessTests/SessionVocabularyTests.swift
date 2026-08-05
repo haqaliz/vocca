@@ -136,6 +136,34 @@ final class SessionVocabularyTests: XCTestCase {
         XCTAssertEqual(SessionState.allCases.map(label(for:)), ["idle", "recording", "ending"])
     }
 
+    /// Every activation mode is enumerated and exhaustively switchable.
+    ///
+    /// The reason this is worth its own test rather than being implied by the ones that use the
+    /// modes: `Activation` is the enum whose cases have *different safety properties*, not merely
+    /// different behaviour. Hold-to-talk cannot outlive the user's finger; toggle can outlive
+    /// anything short of the ceiling. A third mode added at P3 — voice activation — inherits neither
+    /// answer, and every switch over this enum in `VoccaCore` is written without a `default:` so
+    /// that it cannot. This is the check that the *list* it must be added to has not gone stale in
+    /// the meantime, which is what would make the property tests below quietly cover one mode less.
+    func testEveryActivationModeIsExhaustivelySwitchable() {
+        func label(for activation: HotkeyConfiguration.Activation) -> String {
+            switch activation {
+            case .holdToTalk: return "holdToTalk"
+            case .toggle: return "toggle"
+            }
+        }
+        XCTAssertEqual(
+            HotkeyConfiguration.Activation.allCases.map(label(for:)), ["holdToTalk", "toggle"])
+
+        // The mode is part of the configuration's identity. Two bindings that differ only in
+        // activation must not compare equal, or a settings layer could hand the machine a mode the
+        // user did not choose and nothing downstream would notice.
+        let held = HotkeyConfiguration(keyCode: 49, modifiers: [.option], activation: .holdToTalk)
+        let toggled = HotkeyConfiguration(keyCode: 49, modifiers: [.option], activation: .toggle)
+        XCTAssertNotEqual(held, toggled)
+        XCTAssertEqual(Set([held, toggled]).count, 2)
+    }
+
     func testEveryEventKindAndPropagationIsExhaustivelySwitchable() {
         func label(for kind: RawKeyEvent.Kind) -> String {
             switch kind {

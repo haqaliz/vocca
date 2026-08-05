@@ -295,6 +295,15 @@ public final class SessionMachine<Audio: CapturedAudio> {
 
     /// The physical state of the configured key, as read at the seam: stop rule (f).
     ///
+    /// **Hold-to-talk's rule, and the mechanism only.** Whether to ask at all is
+    /// ``SessionWatchdog/wake()``'s, and in toggle mode it never does: a toggle session runs with
+    /// the key released, so this method would end it on the first wake. That decision is written
+    /// down in exactly one place on purpose — a second copy of it here would be a second thing to
+    /// keep in step, and this repository has twice found two copies of one decision each
+    /// individually deletable with the suite green. What it leaves is a caller that reached past the
+    /// watchdog in toggle mode breaking toggle mode loudly and immediately, which is the failure
+    /// mode worth having.
+    ///
     /// `isDown: false` means a key-up was missed — the hotkey was stolen, the tap stalled, the app
     /// lost focus mid-press. The session ends on the poll that observes it, so the worst-case
     /// hot-mic window is one poll interval, and the interval is the watchdog's to choose.

@@ -33,7 +33,7 @@ Beyond those, each capability either makes the loop *more reliable* (injection, 
 **Why it matters.** This is the front door. If the hotkey is flaky or a session gets stuck recording, nothing downstream can rescue it — and a mic that stays hot without the user knowing is a privacy failure in a tool whose entire pitch is privacy.
 
 **What we build:**
-- A global `⌥Space` hotkey via a `CGEvent` tap, with key-down starting capture and key-up ending it. **Hold-to-talk only** — the user's finger is the endpointer, so "it cut me off mid-sentence" is structurally impossible in P0.
+- A global `⌥Space` hotkey via a `CGEvent` tap, with key-down starting capture and key-up ending it. **No VAD or endpointing in P0** — in hold-to-talk the user's finger is the endpointer, so "it cut me off mid-sentence" is structurally impossible. Hold-to-talk is the default and **a toggle alternative ships alongside it**, as one configuration of the same state machine: `PRODUCT_SPEC.md:257` makes that an accessibility requirement rather than a preference. Toggle has no physical fact behind it, so it keeps the ceiling, the tap-disabled stop and the system triggers, and is bounded by the ceiling alone in the case where its stopping press is never seen — see `docs/planning/audio-capture-hotkey/session-lifecycle/spec.md`.
 - `AVAudioEngine` capture at the ASR's native sample rate (16 kHz mono), into a ring buffer sized for a bounded maximum utterance.
 - A floating always-on-top SwiftUI widget: idle pill → live waveform while recording → spinner while transcribing → collapse.
 - **Hard session invariants:** capture cannot outlive key-up; a lost key-up event (app switch, sleep, hotkey stolen) triggers a watchdog that ends the session cleanly rather than recording indefinitely.

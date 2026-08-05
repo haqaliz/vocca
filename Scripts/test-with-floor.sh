@@ -47,7 +47,19 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 121 by task 5's second review round, which added two in SessionWatchdogTests — both about the
+# 141 by task 6, which added twenty for toggle mode: seven in SessionDecisionTests (including a
+# second 144-row truth table, because the two modes are two policies and a row given to the wrong
+# half of a combined table would read as a deliberate difference), five in SessionMachineTests, seven
+# in SessionWatchdogTests, and one in SessionVocabularyTests. Four of them carry the mode's whole
+# risk: the ceiling is driven wake-by-wake *through the watchdog*, because a toggle branch that
+# returns `.unchanged` instead of ticking passes every rules test and every machine test that ticks
+# directly; the physical key is asserted never to be read in toggle with a hold-to-talk run beside it
+# as the positive control; the cost of having no rule (f) is measured rather than argued — one poll
+# interval against 700 of them for the same lost stopping gesture; and a stalled clock, which task 5
+# measured as costing hold-to-talk nothing beyond the ceiling, is shown to remove the *only*
+# unconditional backstop toggle has.
+#
+# It was 121 after task 5's second review round, which added two in SessionWatchdogTests — both about the
 # direction of propagation the first round left unpinned. The tap delivers *every* key event to the
 # watchdog, because stop rule (c) applies to any event whose flags drop the modifier, so a wrapper
 # that hard-coded `.swallow` would eat the user's entire keyboard in every application. Round 1
@@ -107,7 +119,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=121
+MINIMUM_EXECUTED_TESTS=141
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
