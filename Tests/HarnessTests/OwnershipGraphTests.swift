@@ -155,6 +155,18 @@ final class OwnershipGraphTests: XCTestCase {
 
     /// `ScheduledWatchdog` keeps both of its collaborators alive — the watchdog it reads the schedule
     /// off, and the timer it drives.
+    ///
+    /// **Only one of those two edges is load-bearing, and saying which is the point of this
+    /// paragraph.** Measured: `ScheduledWatchdog.timer` → `unowned` is killed by this test;
+    /// `ScheduledWatchdog.watchdog` → `unowned` **survives the whole suite**, because the watchdog is
+    /// also held by the `SessionEventSink` this object builds internally, and that edge is E4.
+    /// Mutating *both* to `unowned` is killed.
+    ///
+    /// So the watchdog assertion below is true and redundant — it is the chain that carries it, and
+    /// `testHoldingTheRootHoldsTheWholeGraph` is what covers the chain. It is left in place rather
+    /// than deleted because the redundancy is the safe direction and because a future edit that
+    /// stopped `ScheduledWatchdog` building its own sink would make it load-bearing again. What it
+    /// must not do is read as coverage it does not provide, which is what this note prevents.
     func testTheScheduledWatchdogKeepsItsWatchdogAndTimerAlive() {
         weak var watchdog: SessionWatchdog<RecordingSource.Buffer>?
         weak var timer: FakeTimer?
@@ -256,6 +268,11 @@ final class OwnershipGraphTests: XCTestCase {
             source = createdSource
             observer = createdObserver
 
+            // The edge that makes this graph production's shape rather than a tree: the source
+            // points back at the observer, weakly. Without it there is no cycle here at all and the
+            // freeing test below passes for a reason unrelated to its purpose.
+            createdSource.disablementObserver = createdObserver
+
             runtime = TapHealthTimer(
                 policy: policy, timer: FakeTimer(), retaining: createdObserver) { _ in }
         }
@@ -284,8 +301,24 @@ final class OwnershipGraphTests: XCTestCase {
     ///
     /// The counterweight, and it is not decoration: every assertion above is satisfied by a graph in
     /// which everything holds everything, which is a permanent leak of a live `CFMachPort` — a tap
-    /// nobody can reach and nothing can stop. The one cycle in the real graph is broken at
-    /// `CGEventTapSource.disablementObserver`, which is `weak`, and this is what says so.
+    /// nobody can reach and nothing can stop.
+    ///
+    /// ## What this pins, stated exactly, because the sentence that used to be here overclaimed
+    ///
+    /// The one cycle in the shipped graph is `observer → policy → source ─weak→ observer`, and it is
+    /// broken at `CGEventTapSource.disablementObserver`. This test **models** that cycle —
+    /// `FakeHotkeyEventSource` carries a `weak var disablementObserver` for no other purpose — and
+    /// what it pins is that *the modelled* weak edge is what frees the graph: make the double's field
+    /// strong and this fails.
+    ///
+    /// It does **not** pin the shipped field. Mutating `CGEventTapSource.disablementObserver` from
+    /// `weak var` to `var` leaves the whole suite green, and always will: that file is the one
+    /// `tapCreate` makes unexecutable in CI, the same category as `SystemPhysicalKeyState`. The
+    /// previous version of this comment claimed otherwise, and the double had no such field at all —
+    /// so the test passed for a reason unrelated to its stated purpose, which is verbatim the defect
+    /// class phase 4's review called blocking. Recorded rather than quietly fixed, because "the cycle
+    /// is pinned" and "a graph shaped like the cycle is pinned" are different claims and only the
+    /// second is true.
     func testTheWholeGraphIsFreedWhenItsRootGoes() {
         weak var source: FakeHotkeyEventSource?
         weak var machine: SessionMachine<RecordingSource.Buffer>?
@@ -307,6 +340,9 @@ final class OwnershipGraphTests: XCTestCase {
             let policy = TapHealthPolicy(
                 source: createdSource, sink: scheduled, clock: TestClock()) { _ in }
             let createdObserver = CallbackSafeTapDisablement(policy: policy) { _ in }
+            // The cycle, closed the way production closes it — weakly. This is the edge the test is
+            // about; a strong one here leaks the whole graph and this test is what says so.
+            createdSource.disablementObserver = createdObserver
             let runtime = TapHealthTimer(
                 policy: policy, timer: FakeTimer(), retaining: createdObserver) { _ in }
 

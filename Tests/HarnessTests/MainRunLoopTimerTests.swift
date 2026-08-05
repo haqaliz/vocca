@@ -273,6 +273,16 @@ final class MainRunLoopTimerTests: XCTestCase {
         XCTAssertEqual(
             fires.value, 0,
             "the timer fired synchronously from `start`, which puts a session end on the caller's stack")
+
+        // **The control, and without it this test is satisfied by a timer that never fires at all.**
+        // "It did not fire yet" and "it does not fire" are the same zero, and only the second is a
+        // defect — so the timer is made to fire before the assertion above is allowed to count for
+        // anything. It was non-vacuous only by virtue of its neighbours in this file, which is not a
+        // property a test should rely on.
+        runMainLoop(in: .default)
+        XCTAssertGreaterThan(
+            fires.value, 0,
+            "the timer never fired at all, so its silence during `start` was not evidence of anything")
     }
 
     /// A dropped timer stops.

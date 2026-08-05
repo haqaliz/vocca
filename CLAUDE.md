@@ -71,12 +71,18 @@ This file orients a coding agent working in this repository. Read it first.
 >   Accessibility grant and TCC cannot be granted on a hosted runner; there is no microphone; and
 >   `AVAudioSinkNode` is unsupported in manual rendering mode, so the realtime capture path has no
 >   offline equivalent. See `docs/SMOKE_CHECKLIST.md` — it states the limits precisely.
-> - **App Nap could not be provoked, which is not the same as "App Nap does not throttle timers".**
->   Measured as a real `LSUIElement` `.app` launched through Launch Services, backgrounded, with no
->   window: 1999 of 2000 watchdog fires over five minutes, median interval 150.0 ms against a nominal
->   150 ms, and `ProcessInfo.beginActivity(...)` changed nothing measurable — so it is deliberately
->   **not** called. Untried, and named as untried: battery power, and an idle machine with the display
->   asleep. Both are conditions under which App Nap is documented to be more aggressive.
+> - **App Nap's throttle is real, is bounded, and is deliberately not worked around.** Every row is
+>   now taken with the process's suppression state recorded beside it
+>   (`getpriority(PRIO_DARWIN_PROCESS, 0)`) — because the first version of this measurement never
+>   checked it, and so measured an unthrottled process and concluded nothing about a throttled one.
+>   Under `taskpolicy -b` (the same task suppression App Nap applies) the shipped 150 ms timer runs at
+>   a ~262 ms median and delivers ~60% of its due fires; `ProcessInfo.beginActivity(...)` does **not**
+>   lift a suppression already in force, in either its keep-awake or its
+>   `…AllowingIdleSystemSleep` form. A real backgrounded `LSUIElement` app was **never put into that
+>   state** in 300 s of continuous observation — 2000 of 2000 samples read "not suppressed", 2000 of
+>   2000 fires on time. So the countermeasure is skipped because the throttle is bounded (a
+>   quarter-second late ceiling, no backstop lost), not because it could not be reproduced. Untried,
+>   and named as untried: battery power, and an idle machine with the display asleep.
 > - **`SystemPhysicalKeyState` — `CGEventSourceKeyState` and `CGEventSourceFlagsState` — is executed
 >   by nothing**, for the same reason the tap adapter is not: it lives in `CGEventTapSource.swift`
 >   because those identifiers match the H7 seam prefix and exactly one file may name it. What the

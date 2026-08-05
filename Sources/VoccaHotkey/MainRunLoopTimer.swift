@@ -66,28 +66,65 @@ import Foundation
 /// ``CGEventTapSource`` gives: an annotation would put ``stop()`` out of reach of ``deinit``, which is
 /// the one place a timer most needs tearing down.
 ///
-/// ## App Nap: measured, and **not** worked around
+/// ## App Nap: the throttle is real, is bounded, and is deliberately not worked around
 ///
 /// The second hazard `spec.md` carried as unverified was that App Nap throttles an `LSUIElement`
-/// app's timers, with `ProcessInfo.beginActivity(...)` as the countermeasure. Measured with
-/// `Scripts/measure-timers.sh appnap --bundle`, as a real `LSUIElement` `.app` launched through
-/// Launch Services, with no window, not frontmost, on macOS 26.5.2 / Apple silicon / AC power:
+/// app's timers, with `ProcessInfo.beginActivity(...)` as the countermeasure.
 ///
-/// | Run | watchdog fires | median interval | worst interval |
-/// |---|---|---|---|
-/// | 300 s, no activity assertion | 1999 / 2000 | 150.0 ms | 152.1 ms |
-/// | 180 s, `beginActivity` held | 1200 / 1200 | 150.0 ms | 151.1 ms |
+/// **The first version of this section said "no throttling was observed in any configuration
+/// tried". That sentence was worthless and it is worth saying why**, because the mistake is easy to
+/// repeat: the measurement never checked whether the process was in the state App Nap applies. A
+/// negative result about a state must verify the state was entered. It is one free, no-root,
+/// in-process read — `getpriority(PRIO_DARWIN_PROCESS, 0)`, which answers `1` when the task is in
+/// the darwin-background suppressed state and `0` otherwise — and every row below now carries it.
 ///
-/// **No throttling was observed in any configuration tried, and the countermeasure changed nothing
-/// measurable.** So `beginActivity` is deliberately *not* called here. It is not free — the useful
-/// options include `.idleSystemSleepDisabled`, which is a decision to keep a machine awake, and
-/// holding one for the length of every dictation session on a privacy-and-battery-conscious tool is
-/// not a cost to pay against a hazard nobody could reproduce.
+/// Measured with `Scripts/measure-timers.sh appnap` on macOS 26.5.2 / Apple silicon / AC power. The
+/// watchdog's own 150 ms cadence; `taskpolicy -b` is the supported CLI for the same task suppression
+/// App Nap applies.
 ///
-/// **What was not tried, stated so nobody reads the table as more than it is:** battery power, and a
-/// machine left idle with the display asleep. Both are conditions under which App Nap is documented
-/// to be more aggressive and neither was reachable here. `SMOKE_CHECKLIST.md` carries them as manual
-/// steps, and this is where the countermeasure goes if one of them reproduces it.
+/// | Run | **suppressed?** | fires | median | worst |
+/// |---|---|---|---|---|
+/// | 300 s, real `LSUIElement` `.app` via Launch Services, backgrounded | **no — state 0 throughout** | 2000 / 2000 | 150.0 ms | 152.0 ms |
+/// | 45 s under `taskpolicy -b` | **yes — state 1 on every fire** | 181 / 300 (60%) | **262.0 ms** | 336.7 ms |
+/// | 45 s under `taskpolicy -b`, `.userInitiated` held | yes — state 1 | 188 / 300 (63%) | 245.4 ms | 339.8 ms |
+/// | 45 s under `taskpolicy -b`, `.userInitiatedAllowingIdleSystemSleep` held | yes — state 1 | 192 / 300 (64%) | 247.1 ms | 346.4 ms |
+///
+/// Three findings, and the first two are the opposite of what the earlier version claimed:
+///
+/// 1. **The mechanism is not immune.** Under suppression a 150 ms `Timer` on `RunLoop.main` in
+///    `.common` mode runs at a ~1.7× median interval and delivers about 60% of its due fires. The
+///    1 s health poll stretches the same way (worst observed gap 1142 ms).
+/// 2. **`beginActivity` does not lift a suppression already applied** — 63% and 64% against an
+///    unassisted 60%, with the state still reading 1 throughout. That is consistent with it
+///    preventing the system from *choosing* to suppress rather than overriding suppression in force.
+///    Whether it prevents entry is untested, and untestable so long as the system never enters.
+/// 3. **A real backgrounded `LSUIElement` app was never put into that state** in 300 s of continuous
+///    observation — every one of ~2000 samples read 0. That is now a measured fact rather than an
+///    inference from a fire count.
+///
+/// **So `beginActivity` is not called, and the reason is (1), not (3).** The throttle is real and it
+/// is *bounded and modest*: the 150 ms watchdog becomes ~262 ms, the 1 s poll becomes ~1.8 s, and the
+/// 120 s ceiling therefore fires roughly a quarter-second late instead of roughly an eighth of a
+/// second late. **No microphone becomes unbounded, and no backstop stops working** — which is what
+/// separates this from H10 above, where the timer stops entirely. A countermeasure that measurably
+/// does not lift the state, bought against a quarter-second, is not worth its assertion.
+///
+/// **The cost claim that used to be here was also factually wrong**, and it is recorded because a
+/// wrong justification in the file whose job is to be the durable record is worse than no
+/// justification. It said the useful option sets include `.idleSystemSleepDisabled` — a decision to
+/// keep the machine awake. Foundation ships
+/// `ProcessInfo.ActivityOptions.userInitiatedAllowingIdleSystemSleep`, which is `.userInitiated`
+/// *minus* that bit; verified on this SDK — `userInitiated = 0xffffff`,
+/// `userInitiatedAllowingIdleSystemSleep = 0xefffff`, `idleSystemSleepDisabled = 0x100000`. The
+/// earlier measurement chose the heaviest available option set and then used its weight as the reason
+/// not to adopt it. There is a strictly cheaper form; it is in the table above; it does not help
+/// either.
+///
+/// **Still not tried, and named so nobody reads the table as more than it is:** battery power, and a
+/// machine left idle with the display asleep. Both are documented to make App Nap more aggressive and
+/// neither was reachable here (the machine was on AC and `UserIsActive` was asserted system-wide
+/// throughout). `SMOKE_CHECKLIST.md` carries both — with the suppression-state check as part of the
+/// step, because without it the result is the uninformative one this section had to retract.
 public final class MainRunLoopTimer: RepeatingTimer {
 
     /// The scheduled timer, or `nil` when there is none. The single fact ``interval`` is derived
@@ -105,8 +142,16 @@ public final class MainRunLoopTimer: RepeatingTimer {
 
     public var interval: Duration? {
         MainActor.preconditionIsolated(mustBeOnTheMainActor)
-        // Asked of the timer, never remembered. An invalidated timer reports `isValid == false`
-        // without anybody telling this object, which is precisely the case a cached flag would miss.
+        // Asked of the timer, never remembered.
+        //
+        // **The `isValid` read and `tearDown`'s `timer = nil` are a redundant pair today, and
+        // deleting either alone is invisible — measured.** Each survives the suite on its own;
+        // removing *both* is caught by `testTheIntervalIsNilBeforeStartingAndAfterStopping`. Said
+        // plainly so that nobody deletes one as dead code: a `repeats: true` `Timer` never
+        // self-invalidates and every teardown here nils the handle, so the case this read is written
+        // for — an invalidated timer nobody told this object about — is unreachable in the shipped
+        // code. It is kept because the alternative is a property that answers from a handle whose
+        // validity it has not checked, which is the shape `RepeatingTimer.interval` exists to forbid.
         guard let timer, timer.isValid else { return nil }
         return .seconds(timer.timeInterval)
     }

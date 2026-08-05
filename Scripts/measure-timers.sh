@@ -43,9 +43,26 @@
 #       The same, with a real window to drag by hand. This is the smoke-checklist form: it confirms
 #       that a human gesture produces the mode the automated form enters directly.
 #
-#   ./Scripts/measure-timers.sh appnap [seconds] [--activity]
-#       An accessory app with no window, left running while another app is in front. Reports fires
-#       against expected and the interval distribution, with and without beginActivity.
+#   ./Scripts/measure-timers.sh menu [seconds]
+#       The same hazard under a REAL AppKit tracking session — an NSMenu opened with popUp(...) —
+#       with no run-loop mode named anywhere in the gesture. Runs unattended, and reads back the mode
+#       the loop was actually in, so it is evidence rather than an assumption.
+#
+#   ./Scripts/measure-timers.sh appnap [seconds] [--activity | --activity-allowing-idle-sleep]
+#       An accessory app with no window, left running while another app is in front.
+#
+#   ./Scripts/measure-timers.sh appnap [seconds] --taskpolicy-bg
+#       The same, launched under `taskpolicy -b` — the supported CLI for the darwin-background
+#       suppression App Nap applies. THIS IS THE ROW THAT MEASURES THE THROTTLE ITSELF. Without it,
+#       an appnap run on an unsuppressed process measures nothing about App Nap at all, which is the
+#       error the first version of this measurement made.
+#
+#   ./Scripts/measure-timers.sh --build-only
+#       Compile the harness and stop. CI runs this: `Tools/` is not a package target, so nothing else
+#       in the build ever compiles it, and it would bit-rot silently.
+#
+# EVERY RUN PRINTS THE PROCESS'S DARWIN SUPPRESSION STATE, per fire. A fire count taken without it
+# cannot distinguish "the mechanism is not throttled" from "this process was never throttled".
 #
 # It is not a package target: everything under Sources/ is inside the zero-network coverage guard,
 # which would require VoccaNetworkProbe to drive it. It links the built package instead, so the
@@ -78,7 +95,25 @@ xcrun swiftc \
     Tools/TimerProbe/main.swift \
     $objects
 
+if [[ " $* " == *" --build-only "* ]]; then
+    "$binary" --build-only
+    exit 0
+fi
+
 echo ""
+
+# `--taskpolicy-bg` launches the probe in the darwin-background state — the same task suppression
+# App Nap applies — via the supported `taskpolicy(8)` CLI. It is the only way found to observe the
+# throttle on demand: a real backgrounded LSUIElement app was never *put* into that state in any
+# observation here, and a measurement of an unsuppressed process says nothing about a suppressed one.
+if [[ " $* " == *" --taskpolicy-bg "* ]]; then
+    filtered=()
+    for argument in "$@"; do
+        [[ "$argument" == "--taskpolicy-bg" ]] || filtered+=("$argument")
+    done
+    echo "Launching under taskpolicy -b (darwin background)."
+    exec taskpolicy -b "$binary" "${filtered[@]}"
+fi
 
 # `--bundle` runs the probe as a real LSUIElement .app launched through Launch Services, rather than
 # as a child of this shell.
@@ -116,7 +151,18 @@ PLIST
     echo "Running as $app (LSUIElement), output to $log"
     # `open --stdout` routes the app's output back to a file we can read; `--args` passes the
     # measurement's own arguments through. `--wait-apps` blocks until it exits.
-    open --wait-apps --stdout "$log" --stderr "$log" "$app" --args "${@/--bundle/}"
+    # `-n` forces a NEW instance. Without it, `open` returns immediately if any instance of
+    # dev.vocca.TimerProbe is already alive and the script then prints a log belonging to the other
+    # process — or an empty one. Latent rather than observed, and one flag closes it.
+    #
+    # The arguments are filtered rather than substituted: `"${@/--bundle/}"` replaced the flag with an
+    # EMPTY STRING and passed it through, leaving a blank positional in the app's argv. Harmless for
+    # today's parsing and a landmine for the next argument added.
+    forwarded=()
+    for argument in "$@"; do
+        [[ "$argument" == "--bundle" ]] || forwarded+=("$argument")
+    done
+    open -n --wait-apps --stdout "$log" --stderr "$log" "$app" --args "${forwarded[@]}"
     cat "$log"
     exit 0
 fi

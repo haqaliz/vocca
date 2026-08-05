@@ -42,6 +42,24 @@ final class FakeHotkeyEventSource: RecoverableHotkeyEventSource {
     /// policy's, not this double's.
     var nextStart: HotkeyEventSourceStart = .started
 
+    /// **Where a disablement would be reported — `weak`, mirroring the real adapter, and it is the
+    /// only reason this field exists.**
+    ///
+    /// Nothing in this double calls it. It is here so that a test's object graph has the same *shape*
+    /// as production's, and specifically so that it has production's one **cycle**:
+    /// `observer → policy → source ─weak→ observer`. `CGEventTapSource.disablementObserver` is `weak`
+    /// because a strong edge there would close that cycle around the object whose deallocation frees
+    /// a `CFMachPort` — a leaked live tap that goes on seeing every keystroke with nothing able to
+    /// reach it.
+    ///
+    /// Measured: without this field, `OwnershipGraphTests.testTheWholeGraphIsFreedWhenItsRootGoes`
+    /// stated in its own comment that it was what pinned that `weak`, and mutating the real field to
+    /// a strong reference left the whole suite green — because the graph the test built had no cycle
+    /// in it to break. That is verbatim the defect class phase 4's review called blocking: a test
+    /// that names the exact mutant it exists to kill and does not kill it. **A double that omits an
+    /// edge cannot measure the edge**, however precisely the test's comment describes one.
+    weak var disablementObserver: (any TapDisablementObserver)?
+
     /// What the next ``resumeDelivery()`` reports. `CGEventTapEnable` genuinely can fail to take —
     /// which is the whole of acceptance H4, and the only reason the policy has a re-creation path.
     var nextResume: TapResume = .resumed

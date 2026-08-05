@@ -48,7 +48,12 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 306 by hotkey-source phase 5, which wired the two timers and measured the two hazards two aspects
+# 307 by hotkey-source phase 5 review round 1, whose Critical finding was that
+# `TapHealthTimer.disarm()`'s forward to the policy was held by NO test: reducing it to `timer.stop()`
+# alone passed the whole 306-test suite, and so did a `disarm()` that forwarded to `policy.arm()` — a
+# build in which disarming Vocca RE-CREATES the tap and leaves the microphone open. Only the clock
+# half was pinned, by a test that never pressed a key.
+# It was 306 after hotkey-source phase 5, which wired the two timers and measured the two hazards two aspects
 # had carried as unverified. Of the 39 tests it added, the ones that justify the raise are:
 # `MainRunLoopTimerTests`, which measures the H10 run-loop-mode hazard rather than asserting it — a
 # timer in `.default` mode delivered 0 of 33 fires through a gesture, and the shipped `.common` one
@@ -478,7 +483,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=306
+MINIMUM_EXECUTED_TESTS=307
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

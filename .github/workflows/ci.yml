@@ -112,6 +112,18 @@ jobs:
       - name: Run the suite (with a test-count floor)
         run: ./Scripts/test-with-floor.sh
 
+      # Tools/ is deliberately not a package target — everything under Sources/ is inside the
+      # zero-network coverage guard, which would require VoccaNetworkProbe to drive it, and driving
+      # a GUI measurement harness from the probe that asserts Vocca makes no network calls would be
+      # nonsense. The cost is that `swift build` never compiles it, so it would bit-rot silently the
+      # first time RepeatingTimer, WatchdogPolicy or TapHealthPolling changes shape — and the next
+      # person to reach for the two hazard measurements would find the harness does not build.
+      #
+      # This compiles it and stops. It does not *run* a measurement: a hosted runner has no window
+      # server session, which is the whole reason these hazards need a human machine.
+      - name: Compile the timer measurement harness
+        run: ./Scripts/measure-timers.sh --build-only
+
   bundle:
     # Two jobs, one per configuration, because the entitlement rules genuinely differ between them:
     # Debug is allowed com.apple.security.get-task-allow so a debugger can attach, and Release must

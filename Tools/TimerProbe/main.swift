@@ -29,13 +29,55 @@
 //             mode a window drag and an open menu run in? Compares `.common` (the shipped
 //             registration) against `.default` (the mutant) under the identical gesture.
 //
+//   menu      The same question under a REAL AppKit tracking session — `NSMenu.popUp` — with no
+//             run-loop mode named anywhere in the measurement. It closes the "is entering the mode
+//             directly a faithful proxy" gap that the `runloop` form has to assume.
+//
 //   appnap    Does App Nap throttle an LSUIElement app's timers, and does
 //             `ProcessInfo.beginActivity(...)` change it?
+//
+// EVERY MEASUREMENT PRINTS THE PROCESS'S DARWIN SUPPRESSION STATE, and that is not decoration.
+// The first version of this file measured App Nap without ever checking whether the process was in
+// the state App Nap applies — so "1999 of 2000 fires" was a correct measurement of an unthrottled
+// process and no evidence at all about a throttled one. See `darwinSuppressionState()`. The rule it
+// cost: **a negative result about a state must verify the state was entered.**
 
 import AppKit
+import Darwin
 import Foundation
 import VoccaCore
 import VoccaHotkey
+
+// MARK: - Is this process actually suppressed?
+
+/// Whether the kernel currently has this task in the **darwin-background / suppressed** state —
+/// which is the state App Nap puts a task in.
+///
+/// `getpriority(PRIO_DARWIN_PROCESS, 0)` returns `PRIO_DARWIN_BG` when suppressed and `0` when not.
+/// It needs no privileges and no external tool, which matters: the phase that first wrote this file
+/// reached for `taskinfo`, found it needs root, and concluded the state was unobservable. It is not.
+/// Verified both directions on this machine — `0` normally, `1` under `taskpolicy -b`.
+///
+/// **This is the control for the entire App Nap measurement.** Fire counts taken without it cannot
+/// distinguish "the mechanism does not throttle" from "the process was never throttled", and those
+/// are completely different findings.
+func darwinSuppressionState() -> Int32 {
+    // The returned value is a *priority*, so -1 is a legitimate result and `errno` is the only way to
+    // detect failure. Cleared first, as `getpriority(2)` requires.
+    errno = 0
+    let value = getpriority(Int32(PRIO_DARWIN_PROCESS), 0)
+    if value == -1 && errno != 0 { return -1 }
+    return value
+}
+
+func describeSuppression(_ state: Int32) -> String {
+    switch state {
+    case 0: return "0 (NOT suppressed)"
+    case 1: return "1 (SUPPRESSED — darwin background)"
+    case -1: return "unreadable (errno \(errno))"
+    default: return "\(state) (unexpected)"
+    }
+}
 
 // MARK: - The ledger
 
@@ -61,6 +103,19 @@ final class FireLedger {
     private(set) var longestGapInWindow: [String: TimeInterval] = [:]
     private var currentWindow: String?
 
+    /// The run-loop mode this timer's callback was actually running in, sampled per fire.
+    ///
+    /// Read with `CFRunLoopCopyCurrentMode` from **inside** the callback, so it is what the loop was
+    /// doing rather than what the measurement asked it to do. This is what makes the `menu` form
+    /// evidence instead of an assumption: nothing in that gesture names a mode, so observing
+    /// `NSEventTrackingRunLoopMode` here is the proof that a real AppKit tracking session produces
+    /// the mode the `runloop` form enters by hand.
+    private(set) var modesObserved: Set<String> = []
+
+    /// How many fires saw each darwin suppression state. A histogram rather than a start/end pair,
+    /// because App Nap can engage part-way through a run and a two-sample reading would miss it.
+    private(set) var suppressionSamples: [Int32: Int] = [:]
+
     init(_ name: String) { self.name = name }
 
     func enterWindow(_ window: String?) {
@@ -83,6 +138,10 @@ final class FireLedger {
 
     func record() {
         fires += 1
+        if let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()) {
+            modesObserved.insert(mode.rawValue as String)
+        }
+        suppressionSamples[darwinSuppressionState(), default: 0] += 1
         let now = Date()
         if let lastFire {
             let gap = now.timeIntervalSince(lastFire)
@@ -139,6 +198,19 @@ func report(_ ledgers: [FireLedger], windows: [String]) {
         print(
             "  \(ledger.name.padding(toLength: width, withPad: " ", startingAt: 0))  "
                 + String(format: "%5d  ", ledger.fires) + cells.joined())
+    }
+    print("")
+    for ledger in ledgers where !ledger.modesObserved.isEmpty {
+        print("  \(ledger.name): run-loop modes seen from inside the callback — "
+            + ledger.modesObserved.sorted().joined(separator: ", "))
+    }
+    // Printed for every measurement, not only the App Nap one. A fire count is uninterpretable
+    // without it: "the timer kept up" means nothing until you know whether anything was trying to
+    // slow it down.
+    for ledger in ledgers where !ledger.suppressionSamples.isEmpty {
+        let histogram = ledger.suppressionSamples.sorted { $0.key < $1.key }
+            .map { "\(describeSuppression($0.key)) x\($0.value)" }.joined(separator: ", ")
+        print("  \(ledger.name): darwin suppression state per fire — \(histogram)")
     }
     print("")
 }
@@ -240,25 +312,115 @@ func measureRunLoopModes(gesture: TimeInterval, withWindow: Bool) {
     }
 }
 
+// MARK: - Measurement 1b: a real AppKit tracking session
+
+/// **The same hazard, with no run-loop mode named anywhere in the gesture.**
+///
+/// `runloop` enters `.eventTracking` by hand, which measures the mechanism but has to *assume* that
+/// a real AppKit gesture produces it. This does not assume it: it opens a real window, opens a real
+/// `NSMenu` through `popUp(positioning:at:in:)` — AppKit's own modal tracking session, the same
+/// machinery a window drag uses — and reads `CFRunLoopCopyCurrentMode` from inside the timer
+/// callbacks. The mode is *observed*, not requested.
+///
+/// It runs unattended, which is what makes it worth having: it takes menu tracking off the manual
+/// smoke list and leaves only the window drag itself as a gesture needing a hand.
+func measureMenuTracking(seconds: TimeInterval) {
+    let application = NSApplication.shared
+    application.setActivationPolicy(.regular)
+    application.finishLaunching()
+
+    let window = NSWindow(
+        contentRect: NSRect(x: 200, y: 200, width: 420, height: 120),
+        styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    window.title = "Vocca timer probe"
+    window.makeKeyAndOrderFront(nil)
+    application.activate(ignoringOtherApps: true)
+
+    let common = FireLedger("common  150ms")
+    let deflt = FireLedger("default 150ms")
+    let shipped = MainRunLoopTimer()
+    let mutant = DefaultModeTimer()
+    shipped.start(every: WatchdogPolicy.pollInterval) { common.record() }
+    mutant.start(every: WatchdogPolicy.pollInterval) { deflt.record() }
+    let ledgers = [common, deflt]
+
+    for ledger in ledgers { ledger.enterWindow("idle") }
+    print("  [1/2] baseline: 2 s with no menu open.")
+    runInDefaultMode(for: 2)
+
+    let menu = NSMenu(title: "Probe")
+    for index in 1...5 {
+        menu.addItem(withTitle: "Item \(index)", action: nil, keyEquivalent: "")
+    }
+
+    // Cancelled from a timer in the *common* modes, because a timer in the default mode alone could
+    // not fire during the tracking session it is meant to end — which would hang the probe on
+    // exactly the hazard it is measuring.
+    let cancel = Timer(timeInterval: seconds, repeats: false) { _ in menu.cancelTracking() }
+    RunLoop.main.add(cancel, forMode: .common)
+
+    for ledger in ledgers { ledger.enterWindow("tracking") }
+    print("  [2/2] opening a real NSMenu for \(Int(seconds)) s — AppKit's own tracking session.")
+    let started = Date()
+    menu.popUp(
+        positioning: nil, at: NSPoint(x: 40, y: 80), in: window.contentView)
+    let tracked = Date().timeIntervalSince(started)
+    cancel.invalidate()
+    for ledger in ledgers { ledger.enterWindow(nil) }
+
+    print(String(format: "  menu tracking lasted %.2f s", tracked))
+    report(ledgers, windows: ["idle", "tracking"])
+
+    let sawTracking = common.modesObserved.contains("NSEventTrackingRunLoopMode")
+    print("  The main run loop entered NSEventTrackingRunLoopMode during the gesture: \(sawTracking).")
+    if sawTracking {
+        print(
+            "  So `runloop` is not a simulation of the hazard — a genuine AppKit tracking session\n"
+                + "  produces the same mode, and the .default timer's silence below is under that gesture.")
+    } else {
+        print(
+            "  NOT OBSERVED. Either the menu never tracked (no window server session?) or this OS\n"
+                + "  no longer uses that mode — in which case the `runloop` form's premise needs revisiting.")
+    }
+}
+
 // MARK: - Measurement 2: App Nap
 
-func measureAppNap(seconds: TimeInterval, beginActivity: Bool) {
+/// Which activity assertion to hold, if any.
+enum ActivityChoice: String {
+    case none
+    /// `.userInitiated`, which **contains** `.idleSystemSleepDisabled` — it keeps the machine awake.
+    case userInitiated
+    /// `.userInitiatedAllowingIdleSystemSleep` — the same App Nap prevention **without** the
+    /// keep-awake bit. Verified on this SDK: `userInitiated = 0xffffff`,
+    /// `userInitiatedAllowingIdleSystemSleep = 0xefffff`, `idleSystemSleepDisabled = 0x100000`.
+    ///
+    /// It exists, and the first version of this measurement did not know that: it chose the heavier
+    /// set and then used its weight as the reason not to adopt the countermeasure at all.
+    case allowingIdleSleep
+
+    var options: ProcessInfo.ActivityOptions? {
+        switch self {
+        case .none: return nil
+        case .userInitiated: return .userInitiated
+        case .allowingIdleSleep: return .userInitiatedAllowingIdleSystemSleep
+        }
+    }
+}
+
+func measureAppNap(seconds: TimeInterval, activity choice: ActivityChoice) {
     let application = NSApplication.shared
     // `.accessory` is what `LSUIElement` gives the shipped app, and it is the condition under
     // question: an accessory app with no visible window is what App Nap is for.
     application.setActivationPolicy(.accessory)
     application.finishLaunching()
 
-    var activity: NSObjectProtocol?
-    if beginActivity {
-        // `.userInitiated` is the assertion "a person is waiting on this", which is exactly true
-        // while a session is recording. `.latencyCritical` is deliberately not used: it is
-        // documented as for real-time media and it is a heavier promise than a 150 ms timer needs.
-        activity = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiated, .idleSystemSleepDisabled],
-            reason: "Vocca is recording a dictation session")
+    var token: NSObjectProtocol?
+    if let options = choice.options {
+        token = ProcessInfo.processInfo.beginActivity(
+            options: options, reason: "Vocca is recording a dictation session")
     }
-    defer { if let activity { ProcessInfo.processInfo.endActivity(activity) } }
+    defer { if let token { ProcessInfo.processInfo.endActivity(token) } }
 
     let watchdog = FireLedger("watchdog 150ms")
     let poll = FireLedger("poll 1s")
@@ -275,9 +437,11 @@ func measureAppNap(seconds: TimeInterval, beginActivity: Bool) {
     }
     pollTimer.start(every: TapHealthPolling.interval) { poll.record() }
 
+    let stateAtStart = darwinSuppressionState()
     print("  pid \(ProcessInfo.processInfo.processIdentifier), activation policy "
         + "\(application.activationPolicy() == .accessory ? ".accessory" : "other"), "
-        + "beginActivity: \(beginActivity).")
+        + "activity: \(choice.rawValue).")
+    print("  darwin suppression state at start: \(describeSuppression(stateAtStart))")
     print("  Running \(Int(seconds)) s with no window. Put another app in front and leave it there.")
 
     for ledger in [watchdog, poll] { ledger.enterWindow("run") }
@@ -295,6 +459,18 @@ func measureAppNap(seconds: TimeInterval, beginActivity: Bool) {
     print(String(
         format: "  interval: median %.1f ms, p99 %.1f ms, max %.1f ms (nominal 150 ms).",
         median * 1000, p99 * 1000, (sorted.last ?? 0) * 1000))
+    print("  darwin suppression state at end: \(describeSuppression(darwinSuppressionState()))")
+
+    // The control that makes the fire count mean anything at all.
+    let everSuppressed = watchdog.suppressionSamples.keys.contains(1)
+    if !everSuppressed {
+        print("""
+              READ THIS BEFORE BELIEVING THE NUMBER ABOVE: the process was never suppressed, so this
+              is a measurement of an UNTHROTTLED process. It says nothing about what App Nap would
+              do — only that App Nap did not engage. Re-run under `--taskpolicy-bg` to see the
+              throttle itself.
+            """)
+    }
 }
 
 // MARK: - Entry
@@ -313,11 +489,31 @@ case "runloop":
     print("== Hazard 1: the run loop's mode during a drag / menu tracking ==")
     measureRunLoopModes(gesture: duration, withWindow: arguments.contains("--window"))
 
+case "menu":
+    print("== Hazard 1, under a real AppKit tracking session ==")
+    measureMenuTracking(seconds: duration)
+
 case "appnap":
     print("== Hazard 2: App Nap on an LSUIElement app ==")
-    measureAppNap(seconds: duration, beginActivity: arguments.contains("--activity"))
+    let choice: ActivityChoice =
+        arguments.contains("--activity-allowing-idle-sleep")
+        ? .allowingIdleSleep : (arguments.contains("--activity") ? .userInitiated : .none)
+    measureAppNap(seconds: duration, activity: choice)
+
+case "--build-only":
+    // CI compiles the harness and stops. `Tools/` is not a package target, so `swift build` never
+    // sees it — which means it bit-rots silently the first time `RepeatingTimer`, `WatchdogPolicy`
+    // or `TapHealthPolling` changes shape, and the next person to reach for the hazard measurement
+    // finds it does not build. Reaching this line at all is the assertion.
+    print("timer-probe built and links the shipped VoccaHotkey.")
 
 default:
-    print("usage: timer-probe [runloop [--window]|appnap [--activity]] [seconds]")
+    print("""
+        usage: timer-probe <command> [seconds] [flags]
+          runloop [--window]   .common vs .default through event tracking (--window: drag it yourself)
+          menu                 the same, under a real NSMenu tracking session, unattended
+          appnap [--activity | --activity-allowing-idle-sleep]
+          --build-only         compile check only
+        """)
     exit(2)
 }

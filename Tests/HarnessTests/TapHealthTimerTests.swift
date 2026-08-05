@@ -147,6 +147,62 @@ final class TapHealthTimerTests: XCTestCase {
             "a disarmed Vocca has no tap to ask after and should not be asking.")
     }
 
+    /// **`disarm()` closes the microphone and tears the tap down — the half of it that was pinned by
+    /// nothing.**
+    ///
+    /// Measured before this test existed: `disarm()` reduced to `timer.stop()` alone passed the whole
+    /// 306-test suite, and so did a `disarm()` that forwarded to `policy.arm()` — a build in which
+    /// **disarming Vocca re-creates the tap**. Only the clock half was held, by
+    /// `testArmingStartsThePollAndDisarmingStopsIt` above, which never presses a key.
+    ///
+    /// That is exactly the failure this class was written to make impossible, arrived at from the
+    /// other side. `TapHealthPolicyTests` drives all eight of the policy's entry points and asserts
+    /// every one ends an in-flight session; then the wrapper that is *the only object an owner holds*
+    /// forwarded one of them through code no test executed. A harness is not a substitute for
+    /// pressing the key.
+    ///
+    /// Both modes, because a session that outlives its tap is a hot mic in both — and in toggle there
+    /// is no physical-key poll behind it and no key-up can arrive, so the residual would be the whole
+    /// 120 s ceiling.
+    func testDisarmingClosesTheMicrophoneAndTearsTheTapDown() {
+        for configuration in bothActivationModes {
+            let harness = RuntimeHarness(configuration: configuration)
+            harness.runtime.arm()
+            harness.press()
+            XCTAssertTrue(
+                harness.microphone.isOpen,
+                "\(configuration.activation): no session, so the disarm below proves nothing")
+            let startsBeforeDisarming = harness.tap.startCount
+
+            harness.runtime.disarm()
+
+            XCTAssertFalse(
+                harness.microphone.isOpen,
+                """
+                \(configuration.activation): Vocca was disarmed with the microphone still open. \
+                Nothing can ever close it — the thing that delivered key events is gone, and the \
+                poll that would have caught it has been stopped by this same call.
+                """)
+            XCTAssertEqual(
+                harness.effects.endReasons, [.tapDisabled],
+                "\(configuration.activation): the session did not end through the custody funnel")
+            XCTAssertFalse(
+                harness.tap.isAttached,
+                """
+                \(configuration.activation): the tap is still installed after a disarm. It goes on \
+                seeing every keystroke on the machine and swallowing the ones it claims.
+                """)
+            XCTAssertEqual(
+                harness.tap.startCount, startsBeforeDisarming,
+                """
+                \(configuration.activation): disarming created a tap. This is the mutant that \
+                survives when only the clock half of `disarm()` is pinned — a build in which \
+                disarming Vocca re-creates the very thing it was asked to tear down.
+                """)
+            XCTAssertEqual(harness.recordedNotes.last, .disarmed)
+        }
+    }
+
     /// **The first run, which is the ordinary one.** No Accessibility grant, so `arm()` reports
     /// `.permissionMissing` — and the poll must start anyway, because it is one of the two things
     /// that turns that into a working hotkey later.
