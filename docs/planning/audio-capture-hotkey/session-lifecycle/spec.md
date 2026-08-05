@@ -66,7 +66,7 @@ cause. Rule (c) is free, since every keyboard event is already visible.
   cancellation, wrapped as `EndReason.retained(_)` — so that the reasons owing their audio
   downstream are a type rather than a convention. See `SessionOutcome`.
 - **Every terminal transition hands the captured buffer downstream.** Discard is not
-  representable in the type — mirroring `ARCHITECTURE.md:294` ("an unexpectedly-ended session
+  representable in the type — mirroring `ARCHITECTURE.md:336` ("an unexpectedly-ended session
   yields its transcript to custody rather than discarding it") and `CAPABILITY_ROADMAP.md:20`.
   **The one exception is `.userCancelled`** (Esc), where discarding is the user's explicit
   instruction.

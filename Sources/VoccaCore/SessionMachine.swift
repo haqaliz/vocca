@@ -33,14 +33,16 @@ public enum SessionCeiling {
 ///    ``endSession(reason:)``, which closes the microphone and hands what it captured to
 ///    ``SessionOutcome/make(reason:audio:)``. There is no other route: `make` is called in exactly
 ///    one place in this module, and `CoreBoundaryTests` fails the build if a second appears.
-/// 2. **A capture session never outlives the user's intent.** Six stop rules reach the same funnel,
-///    and the microphone closes on all of them — including cancellation, where the *audio* is
+/// 2. **A capture session never outlives the user's intent.** Every stop rule — hold-to-talk's six,
+///    or toggle's replacement of (a)/(b)/(c)/(f) with `.toggledOff` — reaches the same funnel, and
+///    the microphone closes on all of them — including cancellation, where the *audio* is
 ///    discarded but the microphone most certainly is not left open.
 ///
 /// ## Why this is a class, and why it is not an actor
 ///
-/// `ARCHITECTURE.md:294` sketches a `SessionActor`, and this is not one. A `CGEvent` tap callback is
-/// a synchronous C function that must return *this event's* disposition — swallow or pass through —
+/// `ARCHITECTURE.md` §7 originally sketched this box as a `SessionActor`; it is not one, and the
+/// diagram now says so. A `CGEvent` tap callback is a synchronous C function that must return *this
+/// event's* disposition — swallow or pass through —
 /// before it returns. `await` cannot appear on that path: by the time an actor hop resolved, the
 /// event would already have gone to the focused application. So the machine is synchronous and
 /// **not** `Sendable`; isolation belongs to whoever owns the tap, and everything the machine hands

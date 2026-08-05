@@ -8,14 +8,22 @@ This file orients a coding agent working in this repository. Read it first.
 > **What is built and enforced:**
 > - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
 >   `VoccaHotkey`, `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`,
->   `VoccaBootstrap` — **every one a placeholder**. No audio, no hotkey, no ASR, no injection.
+>   `VoccaBootstrap`. **`VoccaCore` now holds the session-lifecycle machine** — the session
+>   vocabulary, a sealed custody type, a pure decision function, a state machine with a single
+>   custody funnel, a watchdog with a ceiling and physical-key poll, and toggle mode as a second
+>   configuration of the same machine — driven end-to-end by the zero-network probe. The other
+>   eight modules remain placeholders. **No audio, no hotkey, no ASR, no injection is implemented
+>   yet** — the session machine reacts to synthetic key events and an injected clock, not to a real
+>   `CGEvent` tap or a real microphone.
 > - `App/` + `Vocca.xcodeproj`: builds a signed, **unsandboxed, hardened-runtime** `Vocca.app`
 >   with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
 > - `Scripts/`: `dev-identity.sh` (stable self-signed identity so TCC grants survive rebuilds),
 >   `sign.sh`, `notarize.sh`, `test-with-floor.sh`.
-> - `Tests/HarnessTests/`: 33 tests — the **zero-network invariant** (a `dyld` interposer over
->   `connect(2)` driving a probe binary), module-boundary lint, licence-header lint, package-manifest
->   coverage guard, and the built-bundle/entitlement contracts.
+> - `Tests/HarnessTests/`: 143 tests — the **zero-network invariant** (a `dyld` interposer over
+>   `connect(2)` driving a probe binary that now drives a full session through the real machine and
+>   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
+>   built-bundle/entitlement contracts, and the session machine's own decision-table, mutation, and
+>   invariant coverage.
 > - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
 >   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
 >   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.

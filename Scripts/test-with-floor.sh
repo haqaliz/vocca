@@ -32,10 +32,11 @@
 # boundary lint, the licence-header lint, the entitlement set-equality check, and the build
 # configuration detector. Without a floor under the test count there is no floor under any of them.
 #
-# The floor is deliberately well below the current count and well above zero. It is a check against
-# wholesale disappearance of the suite, not against removing an individual test — that is what code
-# review is for, and a floor tight enough to catch it would fail on every legitimate refactor and be
-# lowered within a week.
+# The floor is the exact current count, ratcheted up in the same commit as every task that adds
+# tests — fourteen times so far. That makes it a check against removing an individual test, not
+# only wholesale disappearance of the suite: any drop below the floor, however small, fails CI and
+# has to be a reviewed edit to this line rather than a silent loss. The cost is that every task
+# must remember to raise it; the ledger below records each raise and why.
 #
 # Not overridable by an environment variable on purpose: a floor a caller can set to 0 is not a
 # floor. Raising it as the suite grows is a deliberate edit to this line, visible in review.

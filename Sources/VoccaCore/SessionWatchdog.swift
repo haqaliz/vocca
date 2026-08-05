@@ -15,7 +15,7 @@
 /// The physical state of a key, read at the seam.
 ///
 /// The read itself is `CGEventSourceKeyState`, which is a system call, so it belongs to
-/// `hotkey-source` — `spec.md:94` puts it there by name. What lives on this side of the seam is the
+/// `hotkey-source` — `spec.md:137` puts it there by name. What lives on this side of the seam is the
 /// decision to *ask* and what the answer means; see ``SessionWatchdog/wake()``.
 ///
 /// ## Why it is class-bound
@@ -224,7 +224,7 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
     /// **The event's disposition is the machine's, returned unchanged, and the stake in that is the
     /// whole keyboard.** The tap delivers *every* key event here, not only the hotkey's, because
     /// stop rule (c) is "any event whose flags no longer carry the configured modifier"
-    /// (`spec.md:47`) and the rules cannot apply it to events they never see. So this method sees
+    /// (`spec.md:48`) and the rules cannot apply it to events they never see. So this method sees
     /// nearly every keystroke the user makes all day, and `decide` passes nearly all of them
     /// straight back. A wrapper that decided propagation for itself would not mishandle an edge
     /// case; a hard-coded `.swallow` here eats the user's entire keyboard, in every application, for
