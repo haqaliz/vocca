@@ -48,8 +48,19 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 267 by hotkey-source phase 4 review round 1, whose blocking-shaped finding was **a test that named
-# the exact mutant it existed to kill and did not kill it.**
+# 306 by hotkey-source phase 5, which wired the two timers and measured the two hazards two aspects
+# had carried as unverified. Of the 39 tests it added, the ones that justify the raise are:
+# `MainRunLoopTimerTests`, which measures the H10 run-loop-mode hazard rather than asserting it — a
+# timer in `.default` mode delivered 0 of 33 fires through a gesture, and the shipped `.common` one
+# delivered all 33; `ScheduledWatchdogTests.testAnAutorepeatTrainDoesNotRestartTheTimer`, which pins
+# the one-line defect that would make the 120 s ceiling unreachable for every hold-to-talk session;
+# and `OwnershipGraphTests`, which closes the four sole-owner edges phase 4's review measured as held
+# by **no test at all** — each of `TapHealthPolicy.source`, `TapHealthPolicy.sink`,
+# `SessionWatchdog.machine` and `SessionEventSink.watchdog` could be made `unowned` with the whole
+# 267-test suite green.
+#
+# It was 267 after hotkey-source phase 4 review round 1, whose blocking-shaped finding was **a test
+# that named the exact mutant it existed to kill and did not kill it.**
 # `testTheDeferredRecoveryStillRunsIfTheObserverIsReleasedFirst` had a doc comment saying a
 # `[weak policy]` capture in the deferred block *"would do exactly that, silently, on a path no other
 # test in this package visits"* — and that mutation passed all 266 tests. The defect was in the test's
@@ -467,7 +478,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=267
+MINIMUM_EXECUTED_TESTS=306
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

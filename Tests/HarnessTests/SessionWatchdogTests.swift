@@ -100,7 +100,15 @@ private final class WatchdogHarness {
     /// thing, which is worse than none.
     private var userIsAskingToRecord: Bool {
         switch configuration.activation {
-        case .holdToTalk: return keyboard.isHeld(configuration.keyCode)
+        case .holdToTalk:
+            // **The binding, not the key.** A user holding Space with Option released is not
+            // pressing ⌥Space, and a meter that counted them as asking would score the seconds
+            // between a released modifier and a released key as consent. Phase 5 gave the poll the
+            // second read; this is the same correction to the yardstick, and it has to be the same
+            // predicate or the meter grades the poll against a different question.
+            return keyboard.isHeld(configuration.keyCode)
+                && keyboard.heldModifiers.subtracting(.locking)
+                    .isSuperset(of: configuration.modifiers.subtracting(.locking))
         case .toggle: return userHasToggledOn
         }
     }
@@ -147,7 +155,7 @@ private final class WatchdogHarness {
     /// The same press, with the focused application's half of the answer kept.
     @discardableResult
     func pressHotkeyObservingPropagation() -> SessionResponse<RecordingSource.Buffer> {
-        keyboard.press(configuration.keyCode)
+        keyboard.hold(configuration)
         return watchdog.observe(event(.keyDown, configuration.keyCode, configuration.modifiers))
     }
 
@@ -186,7 +194,7 @@ private final class WatchdogHarness {
     @discardableResult
     func tapHotkey(file: StaticString = #filePath, line: UInt = #line) -> Effect {
         userHasToggledOn.toggle()
-        keyboard.press(configuration.keyCode)
+        keyboard.hold(configuration)
         let down = watchdog.observe(event(.keyDown, configuration.keyCode, configuration.modifiers))
         keyboard.release(configuration.keyCode)
         let up = watchdog.observe(event(.keyUp, configuration.keyCode, configuration.modifiers))
@@ -1017,6 +1025,179 @@ final class SessionWatchdogTests: XCTestCase {
         XCTAssertEqual(toggled.hotMicWindow, .zero, "The user is still asking; nothing is hot.")
     }
 
+    // MARK: - The other half of the binding
+
+    /// **The chord is polled too, and it is polled exactly where the key is.**
+    ///
+    /// Stop rule (f) asks *is the user still holding the binding?* and a binding is a key code and a
+    /// chord. `hotkey-source` phase 5 added the second read (`CGEventSourceFlagsState`); this is the
+    /// count that says it is actually made, in the mode that has the rule and not in the mode that
+    /// does not.
+    func testTheChordIsPolledWhereverTheKeyIs() {
+        let wakeCount = 200
+
+        let held = WatchdogHarness(configuration: chord)
+        XCTAssertEqual(held.pressHotkey(), .started)
+        held.run(steps: wakeCount)
+
+        XCTAssertEqual(
+            held.keyState.modifierReads, wakeCount,
+            """
+            The chord was read \(held.keyState.modifierReads) times across \(wakeCount) wakes. Every \
+            wake that reads the key must read the chord too, or a modifier release whose \
+            `.flagsChanged` never arrived stays invisible until the key itself comes up.
+            """)
+        XCTAssertEqual(held.machine.state, .recording, "nothing should have ended — the user is holding it")
+
+        let toggled = WatchdogHarness(configuration: toggleChord)
+        XCTAssertEqual(toggled.tapHotkey(), .started)
+        toggled.run(steps: wakeCount)
+        XCTAssertEqual(
+            toggled.keyState.modifierReads, 0,
+            """
+            The chord was read during a toggle session. The key is up and the chord is released for \
+            the whole of one — that is the mode — so a poll of either ends it on the first wake.
+            """)
+    }
+
+    /// **The case the second read exists for, with the number it costs when it is missing.**
+    ///
+    /// The user lifts Option while Space is still down, and the `.flagsChanged` that would have
+    /// applied stop rule (b) never arrives — `spec.md:35` names a dropped event as an ordinary
+    /// occurrence, and `SessionRules.swift:39-42` records the same fact as the reason modifier state
+    /// is derived rather than accumulated. The chord read closes it within one poll interval.
+    ///
+    /// The control is the same run with the key read alone doing the work: the session then survives
+    /// every one of 700 wakes, because `isKeyDown(Space)` goes on answering `true` for as long as the
+    /// finger is on the key. That is the measurement — **150 ms against 105 s** — and it is why this
+    /// is a correctness fix with a bounded residual rather than an unbounded hot mic: the session
+    /// would still have ended when Space came up.
+    func testAChordReleasedWithNoEventEndsTheSessionWithinOnePollInterval() throws {
+        let harness = WatchdogHarness(configuration: chord)
+        XCTAssertEqual(harness.pressHotkey(), .started)
+        harness.run(steps: 10)
+        XCTAssertEqual(harness.machine.state, .recording)
+
+        // Option comes up. The key stays down, and the tap never delivers the flagsChanged.
+        harness.keyboard.heldModifiers = []
+
+        harness.run(steps: 1)
+
+        XCTAssertEqual(
+            harness.machine.state, .idle,
+            """
+            The chord was released with no event and the session is still recording. Until phase 5 \
+            this ran until the key itself came up — for as long as the user kept their finger down, \
+            with Vocca recording a chord nobody is holding.
+            """)
+        XCTAssertFalse(harness.source.isOpen, "hot mic")
+        XCTAssertEqual(
+            harness.outcomes.compactMap { outcome -> RetainedEndReason? in
+                switch outcome.content {
+                case .completed(let reason, _, _): return reason
+                case .cancelled: return nil
+                }
+            },
+            [.pollDetectedRelease],
+            """
+            The reason is `.pollDetectedRelease` and deliberately not `.modifierReleased`: those two \
+            mean *Vocca was told* and *Vocca had to ask*, and the log is the only evidence anyone \
+            ever gets that events are being dropped.
+            """)
+        XCTAssertEqual(
+            harness.hotMicWindow, WatchdogPolicy.pollInterval,
+            """
+            The microphone stayed open past the user's release for \
+            \(milliseconds(harness.hotMicWindow)) ms. One poll interval is the bound rule (f) buys; \
+            anything more means the chord is not being read.
+            """)
+    }
+
+    /// The second read is skipped once the key is already up — and the skip is deliberate.
+    ///
+    /// `theBindingIsStillHeld` short-circuits, because a released key ends the session on its own and
+    /// `CGEventSourceFlagsState` is a system call that would otherwise be made 800 times a session
+    /// for an answer that changes nothing. Pinned so that the asymmetry between the two counters
+    /// reads as the design rather than as a gap in the assertions.
+    func testTheChordIsNotReadOnceTheKeyIsAlreadyUp() {
+        let harness = WatchdogHarness(configuration: chord)
+        XCTAssertEqual(harness.pressHotkey(), .started)
+        harness.run(steps: 4)
+        XCTAssertEqual(harness.keyState.reads, 4)
+        XCTAssertEqual(harness.keyState.modifierReads, 4)
+
+        harness.keyboard.release(space)
+        harness.run(steps: 1)
+
+        XCTAssertEqual(harness.keyState.reads, 5, "the key must still be read on the ending wake")
+        XCTAssertEqual(
+            harness.keyState.modifierReads, 4,
+            """
+            The chord was read on a wake where the key was already up. The answer cannot change the \
+            outcome there, and in production that is a `CGEventSourceFlagsState` call per wake spent \
+            for nothing.
+            """)
+    }
+
+    /// **Containment, not equality, and locks masked from both sides** — the same comparison
+    /// `SessionRules` makes for stop rules (b)/(c), because it is the same question.
+    ///
+    /// Both halves have a user-visible failure. Equality ends the session because someone reached for
+    /// Shift mid-sentence. An unmasked comparison ends it the moment Caps Lock comes on, which is the
+    /// one extra modifier `ModifierSet.locking` exists to forgive.
+    func testAnExtraModifierAndCapsLockDoNotEndTheSession() {
+        for extra: ModifierSet in [[.shift], [.capsLock], [.shift, .capsLock], [.command]] {
+            let harness = WatchdogHarness(configuration: chord)
+            XCTAssertEqual(harness.pressHotkey(), .started)
+
+            harness.keyboard.heldModifiers = chord.modifiers.union(extra)
+            harness.run(steps: 3)
+
+            XCTAssertEqual(
+                harness.machine.state, .recording,
+                """
+                Holding \(extra) as well as the binding ended the session. The poll asks whether the \
+                user is *still holding what they pressed*, which is containment — an added modifier \
+                is not a release, and reporting one as `.pollDetectedRelease` would be false about \
+                what happened as well as unwelcome.
+                """)
+            XCTAssertTrue(harness.source.isOpen)
+        }
+    }
+
+    /// **The lock mask, in the direction that actually needs it** — the configuration's side.
+    ///
+    /// Measured as a surviving mutant first: dropping `.subtracting(.locking)` from *both* sides of
+    /// the poll's comparison passed the whole suite, because every test held the chord plus at most
+    /// an extra lock, and an extra bit is invisible to containment. The mask only bites when the
+    /// **binding** names a lock and the hardware does not report it — which is exactly the case
+    /// `ModifierSet.locking` documents: *"A configuration naming Caps Lock is then simply ignored
+    /// rather than becoming a hotkey that only works with Caps Lock on."*
+    ///
+    /// Unmasked, such a session ends on its very first wake, 150 ms after the user started talking,
+    /// reported as `.pollDetectedRelease` for a key nobody released.
+    func testABindingThatNamesALockIsNotEndedByTheLockBeingOff() throws {
+        let bindingNamingALock = HotkeyConfiguration(
+            keyCode: space, modifiers: [.option, .capsLock], activation: .holdToTalk)
+        let harness = WatchdogHarness(configuration: bindingNamingALock)
+
+        XCTAssertEqual(harness.pressHotkey(), .started)
+        // The user is holding Option and Space. Caps Lock is off, as it usually is.
+        harness.keyboard.heldModifiers = [.option]
+        harness.run(steps: 3)
+
+        XCTAssertEqual(
+            harness.machine.state, .recording,
+            """
+            A binding naming Caps Lock was ended by the poll because Caps Lock is off. Locks are \
+            masked from *both* sides before the comparison — the configuration's as well as the \
+            hardware's — or a user who configured one has a hotkey that starts and then dies within \
+            one poll interval, every time.
+            """)
+        XCTAssertTrue(harness.source.isOpen)
+        XCTAssertEqual(harness.hotMicWindow, .zero)
+    }
+
     /// **What rule (f) is worth, measured in both modes side by side.**
     ///
     /// The same accident in each: the user asks for the session to end and Vocca never hears it.
@@ -1338,7 +1519,7 @@ final class SessionWatchdogTests: XCTestCase {
         let watchdog = harness.watchdog
         let keyboard = harness.keyboard
 
-        keyboard.press(space)
+        keyboard.hold(harness.configuration)
         harness.source.duringBeginCapture = {
             // The key comes back up while `AVAudioEngine.start()` is still working, and the queued
             // event is delivered underneath it — through the watchdog, because that is where the

@@ -61,7 +61,17 @@ public enum RetainedEndReason: Sendable, Hashable {
     /// (e) The session hit its maximum duration.
     case ceilingReached
 
-    /// (f) A poll of the physical key state found it released, so a key-up was missed.
+    /// (f) A poll of the physical state found the binding no longer held, so an event was missed.
+    ///
+    /// **Both halves of the binding, under one reason.** The poll reads the key *and* the chord —
+    /// ``SessionWatchdog/theBindingIsStillHeld`` — so this covers a key-up that generated no event
+    /// and a modifier release whose `.flagsChanged` never arrived. They are not distinguished, and
+    /// that is a decision argued where the read is: a second reason would name which half, and this
+    /// one is already true of both.
+    ///
+    /// It stays distinct from ``keyUp`` and ``modifierReleased``, which is the distinction that
+    /// earns its keep: those two mean *Vocca was told*, and this one means *Vocca had to ask*. A log
+    /// that conflated them would hide the only evidence that events are being dropped.
     case pollDetectedRelease
 
     /// Toggle mode: the next matching key-*down* arrived while recording.

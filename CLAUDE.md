@@ -16,8 +16,13 @@ This file orients a coding agent working in this repository. Read it first.
 >   holds the pure translation from a macOS event-flag word plus a key code into `ModifierSet`,
 >   applying the founder's `fn` rule; the pure classification of a raw event-type number, which also
 >   computes the tap's event mask; the tap-health policy — every decision about a dying event tap,
->   taken over an *injected* tap handle with no `CGEvent` call in it; and **the real `CGEvent` tap
->   adapter, in one file, containing no decisions at all.** It is the first adapter,
+>   taken over an *injected* tap handle with no `CGEvent` call in it; **the real `CGEvent` tap
+>   adapter, in one file, containing no decisions at all**; and **the two timers that make every
+>   "bounded" claim in the product true** — `ScheduledWatchdog`, which is the sink and therefore
+>   settles the watchdog's clock after every route into a session, and `TapHealthTimer`, which is the
+>   only object an owner holds and so cannot leave the ~1 s health poll unwired. Both run on
+>   `MainRunLoopTimer`: a `Timer` on the **main run loop** in its **common** modes, which is measured
+>   rather than assumed (see below). It is the first adapter,
 >   so it is the first
 >   module to depend on `VoccaCore` (see `ARCHITECTURE.md` §2 — the graph points inward to the core,
 >   amended in that commit). The other seven modules remain placeholders. **There is still no audio,
@@ -32,8 +37,11 @@ This file orients a coding agent working in this repository. Read it first.
 > - `App/` + `Vocca.xcodeproj`: builds a signed, **unsandboxed, hardened-runtime** `Vocca.app`
 >   with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
 > - `Scripts/`: `dev-identity.sh` (stable self-signed identity so TCC grants survive rebuilds),
->   `sign.sh`, `notarize.sh`, `test-with-floor.sh`.
-> - `Tests/HarnessTests/`: 267 tests — the **zero-network invariant** (a `dyld` interposer over
+>   `sign.sh`, `notarize.sh`, `test-with-floor.sh`, and **`measure-timers.sh`** — the phase 5
+>   measurement harness (`Tools/TimerProbe/`, deliberately not a package target), which links the
+>   shipped timer and measures the two hazards CI cannot reach: the run-loop mode during a window
+>   drag, and App Nap on an `LSUIElement` app.
+> - `Tests/HarnessTests/`: 306 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
@@ -46,7 +54,11 @@ This file orients a coding agent working in this repository. Read it first.
 >   tap-health policy — where the load-bearing test is that **every** entry point ends an in-flight session,
 >   driven over a closed set of all eight, in both activation modes, because a session that outlives
 >   its tap is a hot mic. The one exception is the ~1 s health poll, which asserts the *opposite* and
->   has to: it runs once a second for as long as Vocca runs.
+>   has to: it runs once a second for as long as Vocca runs. Phase 5 added the two timers' scheduling
+>   decisions, the **H10 run-loop-mode hazard measured in the suite** (a `.default`-mode timer
+>   delivers 0 of 33 fires through an event-tracking gesture; the shipped `.common` one delivers all
+>   33), and `OwnershipGraphTests` — which pins the four sole-owner edges a review had measured as
+>   held by no test at all.
 > - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
 >   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
 >   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.
@@ -59,6 +71,16 @@ This file orients a coding agent working in this repository. Read it first.
 >   Accessibility grant and TCC cannot be granted on a hosted runner; there is no microphone; and
 >   `AVAudioSinkNode` is unsupported in manual rendering mode, so the realtime capture path has no
 >   offline equivalent. See `docs/SMOKE_CHECKLIST.md` — it states the limits precisely.
+> - **App Nap could not be provoked, which is not the same as "App Nap does not throttle timers".**
+>   Measured as a real `LSUIElement` `.app` launched through Launch Services, backgrounded, with no
+>   window: 1999 of 2000 watchdog fires over five minutes, median interval 150.0 ms against a nominal
+>   150 ms, and `ProcessInfo.beginActivity(...)` changed nothing measurable — so it is deliberately
+>   **not** called. Untried, and named as untried: battery power, and an idle machine with the display
+>   asleep. Both are conditions under which App Nap is documented to be more aggressive.
+> - **`SystemPhysicalKeyState` — `CGEventSourceKeyState` and `CGEventSourceFlagsState` — is executed
+>   by nothing**, for the same reason the tap adapter is not: it lives in `CGEventTapSource.swift`
+>   because those identifiers match the H7 seam prefix and exactly one file may name it. What the
+>   answers *mean* is above the seam, in `SessionWatchdog`, and is tested there.
 >
 > **`ARCHITECTURE.md` is authoritative on technical direction** (see "Tech direction" below).
 > Keep these docs in sync as things ship.

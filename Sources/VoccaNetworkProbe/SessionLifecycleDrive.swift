@@ -105,10 +105,29 @@ final class ProbeKeyState: PhysicalKeyStateReader {
     private(set) var reads = 0
     private(set) var keyCodesRead: [UInt16] = []
 
+    /// The chord the user is holding, physically. Set by the drive to the configured one, because
+    /// the drive models a user who is holding the hotkey — a reader that answered `[]` here would be
+    /// modelling a user who has let go, and the session would end on the first wake.
+    var heldModifiers: ModifierSet = []
+
+    /// How many times the chord was asked for, counted separately from ``reads``.
+    ///
+    /// Separate because the two are not read the same number of times and must not appear to be:
+    /// `SessionWatchdog.theBindingIsStillHeld` short-circuits, so the chord is asked for only on the
+    /// wakes where the key was still down. A single combined counter would hide that, and hiding it
+    /// is how "the second read happens" and "the second read is skipped when the key is up" become
+    /// indistinguishable.
+    private(set) var modifierReads = 0
+
     func isKeyDown(_ keyCode: UInt16) -> Bool {
         reads += 1
         keyCodesRead.append(keyCode)
         return isHeld
+    }
+
+    var physicalModifiers: ModifierSet {
+        modifierReads += 1
+        return heldModifiers
     }
 }
 
@@ -172,6 +191,11 @@ extension VoccaNetworkProbe {
 
         let configuration = HotkeyConfiguration(
             keyCode: spaceKeyCode, modifiers: [.option], activation: .holdToTalk)
+
+        // The user is holding the whole binding, chord included. Taken from the configuration rather
+        // than written out, so that a drive whose binding changed cannot silently become one where
+        // the chord is not held and every wake ends the session.
+        keyState.heldModifiers = configuration.modifiers
         let machine = SessionMachine(
             configuration: configuration,
             ceiling: SessionCeiling.default,
@@ -207,6 +231,7 @@ extension VoccaNetworkProbe {
             "wake.effects=\(wakeEffects.joined(separator: ","))",
             "wake.keyReads=\(keyState.reads)",
             "wake.keyCodesRead=\(describe(keyCodes: keyState.keyCodesRead))",
+            "wake.modifierReads=\(keyState.modifierReads)",
             "elapsed=\(milliseconds(elapsedDuringSession))ms",
             "ceilingNear=\(ceilingWasNear)",
             "scheduleWhileRecording=\(scheduleDuringSession)",

@@ -112,7 +112,7 @@ private final class PolicyHarness {
 
     @discardableResult
     func press() -> EventPropagation {
-        keyboard.press(configuration.keyCode)
+        keyboard.hold(configuration)
         return tap.deliver(event(.keyDown, configuration.keyCode, configuration.modifiers))
     }
 
@@ -131,7 +131,7 @@ private final class PolicyHarness {
     /// did, and the only way to reach a stranded session now that the operations which used to
     /// produce one close it themselves.
     func startASessionBypassingTheTap() {
-        keyboard.press(configuration.keyCode)
+        keyboard.hold(configuration)
         _ = sink.receive(event(.keyDown, configuration.keyCode, configuration.modifiers))
     }
 
@@ -193,7 +193,7 @@ private final class LyingHarness {
     }
 
     func pressWhileTheTapStillWorked() {
-        keyboard.press(configuration.keyCode)
+        keyboard.hold(configuration)
         _ = sink.receive(event(.keyDown, configuration.keyCode, configuration.modifiers))
     }
 

@@ -148,15 +148,39 @@ public enum HotkeyFlagTranslation {
     ///     other reason this function is not a function of the flags alone.
     /// - Returns: the modifiers actually held, with an implicitly-set `fn` removed.
     public static func modifiers(rawFlags: UInt64, keyCode: UInt16) -> ModifierSet {
-        var modifiers: ModifierSet = []
-        for (bit, modifier) in bitsToModifiers where rawFlags & bit != 0 {
-            modifiers.insert(modifier)
-        }
+        var modifiers = modifiers(rawFlags: rawFlags)
 
         if keyCodesCarryingFunctionImplicitly.contains(keyCode) {
             modifiers.remove(.function)
         }
 
+        return modifiers
+    }
+
+    /// The modifiers a **flags-state read** reports — the same word, with no key code to apply the
+    /// `fn` rule against.
+    ///
+    /// `CGEventSourceFlagsState` answers *which modifiers are held right now*, and there is no event
+    /// and therefore no key code behind the answer. So the `fn` rule cannot be applied, and an
+    /// implicitly-set `fn` — the user is resting on an arrow key — survives into the returned set.
+    ///
+    /// **That is safe for the one caller this exists for and would not be for another**, which is
+    /// why the difference is a separate function rather than a defaulted parameter. ``ModifierSet``
+    /// is asked one question about a flags-state read —
+    /// ``VoccaCore/PhysicalKeyStateReader/physicalModifiers``, consumed by
+    /// `SessionWatchdog.theBindingIsStillHeld`, which asks only whether it **contains** the
+    /// configured chord. A surviving `fn` adds a bit; containment never requires a bit to be absent;
+    /// so no answer changes. A caller that compared for equality — which is what *starting* a
+    /// session does — would be reading it under a rule that argument does not cover, and would claim
+    /// a bare-arrow binding could never be pressed.
+    ///
+    /// Overload rather than a new name because it is the same translation over the same word: the
+    /// key-code form is this plus one rule, and it is written that way so the two cannot drift.
+    public static func modifiers(rawFlags: UInt64) -> ModifierSet {
+        var modifiers: ModifierSet = []
+        for (bit, modifier) in bitsToModifiers where rawFlags & bit != 0 {
+            modifiers.insert(modifier)
+        }
         return modifiers
     }
 }

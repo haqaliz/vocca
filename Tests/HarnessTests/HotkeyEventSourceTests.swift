@@ -81,7 +81,7 @@ private final class SeamHarness {
 
     @discardableResult
     func press() -> EventPropagation {
-        keyboard.press(configuration.keyCode)
+        keyboard.hold(configuration)
         return tap.deliver(event(.keyDown, configuration.keyCode, configuration.modifiers))
     }
 

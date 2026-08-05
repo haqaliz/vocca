@@ -259,6 +259,59 @@ final class FakeHotkeyEventSource: RecoverableHotkeyEventSource {
     }
 }
 
+// MARK: - The clock, driven by hand
+
+/// A ``RepeatingTimer`` a test turns itself.
+///
+/// The shipped one is a `Timer` on the main run loop; a test that waited for one would be measuring
+/// a scheduler rather than a decision, and would do it slowly and flakily. What is measured here is
+/// *when the timer is started and stopped and at what cadence* — which is the whole of
+/// ``ScheduledWatchdog``'s job and the whole of ``TapHealthTimer``'s.
+///
+/// It models the two obligations `RepeatingTimer` states, because a double that did not would let a
+/// conformance violating them pass:
+///
+/// - ``stop()`` releases the fire closure, so ticking a stopped timer does nothing. Without that, a
+///   test could tick a timer the code under test had correctly stopped, and "the timer was stopped"
+///   would be unobservable.
+/// - ``start(every:_:)`` on a running timer replaces the closure rather than adding a second one, so
+///   a double start cannot double-fire.
+///
+/// It does **not** model firing from inside `start`, which the protocol forbids: a double that did
+/// would put a session end on the caller's stack, and the point of the prohibition is that no
+/// conformance should.
+final class FakeTimer: RepeatingTimer {
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+
+    /// Every cadence ever asked for, in order. A count alone cannot tell a restart at the same
+    /// cadence from a restart at a different one, and one of those is a defect.
+    private(set) var cadencesRequested: [Duration] = []
+
+    private(set) var interval: Duration?
+    private var fire: (() -> Void)?
+
+    var isRunning: Bool { interval != nil }
+
+    func start(every interval: Duration, _ fire: @escaping () -> Void) {
+        startCount += 1
+        cadencesRequested.append(interval)
+        self.interval = interval
+        self.fire = fire
+    }
+
+    func stop() {
+        stopCount += 1
+        interval = nil
+        fire = nil
+    }
+
+    /// One turn of the clock. Does nothing when the timer is stopped, which is the point.
+    func tick(_ times: Int = 1) {
+        for _ in 0..<times { fire?() }
+    }
+}
+
 // MARK: - Where a session's effects go once they are out of the machine
 
 // No shared `Effect` typealias: `SessionMachineTests` and `SessionWatchdogTests` each declare a

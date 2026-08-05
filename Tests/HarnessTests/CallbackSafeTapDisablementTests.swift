@@ -111,7 +111,7 @@ private final class DisablementHarness {
     /// starts from, and the one the adapter's callback is entered in.
     func armAndStartASessionThenLoseTheTap() {
         XCTAssertEqual(policy.arm(), .delivering)
-        keyboard.press(configuration.keyCode)
+        keyboard.hold(configuration)
         tap.deliver(event(.keyDown, configuration.keyCode, configuration.modifiers))
         XCTAssertTrue(microphone.isOpen, "the session must be recording before the tap dies")
         tap.systemDisablesTheTap()
@@ -330,7 +330,7 @@ final class CallbackSafeTapDisablementTests: XCTestCase {
             return CallbackSafeTapDisablement(policy: policy) { pending.append($0) }
         }()
 
-        keyboard.press(chord.keyCode)
+        keyboard.hold(chord)
         tap.deliver(event(.keyDown, chord.keyCode, chord.modifiers))
         XCTAssertTrue(microphone.isOpen, "the session must be recording before the tap dies")
         tap.systemDisablesTheTap()

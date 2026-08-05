@@ -394,6 +394,68 @@ final class HotkeyFlagTranslationTests: XCTestCase {
             "fn+command+space is a bindable chord and must translate whole.")
     }
 
+    // MARK: - The flags-state form, which has no key code
+
+    /// **`CGEventSourceFlagsState` has no key code, so the `fn` rule cannot be applied — and the
+    /// key-code form must be exactly this plus that rule.**
+    ///
+    /// Written as an equality against the ordinary form on a key code that carries no implicit `fn`,
+    /// rather than as a table of its own, because the failure worth catching is the two drifting: a
+    /// flags-only translation with its own copy of the bit table would go stale the day a modifier is
+    /// added, and nothing would say so.
+    func testTheFlagsOnlyFormIsTheKeyCodeFormMinusTheFunctionRule() {
+        for flags: CGEventFlags in [
+            [], [.maskControl], [.maskAlternate], [.maskShift], [.maskCommand],
+            [.maskSecondaryFn], [.maskAlphaShift],
+            [.maskControl, .maskAlternate, .maskShift, .maskCommand, .maskSecondaryFn,
+                .maskAlphaShift],
+        ] {
+            XCTAssertEqual(
+                HotkeyFlagTranslation.modifiers(rawFlags: flags.rawValue),
+                HotkeyFlagTranslation.modifiers(
+                    rawFlags: flags.rawValue, keyCode: UInt16(kVK_Space)),
+                """
+                The flags-state translation disagrees with the event translation for \(flags) on a \
+                key that carries no implicit fn. There is one bit table and both forms must read it.
+                """)
+        }
+    }
+
+    /// The one place they differ, and the argument that makes it safe.
+    ///
+    /// On a key that carries `fn` implicitly the event form strips the bit and the flags-state form
+    /// cannot, because it has no key code to know it should. That surviving bit reaches
+    /// `PhysicalKeyStateReader.physicalModifiers`, whose only consumer asks whether it **contains**
+    /// the configured chord — and an extra bit never removes one, so no containment answer changes.
+    ///
+    /// The second assertion is the boundary of that argument: under *equality* the two differ, which
+    /// is exactly why a caller must not compare this value that way. Starting a session is an
+    /// equality comparison, which is why the poll and the start rule read different things.
+    func testTheFlagsOnlyFormKeepsAnImplicitFunctionBitAndWhyThatIsSafe() {
+        let flags: CGEventFlags = [.maskSecondaryFn, .maskAlternate]
+
+        XCTAssertEqual(
+            HotkeyFlagTranslation.modifiers(rawFlags: flags.rawValue),
+            [.function, .option],
+            "the flags-state read has no key code, so an implicitly-set fn survives")
+        XCTAssertEqual(
+            HotkeyFlagTranslation.modifiers(rawFlags: flags.rawValue, keyCode: UInt16(kVK_F13)),
+            [.option],
+            "...while the event form, which has one, strips it")
+
+        XCTAssertTrue(
+            HotkeyFlagTranslation.modifiers(rawFlags: flags.rawValue)
+                .isSuperset(of: [.option]),
+            """
+            The safety argument, as an assertion: containment is unaffected by the extra bit. If a \
+            caller ever compares `physicalModifiers` for equality this stops being true, and a \
+            bare-arrow binding becomes one that can never be held.
+            """)
+        XCTAssertNotEqual(
+            HotkeyFlagTranslation.modifiers(rawFlags: flags.rawValue), [.option],
+            "and under equality they differ, which is the boundary of that argument.")
+    }
+
     /// The two directions in one place: the *same* flag word, on two key codes, must differ. If it
     /// ever stops differing, either the strip has been removed or it has been made unconditional,
     /// and each of those breaks a different half of `PRODUCT_SPEC.md:257`.

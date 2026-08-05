@@ -126,9 +126,26 @@ final class RecordingSource: SessionAudioSource {
 final class Keyboard {
     private(set) var held: Set<UInt16> = []
 
+    /// The modifiers physically held, which is a fact about the same keyboard and is therefore
+    /// modelled here rather than on the reader. `CGEventSourceFlagsState` reports the word, not the
+    /// individual keys, so there is nothing to be gained from modelling left and right separately —
+    /// and something to be lost, because the seam cannot express the difference either.
+    ///
+    /// Defaults to empty, so a test that starts a session with a chord and never says the user is
+    /// holding it ends that session on the first wake. That is deliberate: a keyboard whose modifiers
+    /// defaulted to "whatever the binding needs" could never fail, which is the shape of double this
+    /// suite exists to avoid.
+    var heldModifiers: ModifierSet = []
+
     func press(_ keyCode: UInt16) { held.insert(keyCode) }
     func release(_ keyCode: UInt16) { held.remove(keyCode) }
     func isHeld(_ keyCode: UInt16) -> Bool { held.contains(keyCode) }
+
+    /// Hold the whole binding: the key and its chord, together, because that is what a user does.
+    func hold(_ configuration: HotkeyConfiguration) {
+        press(configuration.keyCode)
+        heldModifiers = configuration.modifiers
+    }
 }
 
 /// A reader that counts, so that "the poll ran and ended nothing" is distinguishable from "the poll
@@ -136,14 +153,21 @@ final class Keyboard {
 protocol CountingKeyStateReader: PhysicalKeyStateReader {
     var reads: Int { get }
     var keysAsked: Set<UInt16> { get }
+
+    /// Counted separately from ``reads``, because the two do **not** happen the same number of
+    /// times: `SessionWatchdog.theBindingIsStillHeld` short-circuits, so the chord is asked for only
+    /// on the wakes where the key was still down. One combined counter would make "the chord read
+    /// happens" and "the chord read is skipped once the key is up" the same number.
+    var modifierReads: Int { get }
 }
 
-/// The seam, reading the keyboard truthfully. What `hotkey-source` will implement over
-/// `CGEventSourceKeyState`.
+/// The seam, reading the keyboard truthfully. What `hotkey-source` implements over
+/// `CGEventSourceKeyState` and `CGEventSourceFlagsState`.
 final class TruthfulKeyState: CountingKeyStateReader {
     private let keyboard: Keyboard
     private(set) var reads = 0
     private(set) var keysAsked: Set<UInt16> = []
+    private(set) var modifierReads = 0
 
     init(_ keyboard: Keyboard) { self.keyboard = keyboard }
 
@@ -151,6 +175,11 @@ final class TruthfulKeyState: CountingKeyStateReader {
         reads += 1
         keysAsked.insert(keyCode)
         return keyboard.isHeld(keyCode)
+    }
+
+    var physicalModifiers: ModifierSet {
+        modifierReads += 1
+        return keyboard.heldModifiers
     }
 }
 
@@ -161,14 +190,24 @@ final class TruthfulKeyState: CountingKeyStateReader {
 /// answered from a stale event log looks like from the machine's side. Everything else about a
 /// harness built on it is identical, so a measurement that cannot tell the two apart is measuring
 /// nothing.
+///
+/// It reports **every** modifier held as well as every key, and it has to: with the chord now half of
+/// what the poll reads, a control that reported an empty chord would end sessions rather than never
+/// ending them — the opposite of the thing it is a control for.
 final class KeyAlwaysReportedDown: CountingKeyStateReader {
     private(set) var reads = 0
     private(set) var keysAsked: Set<UInt16> = []
+    private(set) var modifierReads = 0
 
     func isKeyDown(_ keyCode: UInt16) -> Bool {
         reads += 1
         keysAsked.insert(keyCode)
         return true
+    }
+
+    var physicalModifiers: ModifierSet {
+        modifierReads += 1
+        return [.control, .option, .shift, .command, .function, .capsLock]
     }
 }
 

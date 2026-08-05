@@ -353,6 +353,67 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
     }
 }
 
+/// **The physical keyboard, read directly — the answer for the key-up that never happened.**
+///
+/// The shipped `PhysicalKeyStateReader`, and it is in *this* file rather than one of its own because
+/// `CGEventSourceKeyState` and `CGEventSourceFlagsState` match the H7 seam prefix and
+/// `HotkeySeamBoundaryTests.testAtMostOneFileMayNameEventTypes` permits exactly one file to name it.
+/// That is a cost, stated plainly: it puts two more system calls in the file CI can never execute.
+/// It is paid down the way everything else here is — there is no decision in either method. What the
+/// answers *mean* is `SessionWatchdog.theBindingIsStillHeld`'s, above the seam, where it is measured.
+///
+/// ## `.combinedSessionState`, and why the other two would be wrong
+///
+/// `CGEventSourceStateID` offers three (`CGEventSource.h`). `.combinedSessionState` is the state of
+/// the login session's keyboard as a *user* would describe it — every input device, plus events
+/// posted into the session — which is the question stop rule (f) asks: *is the user still holding
+/// the key?* `.hidSystemState` reports the hardware alone, so a key held on one device and released
+/// via another path answers wrongly, and `.privateState` is this process's own posted events, which
+/// is not a reading of the world at all.
+///
+/// ## This is not a replay of the tap, and that is the entire value
+///
+/// Every other route Vocca has to the keyboard is the event stream, and the case rule (f) exists for
+/// is an event that **never arrived**: the hotkey stolen by a higher-priority tap, the tap stalled,
+/// focus lost mid-press, the OS dropping it under load. A conformance that answered from remembered
+/// events would repeat what the tap already said, which is the one answer known to be wrong here.
+/// These two calls go to the window server and ask.
+///
+/// ## Isolation
+///
+/// Both members assert the main actor, for the reason the four seam members above do: they are read
+/// from the watchdog's timer, which is on the main run loop, and everything around them is
+/// non-`Sendable` and lives in that one domain. The reader holds no state, so the assertion is about
+/// where its *callers* are rather than about a race inside it — which is worth saying, because "it
+/// has no fields, so it is safe anywhere" is true of the object and false of the graph it is called
+/// from.
+public final class SystemPhysicalKeyState: PhysicalKeyStateReader {
+
+    public init() {}
+
+    /// The message on the two preconditions below.
+    private let mustBeOnTheMainActor = """
+        A SystemPhysicalKeyState was used off the main actor. It is read by the watchdog's timer, \
+        which is on the main run loop, and the session machine it reports to is deliberately \
+        non-Sendable and lives in that one domain.
+        """
+
+    public func isKeyDown(_ keyCode: UInt16) -> Bool {
+        MainActor.preconditionIsolated(mustBeOnTheMainActor)
+        return CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keyCode))
+    }
+
+    public var physicalModifiers: ModifierSet {
+        MainActor.preconditionIsolated(mustBeOnTheMainActor)
+        // The word, translated by the same table the tap's events go through — minus the `fn` rule,
+        // which needs a key code there is none of here. `HotkeyFlagTranslation.modifiers(rawFlags:)`
+        // carries the argument for why that is harmless for this value's one consumer and would not
+        // be for another.
+        return HotkeyFlagTranslation.modifiers(
+            rawFlags: CGEventSource.flagsState(.combinedSessionState).rawValue)
+    }
+}
+
 /// The tap's callback: a non-capturing C function, as `CGEvent.tapCreate` requires.
 ///
 /// Every line is a translation:
