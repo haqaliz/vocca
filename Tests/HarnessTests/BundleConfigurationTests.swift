@@ -168,19 +168,10 @@ private enum BundleTestSupport {
     /// package root. Kept under `.build/` so `.gitignore` already covers it.
     static let conventionalDerivedData = ".build/xcode"
 
-    /// Walks up from `filePath` to the directory containing `Package.swift`. Mirrors the other
-    /// harness suites; never hardcodes an absolute path.
+    /// The package root. Delegates to ``PackageRootLocator``; kept as a same-named wrapper here
+    /// so every existing `BundleTestSupport.packageRoot()` call site is unchanged.
     static func packageRoot(from filePath: String = #filePath) throws -> URL {
-        var dir = URL(fileURLWithPath: filePath).deletingLastPathComponent()
-        while dir.pathComponents.count > 1 {
-            if FileManager.default.fileExists(
-                atPath: dir.appendingPathComponent("Package.swift").path)
-            {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        throw BundleTestError.packageRootNotFound(startingFrom: filePath)
+        try PackageRootLocator.find(from: filePath)
     }
 
     static func readPropertyList(at url: URL) throws -> [String: Any] {
@@ -201,7 +192,6 @@ private enum BundleTestSupport {
 }
 
 enum BundleTestError: Error, CustomStringConvertible {
-    case packageRootNotFound(startingFrom: String)
     case fileMissing(path: String, underlying: String)
     case notADictionaryPropertyList(path: String)
     case projectUnreadable(path: String, detail: String)
@@ -215,8 +205,6 @@ enum BundleTestError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .packageRootNotFound(let path):
-            return "Could not locate Package.swift by walking up from \(path)"
         case .fileMissing(let path, let underlying):
             return "Could not read \(path): \(underlying)"
         case .notADictionaryPropertyList(let path):

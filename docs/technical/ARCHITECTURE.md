@@ -293,7 +293,7 @@ Every stage emits a span into a **local-only** `LatencyRecorder`. Never transmit
 │  Owns the ring buffer, session lifecycle, watchdog.         │
 └──────────────────────┬──────────────────────────────────────┘
                        │
-┌─ SessionActor (VoccaCore) ──────────────────────────────────┐
+┌─ SessionMachine (VoccaCore), owned by whoever owns the tap ─┐
 │  The orchestrator. Owns SessionMode, drives the pipeline,   │
 │  owns TranscriptCustody. Single source of truth for state.  │
 └───┬──────────┬──────────┬──────────┬────────────────────────┘
@@ -310,7 +310,20 @@ Every stage emits a span into a **local-only** `LatencyRecorder`. Never transmit
 
 1. **AX calls never run on the main thread.** `AXUIElementCopyAttributeValue` against an unresponsive app blocks for the full AX timeout, and on the main thread that is a frozen UI — a documented, commonly-hit macOS trap. `InjectActor` owns every AX call, with an explicit per-call timeout below the system default.
 2. **The realtime audio thread does nothing but write samples.** Any allocation or lock there produces glitches that sound like a broken product.
-3. **`SessionActor` is the only place session state lives.** The widget renders a projection of it. No component infers session state from its own local flags — that's how you get stuck-recording bugs that only reproduce on someone else's machine.
+3. **`SessionMachine` is the only place session state lives.** The widget renders a projection of it. No component infers session state from its own local flags — that's how you get stuck-recording bugs that only reproduce on someone else's machine.
+
+   `SessionMachine` (`VoccaCore`, C1) is **synchronous and not `Sendable`** — not the actor this
+   section originally sketched. A `CGEvent` tap callback is a synchronous C function that must
+   return *this event's* disposition, swallow or pass through, before it returns; `await` cannot
+   appear on that path, because by the time an actor hop resolved, the event would already have
+   reached the focused application. So isolation belongs to whoever owns the tap, not to the
+   machine itself: `hotkey-source` constructs it on `@MainActor`, runs the tap on the main run
+   loop, and uses `MainActor.assumeIsolated` inside the callback. Everything the machine *returns*
+   (`SessionEffect`, `SessionOutcome`) is `Sendable` and crosses freely to the actor that
+   transcribes. One consequence is not optional: the machine must be **constructed** in the
+   isolation domain that owns it — passing an already-built instance into an actor's `init` from
+   outside is a `sending` diagnostic, not a warning, because the machine still carries no
+   concurrency safety of its own once it exists.
 
 **The capture primitive is `AVAudioSinkNode`, not `installTap`.** This document previously said "AVAudioEngine tap", which cannot satisfy rule 2 above — the rule and the mechanism were in direct contradiction, and the mechanism was the wrong one. Two reasons, both from the headers:
 

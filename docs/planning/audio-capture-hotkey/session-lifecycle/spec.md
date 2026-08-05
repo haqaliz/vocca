@@ -27,9 +27,11 @@ without exception — and the audio captured before that point is never thrown a
 func decide(_ event: RawKeyEvent, state: SessionState) -> Decision
 ```
 - Pure. Same inputs → same output. No clock read, no I/O, no globals.
-- `RawKeyEvent` is a **POD struct** (`type`, `keyCode`, `flags`, `isAutorepeat`, `timestamp`).
+- `RawKeyEvent` is a **POD struct** (`kind`, `keyCode`, `modifiers`, `isAutorepeat`, `timestamp`).
   No `CGEvent` type ever crosses this boundary — that is what makes the tests possible.
-- **Modifier state is derived from `event.flags` on every event and never accumulated.**
+  (`kind`/`modifiers` rather than `type`/`flags`: `type` reads as the Swift keyword and `flags`
+  invites the assumption that it is a `CGEventFlags`, which is the one thing it must never be.)
+- **Modifier state is derived from `event.modifiers` on every event and never accumulated.**
   This is the [Handy #840](https://github.com/cjpais/Handy/issues/840) defect: v0.1.4 derived
   and worked, v0.2.0 accumulated on `flagsChanged` and desynced permanently after one missed
   event. The prohibition is the requirement.
@@ -57,9 +59,14 @@ cause. Rule (c) is free, since every keyboard event is already visible.
   and poll-interval tests must be deterministic and instant.
 - **Exactly one** `endSession(reason: EndReason)` funnel. Every stop path goes through it.
 - `EndReason` is an enum: `.keyUp`, `.modifierReleased`, `.tapDisabled`, `.ceilingReached`,
-  `.pollDetectedRelease`, `.systemEvent(SystemTrigger)`, `.userCancelled`.
+  `.pollDetectedRelease`, `.toggledOff`, `.systemEvent(SystemTrigger)`, `.userCancelled`.
+  `.toggledOff` is toggle mode's stop (below): the next matching key-*down*, which is not a
+  `.keyUp` and must not be labelled as one.
+  As shipped these are grouped one level deep — `RetainedEndReason` for everything except
+  cancellation, wrapped as `EndReason.retained(_)` — so that the reasons owing their audio
+  downstream are a type rather than a convention. See `SessionOutcome`.
 - **Every terminal transition hands the captured buffer downstream.** Discard is not
-  representable in the type — mirroring `ARCHITECTURE.md:294` ("an unexpectedly-ended session
+  representable in the type — mirroring `ARCHITECTURE.md:336` ("an unexpectedly-ended session
   yields its transcript to custody rather than discarding it") and `CAPABILITY_ROADMAP.md:20`.
   **The one exception is `.userCancelled`** (Esc), where discarding is the user's explicit
   instruction.
@@ -67,8 +74,51 @@ cause. Rule (c) is free, since every keyboard event is already visible.
 ### Toggle mode
 Hold-to-talk and toggle are two configurations of the *same* state machine, not two machines.
 In toggle mode the start rule is unchanged and stop rules (a)/(b)/(c) are replaced by "next
-matching key-down". Rules (d)–(f) still apply — **a toggle session still has a ceiling and a
-watchdog**, or toggle mode reintroduces the hot-mic bug this aspect exists to prevent.
+matching key-down". Rules (d) and (e) still apply — **a toggle session still has a ceiling**, or
+toggle mode reintroduces the hot-mic bug this aspect exists to prevent.
+
+**Rule (f) does NOT apply in toggle mode.** This document said it did; that was wrong, and task 5's
+implementation caught it. A toggle session runs with the key *released* for its whole life, so a
+poll that ends the session on "the key is up" would end it on the first wake, 150 ms after it
+started. Task 5 therefore placed the poll inside a `switch` on the activation mode with no
+`default:`, so the file stops compiling at the line that must be re-decided the moment `.toggle`
+becomes constructible.
+
+**Task 6's answer: nothing replaces it _at the poll seam_, and that much is structural.** Rule (f)
+works in hold-to-talk because the condition a session continues under — *"the key is held"* — is a
+state of the world, which `CGEventSourceKeyState` reads out of band, past the tap that failed. A
+toggle session continues under *"the user has not pressed again"*, which is not a state of
+anything: it is the absence of a future event, and no poll can read an absence.
+
+Detecting the *press* instead was considered and rejected on one decisive ground and one cost. The
+decisive one: it needs an edge where the seam offers a level, so an edge has to be reconstructed
+from samples, and at 150 ms an ordinary 60 ms tap falls between two of them and is missed. A
+mechanism that fires late and only sometimes is worse than none, because the hot-mic bound would
+then be quoted from it. The cost, stated accurately rather than as a wall: `isKeyDown(_:)` takes one
+key code, so the chord would have to be read modifier by modifier — the modifier keys have virtual
+key codes of their own and are readable through the same primitive — which is several more calls
+per wake plus a `ModifierSet`-to-key-codes map that is a system fact and therefore `hotkey-source`'s.
+
+**But the gap is not permanent, and the thing that closes it is not at this seam: a
+device-independent retained stop.** A widget click, a menu-bar item, a VoiceOver-reachable control —
+any input that does not travel through the `CGEvent` tap is immune to the failures that make the
+second press vanish (a higher-priority tap consuming it, a stalled tap, a focus race). This matters
+more than a nicety, because **`cancel()` discards**: a toggle user whose stopping press is lost has
+exactly one way to stop inside the window below, and it throws their words away — the invariant this
+aspect exists to protect, failing in the mode that exists for accessibility. In this module it is
+one public method through the same stop funnel plus one `RetainedEndReason`. It is **not built
+here**: `PRODUCT_SPEC.md` offers no such control today (§2's widget has no stop affordance, §11's
+menu bar lists only state / mode toggle / last transcript / Settings / Quit, and §10's *"every
+action reachable by keyboard"* does not name stop as an action), so it is a product question first
+and `hotkey-source`'s to deliver second.
+
+So a toggle session is bounded, **today**, by: the **ceiling**, `.tapDisabled`, the five system
+triggers, cancellation, and the user's next press. Only the ceiling is unconditional, which makes it
+load-bearing here rather than a backstop. **The cost is measured, not asserted**: the same accident
+— the user asks to stop and Vocca never hears it — costs **one poll interval (150 ms) in
+hold-to-talk and the remainder of the ceiling in toggle** (105 s from a press at t=15 s), pinned
+side by side in `SessionWatchdogTests`. The compensating control the user actually sees is the
+widget's ceiling warning at ceiling − 10 s, which is derived and therefore fires in both modes.
 
 ### Watchdog policy
 Owned here as **policy**; the physical-key read itself is injected (it is a system call, and

@@ -1,0 +1,378 @@
+// Copyright 2026 The Vocca Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/// What one observed keyboard event means for the session.
+///
+/// This is the function the stuck-recording bug lives in, so it is written to be the function that
+/// bug cannot survive: a free function of three values, with nothing to remember between calls.
+///
+/// ## Pure, and structurally so
+///
+/// Same inputs give the same output, always. There is no clock to read — `VoccaCore` imports
+/// nothing, so `Foundation`, `Dispatch` and `Darwin` are all out of reach, and `CoreBoundaryTests`
+/// asserts that rather than trusting it. There is no I/O, and there is no mutable global: this is a
+/// free function, so it has no storage of its own, and a `static var` or `nonisolated(unsafe)`
+/// anywhere in the module is a lint failure.
+///
+/// The state it needs is a parameter. That is the entire design — a session's state is task 4's to
+/// own and advance, and passing it in is what keeps this side of the seam testable with no tap, no
+/// permission and no keyboard.
+///
+/// ## The prohibition
+///
+/// **Modifier state is derived from `event.modifiers`, every time. It is never accumulated.**
+///
+/// Two lines below do it — `heldChord` is read straight off the event in hand, and there is
+/// deliberately nowhere else it could come from. This is not a style preference:
+/// [Handy #840](https://github.com/cjpais/Handy/issues/840) is this defect shipping in a comparable
+/// tool. v0.1.4 derived modifier state from each event's flags and worked; v0.2.0 kept a running
+/// total updated on `flagsChanged` and desynchronised **permanently** after a single missed event,
+/// leaving the microphone open. macOS disables event taps under load without warning, so events are
+/// dropped in normal use — a running total is not a risk, it is a scheduled failure.
+///
+/// A derived read cannot desynchronise, because there is nothing to synchronise: every keyboard
+/// event already carries the complete current modifier state. That is also what makes stop rule (c)
+/// free.
+///
+/// ## Two modes, one function
+///
+/// ``HotkeyConfiguration/Activation`` branches once, at the top, into ``holdToTalkDecision(_:state:config:)``
+/// and ``toggleDecision(_:state:config:)``. The **start rule is identical** in both — same key, same
+/// exact chord, same autorepeat exclusion, same `.idle` requirement — and everything below this
+/// heading describes hold-to-talk, which is the mode with more rules. Toggle's are on its own
+/// function, and the ways the two differ are argued there.
+///
+/// ## The rules
+///
+/// **Start** — `.keyDown` on the configured key, carrying **exactly** the configured modifiers, not
+/// an autorepeat, in `.idle`. All five, and each one is load-bearing.
+///
+/// ### Why starting is exact and stopping is not
+///
+/// `⊇` on both sides is the obvious shape and it is wrong, in a way that is already user-visible
+/// and becomes a correctness problem at P3.
+///
+/// Superset does not merely *tolerate* an extra modifier, it **claims** it. With `⌥Space` bound, a
+/// user cannot type `⌥⇧Space` at all: Vocca starts a session and swallows the key. And
+/// `PRODUCT_SPEC.md:127` makes `⌥⇧Space` the converse-mode hotkey while `⌥Space` is dictate, so
+/// under `⊇` an event carrying `[.option, .shift]` matches **both bindings**. The dangerous
+/// direction is the one that document names as the failure to prevent — a converse press matching
+/// the dictate binding means speech meant for the agent is typed into the focused field — and
+/// "No implicit mode switching, ever" is exactly what a superset match between two bindings is.
+///
+/// So the two questions are asked differently, because they *are* different:
+///
+/// | | Question | Comparison |
+/// |---|---|---|
+/// | Start | Which binding did the user just press? | **equality** — it must be unambiguous |
+/// | Stop | Is the user still holding what they pressed? | **containment** — anything missing is a release |
+///
+/// Equality on the stop side would end a session because the user reached for Shift mid-sentence,
+/// and would report `.modifierReleased` for a modifier that was *added*. Containment on the start
+/// side is the collision above. Neither predicate does the other's job.
+///
+/// Locks are masked from both sides before either comparison, so `⌥Space` still works with Caps
+/// Lock on — the one extra-modifier case with a real justification, and the one
+/// ``ModifierSet/locking`` exists to provide. It argues that for Caps Lock and for nothing else.
+///
+/// **Stop**, in the order they are applied. The order is a decision, not an accident: when two fire
+/// on the same event the reported reason is the one that best describes what happened, and log
+/// entries are the only evidence anyone will have of a session that ended surprisingly.
+///
+/// | # | Trigger | Reason |
+/// |---|---|---|
+/// | d | `.tapDisabled` | `.tapDisabled` — checked first, because such an event's modifier flags mean nothing, and testing them earlier would end the session for the right cause under the wrong name |
+/// | a | `.keyUp` on the configured key | `.keyUp` — the user's own gesture, and the more specific fact when the key-up also happens to report no modifiers |
+/// | b/c | any event no longer carrying **all** the configured modifiers | `.modifierReleased` |
+///
+/// Rules (e) ceiling and (f) poll are absent here on purpose. Neither has a `RawKeyEvent` to be
+/// decided from — one is a clock reading and the other a physical-key read, both of which live
+/// behind seams this module cannot reach — so task 4 fires them and routes them through the same
+/// stop funnel. ``Decision`` carries every ``EndReason``, so nothing is lost by their not
+/// originating here; `SessionDecisionTests` pins the vocabulary this function does produce, so a
+/// later edit cannot invent a key event that claims to be a ceiling expiry.
+///
+/// **A tap that dies outside `.recording` is `.ignore`, and that is not the whole story.** There is
+/// no session to stop, so there is nothing for this function to say — but the tap is still dead,
+/// and ``Decision`` deliberately has no vocabulary for "re-arm the tap", because re-creating a
+/// `CGEvent` tap is a system call and this module makes none. A caller that routes tap-disabled
+/// notifications through here and acts *only* on the returned action goes permanently deaf, in
+/// silence, and that is a sibling of the stuck-microphone bug rather than a lesser cousin.
+/// Re-enabling the tap belongs to `hotkey-source`, unconditionally and independently of whatever
+/// this function returns.
+///
+/// ## What gets swallowed, in hold-to-talk
+///
+/// Independent of the action, and narrow. Vocca swallows the key-down that starts a session, and
+/// thereafter the key events for **its own key** while a session is in flight — the focused app
+/// never saw that key-down, so it must not see the autorepeats or the key-up either. Everything
+/// else passes through, including every `.flagsChanged`: a tool that eats keystrokes it did not
+/// claim makes the whole machine feel broken, and a swallowed modifier event would strand the
+/// focused app's idea of which modifiers are down.
+///
+/// A `.keyDown` on the configured key whose chord is *gone* passes through, because without the
+/// chord it is not Vocca's hotkey — it is the user typing a space, and they should get one, along
+/// with the stop that a lost chord always means. Note that "gone" here means containment, not
+/// equality: a session started with `⌥Space` keeps swallowing its own repeats when the user also
+/// presses Shift, because it is still that session's key.
+///
+/// **That last rule is a known trade with two costs, and neither is fixable here.** Both begin the
+/// instant a rule-(b) stop fires while the key is still physically held:
+///
+/// 1. **Characters reach the field being dictated into.** The OS was already autorepeating the key
+///    throughout the session, and those repeats were swallowed. The moment the modifier comes up
+///    the chord is gone, so every subsequent repeat passes through — plain characters at the system
+///    repeat rate, landing in the field the transcript is about to be injected into, unless the
+///    user releases within one repeat interval (~30–60 ms).
+/// 2. **The key-up is claimed asymmetrically.** Swallowing below requires the chord for a
+///    `.keyDown` but *not* for a `.keyUp`, because a key-up is the release of a press this module
+///    swallowed whatever modifiers survive to report it. So a passed-through key-down can be
+///    followed by a swallowed key-up, leaving the focused app an **unpaired key-down** — a key it
+///    believes is still held. The reverse case, in `.idle`, leaves an unpaired key-up, which is
+///    inert by comparison.
+///
+/// A pure function cannot do better: knowing that a physically-held key is the tail of a press
+/// Vocca swallowed is a fact about the *session*, not about the event. The session must carry it —
+/// "the hotkey has not yet come back up" — and keep swallowing that key code until it does,
+/// regardless of chord. That is the state machine's, and it is written down as Phase 4 of this
+/// aspect's plan. Both behaviours are pinned by the truth table in `SessionDecisionTests`, so they
+/// change on purpose rather than by accident.
+///
+/// - Parameters:
+///   - event: The event as observed, with the modifiers **it** carried.
+///   - state: Where the session is now. Owned and advanced by the caller.
+///   - config: The configured hotkey.
+/// - Returns: What the caller must do, and whether the focused application still sees the event.
+public func decide(
+    _ event: RawKeyEvent, state: SessionState, config: HotkeyConfiguration
+) -> Decision {
+    switch config.activation {
+    case .holdToTalk:
+        return holdToTalkDecision(event, state: state, config: config)
+    case .toggle:
+        return toggleDecision(event, state: state, config: config)
+    }
+}
+
+/// Hold-to-talk: the session lasts as long as the key is held.
+///
+/// Split from ``decide(_:state:config:)`` so that the mode switch above stays two obvious lines
+/// rather than a rule table with a mode threaded through it. A third mode fails to compile there,
+/// next to these two.
+private func holdToTalkDecision(
+    _ event: RawKeyEvent, state: SessionState, config: HotkeyConfiguration
+) -> Decision {
+    let matchesKey = event.keyCode == config.keyCode
+
+    // The prohibition, in one line. Read from the event in hand — never from anything remembered.
+    // Locks are masked from both sides first; see `ModifierSet.locking` for why.
+    let heldChord = event.modifiers.subtracting(.locking)
+    let requiredChord = config.modifiers.subtracting(.locking)
+
+    // Two different questions, and conflating them is a bug in either direction.
+    //
+    // STARTING asks *which binding did the user just press?* That must be unambiguous, so it is
+    // equality: ⌥⇧Space is not ⌥Space.
+    let chordIsExactlyTheBinding = heldChord == requiredChord
+    // STOPPING asks *is the user still holding what they pressed?* That is containment. Equality
+    // here would end a session because the user reached for Shift mid-sentence — and would report
+    // `.modifierReleased` for a modifier that was added, not released.
+    let chordIsStillHeld = heldChord.isSuperset(of: requiredChord)
+
+    let action: Decision.Action
+    switch state {
+    case .idle:
+        // Nothing is in flight, so no event can stop anything: a stop without a start is a no-op,
+        // and a key-up arriving after the session already ended is the ordinary tail of stop rule
+        // (b), not a second stop.
+        switch event.kind {
+        case .keyDown:
+            action = matchesKey && chordIsExactlyTheBinding && !event.isAutorepeat ? .start : .ignore
+        case .keyUp, .flagsChanged, .tapDisabled:
+            action = .ignore
+        }
+
+    case .recording:
+        switch event.kind {
+        case .tapDisabled:
+            action = .stop(.retained(.tapDisabled))
+
+        case .keyUp:
+            if matchesKey {
+                action = .stop(.retained(.keyUp))
+            } else if chordIsStillHeld {
+                action = .ignore
+            } else {
+                action = .stop(.retained(.modifierReleased))
+            }
+
+        case .keyDown, .flagsChanged:
+            // `.flagsChanged` is rule (b) and every other kind is rule (c). One test serves both,
+            // which is precisely why (c) costs nothing to have.
+            //
+            // A `.keyDown` on the configured key that still carries the chord lands on `.ignore`
+            // here, and that covers two things deliberately: an autorepeat, which must neither
+            // restart nor end the session, and a genuinely fresh press while one is already
+            // running. Hold-to-talk has six stop rules and a re-press is not among them — a
+            // key-up that went missing is what the ceiling and the poll exist for, and restarting
+            // would be the double-start bug. Toggle mode is where this event becomes
+            // `.toggledOff`.
+            action = chordIsStillHeld ? .ignore : .stop(.retained(.modifierReleased))
+        }
+
+    case .ending:
+        // The previous session's audio is still on its way downstream. Nothing may start a session
+        // from here — that is what makes `.ending` a state rather than a boolean — and nothing may
+        // end one that has already ended.
+        action = .ignore
+    }
+
+    let sessionInFlight: Bool
+    switch state {
+    case .idle: sessionInFlight = false
+    case .recording, .ending: sessionInFlight = true
+    }
+
+    let claimsThisEvent: Bool
+    switch event.kind {
+    case .keyUp:
+        // The release of a press Vocca swallowed, whatever modifiers survive to report it.
+        claimsThisEvent = sessionInFlight && matchesKey
+    case .keyDown:
+        claimsThisEvent = sessionInFlight && matchesKey && chordIsStillHeld
+    case .flagsChanged, .tapDisabled:
+        claimsThisEvent = false
+    }
+
+    let startsASession: Bool
+    switch action {
+    case .start: startsASession = true
+    case .stop, .ignore: startsASession = false
+    }
+
+    return Decision(
+        action: action,
+        eventPropagation: startsASession || claimsThisEvent ? .swallow : .passThrough)
+}
+
+/// Toggle: one press starts the session, the next press ends it.
+///
+/// `PRODUCT_SPEC.md:257` calls this a real accessibility need rather than a preference, and that is
+/// the frame for every decision below: the mode has to be *safe*, and it must not be made worse to
+/// use in order to get there.
+///
+/// ## The whole rule, in one predicate
+///
+/// A toggle gesture is a `.keyDown` on the configured key, carrying **exactly** the configured
+/// modifiers, that macOS did not mark as an autorepeat. That is the same predicate the start rule
+/// uses in both modes; the only thing that differs between starting and stopping is the state it
+/// arrives in. Toggle is genuinely one rule read twice, and writing it as one is what keeps the two
+/// halves from drifting — a stop predicate looser than the start predicate would end sessions on
+/// presses that could never have begun one.
+///
+/// **The chord is compared for equality, not containment, and that is not inherited carelessly from
+/// the start rule.** Containment on the stop side is right for hold-to-talk, where the question is
+/// *"is the user still holding what they pressed?"*; here the question is *"which binding did the
+/// user just press?"*, which is the starting question and must be unambiguous for the same reason.
+/// `PRODUCT_SPEC.md:127` binds `⌥Space` to dictate and `⌥⇧Space` to converse: under containment,
+/// pressing the converse hotkey would end a running dictate session, which is implicit mode
+/// switching by another route. Locks are masked from both sides first, so a toggle session still
+/// starts and stops with Caps Lock on.
+///
+/// ## What is not here, and what it costs
+///
+/// Stop rules (a) key-up, (b) modifier released and (c) any event that lost the chord are all
+/// **replaced** by the gesture above. The user's finger is off the key for the whole session — that
+/// is the point of the mode — so a rule that ends the session when the key comes up would end it on
+/// the key-up of the very press that started it, and a rule that ends it when the modifiers drop
+/// would end it a few milliseconds later.
+///
+/// Rule (d), the tap dying, still applies and is checked first for the same reason as in
+/// hold-to-talk: such an event's modifier flags mean nothing. Rules (e) the ceiling and the system
+/// triggers are not decided here in either mode. **Rule (f), the physical-key poll, does not exist
+/// in toggle mode at all** — see ``SessionWatchdog/wake()``, which is where that is decided and
+/// where the cost of it is written down.
+///
+/// So a toggle session that loses its stopping press has no out-of-band evidence *at the keyboard*
+/// to recover it, and what bounds it today is the ceiling. That is a real reduction against
+/// hold-to-talk's one poll interval, it is measured rather than asserted in `SessionWatchdogTests`,
+/// and it is the reason a toggle session's ceiling is load-bearing rather than a backstop. It is not
+/// a permanent limit: a **device-independent retained stop** — an input that does not travel through
+/// the tap — would close it, and ``SessionWatchdog/wake()`` argues why that, rather than anything at
+/// the poll seam, is the route.
+///
+/// ## What gets swallowed, in toggle
+///
+/// **The two gestures, and nothing else.** Between them the hotkey's key code belongs to the user:
+/// with `⌥Space` bound, a bare Space typed during a toggle session is a space, and a claim that
+/// covered the whole session would leave that user with a dead Space bar for two minutes at a time.
+///
+/// That leaves the key-ups of the two presses Vocca *did* swallow, and this function deliberately
+/// does not try to catch them. Which key-ups are Vocca's is a fact about *which presses it
+/// swallowed* — a fact about the session, not about the event in hand — and ``SessionMachine``
+/// already carries exactly that fact and applies it to key-downs and key-ups alike. Guessing at it
+/// here from `state` would get the starting press's key-up right (`.recording`) and the stopping
+/// press's wrong (`.idle` by then), which is worse than not guessing. `SessionMachineTests` pins the
+/// whole-cycle result: the focused application receives no event at all for either press.
+private func toggleDecision(
+    _ event: RawKeyEvent, state: SessionState, config: HotkeyConfiguration
+) -> Decision {
+    // The prohibition, as in hold-to-talk: read from the event in hand, never from anything
+    // remembered. Locks masked from both sides first; see `ModifierSet.locking`.
+    let heldChord = event.modifiers.subtracting(.locking)
+    let requiredChord = config.modifiers.subtracting(.locking)
+
+    // Switched rather than compared with `==`, so a fifth event kind has to state whether it can be
+    // the gesture instead of inheriting `false` from a comparison nobody revisits.
+    let isTheToggleGesture: Bool
+    switch event.kind {
+    case .keyDown:
+        isTheToggleGesture =
+            event.keyCode == config.keyCode && heldChord == requiredChord && !event.isAutorepeat
+    case .keyUp, .flagsChanged, .tapDisabled:
+        isTheToggleGesture = false
+    }
+
+    let action: Decision.Action
+    switch state {
+    case .idle:
+        // Including `.tapDisabled`: there is no session to stop, and re-arming the tap is
+        // `hotkey-source`'s unconditionally — see the note on the enclosing function.
+        action = isTheToggleGesture ? .start : .ignore
+
+    case .recording:
+        switch event.kind {
+        case .tapDisabled:
+            // Rule (d), first, and in toggle it matters more than it does in hold-to-talk: with the
+            // poll gone this is the only stop that a *dead tap* can still deliver, and every other
+            // rule left in this mode needs a key event that can no longer arrive.
+            action = .stop(.retained(.tapDisabled))
+        case .keyDown:
+            action = isTheToggleGesture ? .stop(.retained(.toggledOff)) : .ignore
+        case .keyUp, .flagsChanged:
+            // Rules (a), (b) and (c), deliberately absent. The key is up for the whole session.
+            action = .ignore
+        }
+
+    case .ending:
+        // As in hold-to-talk: the previous session's audio is still on its way downstream, so
+        // nothing starts and nothing ends. The press is still swallowed below — it is Vocca's
+        // gesture, and eating it costs the user one more press where passing it through would put a
+        // character in their document.
+        action = .ignore
+    }
+
+    return Decision(
+        action: action, eventPropagation: isTheToggleGesture ? .swallow : .passThrough)
+}
