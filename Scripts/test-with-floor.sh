@@ -48,7 +48,43 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 237 by hotkey-source phase 3 review round 4, which closed the *class* of defect the previous three
+# 266 by hotkey-source phase 4, **the only phase of this aspect whose own code CI cannot execute a
+# line of.** `CGEvent.tapCreate` returns `nil` without an Accessibility grant and TCC cannot be
+# granted on a hosted runner, so `CGEventTapSource.swift` is untestable forever rather than untested
+# for now. Twenty-nine tests were added anyway, and the reason there are any is the point of the
+# phase: everything with a branch in it was kept *out* of that file. What is left there is four
+# system calls, four optional guards and one `switch` that turns an `EventPropagation` into a C
+# return value.
+#
+# Ten of them are the transcription check for the tap's second table of magic numbers
+# (`TapEventClassification`). `CGEventType`'s raw values are written out by hand there, as
+# `CGEventFlags`' are in the flag translation, so that no seam type reaches a file that is not the
+# adapter — and a test may import CoreGraphics where `Sources/` may not, which turns a transcription
+# error into a red suite. The load-bearing one is the mask: drop `flagsChanged` and `⌥Space` still
+# starts a session while stop rules (b) and (c) quietly stop existing, so every session runs to the
+# 120 s ceiling with the microphone open. The mask and the classifier are now built from one table
+# and a test walks all 64 bits requiring them to agree.
+#
+# Nine are the callback's own body, lifted into `TapEventDispatch` so that it has somewhere to run.
+# The load-bearing one is H6 in **both** directions at the last point before the C ABI: a dispatch
+# that hard-coded a disposition leaves every session test in this package green and either types the
+# hotkey into the user's document or eats their whole keyboard. The `fn` rule's application is pinned
+# here too — the rule itself is exhaustively covered elsewhere, but *that this path applies it, to
+# this event's key code* is a separate claim, and getting it wrong makes every arrow-key binding
+# unfireable.
+#
+# Ten are decision A — **which half of a tap disablement happens on the tap's own callback.** Both
+# `kCGEventTapDisabled…` notifications are delivered *to the callback*, and
+# `TapHealthPolicy.tapWasDisabled(_:)` ends in a re-creation, which is a `stop()` that invalidates
+# the `CFMachPort` whose callback is on the stack. Resolved by splitting it: the session ends
+# synchronously, because a run-loop turn is not a bound on how long a microphone stays open, and the
+# recovery is deferred whole. `CallbackSafeTapDisablement` is where that lives — above the seam,
+# with the run loop injected — so a test can stand between the two halves and look. What is asserted
+# there is that the microphone is closed and the tap untouched on the near side, that an equivalent
+# immediate deferral produces the identical notes, outcome and tap state as calling the policy
+# directly, and that a run loop which never turns costs the tap and never the microphone.
+#
+# It was 237 after hotkey-source phase 3 review round 4, which closed the *class* of defect the previous three
 # rounds closed one instance at a time: **a guard justified by a claim about what cannot be in
 # flight, false on a path the file already models.**
 #
@@ -403,7 +439,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=237
+MINIMUM_EXECUTED_TESTS=266
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

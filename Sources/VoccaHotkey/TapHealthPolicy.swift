@@ -491,25 +491,56 @@ public final class TapHealthPolicy {
     ///                    └─ stop() invalidates the port whose callback is on the stack right now
     /// ```
     ///
-    /// Three things follow, and none of them is this phase's to decide:
+    /// Three things followed, and phase 4 decided them. ``CallbackSafeTapDisablement`` is where the
+    /// decision lives; this is what it was decided against:
     ///
     /// 1. **Inherited constraint 7** — *"do nothing in the tap callback"* — is violated by the
-    ///    recovery path as much as by the start path, and it is **worse on the `.timeout` route**:
-    ///    that timeout was earned by the callback being slow, and this adds more slow work to the
-    ///    same callback.
-    /// 2. **Tearing a tap down from inside its own callback** is the concrete hazard. The likely
-    ///    shape — end the session synchronously, because immediacy is the entire point of it, and
-    ///    defer *only* the teardown-and-re-create to the next run-loop turn — is a real design
-    ///    decision with a real cost, and it belongs in the plan rather than in a discovery.
+    ///    recovery path as much as by the start path. It reads **worse on the `.timeout` route**,
+    ///    because that timeout was earned by the callback being slow — but only reads that way: a
+    ///    tap that has been disabled delivers nothing until it is enabled again, so no work done on
+    ///    *this* callback can earn a second timeout. What slow work here actually costs is main-thread
+    ///    latency and a later recovery, not a further disablement.
+    /// 2. **Tearing a tap down from inside its own callback** is the concrete hazard, and it is not
+    ///    softened by (1) at all: `stop()` invalidates the `CFMachPort` this callback belongs to and
+    ///    removes the run-loop source that is currently dispatching it. That — not the timeout — is
+    ///    what the split is for. Resolved as the plan predicted: **end the session synchronously,
+    ///    because immediacy is the entire point of it, and defer only the recovery.**
     /// 3. **Only this entry point has that shape.** ``systemDidWake()``,
     ///    ``accessibilityGrantChanged()`` and ``pollTapHealth()`` arrive on notifications and timers,
     ///    not on the callback, so deferring all six entry points would be paying the cost five
-    ///    times over for one entry point's problem.
+    ///    times over for one entry point's problem. They call this method as it stands.
     public func tapWasDisabled(_ reason: TapDisableReason) -> TapHealth {
         endAnyInFlightSession()
         note(.disabled(reason))
         guard isArmed else { return .notArmed }
         return restoreDelivery()
+    }
+
+    /// **Close the microphone, and do nothing else.** The half of ``tapWasDisabled(_:)`` that has to
+    /// happen while the tap's own callback is still on the stack.
+    ///
+    /// Added by phase 4, which resolved the tension ``tapWasDisabled(_:)`` records above: the two
+    /// disablements are delivered *to the callback*, and the recovery that method performs ends in a
+    /// `stop()` that invalidates the `CFMachPort` whose callback is on the stack right now. So the
+    /// call is split across a run-loop turn, and this is the near half of the split — the half whose
+    /// whole value is that it is not deferred. ``CallbackSafeTapDisablement`` is the only caller and
+    /// the split lives there, where a test can drive both halves; this method exists so that the
+    /// synthetic `.tapDisabled` event stays minted in one place (see *How a session is ended from
+    /// here*) rather than being reconstructed by whoever needs the near half.
+    ///
+    /// **It is not an entry point, and a caller that stops here has left the tap dead.** Every
+    /// method above answers *where does the tap stand now*; this answers nothing, because nothing has
+    /// been done about the tap. The obligation it leaves behind is the whole of
+    /// ``tapWasDisabled(_:)``, called afterwards — which ends the session again, and must: the rule
+    /// this class is arranged around is unconditional for a reason, and a second ending on a machine
+    /// that is already idle costs one switch and changes nothing.
+    ///
+    /// Deliberately not named for the disablement it serves. What it does is close a microphone, and
+    /// the two other places that might one day need exactly that — a teardown from a signal handler,
+    /// an emergency stop from the widget — would be lying if they had to call something called
+    /// `tapWasDisabled`.
+    public func endAnyInFlightSessionWithoutRecovering() {
+        endAnyInFlightSession()
     }
 
     /// One turn of the ~1 s health poll (`spec.md:57`), and **the only thing that catches a tap that

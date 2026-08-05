@@ -14,26 +14,36 @@ This file orients a coding agent working in this repository. Read it first.
 >   configuration of the same machine, and **the `HotkeyEventSource` seam plus the `SessionEventSink`
 >   that drives a session through it** — driven end-to-end by the zero-network probe. **`VoccaHotkey`
 >   holds the pure translation from a macOS event-flag word plus a key code into `ModifierSet`,
->   applying the founder's `fn` rule, and the tap-health policy — every decision about a dying event
->   tap, taken over an *injected* tap handle with no `CGEvent` call in it.** It is the first adapter,
+>   applying the founder's `fn` rule; the pure classification of a raw event-type number, which also
+>   computes the tap's event mask; the tap-health policy — every decision about a dying event tap,
+>   taken over an *injected* tap handle with no `CGEvent` call in it; and **the real `CGEvent` tap
+>   adapter, in one file, containing no decisions at all.** It is the first adapter,
 >   so it is the first
 >   module to depend on `VoccaCore` (see `ARCHITECTURE.md` §2 — the graph points inward to the core,
->   amended in that commit). The other seven modules remain placeholders. **There is still no event
->   tap, no audio, no ASR and no injection** — the session machine reacts to synthetic key events and
->   an injected clock, not to a real `CGEvent` tap or a real microphone. The C1 acceptance (100
->   cycles, 100 started, 100 ended, 0 overlapping, 0 orphaned) now runs over that seam with a fake
->   source in the tap's place; the tap itself is still unwritten and still unreachable from CI.
+>   amended in that commit). The other seven modules remain placeholders. **There is still no audio,
+>   no ASR and no injection** — the session machine reacts to synthetic key events and an injected
+>   clock, and `SessionAudioSource` is still a stub. The C1 acceptance (100 cycles, 100 started,
+>   100 ended, 0 overlapping, 0 orphaned) runs over the `HotkeyEventSource` seam with a fake source
+>   in the tap's place. **The tap adapter itself is written and is executed by nothing**: `tapCreate`
+>   returns `nil` without an Accessibility grant, so not one line of `CGEventTapSource.swift` runs in
+>   CI, now or ever. Everything it would have decided was moved above the seam and tested there —
+>   including *when* a disablement is acted on, since both disable notifications arrive on the tap's
+>   own callback and the recovery would otherwise invalidate the port whose callback is on the stack.
 > - `App/` + `Vocca.xcodeproj`: builds a signed, **unsandboxed, hardened-runtime** `Vocca.app`
 >   with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
 > - `Scripts/`: `dev-identity.sh` (stable self-signed identity so TCC grants survive rebuilds),
 >   `sign.sh`, `notarize.sh`, `test-with-floor.sh`.
-> - `Tests/HarnessTests/`: 237 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 266 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
 >   invariant coverage, the hotkey flag translation with its `fn` rule, the `HotkeyEventSource` seam
->   with H6 pinned in **both** directions at the far end of it, the H7 seam lint, and the tap-health
->   policy — where the load-bearing test is that **every** entry point ends an in-flight session,
+>   with H6 pinned in **both** directions at the far end of it, the H7 seam lint — which now names
+>   the tap adapter as the one file in `Sources/` permitted to speak CoreGraphics, and at most one —
+>   the event-type classification and its mask, the tap callback's own body — lifted out of the
+>   adapter so that it has somewhere to run, with H6 pinned in both directions at the last point
+>   before the C ABI — the callback-safe split of a tap disablement, and the
+>   tap-health policy — where the load-bearing test is that **every** entry point ends an in-flight session,
 >   driven over a closed set of all eight, in both activation modes, because a session that outlives
 >   its tap is a hot mic. The one exception is the ~1 s health poll, which asserts the *opposite* and
 >   has to: it runs once a second for as long as Vocca runs.

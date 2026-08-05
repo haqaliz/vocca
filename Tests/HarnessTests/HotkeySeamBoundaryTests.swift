@@ -55,9 +55,10 @@ private struct EventTypeSighting: Equatable, CustomStringConvertible {
 /// branch worth testing on the reachable side.
 ///
 /// The rule is therefore not "`VoccaHotkey` may not speak CoreGraphics" — it is an adapter, it must
-/// — but "exactly one file may". ``filesPermittedToNameEventTypes`` is that list, and it is
-/// **empty** today because the tap adapter does not exist yet: the translation this phase adds
-/// takes and returns integers and enum values only.
+/// — but "exactly one file may". ``filesPermittedToNameEventTypes`` is that list, and phase 4 put
+/// the tap adapter in it. Everything else in the module still takes and returns integers and enum
+/// values only, which is what keeps the classification, the flag translation and the whole health
+/// policy on the reachable side.
 ///
 /// ## What this lint does and does not see
 ///
@@ -70,10 +71,16 @@ final class HotkeySeamBoundaryTests: XCTestCase {
 
     /// Files allowed to name a CoreGraphics event type, relative to `Sources/`.
     ///
-    /// **Empty.** When the tap adapter lands, its one file goes here — and nothing else ever does.
-    /// A second entry means the seam has sprung a leak and the decision that leaked with it is now
-    /// somewhere CI cannot reach.
-    private static let filesPermittedToNameEventTypes: Set<String> = []
+    /// **One entry, and nothing else ever joins it.** A second means the seam has sprung a leak and
+    /// the decision that leaked with it is now somewhere CI cannot reach.
+    ///
+    /// It has a consequence phase 5 inherits and should not discover: the `CGEventSourceKeyState`
+    /// physical-key reader and the `CGEventSourceFlagsState` read are seam calls too, so they must
+    /// land **in this same file** rather than in one of their own. `testAtMostOneFileMayNameEventTypes`
+    /// is what makes that a build failure rather than a preference.
+    private static let filesPermittedToNameEventTypes: Set<String> = [
+        "VoccaHotkey/CGEventTapSource.swift"
+    ]
 
     /// The identifier prefixes that constitute the seam. `CGEvent` covers `CGEventFlags`,
     /// `CGEventTap`, `CGEventTapProxy`, `CGEventType`, `CGEventSource` and every other member of
@@ -187,9 +194,10 @@ final class HotkeySeamBoundaryTests: XCTestCase {
 
     /// The "exactly one file" claim, enforced rather than asserted in a comment.
     ///
-    /// Inert today, because the list is empty. It goes live the moment phase 4 adds the tap adapter,
-    /// which is exactly when it stops being obvious — a second entry is how "the untestable half"
-    /// grows without anyone deciding that it should.
+    /// Live since phase 4 added the tap adapter, which is exactly when it stopped being obvious — a
+    /// second entry is how "the untestable half" grows without anyone deciding that it should. Phase
+    /// 5's physical-key reader is the first thing it will push back: `CGEventSourceKeyState` is a
+    /// seam identifier, so the reader shares the adapter's file or this fails.
     func testAtMostOneFileMayNameEventTypes() {
         XCTAssertLessThanOrEqual(
             Self.filesPermittedToNameEventTypes.count, 1,
@@ -210,8 +218,8 @@ final class HotkeySeamBoundaryTests: XCTestCase {
     /// useless to detect afterwards, so the permission to name the types comes with a prohibition on
     /// re-exporting them under another name.
     ///
-    /// Currently vacuous — the list is empty — which is why it has a positive control below rather
-    /// than only a green run against the real tree.
+    /// The permitted file declares no alias today, so the real-tree run is a clean pass rather than a
+    /// demonstration — which is why it has a positive control below as well.
     private static func typealiasNames(inSource source: String) -> [String] {
         let code = SwiftSourceScanner.stripComments(from: source)
         guard
@@ -331,8 +339,9 @@ final class HotkeySeamBoundaryTests: XCTestCase {
             "...while an extension that names the type outright is still caught, in any file.")
     }
 
-    /// The positive controls for the two rules added with the seam, both otherwise vacuous: the
-    /// permitted list is empty and nothing in `Sources/` re-exports anything.
+    /// The positive controls for the two rules added with the seam. Both would otherwise be clean
+    /// passes rather than demonstrations: the one permitted file re-exports and extends nothing, and
+    /// nothing in `Sources/` re-exports anything at all.
     func testTheReExportAndExtensionRulesDetectTheirOwnLaunderingRoutes() {
         XCTAssertEqual(
             Self.reExportedModules(inSource: "@_exported import CoreGraphics"),
@@ -549,9 +558,10 @@ final class HotkeySeamBoundaryTests: XCTestCase {
         }
     }
 
-    /// The violations, for the same reason ``seamCarryingReExports(inSource:)`` is separated out:
-    /// the list this is applied to is empty today, so a predicate that never reports a violation
-    /// passes the real-tree check — measured, as a surviving mutant, before it was pulled out here.
+    /// The violations, for the same reason ``forbiddenReExports(inSource:)`` is separated out: the
+    /// one file this is applied to declares no extension at all, so a predicate that never reports a
+    /// violation passes the real-tree check — measured, as a surviving mutant, before it was pulled
+    /// out here.
     private static func coreGraphicsTypesExtended(inSource source: String) -> [String] {
         extendedTypeNames(inSource: source).filter { name in
             forbiddenIdentifierPrefixes.contains { name.hasPrefix($0) }
