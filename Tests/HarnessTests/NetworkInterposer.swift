@@ -227,6 +227,25 @@ struct NetworkObservation {
         return nil
     }
 
+    /// What the probe *observed* after driving one complete session through the real
+    /// `SessionMachine` and `SessionWatchdog`, or `nil` if the probe never reported one.
+    ///
+    /// The second effect-not-reference post-condition, and it exists for the same reason as
+    /// ``reportedActivationPolicy``. `VoccaCore` appearing in ``reportedModules`` proves only that a
+    /// type from it was named — while the module was a placeholder that was all there was to prove,
+    /// and it no longer is. This payload is a line of `key=value` fields the probe can only produce
+    /// by running the machine: the outcome the custody funnel returned, the buffer it carried, the
+    /// microphone ledger, the elapsed time the watchdog's wakes accumulated, and the schedule the
+    /// watchdog derived. Deleting the drive takes the whole line with it and the assertion fails on
+    /// `nil`.
+    var reportedSessionLifecycle: String? {
+        for line in probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-SESSION\t") {
+            return String(line.dropFirst("PROBE-SESSION\t".count))
+        }
+        return nil
+    }
+
     var events: [ObservedNetworkEvent] {
         rawLog.split(separator: "\n").compactMap { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)

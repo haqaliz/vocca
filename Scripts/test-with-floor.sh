@@ -47,7 +47,15 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 142 by task 6's review round, which added one in SessionMachineTests: the stale-claim valve, in
+# 143 by task 7, which put VoccaCore's real work inside the zero-network invariant. The probe now
+# drives one complete session — press, three watchdog wakes, release, custody — through the real
+# SessionMachine and SessionWatchdog, and ZeroNetworkTests asserts the post-condition it reports.
+# The added test is the guard on that assertion: the expected post-condition is one string, and
+# strings that appear in a failing diff get regenerated, so it is read back and refused unless it
+# still describes a session that captured audio, handed it to custody and released the microphone.
+# Fourteen weakenings of it were applied and all fourteen died.
+#
+# It was 142 after task 6's review round, which added one in SessionMachineTests: the stale-claim valve, in
 # toggle. Two mutations that skipped it in that mode survived 141/141. The valve is *more*
 # load-bearing in toggle than in hold-to-talk and was tested only in hold-to-talk — a stale claim
 # there lives at most one poll interval, because `observePhysicalKey(isDown: false)` clears it, and
@@ -126,7 +134,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=142
+MINIMUM_EXECUTED_TESTS=143
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

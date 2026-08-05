@@ -18,9 +18,29 @@ import XCTest
 private enum ZeroNetworkTestError: Error, CustomStringConvertible {
     case noModulesDiscovered(sourcesRoot: String)
     case everyModuleExcluded(candidates: [String], nonDrivable: [String])
+    case postConditionNotParseable(String)
+    case postConditionMissingField(key: String, present: [String])
+    case postConditionHasARepeatedField(key: String)
 
     var description: String {
         switch self {
+        case .postConditionNotParseable(let fragment):
+            return """
+                The session post-condition is not a sequence of `key=value` fields — could not read \
+                '\(fragment)'. It is asserted whole by the invariant and read back field by field \
+                by testTheAssertedSessionPostConditionStillDescribesACompleteSession; a shape \
+                neither can parse would leave both checking nothing.
+                """
+        case .postConditionMissingField(let key, let present):
+            return """
+                The session post-condition no longer reports '\(key)', so the property that field \
+                carries is no longer asserted at all. Present: \(present.joined(separator: ", ")).
+                """
+        case .postConditionHasARepeatedField(let key):
+            return """
+                The session post-condition reports '\(key)' twice. One of the two would be dropped \
+                silently, and there is no telling which.
+                """
         case .noModulesDiscovered(let root):
             return
                 "No module directories were found under \(root) — the probe's coverage was not checked against anything"
@@ -65,6 +85,64 @@ private struct CoverageExclusion {
 /// the probe is asked to execute. That shared mechanism is what makes the positive control a
 /// meaningful guarantee about the invariant rather than a separate, unrelated experiment.
 final class ZeroNetworkTests: XCTestCase {
+
+    /// **The session-lifecycle post-condition**: what the probe must report after driving one
+    /// complete session through the real ``SessionMachine`` and ``SessionWatchdog``.
+    ///
+    /// Asserted whole, as one line, and read as an *effect* rather than as a reference — the same
+    /// distinction ``reportedActivationPolicy`` exists for, applied to the module where the
+    /// distinction now costs the most. `VoccaCore` appearing in the coverage list below proves only
+    /// that a type from it was named; while it was a placeholder there was nothing more to prove,
+    /// and there now is: a state machine, a watchdog, a decision function and a clock seam.
+    ///
+    /// Every field is a fact the probe can only produce by running that code. In order: the press
+    /// opened a session and was swallowed rather than typed into the user's document; three watchdog
+    /// wakes each polled the configured key and each left the session alone; the machine accumulated
+    /// the clock's forward motion and did not think the ceiling was near; the release ended the
+    /// session through the single custody funnel with the buffer *that capture produced*; and the
+    /// microphone was opened once, closed once, and is closed now.
+    ///
+    /// This is deliberately **not** a golden string to be regenerated when it fails.
+    /// ``testTheAssertedSessionPostConditionStillDescribesACompleteSession`` reads it back and
+    /// refuses a version that no longer describes a session which captured audio, handed it to
+    /// custody and released the microphone — so weakening the probe and pasting in whatever it now
+    /// prints does not restore a green suite.
+    private static let expectedSessionLifecycle = [
+        // The hotkey press started a session, and the focused application did not receive it.
+        "press=started",
+        "press.propagation=swallow",
+        // The watchdog's wakes ran, read the configured key code each time, and — the key being
+        // held and the ceiling being 120 s away — ended nothing.
+        "wakes=3",
+        "wake.effects=unchanged,unchanged,unchanged",
+        "wake.keyReads=3",
+        "wake.keyCodesRead=49,49,49",
+        // The machine accumulated the clock's forward motion across those wakes: three steps of the
+        // probe's own 100 ms. Zero here would mean the ceiling can never fire.
+        "elapsed=300ms",
+        "ceilingNear=false",
+        // The owner's timer is armed while recording and stopped once the session ends. The
+        // *cadence* is deliberately not reported — see the probe's `describe(_ schedule:)`.
+        "scheduleWhileRecording=wake",
+        // The release ended the session through the one custody funnel, with a retaining reason,
+        // and the key-up was swallowed because Vocca had swallowed its press.
+        "release=ended(completed(keyUp))",
+        "release.propagation=swallow",
+        // The buffer that reached custody is the one *this capture* produced — the probe's
+        // microphone stamps each buffer with its close count, so a machine that substituted a fresh
+        // empty buffer on the way to the outcome would report `audio.ordinal=0`.
+        "audio.ordinal=1",
+        "audio.frames=3",
+        // The microphone ledger. "The session ended" is not "the microphone was released", and this
+        // is the half that says the second thing.
+        "mic.open=false",
+        "mic.opens=1",
+        "mic.closes=1",
+        "mic.overlappingOpens=0",
+        "mic.closesWithoutOpen=0",
+        "state=idle",
+        "schedule=stopped",
+    ].joined(separator: " ")
 
     /// The only modules the probe is not required to drive.
     ///
@@ -193,6 +271,33 @@ final class ZeroNetworkTests: XCTestCase {
             \(observation.diagnosticSummary)
             """)
 
+        // The session-lifecycle post-condition. The second effect-not-reference check, and the one
+        // that matters most now: `VoccaCore` stopped being a placeholder and became the state
+        // machine that owns both of this project's invariants, and the coverage guard below is at
+        // module granularity by construction — it can say the module was reached, never that its
+        // work ran. Before this line, `SessionState.self` in the probe's list satisfied the guard
+        // whether or not a single line of `VoccaCore` executed.
+        //
+        // Deleting the drive from the probe removes this line from its output entirely, so the
+        // comparison fails against `nil` rather than quietly covering less.
+        XCTAssertEqual(
+            observation.reportedSessionLifecycle, Self.expectedSessionLifecycle,
+            """
+            The probe did not report driving a complete session through VoccaCore's real state \
+            machine and watchdog.
+              expected: \(Self.expectedSessionLifecycle)
+              observed: \(observation.reportedSessionLifecycle ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseSessionLifecycle() was not called on the \
+            default-configuration path — in which case VoccaCore's actual behaviour is outside this \
+            invariant, and only its name is inside it — or the session no longer behaves as \
+            written. Both matter, and the second more: the fields cover custody (a buffer reached \
+            the outcome) and the hot mic (the microphone was opened once and released), which are \
+            the two things this project promised would not fail silently.
+            Do not fix this by deleting the call, and do not fix it by pasting in whatever the \
+            probe now prints — see testTheAssertedSessionPostConditionStillDescribesACompleteSession.
+            \(observation.diagnosticSummary)
+            """)
+
         // The coverage cross-check. Without it the assertions above stay green while covering an
         // ever-smaller fraction of the product, which is the most likely way this gate rots.
         let manifest = try PackageManifest.load(
@@ -210,6 +315,125 @@ final class ZeroNetworkTests: XCTestCase {
             default-configuration start-up work, not just a reference to one of its types.
             \(observation.diagnosticSummary)
             """)
+    }
+
+    // MARK: - Test C: the post-condition is still worth asserting
+
+    /// **Guards the guard.** ``expectedSessionLifecycle`` must keep describing a session that
+    /// started, captured, handed its audio to custody and released the microphone.
+    ///
+    /// Test B compares the probe's report against that constant, which makes the constant the whole
+    /// strength of the check — and constants that appear in a failing diff get regenerated. That is
+    /// the realistic way this gate rots: someone shortens the drive (drops the wakes, stops before
+    /// the release, lets the outcome carry a fresh buffer), sees Test B fail, and pastes in what the
+    /// probe now prints. The suite goes green having asserted a post-condition that no longer says
+    /// anything.
+    ///
+    /// So this test reads the constant back and refuses that edit. It asserts *properties* rather
+    /// than the literal — no buffer may be missing, no microphone may be left open, the session must
+    /// end through the completed side of the custody funnel, and the clock must have moved — so it
+    /// stays true across legitimate changes to the drive while failing every weakening of it.
+    ///
+    /// It costs no probe run: the constant is what is under test, not the process.
+    func testTheAssertedSessionPostConditionStillDescribesACompleteSession() throws {
+        let fields = try Self.parseFields(of: Self.expectedSessionLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        // A session began, and the press did not also reach the focused application.
+        XCTAssertEqual(
+            try value("press"), "started",
+            "The asserted post-condition no longer starts a session, so nothing after it is a session.")
+
+        // It ended through the funnel, on the side that hands audio downstream. `cancelled` here —
+        // or anything but `ended(completed(…))` — would mean the invariant is being asserted against
+        // the one path that is *allowed* to discard, which proves the opposite of what is wanted.
+        let release = try value("release")
+        XCTAssertTrue(
+            release.hasPrefix("ended(completed("),
+            """
+            The asserted post-condition no longer ends the session through the retaining side of the \
+            custody funnel (release=\(release)). "A transcript is never lost" is exactly what this \
+            line is here to witness.
+            """)
+
+        // A buffer travelled with it. `none` is what the probe reports when no audio reached the
+        // outcome, and it is the single most valuable thing this post-condition can refuse.
+        XCTAssertNotEqual(
+            try value("audio.ordinal"), "none",
+            "The asserted post-condition no longer carries captured audio into the outcome.")
+        XCTAssertNotEqual(
+            try value("audio.frames"), "none",
+            "The asserted post-condition no longer carries captured audio into the outcome.")
+
+        // The microphone was opened, released, and is not open now. Every one of these is a
+        // separate way for the widget to say idle over a live input device.
+        XCTAssertEqual(
+            try value("mic.open"), "false",
+            "The asserted post-condition leaves the microphone open after the session ended.")
+        XCTAssertEqual(
+            try value("mic.overlappingOpens"), "0",
+            "The asserted post-condition tolerates a second microphone opened inside the first.")
+        XCTAssertEqual(
+            try value("mic.closesWithoutOpen"), "0",
+            "The asserted post-condition tolerates a close with no matching open.")
+        let opens = Int(try value("mic.opens")) ?? 0
+        let closes = Int(try value("mic.closes")) ?? -1
+        XCTAssertGreaterThanOrEqual(
+            opens, 1, "The asserted post-condition never opens the microphone at all.")
+        XCTAssertEqual(
+            closes, opens,
+            "The asserted post-condition does not balance every microphone open with a close.")
+
+        // The watchdog ran, polled, and moved the machine's clock. Without this the drive could be
+        // shortened to a press and a release, leaving the timer path — the only thing that can end a
+        // session nobody is holding a key for — outside the invariant again.
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("wakes")) ?? 0, 1,
+            "The asserted post-condition no longer turns the watchdog's timer.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("wake.keyReads")) ?? 0, 1,
+            "The asserted post-condition no longer polls the physical key state.")
+        XCTAssertGreaterThan(
+            Int(try value("elapsed").replacingOccurrences(of: "ms", with: "")) ?? 0, 0,
+            """
+            The asserted post-condition accumulates no elapsed time, so the drive would pass with a \
+            clock that never advances — which disables the 120 s ceiling outright rather than \
+            delaying it.
+            """)
+
+        // And it came to rest: no session, no timer.
+        XCTAssertEqual(try value("state"), "idle")
+        XCTAssertEqual(try value("schedule"), "stopped")
+    }
+
+    /// Splits a `key=value key=value` post-condition, refusing anything that is not one.
+    ///
+    /// Fails closed on an empty line, a malformed field or a repeated key: each would leave the test
+    /// above asserting against a dictionary that quietly lost a field, which is the same vacuous
+    /// green it exists to prevent.
+    private static func parseFields(of line: String) throws -> [String: String] {
+        let parts = line.split(separator: " ")
+        guard !parts.isEmpty else { throw ZeroNetworkTestError.postConditionNotParseable(line) }
+        var fields: [String: String] = [:]
+        for part in parts {
+            guard let separator = part.firstIndex(of: "="), separator != part.startIndex else {
+                throw ZeroNetworkTestError.postConditionNotParseable(String(part))
+            }
+            let key = String(part[part.startIndex..<separator])
+            guard fields.updateValue(String(part[part.index(after: separator)...]), forKey: key)
+                == nil
+            else {
+                throw ZeroNetworkTestError.postConditionHasARepeatedField(key: key)
+            }
+        }
+        return fields
     }
 
     // MARK: - Shared plumbing

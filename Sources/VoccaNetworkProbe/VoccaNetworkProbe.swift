@@ -18,7 +18,6 @@ import Foundation
 import VoccaASR
 import VoccaAudio
 import VoccaBootstrap
-import VoccaCore
 import VoccaHotkey
 import VoccaInject
 import VoccaSpeech
@@ -177,10 +176,11 @@ struct VoccaNetworkProbe {
     ///
     /// **This function is the scope of the zero-network guarantee — keep it honest.** The
     /// assertion in `testDefaultConfigurationMakesZeroNetworkConnections` only covers code that
-    /// actually runs here. Today the modules are placeholders, so all this can do is link every
-    /// one of them and force each to load. As capabilities land (audio capture, ASR model
-    /// loading, TTS, injection, the default text-cleanup pipeline), their default-configuration
-    /// start-up work must be invoked from here.
+    /// actually runs here. Two of the modules have real work today and it is run: `VoccaBootstrap`'s
+    /// start-up path, and `VoccaCore`'s session lifecycle. The other seven are still placeholders,
+    /// so all this can do for them is link each one and force it to load. As their capabilities land
+    /// (audio capture, ASR model loading, TTS, injection, the default text-cleanup pipeline), their
+    /// default-configuration start-up work must be invoked from here too.
     ///
     /// That instruction is enforced rather than merely written down: the returned module list is
     /// checked against the package manifest and the `Sources/` listing, so adding any module
@@ -215,13 +215,21 @@ struct VoccaNetworkProbe {
         }
         print("PROBE-BOOTSTRAP\tactivationPolicy=\(name(of: observedPolicy))")
 
+        // `VoccaCore`'s real work, run rather than referenced. It holds a session state machine, a
+        // watchdog, a decision function and a clock seam now, and the coverage list below is at
+        // module granularity by construction — it can say a module was *reached*, never that its
+        // work ran. So one complete session is driven here, press to custody, and the observation
+        // is reported for the suite to assert. See `SessionLifecycleDrive.swift`.
+        //
+        // Reported as an effect for the same reason `AppBootstrap`'s activation policy is:
+        // `SessionState.self` used to sit in the list below and satisfied the coverage guard
+        // whether or not a line of `VoccaCore` ever executed. The witness that replaces it is
+        // minted *by* this call, so the entry cannot outlive the call it stands for.
+        let session = exerciseSessionLifecycle()
+        print("PROBE-SESSION\t\(session.report)")
+
         let placeholders: [Any.Type] = [
-            // VoccaCore no longer has a placeholder: it holds the session vocabulary now, and
-            // `SessionState` is a real type from it, which is all this list needs to keep the
-            // module inside the zero-network invariant. It is still only a metatype reference —
-            // module granularity, not work exercised. Driving VoccaCore's actual decision path
-            // from here is a later, deliberate step, not something this substitution claims.
-            SessionState.self,
+            session.moduleWitness,
             VoccaAudioPlaceholder.self,
             VoccaHotkeyPlaceholder.self,
             VoccaASRPlaceholder.self,
