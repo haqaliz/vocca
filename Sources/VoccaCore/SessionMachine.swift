@@ -55,28 +55,50 @@ public enum SessionCeiling {
 /// ## What it does not own
 ///
 /// **When to tick.** The machine has no timer; it checks the ceiling when ``tick()`` is called and
-/// at no other moment. **When to poll**, likewise. Both are the watchdog's policy and are a separate
-/// unit of work; what is here is the mechanism they drive, and the seam is deliberately this thin so
-/// that the policy cannot quietly acquire an opinion about speech boundaries — the moment it does it
-/// is VAD, which `ROADMAP.md:45` defers to P3.
+/// at no other moment. **When to poll**, likewise. Both are ``SessionWatchdog``'s policy; what is
+/// here is the mechanism it drives, and the seam is deliberately this thin so that the policy cannot
+/// quietly acquire an opinion about speech boundaries — the moment it does it is VAD, which
+/// `ROADMAP.md:45` defers to P3.
 ///
 /// **Which key events mean what.** That is ``decide(_:state:config:)``, which is pure and stays
 /// pure. The machine routes every key event through it and adds exactly one thing the rules cannot
 /// know: whether a physically-held key is the tail of a press Vocca swallowed — see
 /// ``claimedKeyCode``.
 public final class SessionMachine<Audio: CapturedAudio> {
-    private let configuration: HotkeyConfiguration
-    private let ceiling: Duration
+    /// The configured hotkey.
+    ///
+    /// Readable from outside so that ``SessionWatchdog`` can poll **the key this machine is
+    /// watching** rather than one it was told about separately. Two copies of a configuration can
+    /// disagree, and the disagreement that matters is silent: a poll of the wrong key code reports
+    /// a release that means nothing, or misses one that means everything.
+    public let configuration: HotkeyConfiguration
+
+    /// How long this session may run before the ceiling ends it.
+    ///
+    /// Public for the same reason as ``configuration``, and one more: the widget's
+    /// ceiling-approaching warning is derived from it (``SessionWatchdog/warningThreshold``), so a
+    /// second copy would leave a configured ceiling with the default's warning stapled to it.
+    public let ceiling: Duration
+
     private let clock: any MonotonicClock
     private let source: any SessionAudioSource<Audio>
 
     private var sessionState: SessionState = .idle
 
-    /// Forward time accumulated since this session started, and the reading it was last measured
-    /// against. Accumulated rather than compared against an absolute deadline so that a clock which
-    /// steps backwards extends the session by at most one tick interval instead of by the whole
-    /// jump — see ``tick()``.
-    private var elapsed: Duration = .zero
+    /// Forward time accumulated since this session started, as of the last ``tick()``.
+    ///
+    /// Accumulated rather than compared against an absolute deadline so that a clock which steps
+    /// backwards extends the session by at most one tick interval instead of by the whole jump —
+    /// see ``tick()``.
+    ///
+    /// Readable, and settable only here, because the widget has to be able to say how long the user
+    /// has been talking and how close the ceiling is, and this is the number the ceiling itself is
+    /// measured against. A second accumulator kept alongside it — in the watchdog, in the widget —
+    /// is the [Handy #840](https://github.com/cjpais/Handy/issues/840) shape: two totals of the same
+    /// thing, one of which is eventually wrong.
+    public private(set) var elapsed: Duration = .zero
+
+    /// The reading ``elapsed`` was last measured against.
     private var lastReading: Duration = .zero
 
     /// **The key Vocca swallowed the press of, and has not yet seen come back up.**
@@ -248,8 +270,9 @@ public final class SessionMachine<Audio: CapturedAudio> {
     ///
     /// This shape loses only what the jump and the tick straddling it have in common:
     /// `min(jump, that tick's interval)` of forward time, so the session runs long by **at most one
-    /// tick interval** — 150 ms at the watchdog's planned cadence. Not zero, and it is worth stating
-    /// as a bound rather than as an absolute.
+    /// tick interval** — ``WatchdogPolicy/pollInterval`` at the watchdog's cadence — **per backward
+    /// step.** N of them cost up to N intervals; the bound is per jump, not per session, and
+    /// `SessionWatchdogTests` measures both halves of that rather than restating it.
     ///
     /// The machine has no timer of its own. If nobody ticks, the ceiling never fires — which is why
     /// the watchdog that calls this is a separate, tested unit of work rather than an implicit

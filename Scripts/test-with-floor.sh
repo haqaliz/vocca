@@ -47,7 +47,16 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 104 by task 4's first review round, which added two in SessionMachineTests: a stop arriving inside
+# 117 by task 5, which added thirteen in SessionWatchdogTests: the watchdog policy — when to poll,
+# what a release means, and how the system triggers map. The two that are not obvious from that
+# list are the ones that make the rest mean anything: a **positive control** proving the hot-mic
+# meter can detect a session that did stay open (a run whose only difference is a seam that never
+# reports a release), and a measurement of what a backwards clock costs — three backward steps cost
+# exactly three poll intervals, and a step smaller than an interval costs only its own size.
+# `MonotonicClock.swift`'s "at most one tick interval" is per jump, not per session, and this is
+# where that is measured rather than restated.
+#
+# It was 104 after task 4's first review round, which added two in SessionMachineTests: a stop arriving inside
 # the microphone opening is now applied the moment the session exists rather than dropped (the
 # review measured the real recovery for a dropped `.tapDisabled` as the 120 s ceiling, not the one
 # poll interval the code claimed), and the bookkeeping on that same re-entrant path is pinned.
@@ -81,7 +90,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=104
+MINIMUM_EXECUTED_TESTS=117
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
