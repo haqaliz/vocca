@@ -50,32 +50,72 @@ import VoccaHotkey
 
 // MARK: - Is this process actually suppressed?
 
-/// Whether the kernel currently has this task in the **darwin-background / suppressed** state —
-/// which is the state App Nap puts a task in.
+/// Whether the kernel has this task in the **darwin-background / suppressed** state — the answer, or
+/// why there is not one.
 ///
-/// `getpriority(PRIO_DARWIN_PROCESS, 0)` returns `PRIO_DARWIN_BG` when suppressed and `0` when not.
-/// It needs no privileges and no external tool, which matters: the phase that first wrote this file
-/// reached for `taskinfo`, found it needs root, and concluded the state was unobservable. It is not.
-/// Verified both directions on this machine — `0` normally, `1` under `taskpolicy -b`.
+/// An enum rather than an `Int32` because the two cases genuinely collide: `getpriority` returns a
+/// *priority*, so `-1` is a legitimate value, and the only way to detect failure is `errno`. A
+/// function that returned `-1` for the error would hand a caller a number it could not tell apart
+/// from an answer — in the one reading this whole measurement's credibility rests on.
 ///
-/// **This is the control for the entire App Nap measurement.** Fire counts taken without it cannot
-/// distinguish "the mechanism does not throttle" from "the process was never throttled", and those
-/// are completely different findings.
-func darwinSuppressionState() -> Int32 {
-    // The returned value is a *priority*, so -1 is a legitimate result and `errno` is the only way to
-    // detect failure. Cleared first, as `getpriority(2)` requires.
-    errno = 0
-    let value = getpriority(Int32(PRIO_DARWIN_PROCESS), 0)
-    if value == -1 && errno != 0 { return -1 }
-    return value
+/// The `errno` travels **with** the failure rather than being read at print time. Reading it later
+/// reports whatever the most recent intervening call left there, which is a diagnostic that is wrong
+/// precisely when it is needed.
+enum DarwinSuppression {
+    case notSuppressed
+    case suppressed
+    /// A priority that is neither 0 nor `PRIO_DARWIN_BG`. Unexpected rather than impossible.
+    case other(Int32)
+    case unreadable(errno: Int32)
 }
 
-func describeSuppression(_ state: Int32) -> String {
+/// Read the state, now.
+///
+/// `getpriority(PRIO_DARWIN_PROCESS, 0)` returns `PRIO_DARWIN_BG` when the task is suppressed and `0`
+/// when it is not. It needs no privileges and no external tool, which matters: the first version of
+/// this file reached for `taskinfo`, found it needs root, and concluded the state was unobservable.
+/// It is not. Verified in both directions on this machine — `0` normally, `1` under `taskpolicy -b`.
+///
+/// **This is the control for the entire App Nap measurement.** Fire counts taken without it cannot
+/// distinguish "the mechanism does not throttle" from "this process was never throttled", and those
+/// are completely different findings.
+func darwinSuppressionState() -> DarwinSuppression {
+    // Cleared first, as `getpriority(2)` requires: the call does not set `errno` on success, so a
+    // stale value from any earlier call would otherwise be read as this one's failure.
+    errno = 0
+    let value = getpriority(Int32(PRIO_DARWIN_PROCESS), 0)
+    if value == -1 && errno != 0 { return .unreadable(errno: errno) }
+    switch value {
+    case 0: return .notSuppressed
+    case 1: return .suppressed
+    default: return .other(value)
+    }
+}
+
+func describeSuppression(_ state: DarwinSuppression) -> String {
     switch state {
-    case 0: return "0 (NOT suppressed)"
-    case 1: return "1 (SUPPRESSED — darwin background)"
-    case -1: return "unreadable (errno \(errno))"
-    default: return "\(state) (unexpected)"
+    case .notSuppressed: return "0 (NOT suppressed)"
+    case .suppressed: return "1 (SUPPRESSED — darwin background)"
+    case .other(let value): return "\(value) (unexpected priority)"
+    case .unreadable(let code): return "UNREADABLE (errno \(code)) — treat every number below as void"
+    }
+}
+
+extension DarwinSuppression: Hashable {}
+
+/// Ordering for the per-fire histogram, so the output is stable run to run.
+extension DarwinSuppression: Comparable {
+    private var sortKey: Int32 {
+        switch self {
+        case .notSuppressed: return 0
+        case .suppressed: return 1
+        case .other(let value): return value
+        case .unreadable: return Int32.max
+        }
+    }
+
+    static func < (lhs: DarwinSuppression, rhs: DarwinSuppression) -> Bool {
+        lhs.sortKey < rhs.sortKey
     }
 }
 
@@ -114,7 +154,7 @@ final class FireLedger {
 
     /// How many fires saw each darwin suppression state. A histogram rather than a start/end pair,
     /// because App Nap can engage part-way through a run and a two-sample reading would miss it.
-    private(set) var suppressionSamples: [Int32: Int] = [:]
+    private(set) var suppressionSamples: [DarwinSuppression: Int] = [:]
 
     init(_ name: String) { self.name = name }
 
@@ -462,7 +502,7 @@ func measureAppNap(seconds: TimeInterval, activity choice: ActivityChoice) {
     print("  darwin suppression state at end: \(describeSuppression(darwinSuppressionState()))")
 
     // The control that makes the fire count mean anything at all.
-    let everSuppressed = watchdog.suppressionSamples.keys.contains(1)
+    let everSuppressed = watchdog.suppressionSamples.keys.contains(.suppressed)
     if !everSuppressed {
         print("""
               READ THIS BEFORE BELIEVING THE NUMBER ABOVE: the process was never suppressed, so this

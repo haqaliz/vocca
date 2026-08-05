@@ -66,7 +66,7 @@ import Foundation
 /// ``CGEventTapSource`` gives: an annotation would put ``stop()`` out of reach of ``deinit``, which is
 /// the one place a timer most needs tearing down.
 ///
-/// ## App Nap: the throttle is real, is bounded, and is deliberately not worked around
+/// ## App Nap: the throttle it *would* apply is real, is bounded, and is deliberately not worked around
 ///
 /// The second hazard `spec.md` carried as unverified was that App Nap throttles an `LSUIElement`
 /// app's timers, with `ProcessInfo.beginActivity(...)` as the countermeasure.
@@ -91,23 +91,40 @@ import Foundation
 ///
 /// Three findings, and the first two are the opposite of what the earlier version claimed:
 ///
-/// 1. **The mechanism is not immune.** Under suppression a 150 ms `Timer` on `RunLoop.main` in
-///    `.common` mode runs at a ~1.7× median interval and delivers about 60% of its due fires. The
-///    1 s health poll stretches the same way (worst observed gap 1142 ms).
+/// 1. **The mechanism is not immune, and what it costs is a roughly *fixed* lateness rather than a
+///    multiplier.** Under suppression each interval gains about 95–105 ms: the 150 ms watchdog runs
+///    at a ~250 ms median (~1.7×) and delivers about 60% of its due fires, while the 1 s health poll
+///    delivers 44–45 of its 45 and its worst gap moves from ~1000 ms to ~1150–1200 ms — **~1.15×, not
+///    ~1.7×**.
+///
+///    That distinction is not pedantry and it was got wrong here first: this paragraph used to say
+///    the poll "stretches the same way", and the decision below used to quote it as "~1.8 s". A
+///    multiplier over-states the cost on slow timers by a factor of six, and — because the figure was
+///    copied into `SMOKE_CHECKLIST.md` as a **pass criterion** — it would have *accepted* a genuinely
+///    broken 1.8 s poll. The useful reading is the fixed one: **the slower the timer, the less
+///    suppression costs it proportionally.**
 /// 2. **`beginActivity` does not lift a suppression already applied** — 63% and 64% against an
 ///    unassisted 60%, with the state still reading 1 throughout. That is consistent with it
 ///    preventing the system from *choosing* to suppress rather than overriding suppression in force.
-///    Whether it prevents entry is untested, and untestable so long as the system never enters.
+///    Whether it prevents *entry* is untested, and not testable by any method available here — the
+///    system never entered the state on its own, and `taskpolicy -b` forces entry rather than letting
+///    the system choose, which is the only decision the countermeasure could influence.
 /// 3. **A real backgrounded `LSUIElement` app was never put into that state** in 300 s of continuous
 ///    observation — every one of ~2000 samples read 0. That is now a measured fact rather than an
 ///    inference from a fire count.
 ///
 /// **So `beginActivity` is not called, and the reason is (1), not (3).** The throttle is real and it
-/// is *bounded and modest*: the 150 ms watchdog becomes ~262 ms, the 1 s poll becomes ~1.8 s, and the
-/// 120 s ceiling therefore fires roughly a quarter-second late instead of roughly an eighth of a
-/// second late. **No microphone becomes unbounded, and no backstop stops working** — which is what
-/// separates this from H10 above, where the timer stops entirely. A countermeasure that measurably
-/// does not lift the state, bought against a quarter-second, is not worth its assertion.
+/// is *bounded and modest*: the 150 ms watchdog becomes ~250 ms, the 1 s poll's worst gap becomes
+/// ~1.2 s, and the 120 s ceiling therefore fires roughly a quarter-second late instead of roughly an
+/// eighth of a second late. **No microphone becomes unbounded, and no backstop stops working** —
+/// which is what separates this from H10 above, where the timer stops entirely.
+///
+/// The decision rests on that bound and on nothing else: **the benefit is unmeasured** — finding (2)
+/// says only that the assertion does not lift a suppression already in force, which is not evidence
+/// about the job it exists to do — **and the hazard it would buy against is a quarter of a second.**
+/// An earlier version of this sentence read "a countermeasure that measurably does not lift the
+/// state … is not worth its assertion", which uses (2) as if it were a verdict on the countermeasure.
+/// It is not, and the file says so eight lines above.
 ///
 /// **The cost claim that used to be here was also factually wrong**, and it is recorded because a
 /// wrong justification in the file whose job is to be the durable record is worse than no

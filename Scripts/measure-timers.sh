@@ -107,12 +107,30 @@ echo ""
 # throttle on demand: a real backgrounded LSUIElement app was never *put* into that state in any
 # observation here, and a measurement of an unsuppressed process says nothing about a suppressed one.
 if [[ " $* " == *" --taskpolicy-bg "* ]]; then
+    # `--bundle` cannot be combined with this. The two are different launch mechanisms and this branch
+    # `exec`s first, so the pair would run the RAW BINARY as a child of this shell while the operator
+    # believed they had measured a bundled LSUIElement app under suppression — which is exactly the
+    # next question a reader of the App Nap table asks. Refused loudly rather than honoured silently.
+    if [[ " $* " == *" --bundle "* ]]; then
+        echo "error: --taskpolicy-bg and --bundle are different launch mechanisms and cannot be" >&2
+        echo "       combined. taskpolicy(8) runs the binary directly; --bundle goes through Launch" >&2
+        echo "       Services, which does not inherit this shell's task policy. Pick one." >&2
+        exit 2
+    fi
+
     filtered=()
     for argument in "$@"; do
         [[ "$argument" == "--taskpolicy-bg" ]] || filtered+=("$argument")
     done
     echo "Launching under taskpolicy -b (darwin background)."
-    exec taskpolicy -b "$binary" "${filtered[@]}"
+    # `${arr[@]+"${arr[@]}"}` and not `"${arr[@]}"`: macOS /bin/bash is 3.2.57, where an EMPTY array
+    # expanded under `set -u` is an unbound variable and aborts the script. `--taskpolicy-bg` on its
+    # own — a meaningful invocation, since the subcommand defaults to `runloop` — produced exactly
+    # that, and so did `--bundle` on its own below. Both were introduced by the fix that replaced
+    # `"${@/--bundle/}"` with a filtered array, and neither is reachable from CI's `--build-only`
+    # path, so nothing caught it. A measurement script that does not run is worse than none: the step
+    # gets skipped and recorded as done.
+    exec taskpolicy -b "$binary" ${filtered[@]+"${filtered[@]}"}
 fi
 
 # `--bundle` runs the probe as a real LSUIElement .app launched through Launch Services, rather than
@@ -162,7 +180,8 @@ PLIST
     for argument in "$@"; do
         [[ "$argument" == "--bundle" ]] || forwarded+=("$argument")
     done
-    open -n --wait-apps --stdout "$log" --stderr "$log" "$app" --args "${forwarded[@]}"
+    # Guarded expansion — see the `--taskpolicy-bg` branch above for why bash 3.2 requires it.
+    open -n --wait-apps --stdout "$log" --stderr "$log" "$app" --args ${forwarded[@]+"${forwarded[@]}"}
     cat "$log"
     exit 0
 fi
