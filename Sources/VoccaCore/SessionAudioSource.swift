@@ -77,5 +77,24 @@ public protocol SessionAudioSource<Buffer>: AnyObject {
     /// An empty buffer is a legitimate answer: a 20 ms press captured almost nothing, and that is
     /// still a real session that ended for a real reason. It is not a way to say "nothing was
     /// captured", because there is no such thing to say — see ``CapturedAudio``.
+    ///
+    /// ## This must not return until the input device is released
+    ///
+    /// Read that as the obligation it is, before writing a conformance. Returning is the **only**
+    /// thing this method can do — there is no failure case in the signature and deliberately no
+    /// error to throw — so a conformance whose teardown fails has no way to say so. The machine
+    /// takes the return as the close, goes `.idle`, and from that instant the widget shows idle over
+    /// a live microphone: the exact state `PRODUCT_SPEC.md:11` exists to make impossible, arrived at
+    /// silently.
+    ///
+    /// Nothing upstream catches it either, and it is worth knowing why rather than assuming someone
+    /// will. `.idle` is a claim about *this call having returned*, not about the device; the
+    /// watchdog's schedule is `.stopped` in `.idle` and its `wake()` returns before reading
+    /// anything, so **no mechanism in this aspect ever looks again**. The whole defence is the
+    /// conformance author knowing this before they write the conformance.
+    ///
+    /// So: **a conformance that can fail to release the input must trap rather than return.** A
+    /// crash naming this line is a bad outcome; an open microphone the user cannot see is a worse
+    /// one, and it is the one this project promised would not happen.
     func endCapture() -> Buffer
 }
