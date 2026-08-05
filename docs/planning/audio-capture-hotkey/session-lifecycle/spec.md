@@ -74,8 +74,16 @@ cause. Rule (c) is free, since every keyboard event is already visible.
 ### Toggle mode
 Hold-to-talk and toggle are two configurations of the *same* state machine, not two machines.
 In toggle mode the start rule is unchanged and stop rules (a)/(b)/(c) are replaced by "next
-matching key-down". Rules (d)–(f) still apply — **a toggle session still has a ceiling and a
-watchdog**, or toggle mode reintroduces the hot-mic bug this aspect exists to prevent.
+matching key-down". Rules (d) and (e) still apply — **a toggle session still has a ceiling**, or
+toggle mode reintroduces the hot-mic bug this aspect exists to prevent.
+
+**Rule (f) does NOT apply in toggle mode.** This document said it did; that was wrong, and task 5's
+implementation caught it. A toggle session runs with the key *released* for its whole life, so a
+poll that ends the session on "the key is up" would end it on the first wake, 150 ms after it
+started. Task 5 therefore placed the poll inside a `switch` on the activation mode with no
+`default:`, so the file stops compiling at the line that must be re-decided the moment `.toggle`
+becomes constructible. Task 6 must decide what, if anything, replaces (f) for toggle — the ceiling
+is the only unconditional backstop it inherits.
 
 ### Watchdog policy
 Owned here as **policy**; the physical-key read itself is injected (it is a system call, and
