@@ -16,7 +16,12 @@ This file orients a coding agent working in this repository. Read it first.
 >   holds the pure translation from a macOS event-flag word plus a key code into `ModifierSet`,
 >   applying the founder's `fn` rule; the pure classification of a raw event-type number, which also
 >   computes the tap's event mask; the tap-health policy — every decision about a dying event tap,
->   taken over an *injected* tap handle with no `CGEvent` call in it; **the real `CGEvent` tap
+>   taken over an *injected* tap handle with no `CGEvent` call in it, **including what Secure Input
+>   means**: when another application holds the keyboard, no tap in the session receives a key event,
+>   and the policy reports that as its own answer (`blockedBySecureInput`) rather than as a tap
+>   failure, does nothing to the tap, and ends any session in flight — because a tap that is enabled
+>   and receiving nothing has no key-up, no second press and no `flagsChanged` left to end one with;
+>   **the real `CGEvent` tap
 >   adapter, in one file, containing no decisions at all**; and **the two timers that make every
 >   "bounded" claim in the product true** — `ScheduledWatchdog`, which is the sink and therefore
 >   settles the watchdog's clock after every route into a session, and `TapHealthTimer`, which is the
@@ -41,7 +46,7 @@ This file orients a coding agent working in this repository. Read it first.
 >   measurement harness (`Tools/TimerProbe/`, deliberately not a package target), which links the
 >   shipped timer and measures the two hazards CI cannot reach: the run-loop mode during a window
 >   drag, and App Nap on an `LSUIElement` app.
-> - `Tests/HarnessTests/`: 306 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 317 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
@@ -58,7 +63,11 @@ This file orients a coding agent working in this repository. Read it first.
 >   decisions, the **H10 run-loop-mode hazard measured in the suite** (a `.default`-mode timer
 >   delivers 0 of 33 fires through an event-tracking gesture; the shipped `.common` one delivers all
 >   33), and `OwnershipGraphTests` — which pins the four sole-owner edges a review had measured as
->   held by no test at all.
+>   held by no test at all. Phase 6 added the Secure Input decision over an injected read — the state
+>   itself cannot be entered by a test, since `IsSecureEventInputEnabled` is set by other people's
+>   software — including that a blocked poll ends a session that started *after* the block began,
+>   which is the fifth instance in this aspect of a guard justified by a claim about what cannot be
+>   in flight.
 > - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
 >   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
 >   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.
@@ -85,6 +94,12 @@ This file orients a coding agent working in this repository. Read it first.
 >   suppression costs is a roughly **fixed ~100 ms per fire**, not a multiplier — 1.7× on the 150 ms
 >   watchdog and only ~1.15× on the 1 s poll. Untried, and named as untried: battery power, and an
 >   idle machine with the display asleep.
+> - **`SystemSecureInputState` is executed by nothing either**, for a different reason worth keeping
+>   distinct: `IsSecureEventInputEnabled()` *works* without any grant, so nothing stops it running —
+>   what cannot be written is a test worth having. The value is a fact about every other application
+>   on the machine, so asserting it is `false` fails on a developer with a password field focused and
+>   asserting it is a `Bool` asserts nothing. `docs/SMOKE_CHECKLIST.md` steps 36–38 are its only
+>   confirmation.
 > - **`SystemPhysicalKeyState` — `CGEventSourceKeyState` and `CGEventSourceFlagsState` — is executed
 >   by nothing**, for the same reason the tap adapter is not: it lives in `CGEventTapSource.swift`
 >   because those identifiers match the H7 seam prefix and exactly one file may name it. What the

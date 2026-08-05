@@ -48,7 +48,18 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 307 by hotkey-source phase 5 review round 1, whose Critical finding was that
+# 317 by hotkey-source phase 6, which detects Secure Input. Of the ten tests it adds, the ones that
+# justify the raise are `testSecureInputIsReportedAsBlockedAndNothingIsDoneToTheTap` and
+# `testAPasswordFieldFocusedForTwoMinutesCostsNoTapWorkAndTwoLogLines` — a state that no test could
+# reach before, because `IsSecureEventInputEnabled` is set by other people's software and a test
+# cannot switch it on — and `testASessionSurvivingIntoSecureInputIsClosedByTheNextPollInBothModes`,
+# which is the hot mic behind it: a tap that is enabled and receiving nothing has no key-up, no
+# second press and no `flagsChanged` left to end a session with. Plus
+# `testASessionStartingAfterTheTransitionPollIsStillClosed`, which measures the fifth instance of
+# this project's recurring defect shape before it could ship: throttling the *ending* to the
+# transition the way the log line is throttled leaves a session that started one poll later running
+# to the 120 s ceiling, in both modes, with the whole suite green.
+# It was 307 after hotkey-source phase 5 review round 1, whose Critical finding was that
 # `TapHealthTimer.disarm()`'s forward to the policy was held by NO test: reducing it to `timer.stop()`
 # alone passed the whole 306-test suite, and so did a `disarm()` that forwarded to `policy.arm()` — a
 # build in which disarming Vocca RE-CREATES the tap and leaves the microphone open. Only the clock
@@ -483,7 +494,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=307
+MINIMUM_EXECUTED_TESTS=317
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

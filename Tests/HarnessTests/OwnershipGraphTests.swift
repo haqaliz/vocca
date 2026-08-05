@@ -58,7 +58,8 @@ final class OwnershipGraphTests: XCTestCase {
             let created = FakeHotkeyEventSource()
             source = created
             policy = TapHealthPolicy(
-                source: created, sink: AlwaysPassingThroughSink(), clock: TestClock()) { _ in }
+                source: created, sink: AlwaysPassingThroughSink(), clock: TestClock(),
+                secureInput: FakeSecureInputState()) { _ in }
         }
 
         XCTAssertNotNil(
@@ -76,18 +77,27 @@ final class OwnershipGraphTests: XCTestCase {
     /// Its own documentation says why it holds one at all — *"the synthetic end is this object's
     /// event, not one the source observed"* — and the synthetic end is how every entry point closes
     /// the microphone. A dead sink is a policy that ends nothing.
+    ///
+    /// The Secure Input reader is here for the same reason and is the newest of the three: a policy
+    /// that stopped owning it would read a deallocated object once a second, and the failure it
+    /// guards — the hotkey reported as fine while a password field swallows every key — is one the
+    /// user meets before any of the others.
     func testThePolicyKeepsItsSinkAndClockAlive() {
         weak var sink: AlwaysPassingThroughSink?
         weak var clock: TestClock?
+        weak var secureInput: FakeSecureInputState?
         var policy: TapHealthPolicy?
 
         do {
             let createdSink = AlwaysPassingThroughSink()
             let createdClock = TestClock()
+            let createdSecureInput = FakeSecureInputState()
             sink = createdSink
             clock = createdClock
+            secureInput = createdSecureInput
             policy = TapHealthPolicy(
-                source: FakeHotkeyEventSource(), sink: createdSink, clock: createdClock) { _ in }
+                source: FakeHotkeyEventSource(), sink: createdSink, clock: createdClock,
+                secureInput: createdSecureInput) { _ in }
         }
 
         XCTAssertNotNil(
@@ -97,6 +107,7 @@ final class OwnershipGraphTests: XCTestCase {
             close a microphone goes through it.
             """)
         XCTAssertNotNil(clock, "the clock every synthetic end is stamped with")
+        XCTAssertNotNil(secureInput, "the read that says whether anything reaches the tap at all")
         XCTAssertNotNil(policy)
     }
 
@@ -212,7 +223,7 @@ final class OwnershipGraphTests: XCTestCase {
         do {
             let policy = TapHealthPolicy(
                 source: FakeHotkeyEventSource(), sink: AlwaysPassingThroughSink(),
-                clock: TestClock()
+                clock: TestClock(), secureInput: FakeSecureInputState()
             ) { _ in }
             let created = CallbackSafeTapDisablement(policy: policy) { _ in }
             observer = created
@@ -258,7 +269,8 @@ final class OwnershipGraphTests: XCTestCase {
                 watchdog: createdWatchdog, timer: FakeTimer()) { _ in }
             let createdSource = FakeHotkeyEventSource()
             let policy = TapHealthPolicy(
-                source: createdSource, sink: createdScheduled, clock: TestClock()) { _ in }
+                source: createdSource, sink: createdScheduled, clock: TestClock(),
+                secureInput: FakeSecureInputState()) { _ in }
             let createdObserver = CallbackSafeTapDisablement(policy: policy) { _ in }
 
             microphone = createdMicrophone
@@ -338,7 +350,8 @@ final class OwnershipGraphTests: XCTestCase {
             ) { _ in }
             let createdSource = FakeHotkeyEventSource()
             let policy = TapHealthPolicy(
-                source: createdSource, sink: scheduled, clock: TestClock()) { _ in }
+                source: createdSource, sink: scheduled, clock: TestClock(),
+                secureInput: FakeSecureInputState()) { _ in }
             let createdObserver = CallbackSafeTapDisablement(policy: policy) { _ in }
             // The cycle, closed the way production closes it — weakly. This is the edge the test is
             // about; a strong one here leaks the whole graph and this test is what says so.

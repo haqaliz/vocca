@@ -83,6 +83,9 @@ private final class PolicyHarness {
     let effects = EffectLog()
     let health = NoteLog()
     let tap = FakeHotkeyEventSource()
+    /// Secure Input, off unless a test switches it on. See ``FakeSecureInputState`` for why no test
+    /// can switch on the real thing.
+    let secureInput = FakeSecureInputState()
     let keyState: TruthfulKeyState
     let machine: SessionMachine<RecordingSource.Buffer>
     let watchdog: SessionWatchdog<RecordingSource.Buffer>
@@ -103,7 +106,9 @@ private final class PolicyHarness {
         }
         let sink = ObservingSink(forwardingTo: session)
         self.sink = sink
-        self.policy = TapHealthPolicy(source: tap, sink: sink, clock: clock) { [health] note in
+        self.policy = TapHealthPolicy(
+            source: tap, sink: sink, clock: clock, secureInput: secureInput
+        ) { [health] note in
             health.record(note)
         }
     }
@@ -168,6 +173,7 @@ private final class LyingHarness {
     let keyboard = Keyboard()
     let effects = EffectLog()
     let health = NoteLog()
+    let secureInput = FakeSecureInputState()
     let source: LyingSource
     let machine: SessionMachine<RecordingSource.Buffer>
     let watchdog: SessionWatchdog<RecordingSource.Buffer>
@@ -187,7 +193,9 @@ private final class LyingHarness {
             effects.record(effect)
         }
         self.sink = sink
-        self.policy = TapHealthPolicy(source: source, sink: sink, clock: clock) { [health] note in
+        self.policy = TapHealthPolicy(
+            source: source, sink: sink, clock: clock, secureInput: secureInput
+        ) { [health] note in
             health.record(note)
         }
     }
@@ -429,16 +437,20 @@ final class TapHealthPolicyTests: XCTestCase {
                 + "this type exists to carry.")
     }
 
-    /// Three answers to "where does the tap stand", and no two of them are the same answer.
+    /// Five answers to "where does the tap stand", and no two of them are the same answer.
     ///
-    /// The third case is the one under pressure: `.notArmed` is easy to collapse into
+    /// Two are under pressure and for opposite reasons. `.notArmed` is easy to collapse into
     /// `.permissionMissing`, and doing so would send a user who simply turned the hotkey off through
-    /// a permission dialog for a grant they already have.
+    /// a permission dialog for a grant they already have. `.blockedBySecureInput` is easy to collapse
+    /// into `.notDelivering`, and doing *that* would rebuild a perfectly healthy tap once per rate
+    /// limit for as long as a password field is focused — every replacement coming back just as
+    /// deaf, because the tap was never the problem.
     func testEveryTapHealthCaseIsADistinctAnswer() {
-        XCTAssertEqual(TapHealth.allCases.count, 4)
-        XCTAssertEqual(Set(TapHealth.allCases).count, 4)
+        XCTAssertEqual(TapHealth.allCases.count, 5)
+        XCTAssertEqual(Set(TapHealth.allCases).count, 5)
         XCTAssertEqual(
-            Set(TapHealth.allCases), [.delivering, .permissionMissing, .notArmed, .notDelivering],
+            Set(TapHealth.allCases),
+            [.delivering, .permissionMissing, .notArmed, .notDelivering, .blockedBySecureInput],
             "A case added here needs a decision at every call site that switches on it, which is "
                 + "what this assertion exists to force.")
     }
@@ -937,55 +949,6 @@ final class TapHealthPolicyTests: XCTestCase {
         harness.tap.nextStart = .started
         XCTAssertEqual(harness.policy.accessibilityGrantChanged(), .delivering)
         XCTAssertEqual(harness.notes.last, .recreated(.accessibilityGrantChanged))
-    }
-
-    /// **The limit of the poll, recorded rather than glossed.**
-    ///
-    /// The poll's detection is one read — `CGEventTapIsEnabled`. It sees a tap that was *disabled*
-    /// silently. It cannot see a tap that is **enabled and deaf**, and that state is not
-    /// hypothetical: inherited constraint 3 says a tap created before the Accessibility grant has its
-    /// mask cleared at creation, and Secure Input (phase 6) is the second instance.
-    ///
-    /// So this test asserts a **gap**, deliberately, and it runs the clock rather than describing it:
-    /// polls interleaved with real watchdog wakes right up to the ceiling. In toggle mode the ceiling
-    /// is what finally closes the session — asserted, not claimed — which is what "bounded only by
-    /// the ceiling" means. If a later phase closes the gap, this test fails, and updating it is the
-    /// deliberate act of recording that the limit has moved.
-    func testThePollCannotSeeATapThatIsEnabledAndDeaf() {
-        for configuration in bothActivationModes {
-            let harness = LyingHarness(source: LyingSource(), configuration: configuration)
-            XCTAssertEqual(harness.policy.arm(), .delivering)
-            harness.pressWhileTheTapStillWorked()
-            XCTAssertTrue(harness.microphone.isOpen, "precondition")
-
-            // Up to one wake short of the ceiling, with a health poll on every turn.
-            for _ in 0..<(wakes(covering: SessionCeiling.default) - 1) {
-                XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
-                harness.wake()
-            }
-
-            XCTAssertTrue(
-                harness.microphone.isOpen,
-                """
-                \(configuration.activation): a whole session's worth of polling over a tap that \
-                answers `CGEventTapIsEnabled` with `true` and delivers nothing. The poll closes the \
-                silently-*disabled* tap, not the silently-*deaf* one.
-                """)
-            XCTAssertEqual(harness.machine.state, .recording)
-            XCTAssertEqual(harness.effects.endReasons, [])
-            XCTAssertEqual(harness.notes, [.armed], "and the log has nothing to say about it")
-
-            // And what finally ends it is the last backstop there is.
-            harness.wake()
-            XCTAssertFalse(harness.microphone.isOpen, "\(configuration.activation)")
-            XCTAssertEqual(
-                harness.effects.endReasons, [.ceilingReached],
-                """
-                \(configuration.activation): "bounded only by the ceiling", measured. Nothing \
-                between the tap going deaf and 120 s later reached this session.
-                """)
-            XCTAssertEqual(harness.machine.elapsed, SessionCeiling.default)
-        }
     }
 
     /// The `aTapExists` half of the poll's condition, which a **conforming** source can never
@@ -1910,6 +1873,328 @@ final class TapHealthPolicyTests: XCTestCase {
                 "\(mode): every session that opened the microphone closed it")
             XCTAssertEqual(harness.microphone.overlappingBegins, 0, mode)
             XCTAssertEqual(harness.microphone.closesWithoutOpen, 0, mode)
+        }
+    }
+
+    // MARK: - H8: Secure Input, which is not a tap failure
+
+    /// **The distinction the whole of phase 6 is about**, asserted from both sides at once: the
+    /// answer says *blocked*, and the source is asked to do nothing about it.
+    ///
+    /// Conflating this with a tap failure is not a wording problem. `.notDelivering` is the state
+    /// whose treatment is a re-enable and then a `CGEvent.tapCreate`, so a policy that reported it
+    /// here would tear down and rebuild a healthy tap for as long as a password field stayed
+    /// focused — and every replacement would come back exactly as deaf, because nothing about the
+    /// tap is what is wrong.
+    func testSecureInputIsReportedAsBlockedAndNothingIsDoneToTheTap() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+        let startsAfterArming = harness.tap.startCount
+
+        harness.secureInput.isActive = true
+
+        XCTAssertEqual(
+            harness.policy.pollTapHealth(), .blockedBySecureInput,
+            """
+            `CGEventTapIsEnabled` answers true and the tap receives nothing. Reported as \
+            .delivering that is the widget saying "ready" in a password field, which is where a \
+            user tries the hotkey first.
+            """)
+        XCTAssertEqual(
+            harness.tap.startCount, startsAfterArming,
+            "a healthy tap was re-created over a state that has nothing to do with the tap")
+        XCTAssertEqual(harness.tap.resumeCount, 0, "and nothing was re-enabled either")
+        XCTAssertTrue(harness.tap.isDelivering, "the tap is untouched, which is the point")
+        XCTAssertEqual(
+            harness.notes, [.armed, .secureInputBegan],
+            """
+            One line, and it is not a .disabled or a .foundDeadByPoll — both of those send the next \
+            reader after CGEventTapEnable and the Accessibility grant, when the answer is that a \
+            password field is focused.
+            """)
+    }
+
+    /// **Two minutes of it, which is the pointless-recovery-loop this must not become.**
+    ///
+    /// A password field is focused for as long as a user takes to type a password, and the poll runs
+    /// once a second throughout. The two costs of getting this wrong are measured together: system
+    /// calls against a healthy tap, and a health log that says the same thing 120 times in the one
+    /// state where it most needs to be readable.
+    func testAPasswordFieldFocusedForTwoMinutesCostsNoTapWorkAndTwoLogLines() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+        harness.secureInput.isActive = true
+
+        for _ in 0..<120 {
+            XCTAssertEqual(harness.policy.pollTapHealth(), .blockedBySecureInput)
+        }
+        harness.secureInput.isActive = false
+        XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
+
+        XCTAssertEqual(harness.tap.startCount, 1, "one tap, created once, at arming")
+        XCTAssertEqual(harness.tap.stopCount, 0)
+        XCTAssertEqual(harness.tap.resumeCount, 0)
+        XCTAssertEqual(
+            harness.notes, [.armed, .secureInputBegan, .secureInputEnded],
+            """
+            121 polls, two transitions, two lines. A note per poll would put 120 identical lines \
+            between the arming and whatever happens next — the failure \
+            TapHealthPolling.pollsBetweenRecoveryAttempts exists to prevent, in the channel that \
+            argument was made about.
+            """)
+    }
+
+    /// **The hot mic, in both modes**: a session in flight when the keyboard is taken away has lost
+    /// every way out that a key event provides, and the poll is what closes it.
+    ///
+    /// Measured against the alternative rather than asserted: the ending arrives on the **first**
+    /// poll, one second in, and not at the 120 s ceiling. In toggle that difference is the whole
+    /// backstop — there is no key-up rule and no physical-key poll, so the second press that would
+    /// have stopped this session is an event that can never be delivered.
+    func testASessionSurvivingIntoSecureInputIsClosedByTheNextPollInBothModes() {
+        for configuration in bothActivationModes {
+            let harness = PolicyHarness(configuration: configuration)
+            XCTAssertEqual(harness.policy.arm(), .delivering)
+            harness.press()
+            XCTAssertTrue(harness.microphone.isOpen, "precondition: \(configuration.activation)")
+
+            harness.secureInput.isActive = true
+
+            XCTAssertEqual(harness.policy.pollTapHealth(), .blockedBySecureInput)
+
+            XCTAssertFalse(
+                harness.microphone.isOpen,
+                """
+                \(configuration.activation): the tap is enabled and receives nothing, so no key-up, \
+                no second press and no flagsChanged can ever reach this session. One poll, not one \
+                ceiling.
+                """)
+            XCTAssertEqual(harness.machine.state, .idle)
+            XCTAssertEqual(
+                harness.effects.endReasons, [.tapDisabled],
+                """
+                Ended as a retaining reason, so the audio travels with it. The end reason does not \
+                name Secure Input on purpose: "the tap can no longer deliver" is true here, and the \
+                distinction lives in the note channel, where nothing acts on it.
+                """)
+            XCTAssertEqual(harness.microphone.handedOut.count, 1, "with its audio")
+            XCTAssertEqual(
+                harness.machine.elapsed, .zero,
+                "and it ended at the poll rather than running on to the ceiling")
+        }
+    }
+
+    /// **The ending runs on every blocked poll, and the note does not — measured on the poll where
+    /// the two differ.**
+    ///
+    /// The tempting symmetry is to throttle both to the transition, since the state does not change
+    /// in between. It is the same shape this file has now been bitten by four times: a guard
+    /// justified by a claim about what cannot be in flight. Here the claim would be *"no session can
+    /// start after the block began, because no key event can arrive"* — and it is false in the one
+    /// way that matters, because a key-down already queued in the window server when Secure Input
+    /// engaged is delivered afterwards. The session then starts on a poll that is not the transition
+    /// poll, with no key-up ever coming for it.
+    ///
+    /// Measured: with the ending throttled to the transition the way the note is, this session runs
+    /// to the 120 s ceiling in both modes and the whole suite stays green.
+    func testASessionStartingAfterTheTransitionPollIsStillClosed() {
+        for configuration in bothActivationModes {
+            let harness = PolicyHarness(configuration: configuration)
+            XCTAssertEqual(harness.policy.arm(), .delivering)
+
+            harness.secureInput.isActive = true
+            XCTAssertEqual(harness.policy.pollTapHealth(), .blockedBySecureInput)
+            XCTAssertEqual(
+                harness.notes, [.armed, .secureInputBegan], "the transition poll is behind us")
+
+            // The key-down that was already in flight when the block engaged.
+            harness.press()
+            XCTAssertTrue(harness.microphone.isOpen, "precondition: \(configuration.activation)")
+
+            XCTAssertEqual(harness.policy.pollTapHealth(), .blockedBySecureInput)
+
+            XCTAssertFalse(
+                harness.microphone.isOpen,
+                """
+                \(configuration.activation): a session started after the transition, so nothing \
+                about the transition can close it. The key-up cannot arrive — the tap receives \
+                nothing — and in toggle there is no physical-key poll behind it either.
+                """)
+            XCTAssertEqual(harness.effects.endReasons, [.tapDisabled])
+            XCTAssertEqual(
+                harness.notes, [.armed, .secureInputBegan],
+                "and still one line: the log is throttled, the microphone is not")
+        }
+    }
+
+    /// The block passes, and Vocca is working again with **nothing having been done to the tap**.
+    ///
+    /// This is what makes the do-nothing branch correct rather than merely cheap: the recovery for
+    /// Secure Input is that the other application lets go. A policy that had re-created its way
+    /// through the block would arrive here having replaced the tap sixty times to reach the same
+    /// place.
+    func testTheHotkeyReturnsWhenSecureInputEndsWithNoTapWorkAtAll() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+        harness.secureInput.isActive = true
+        XCTAssertEqual(harness.policy.pollTapHealth(), .blockedBySecureInput)
+
+        harness.secureInput.isActive = false
+
+        XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
+        XCTAssertEqual(harness.notes, [.armed, .secureInputBegan, .secureInputEnded])
+        XCTAssertEqual(harness.tap.startCount, 1)
+        XCTAssertEqual(harness.tap.resumeCount, 0)
+
+        // And it is a working hotkey, not merely a hopeful report.
+        harness.press()
+        XCTAssertTrue(harness.microphone.isOpen)
+        harness.release()
+        XCTAssertFalse(harness.microphone.isOpen)
+        XCTAssertEqual(
+            harness.effects.endReasons, [.keyUp], "an ordinary key-up, ordinarily ended")
+    }
+
+    /// Arming into a focused password field: **the tap is still created**, and the answer says why
+    /// the hotkey will do nothing until the field is closed.
+    ///
+    /// Declining to create one while the block held would be the tempting shape and it is a Vocca
+    /// that is deaf *afterwards*: the block ends with no notification of any kind, so there would be
+    /// nothing left to notice that it had.
+    func testArmingWhileSecureInputIsHeldStillCreatesTheTap() {
+        let harness = PolicyHarness()
+        harness.secureInput.isActive = true
+
+        XCTAssertEqual(harness.policy.arm(), .blockedBySecureInput)
+
+        XCTAssertTrue(harness.tap.isAttached, "the tap exists and is waiting for the field to close")
+        XCTAssertEqual(harness.tap.startCount, 1)
+        XCTAssertEqual(harness.notes, [.armed, .secureInputBegan])
+
+        harness.secureInput.isActive = false
+        XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
+        XCTAssertEqual(harness.tap.startCount, 1, "and it needed no second creation to work")
+        harness.press()
+        XCTAssertTrue(harness.microphone.isOpen)
+    }
+
+    /// **A missing grant outranks a held keyboard**, because only one of the two has anything the
+    /// user can do about it.
+    ///
+    /// The order is the assertion. Secure Input passes by itself and needs no dialog; a tap that
+    /// could not be created needs System Settings and a relaunch, and a policy that reported the
+    /// transient state over the permanent one would leave a first run with no route to a hotkey at
+    /// all.
+    func testACreationThatFailedIsStillPermissionMissingWhileSecureInputIsHeld() {
+        let harness = PolicyHarness()
+        harness.secureInput.isActive = true
+        harness.tap.nextStart = .unavailable
+
+        XCTAssertEqual(harness.policy.arm(), .permissionMissing)
+        XCTAssertEqual(
+            harness.policy.pollTapHealth(), .permissionMissing,
+            "and the poll agrees with the arming rather than reinterpreting it a second later")
+        XCTAssertFalse(harness.tap.isAttached)
+    }
+
+    /// **Secure Input must not hide a tap that is genuinely dead**, which is the failure the
+    /// reinterpretation could have introduced.
+    ///
+    /// A password field open while a tap dies silently is two independent facts, and the dangerous
+    /// reading is the one that treats the first as an explanation for the second. The recovery still
+    /// runs, the note still says a poll found the tap dead, and the answer afterwards is *blocked* —
+    /// the tap is healthy again and still receiving nothing, which is exactly true.
+    func testSecureInputDoesNotSuppressTheRecoveryOfATapThatReallyDied() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+        harness.secureInput.isActive = true
+        XCTAssertEqual(harness.policy.pollTapHealth(), .blockedBySecureInput)
+
+        harness.tap.systemDisablesTheTap()
+
+        XCTAssertEqual(
+            harness.policy.pollTapHealth(), .blockedBySecureInput,
+            """
+            The tap was dead and is now alive and blocked. Reporting .delivering here would be the \
+            old overclaim surviving in the branch nobody looked at — a recovery that took, on a tap \
+            that receives nothing.
+            """)
+        XCTAssertEqual(
+            harness.tap.resumeCount, 1,
+            "the dead tap was still recovered — the block is not an excuse to stop looking at it")
+        XCTAssertEqual(harness.notes, [.armed, .secureInputBegan, .foundDeadByPoll, .reenabled])
+        XCTAssertTrue(harness.tap.isDelivering)
+    }
+
+    /// The state is **asked for**, every time, and never remembered.
+    ///
+    /// Secure Input changes under Vocca's feet with no notification of any kind — there is no
+    /// equivalent of `kCGEventTapDisabledByUserInput` for it — so a cached answer is the world as
+    /// some other application last left it. That is the identical argument
+    /// `RecoverableHotkeyEventSource.isDelivering` is documented with, and the reason this seam is a
+    /// read rather than a value handed in at construction.
+    func testTheSecureInputStateIsAskedOnEveryPollAndNeverRemembered() {
+        let harness = PolicyHarness()
+        XCTAssertEqual(harness.policy.arm(), .delivering)
+        XCTAssertEqual(harness.secureInput.reads, 1, "arming asks too")
+
+        for expected in 2...11 {
+            _ = harness.policy.pollTapHealth()
+            XCTAssertEqual(
+                harness.secureInput.reads, expected,
+                "a poll that did not ask is a poll reporting a state nobody checked")
+        }
+    }
+
+    /// **The half that is still open, and the reason the poll's documentation says so.**
+    ///
+    /// Renamed and narrowed by phase 6 rather than deleted, which is how the limit was always meant
+    /// to move: `testThePollCannotSeeATapThatIsEnabledAndDeaf` used to cover both known instances of
+    /// "enabled and deaf", and Secure Input now has a read of its own. What is left is the one with
+    /// no API — a tap whose event mask was cleared at creation (inherited constraint 3), which
+    /// answers `CGEventTapIsEnabled` with `true` and delivers nothing, with `IsSecureEventInputEnabled`
+    /// answering `false` throughout because no password field is involved.
+    ///
+    /// It remains a 120 s hot mic in both modes, and that is measured here rather than described, so
+    /// that nobody reads phase 6 as having closed the class.
+    func testThePollCannotSeeATapThatIsEnabledAndDeafForAReasonWithNoRead() {
+        for configuration in bothActivationModes {
+            let harness = LyingHarness(source: LyingSource(), configuration: configuration)
+            XCTAssertEqual(harness.policy.arm(), .delivering)
+            harness.pressWhileTheTapStillWorked()
+            XCTAssertTrue(harness.microphone.isOpen, "precondition")
+
+            // Up to one wake short of the ceiling, with a health poll on every turn.
+            for _ in 0..<(wakes(covering: SessionCeiling.default) - 1) {
+                XCTAssertEqual(harness.policy.pollTapHealth(), .delivering)
+                harness.wake()
+            }
+
+            XCTAssertFalse(
+                harness.secureInput.isActive,
+                "precondition: this is the instance Secure Input's read cannot see")
+            XCTAssertTrue(
+                harness.microphone.isOpen,
+                """
+                \(configuration.activation): a whole session's worth of polling over a tap that \
+                answers `CGEventTapIsEnabled` with `true` and delivers nothing. The poll closes the \
+                silently-*disabled* tap; of the silently-*deaf* ones it now closes Secure Input and \
+                still cannot see a mask cleared at creation.
+                """)
+            XCTAssertEqual(harness.machine.state, .recording)
+            XCTAssertEqual(harness.effects.endReasons, [])
+            XCTAssertEqual(harness.notes, [.armed], "and the log has nothing to say about it")
+
+            // And what finally ends it is the last backstop there is.
+            harness.wake()
+            XCTAssertFalse(harness.microphone.isOpen, "\(configuration.activation)")
+            XCTAssertEqual(
+                harness.effects.endReasons, [.ceilingReached],
+                """
+                \(configuration.activation): "bounded only by the ceiling", measured. Nothing \
+                between the tap going deaf and 120 s later reached this session.
+                """)
+            XCTAssertEqual(harness.machine.elapsed, SessionCeiling.default)
         }
     }
 

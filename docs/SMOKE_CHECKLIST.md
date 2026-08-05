@@ -11,6 +11,33 @@ a release.
 
 ---
 
+## Two rules to read every step in this file against
+
+Both were earned in this repository, in the phase that measured the timers, and both are things a
+smoke checklist violates silently — a step that breaks either of them still gets ticked.
+
+> **1. A negative result about a state must verify the state was entered.**
+>
+> "I left it backgrounded for five minutes and the timer was fine" is not evidence about App Nap
+> unless something checked that the process was actually being throttled. A measurement that closes a
+> question which is still open is worse than not measuring, because nobody looks again. Every step
+> below that asserts *nothing bad happened* names the precondition to confirm first, and says to
+> **void the result** — not fail it, void it — if the precondition did not hold.
+
+> **2. A pass criterion looser than the failure it guards accepts the failure.**
+>
+> A step reading *"expect the tap-health poll at about 1.8 s"* was written into this file once. The
+> measured figure is ~1.2 s at its worst; 1.8 s is a poll that is genuinely broken, and the step
+> would have passed it. Direction matters more than precision here: when in doubt make a criterion
+> **tighter** than the number you measured, because a tight criterion fails a healthy build noisily
+> and a loose one passes a broken build silently.
+
+A corollary of both: **where no sharp criterion exists, the step says so.** Several below do. An
+honest "this cannot be given a pass criterion, here is what to look at" is worth more than an
+invented threshold that will be ticked without being met.
+
+---
+
 ## What CI cannot cover, and why
 
 ### 1. Accessibility / Input Monitoring, and therefore the global hotkey
@@ -70,6 +97,38 @@ something only a human at a Mac can see.
 Latency, whether the widget steals focus, whether text lands in the right field of an arbitrary app.
 These are the two make-or-break UX battles named in `CLAUDE.md`, and neither has a CI shape.
 
+### 6. Secure Input — the state no test can enter
+
+*(Added 2026-08-06, `hotkey-source` phase 6.)* When any application calls `EnableSecureEventInput` —
+a password field in Safari or Chrome, 1Password, the login window, Terminal with *Secure Keyboard
+Entry* ticked — **every event tap in the login session stops receiving key events**. The tap is
+still created, still enabled, and `CGEventTapIsEnabled` still answers `true`. Vocca now reads
+`IsSecureEventInputEnabled()` and reports `TapHealth.blockedBySecureInput`, distinctly from a tap
+failure, and ends any session in flight because no key event can reach the tap to end it.
+
+**The decision is tested exhaustively; the read is executed by nothing.** A test cannot make
+`IsSecureEventInputEnabled()` answer `true`: it is a fact about other people's software, and the one
+programmatic route would switch the keyboard off for every tap on the machine running the suite.
+Nor is asserting that it answers `false` worth anything — it fails on a developer with a password
+field focused, and it asserts nothing about the case that matters. So `SystemSecureInputState`'s one
+line is confirmed by hand, in the Secure Input steps below, and by nothing else, ever.
+
+**And it closes only half of a gap.** "Enabled and deaf" has a second instance with no API at all: a
+tap created before the Accessibility grant has its event mask cleared at creation. Nothing in the
+health poll can see that, and `TapHealthPolicyTests.testThePollCannotSeeATapThatIsEnabledAndDeafForAReasonWithNoRead`
+measures what it costs — 120 s of open microphone in both activation modes. It is unreachable today
+only because a mask with no keyboard bits left makes `tapCreate` return `NULL`, which is the honest
+error. Step 30 is why that must stay true.
+
+### 7. A real window drag, and a real App Nap
+
+The run-loop-mode hazard (**H10**) is *mostly* covered now and it is worth knowing which part:
+`MainRunLoopTimerTests` registers `.eventTracking` exactly as AppKit does and fails the build if the
+shipped timer stops firing through it, and `Scripts/measure-timers.sh menu` drives a genuine
+`NSMenu` tracking session unattended. **Menu tracking is therefore not a manual step.** A window
+drag still is — nothing available here can drive one — and so is App Nap on battery or with the
+display asleep, which no runner can be put into.
+
 ---
 
 ## What CI does cover
@@ -78,7 +137,7 @@ Stated positively, so the checklist below does not re-check things a machine alr
 
 | Job | Proves |
 |---|---|
-| Headless suite | The package builds with **zero** strict-concurrency warnings, and all tests pass: module boundaries, licence headers, the package manifest, and the zero-network invariant (with the settle window raised to 6s). |
+| Headless suite | The package builds with **zero** strict-concurrency warnings, and all tests pass: module boundaries, licence headers, the package manifest, and the zero-network invariant (with the settle window raised to 6s). It also **measures** two things that used to be on this list: the run-loop-mode hazard (a `.default`-mode timer delivers 0 of 33 fires through an event-tracking gesture; the shipped `.common` one delivers all 33), and every decision about Secure Input over an injected read. |
 | Bundle contract (Debug) | A real `xcodebuild` Debug build produces a signed `Vocca.app` whose processed `Info.plist` and embedded entitlements match the checked-in sources, with the hardened runtime actually in the signature. |
 | Bundle contract (Release) | The same for Release, **plus** that the Release bundle carries no entitlement beyond what `App/Vocca.entitlements` declares — in particular not `com.apple.security.get-task-allow`, which Debug is allowed and Release is not. |
 
@@ -222,8 +281,9 @@ enforcement there will ever be, so it is listed here as something a human confir
 it: the health poll asks `CGEventTapIsEnabled`, which catches a tap that was *disabled* silently and
 **not** one that is enabled and deaf — created successfully, reporting itself enabled, delivering
 nothing. Two known instances: a mask cleared at creation before the Accessibility grant, and Secure
-Input. In toggle mode that second shape is still a 120 s hot mic bounded only by the ceiling. Until
-phase 6 lands, **step 15's toggle-mode check is the only place it would be noticed at all.**
+Input. **Phase 6 closed the second and left the first**, because only the second has an API
+(`IsSecureEventInputEnabled`); see "What CI cannot cover" §6 and steps 27–29. For the first, step 15's
+toggle-mode check and step 32's note are still the only places it would be noticed at all.
 
 21. **The disable notifications reach `TapHealthPolicy.tapWasDisabled(_:)`, not the sink.** Routing
     `kCGEventTapDisabledByTimeout` / `…ByUserInput` into `HotkeyEventSink` ends the session correctly
@@ -231,14 +291,234 @@ phase 6 lands, **step 15's toggle-mode check is the only place it would be notic
     the stuck-microphone bug rather than a lesser cousin. Also confirm the two are **not** collapsed
     into one call: one means Vocca's own callback was too slow and the other does not.
 
+### The tap itself, which no CI run executes a line of
+
+*(Added 2026-08-06, `hotkey-source` phase 6, from phases 4 and 5.)* Every line of
+`Sources/VoccaHotkey/CGEventTapSource.swift` is unreachable in CI — `CGEvent.tapCreate` returns
+`nil` without an Accessibility grant — so these are the gestures that execute it. They are ordered
+by what their failure costs, not by convenience.
+
+22. **Time how long the microphone indicator takes to go out after a disablement.** The most valuable
+    step in this file, because the two builds it separates are indistinguishable in every other way.
+
+    *Gesture:* start a session, then provoke `kCGEventTapDisabledByTimeout` by holding the main
+    thread — attach a debugger and break during a keystroke is the reliable way — and **record the
+    screen while you do it** (`⌘⇧5`, 60 fps).
+
+    *Pass:* macOS's orange microphone indicator is out **within 500 ms** of the disablement — 30
+    frames at 60 fps, so count them rather than judging by eye. That is the disablement observer
+    being held and its synchronous half running.
+
+    *What the criterion is guarding, so it is not loosened:* if `CGEventTapSource.disablementObserver`
+    is `nil` — which is what an owner holding the policy instead of the observer produces, with no
+    error anywhere — **both halves of a disablement are lost**, and the session is closed by the ~1 s
+    health poll instead. That is ≈1 s, or ≈1.2 s under task suppression. A criterion of "about a
+    second" would accept exactly the build this step exists to catch. Stopwatch-by-hand is not
+    precise enough here; use the recording.
+
+23. **Force a re-creation, then type exactly one character.** The re-start path — `stop()` at the head
+    of `start(delivering:)` — and the only thing standing between a caller who does everything the
+    protocol documents and a use-after-free.
+
+    *Gesture:* with the hotkey armed, force a re-creation (sleep and wake the machine, or revoke and
+    re-grant Accessibility in System Settings), then type `x` once in TextEdit.
+
+    *Pass:* exactly **one** `x` appears, the hotkey still starts a session afterwards, and nothing
+    crashes in the following minute of ordinary typing. A leaked second tap on a stale context
+    presents as a doubled character or as a crash on the **next** keystroke — never on the
+    re-creation itself, which is why "it re-created fine" is not this step.
+
+24. **Quit while armed**, once mid-session and once armed but idle, then type in another app for ten
+    seconds.
+
+    *Pass:* no crash and **no missing characters** — type a known string and compare it, rather than
+    judging that it "looked fine". This is `deinit { tearDown() }`; without it a live tap goes on
+    calling a C function whose context is freed memory, system-wide.
+
+25. **Provoke a disablement while a drag or a menu is tracking.** H10 covers the tap's own run-loop
+    source (`CFRunLoopAddSource`); the deferred recovery is a *different* call
+    (`CFRunLoopPerformBlock` + `CFRunLoopWakeUp`) with the same exposure and no test that can see it.
+
+    *Pass:* the tap recovers **before the gesture ends** — press the hotkey while still dragging and
+    confirm a session starts. Recovery only once the mouse button is released is the failure.
+
+26. **Release Option while still holding Space.** The one gesture that distinguishes an event mask
+    with `flagsChanged` in it from one without, and nothing else in this document exercises what that
+    bit buys.
+
+    *Gesture:* hold `⌥Space`, speak, then lift **Option** only, keeping Space down.
+
+    *Pass:* the widget leaves the recording state at that instant — **before** Space comes up. If it
+    waits for Space, stop rule (b) is not firing. (This is a latency and extensibility failure, not a
+    hot mic: rule (a) still ends the session at key-up.)
+
+27. **`⌥Space` must eat nothing and type nothing — with the negative control, which is the half that
+    makes it mean anything.**
+
+    *Gesture:* in TextEdit (`Format ▸ Make Plain Text`), type a known sentence with Vocca armed;
+    then press `⌥Space` armed; then quit Vocca and press `⌥Space` again. Select all, copy, and run
+    `pbpaste | xxd | tail -3` in Terminal.
+
+    *Pass:* the sentence is byte-identical to what you typed; the armed `⌥Space` contributes **no
+    bytes at all**; and the unarmed one contributes exactly `c2 a0` — U+00A0 NO-BREAK SPACE. Without
+    that last assertion a permanently-swallowing tap and a correctly-swallowing one look identical,
+    and the permanently-swallowing one eats the user's whole keyboard.
+
+28. **Release the hotkey by a different route than the one that pressed it.** `CGEventSourceKeyState`
+    is asked with `.combinedSessionState`, and nothing distinguishes that from `.hidSystemState` or
+    `.privateState` except this.
+
+    *Gesture:* start a hold-to-talk session with a key on one keyboard and release it via a second
+    connected keyboard, or by posting the key-up with `cliclick`/a script.
+
+    *Pass:* the session ends. `.hidSystemState` answers wrongly here and `.combinedSessionState` does
+    not.
+
+    *If you have no second keyboard and no way to post events:* **this step cannot be performed.**
+    Record it as not performed. It is not a pass.
+
+29. **Disarm mid-session.** The manual counterpart to the Critical that phase 5's review found: the
+    forward from the wrapper an owner holds to the policy's `disarm()` was, for one commit, held by no
+    test at all.
+
+    *Pass:* the microphone indicator goes out, **and** subsequent keystrokes reach the focused app —
+    both halves, because a disarm that stops the clock without stopping the tap looks identical to a
+    working one until you type.
+
+30. **A note rather than a gesture: if the event mask ever gains a non-keyboard event type, H5 stops
+    holding.** `CGEvent.h:274-280` — the keyboard bits are cleared at creation when there is no grant,
+    and `tapCreate` returns `NULL` *only* if that leaves the mask empty. One mouse bit therefore yields
+    a successful creation, a `.started` report, and a permanently deaf hotkey with **no honest error
+    anywhere** — and it is the mask-cleared instance of "enabled and deaf", which the health poll
+    cannot see. It changes what a green CI badge means, which is why it is written down here.
+
+### The timers, which is where the last hot mic hides
+
+31. **Hold the hotkey while dragging a window** — the H10 hazard, with the one part of it no
+    automation here can reach.
+
+    *Gesture:* start a session, grab a window's title bar and keep dragging for at least five
+    seconds, and **release the hotkey in the middle of the drag** without letting go of the mouse.
+
+    *Pass:* the session ends, and the microphone indicator goes out, **while the drag is still in
+    progress** — within about 300 ms of the release, not when you let go of the window.
+
+    *Why that number:* measured, the shipped `.common`-mode timer's worst gap through a tracking
+    gesture is 151 ms, and a `.default`-mode one delivered **0 fires in 5 s** — the gap is the whole
+    gesture. So anything that ends only at the end of the drag is the failure, and 300 ms is comfortably
+    above the healthy build and far below the broken one. `Scripts/measure-timers.sh runloop --window`
+    prints live counters and the run-loop mode it observed if you want the numbers rather than the
+    indicator.
+
+32. **The ceiling, through a drag, in toggle mode** — the same hazard at its worst, because toggle has
+    no physical-key poll behind it and the 120 s ceiling is all there is.
+
+    *Gesture:* start a **toggle** session, then drag a window continuously for a little over two
+    minutes.
+
+    *Pass:* the session ends **while you are still dragging**, no later than ~122 s after it started.
+    (120 s ceiling, one 150 ms watchdog tick, and a quarter-second of slack for the throttle in step
+    33. Not "about two minutes": a session that ends when the drag ends has failed even if the drag
+    lasted 121 s.)
+
+33. **App Nap on battery — and check the suppression state *before* believing the result.** This is
+    rule 1 of the preamble, and the step is written the way it is because the first version of this
+    measurement got it wrong.
+
+    *Gesture:* unplug the machine, leave Vocca backgrounded with another app frontmost for ten
+    minutes, then use the hotkey.
+
+    *Precondition to confirm first:* the app is actually being throttled —
+    `getpriority(PRIO_DARWIN_PROCESS, <pid>)` reading `1`, or Activity Monitor's **App Nap** column
+    showing *Yes* for Vocca. **If it reads 0, void the result.** A timer that behaved perfectly in a
+    process that was never suppressed is not evidence about a suppressed one; that exact error was
+    published and retracted in this repository.
+
+    *Pass, stated as a bound rather than as "on time":* with suppression confirmed, the 120 s ceiling
+    fires within about a second of 120 s, and the ~1 s tap-health poll delivers **44–45 of every 45
+    due fires with a worst gap around 1.2 s**. Measured under `taskpolicy -b`: the 150 ms watchdog
+    runs at a ~262 ms median (~1.7×), and the 1 s poll at ~1.15× — a roughly fixed ~100 ms of added
+    lateness per fire, not a multiplier. A step reading "on time" fails a correct build; a step
+    reading "~1.8 s" **accepts a poll that is genuinely broken**, which is what this one said once.
+
+34. **App Nap with the display asleep.** Same gesture, same precondition check, same bound. Untried by
+    anyone so far, and named as untried rather than assumed to be covered by step 33.
+
+35. **A modifier released with no event reaching the tap.** *This step has no sharp pass criterion and
+    is not given an invented one.*
+
+    The case is a `flagsChanged` that never arrives, which is by definition not producible on purpose —
+    that is why the physical-key poll asks about the whole binding rather than the key alone. What is
+    checkable is its *consequence*: after any session ended by the poll, the log says
+    `.pollDetectedRelease`, and it will not say which half of the binding was released. If a debugging
+    session ever needs that distinction, the split is a new `RetainedEndReason` and the place to add it
+    is `SessionWatchdog.theBindingIsStillHeld`. Read it as a note to whoever is debugging, not as a
+    step that can pass.
+
+### Secure Input
+
+*(New in `hotkey-source` phase 6.)* `SystemSecureInputState` is one Carbon call and **nothing in CI
+executes it** — see "What CI cannot cover" §6 for why no test worth having can. Everything the
+answer *means* is tested over an injected read; these three steps are the only confirmation that the
+answer comes from the system at all.
+
+Any of these turns Secure Input on: ticking **Terminal ▸ Secure Keyboard Entry** (the easiest to hold
+for as long as you like), focusing a password field in Safari or Chrome, opening 1Password, or the
+login window.
+
+36. **Focus a password field and confirm Vocca reports itself blocked rather than broken.**
+
+    *Gesture:* with Vocca armed and working, tick Terminal's *Secure Keyboard Entry*. Watch the
+    health log (`TapHealthNote`) and the widget. Press the hotkey a few times while it holds. Untick
+    it.
+
+    *Pass, all four:*
+    - within one poll (~1 s) the reported health is **`blockedBySecureInput`** — not `delivering`,
+      which is the widget saying *ready* while the hotkey does nothing, and not `notDelivering`,
+      which means a tap fault;
+    - the log contains **exactly one** `secureInputBegan` line for the whole time it is held, however
+      long that is — not one per second;
+    - **no** `disabled`, `foundDeadByPoll`, `reenabled` or `recreated` line appears while it holds.
+      Any of those is Vocca rebuilding a healthy tap against a state that has nothing to do with the
+      tap, and it would go on doing so for as long as the password field is open;
+    - after unticking: **exactly one** `secureInputEnded` line, and the hotkey works again **with no
+      re-creation** — the tap must be the same one, which the absence of a `recreated` line is what
+      says.
+
+37. **Start a session, then take the keyboard away.** The hot mic behind Secure Input, and the reason
+    it is a safety item and not only an honesty one.
+
+    *Gesture:* start a **toggle** session (press once, in a normal text field), then tick Terminal's
+    *Secure Keyboard Entry*.
+
+    *Pass:* the microphone indicator goes out **within 2 s**, and the transcript survives — the
+    dictation you had already spoken must appear, because the session ends as a retaining reason and
+    its audio travels with it.
+
+    *What the 2 s is guarding:* the second press that would have stopped this session is an event the
+    tap can no longer receive, and toggle has no key-up rule and no physical-key poll behind it. If
+    the poll does not close it, what closes it is the **120 s ceiling**. So anything beyond a few
+    seconds is the failure, and "it stopped eventually" is not a pass.
+
+38. **Launch Vocca with Secure Input already held.** The arming path, which is a different branch from
+    the poll and the one a user meets first if they leave *Secure Keyboard Entry* ticked.
+
+    *Gesture:* tick it, then start Vocca.
+
+    *Pass:* arming reports **`blockedBySecureInput`**, the log reads `armed` then `secureInputBegan`,
+    and — the half that is easy to get wrong — **the tap was still created**: untick Secure Keyboard
+    Entry and the hotkey must work **immediately, with no re-creation** (`startCount` unchanged, no
+    `recreated` line). An implementation that declined to create a tap while blocked leaves Vocca deaf
+    *after* the block passes, with nothing left to notice that it has.
+
 ### If notarizing
 
-22. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
+39. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
     first real release must treat notarization as unproven and budget time for it, including for
     the possibility that a rejected entitlement or a missing hardened-runtime flag only shows up
     there.
 
-23. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
+40. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
     steps 1–4 built, signed and inspected. That is only true if step 2 was run with the Release path
     given explicitly; a bare `./Scripts/sign.sh` signs Debug and this step then submits an
     unmodified Release build.

@@ -98,7 +98,9 @@ private final class DisablementHarness {
         }
         let sink = ObservingSink(forwardingTo: session)
         self.sink = sink
-        let policy = TapHealthPolicy(source: tap, sink: sink, clock: clock) { [health] note in
+        let policy = TapHealthPolicy(
+            source: tap, sink: sink, clock: clock, secureInput: FakeSecureInputState()
+        ) { [health] note in
             health.record(note)
         }
         self.policy = policy
@@ -324,7 +326,9 @@ final class CallbackSafeTapDisablementTests: XCTestCase {
         // the next line on, the observer is the policy's sole owner — which is what production looks
         // like, and what the first version of this test did not reproduce.
         var observer: CallbackSafeTapDisablement? = {
-            let policy = TapHealthPolicy(source: tap, sink: sink, clock: clock) { notes.append($0) }
+            let policy = TapHealthPolicy(
+                source: tap, sink: sink, clock: clock, secureInput: FakeSecureInputState()
+            ) { notes.append($0) }
             policyAfterTheObserverIsReleased = policy
             XCTAssertEqual(policy.arm(), .delivering)
             return CallbackSafeTapDisablement(policy: policy) { pending.append($0) }

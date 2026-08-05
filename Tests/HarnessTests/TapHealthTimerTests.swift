@@ -51,6 +51,7 @@ private final class RuntimeHarness {
     let keyboard = Keyboard()
     let effects = EffectLog()
     let tap = FakeHotkeyEventSource()
+    let secureInput = FakeSecureInputState()
     let watchdogTimer = FakeTimer()
     let healthTimer = FakeTimer()
     let keyState: TruthfulKeyState
@@ -81,7 +82,9 @@ private final class RuntimeHarness {
         // Two-phase, because the note and health closures need `self` and `self` is not ready yet.
         let noteBox = Box<[TapHealthNote]>([])
         let healthBox = Box<[TapHealth]>([])
-        let policy = TapHealthPolicy(source: tap, sink: scheduled, clock: clock) { note in
+        let policy = TapHealthPolicy(
+            source: tap, sink: scheduled, clock: clock, secureInput: secureInput
+        ) { note in
             noteBox.value.append(note)
         }
         self.policy = policy
@@ -246,6 +249,51 @@ final class TapHealthTimerTests: XCTestCase {
             "a poll that finds nothing wrong still has to say so, or a stalled poll is invisible.")
     }
 
+    /// **Secure Input reaches the owner through the clock, and the clock keeps running.**
+    ///
+    /// The policy's answer is only useful if something asks for it once a second without being told
+    /// to, which is this class's whole reason for existing. The two halves asserted together are the
+    /// ones that would fail separately: the widget is handed `.blockedBySecureInput` on every turn
+    /// while a password field is focused — so it can say *the hotkey is blocked* rather than showing
+    /// nothing — and the poll is still running afterwards to notice that the field was closed.
+    ///
+    /// The session half matters more than the report: in toggle there is no key-up rule and no
+    /// physical-key poll, so the second press that would have stopped this session is an event the
+    /// tap can never receive.
+    func testABlockedTapIsReportedOnEveryTurnAndTheSessionIsClosed() {
+        for configuration in bothActivationModes {
+            let harness = RuntimeHarness(configuration: configuration)
+            harness.runtime.arm()
+            harness.press()
+            XCTAssertTrue(harness.microphone.isOpen, "\(configuration.activation): no session")
+
+            harness.secureInput.isActive = true
+            harness.healthTimer.tick(3)
+
+            XCTAssertEqual(
+                harness.recordedHealth,
+                [.blockedBySecureInput, .blockedBySecureInput, .blockedBySecureInput],
+                """
+                \(configuration.activation): an owner is told where the tap stands on every turn, \
+                and "another application is holding the keyboard" is a different answer from both \
+                "delivering" and "not delivering". Reported as the first it is a widget saying \
+                ready while nothing works; as the second it is a healthy tap rebuilt once per rate \
+                limit for as long as the password field is open.
+                """)
+            XCTAssertFalse(
+                harness.microphone.isOpen,
+                "\(configuration.activation): no key event can reach this session to end it")
+            XCTAssertEqual(harness.effects.endReasons, [.tapDisabled])
+            XCTAssertEqual(harness.tap.startCount, 1, "and the tap itself was left alone")
+
+            harness.secureInput.isActive = false
+            harness.healthTimer.tick()
+            XCTAssertEqual(
+                harness.recordedHealth.last, .delivering,
+                "the clock was still running, which is how the block is noticed to have passed")
+        }
+    }
+
     /// **The join this harness exists for.** A poll finds the tap silently dead, ends the session by
     /// minting a `.tapDisabled` through the sink — and *that* stops the watchdog's timer, because the
     /// sink is a `ScheduledWatchdog`.
@@ -355,7 +403,9 @@ final class TapHealthTimerTests: XCTestCase {
             let clock = TestClock()
             let tap = FakeHotkeyEventSource()
             let sink = AlwaysPassingThroughSink()
-            let policy = TapHealthPolicy(source: tap, sink: sink, clock: clock) { _ in }
+            let policy = TapHealthPolicy(
+                source: tap, sink: sink, clock: clock, secureInput: FakeSecureInputState()
+            ) { _ in }
             policyAfterwards = policy
             runtime = TapHealthTimer(policy: policy, timer: timer) { _ in }
         }
@@ -380,7 +430,9 @@ final class TapHealthTimerTests: XCTestCase {
             let clock = TestClock()
             let tap = FakeHotkeyEventSource()
             let sink = AlwaysPassingThroughSink()
-            let policy = TapHealthPolicy(source: tap, sink: sink, clock: clock) { _ in }
+            let policy = TapHealthPolicy(
+                source: tap, sink: sink, clock: clock, secureInput: FakeSecureInputState()
+            ) { _ in }
             let runtime = TapHealthTimer(policy: policy, timer: timer) { _ in }
             released = runtime
             runtime.arm()

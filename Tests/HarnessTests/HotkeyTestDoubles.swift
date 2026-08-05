@@ -485,3 +485,35 @@ final class AlwaysPassingThroughSink: HotkeyEventSink {
         return .passThrough
     }
 }
+
+// MARK: - Secure Input, which no test can turn on for real
+
+/// **Secure Input, with the Carbon call taken out** — the seam's whole reason for existing.
+///
+/// `IsSecureEventInputEnabled()` reports whether *any* application in the login session is holding
+/// the keyboard. A test cannot make that `true`: it is set by other people's software, and the one
+/// programmatic route (`EnableSecureEventInput`) would switch the keyboard off for every tap on the
+/// machine running the suite, including whatever the developer is typing into. So the read is
+/// injected, and this is what stands in for it.
+///
+/// ``isActive`` is a `var` rather than a constructor argument because the behaviour worth testing is
+/// the **transition**: a password field being focused and then closed, with the health log expected
+/// to carry exactly one line for each. A double that could only answer one thing for its lifetime
+/// could not express that, which is also why ``SecureInputStateReader`` is class-bound.
+final class FakeSecureInputState: SecureInputStateReader {
+    var isActive: Bool
+
+    /// How many times the policy asked. The poll must ask **every** turn — the state changes with no
+    /// notification of any kind, so an implementation that cached the answer would report the world
+    /// as some other application last left it.
+    private(set) var reads = 0
+
+    init(isActive: Bool = false) {
+        self.isActive = isActive
+    }
+
+    var isSecureInputActive: Bool {
+        reads += 1
+        return isActive
+    }
+}

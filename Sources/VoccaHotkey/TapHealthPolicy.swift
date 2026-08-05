@@ -120,6 +120,32 @@ public enum TapHealth: Sendable, Hashable, CaseIterable {
     /// **Vocca is deaf while this is the answer, and the microphone is not open** — the session, if
     /// there was one, was ended before this was returned.
     case notDelivering
+
+    /// **Another application is holding Secure Input, so no tap in the system is receiving key
+    /// events.** The tap is alive, enabled and correctly configured; there is nothing wrong with it
+    /// and nothing to recover.
+    ///
+    /// A fifth case for the same reason ``notArmed`` and ``notDelivering`` are separate from the
+    /// first two: every other answer would be a lie with a cost attached, and here all three
+    /// available lies are expensive.
+    ///
+    /// - ``delivering`` is what this used to be reported as, and it is the worst of the three: it is
+    ///   the widget saying *ready* while the hotkey does nothing, in a password field — the context
+    ///   a user is most likely to try it in first, and the one where "it just doesn't work"
+    ///   permanently costs their trust.
+    /// - ``permissionMissing`` sends them to System Settings to grant something they have already
+    ///   granted.
+    /// - ``notDelivering`` is the one that would cost more than a wrong message: it means *a tap
+    ///   exists and is not working*, which is the state whose recovery is a re-enable and then a
+    ///   `CGEvent.tapCreate`. Reported for Secure Input, that would tear down and rebuild a perfectly
+    ///   healthy tap once per rate limit for as long as a password field is focused, and every one
+    ///   of those attempts would come back deaf, because nothing about the tap is the problem.
+    ///
+    /// **Vocca is deaf while this is the answer, and the microphone is not open** — see
+    /// ``TapHealthPolicy/pollTapHealth()``, which ends any session in flight before returning it. The
+    /// hotkey works again by itself the moment the other application lets go, with nothing done to
+    /// the tap in between.
+    case blockedBySecureInput
 }
 
 /// One thing that happened to the tap, in the words that tell it apart from every other thing.
@@ -159,6 +185,29 @@ public enum TapHealthNote: Sendable, Hashable {
 
     /// The owner asked for the tap to stop.
     case disarmed
+
+    /// **Some application switched Secure Input on**, and from this moment no event tap in the
+    /// system receives a key event — including a tap that is enabled, correctly configured and
+    /// entirely healthy.
+    ///
+    /// Deliberately **not** a ``disabled(_:)``. Nothing disabled the tap; the two facts have
+    /// different causes, different cures (this one has none) and different readers. A log that
+    /// conflated them would send whoever reads it after `CGEventTapEnable` and the Accessibility
+    /// grant, when the answer is that a password field is focused.
+    ///
+    /// **Edge-triggered: fired when the state changes, never once a second while it holds.** A
+    /// password field can be focused for minutes, and the poll asks every second; a note per poll
+    /// would put six hundred lines in the health log describing one fact that never changed. That is
+    /// the failure ``TapHealthPolling/pollsBetweenRecoveryAttempts`` was written against, in a
+    /// channel whose whole value is being readable in exactly the state it is describing.
+    case secureInputBegan
+
+    /// **Secure Input was released**, and key events reach the tap again with nothing done to it.
+    ///
+    /// The other half of the edge, and it earns its place by being the line that says the hotkey is
+    /// working again — without it the log ends at ``secureInputBegan`` and a reader cannot tell a
+    /// password field that was closed a second later from one that is still open.
+    case secureInputEnded
 }
 
 // MARK: - The seam this policy acts over
@@ -304,6 +353,12 @@ public enum TapResume: Sendable, Hashable, CaseIterable {
 /// CI can never execute (`spec.md:19`). What is left here is the half worth testing: six entry
 /// points, and what each of them does about the microphone.
 ///
+/// **Two seams, not one.** ``SecureInputStateReader`` is the second, and it is separate because it
+/// asks about the *system* rather than about this tap: while some other application holds Secure
+/// Input, no tap anywhere receives a key event, and a tap that is healthy by every measure the first
+/// seam offers is deaf. Both reads are system calls and neither decides anything; what the pair of
+/// answers means is here.
+///
 /// ## The one rule the whole class is arranged around
 ///
 /// **Every entry point ends any in-flight session, first, unconditionally — with one exception,
@@ -359,10 +414,11 @@ public enum TapResume: Sendable, Hashable, CaseIterable {
 ///
 /// **Re-read `SessionWatchdog.schedule`.** Ending a session moves it from `.wake(every:)` to
 /// `.stopped`, and every entry point here can end one **except a health poll that found the tap
-/// working** — which is the one that fires most often — so the owner's timer must be reconsidered
-/// after each — exactly as it must after a key event. Getting it wrong costs a timer spinning over
-/// an idle machine rather than a hot mic (`tick()` and `wake()` both answer `.unchanged` in `.idle`),
-/// but phase 5 is the phase that wires that timer and is therefore the phase that would get it wrong.
+/// working and not blocked** — which is the one that fires most often — so the owner's timer must be
+/// reconsidered after each, exactly as it must after a key event. Getting it wrong costs a timer
+/// spinning over an idle machine rather than a hot mic (`tick()` and `wake()` answer `.unchanged` in
+/// `.idle`), but phase 5 is the phase that wires that timer and is therefore the phase that would
+/// get it wrong.
 ///
 /// ## Isolation
 ///
@@ -375,6 +431,7 @@ public final class TapHealthPolicy {
     private let source: any RecoverableHotkeyEventSource
     private let sink: any HotkeyEventSink
     private let clock: any MonotonicClock
+    private let secureInput: any SecureInputStateReader
     private let note: (TapHealthNote) -> Void
 
     /// Whether the owner currently wants a tap.
@@ -415,12 +472,32 @@ public final class TapHealthPolicy {
     /// created waiting out the remaining twenty-six.
     private var pollsSinceTheLastRecoveryAttempt = TapHealthPolling.pollsBetweenRecoveryAttempts
 
+    /// What ``secureInput`` answered last, so that the note channel can be edge-triggered.
+    ///
+    /// **A cache of the last *answer*, and never a substitute for asking.** Every decision below is
+    /// taken on a fresh read; this field is consulted only to decide whether anything is worth
+    /// writing down. The distinction is the same one ``RecoverableHotkeyEventSource/isDelivering``
+    /// makes at length — a remembered state is the world as somebody last described it — and it is
+    /// worth stating here because this is the file's only remembered system state.
+    ///
+    /// Starts `false`, which is not an assumption about the machine: the first read after
+    /// construction reports a transition if Secure Input is already on, which is the case of Vocca
+    /// launching while a password field is focused.
+    private var secureInputWasActive = false
+
     /// - Parameters:
     ///   - source: The tap, injected. Everything this class does to it, it does through this seam.
     ///   - sink: Where key events go, and the only route this class has to the session. Held here as
     ///     well as handed to the source because the synthetic end is *this object's* event, not one
     ///     the source observed.
     ///   - clock: The only way time enters. Used for the synthetic event's timestamp.
+    ///   - secureInput: Whether some other application has switched the keyboard off for everybody.
+    ///     A second seam rather than a member of the first, because it is a fact about the *system*
+    ///     and not about this tap — the read needs no tap, no grant and no port, and a
+    ///     `HotkeyEventSource` that is not a `CGEvent` tap is affected by it identically. Required
+    ///     rather than defaulted: a default would make it forgettable, and a policy that forgot it
+    ///     reports ``TapHealth/delivering`` while Vocca is deaf, which is the exact overclaim this
+    ///     parameter was added to remove.
     ///   - note: Where the diagnosis goes. Called for every state change, including the ones that
     ///     recovered cleanly — a health log that only records failures cannot show that a tap has
     ///     been re-created eleven times in a minute, which is the shape of the defect this channel
@@ -429,11 +506,13 @@ public final class TapHealthPolicy {
         source: any RecoverableHotkeyEventSource,
         sink: any HotkeyEventSink,
         clock: any MonotonicClock,
+        secureInput: any SecureInputStateReader,
         note: @escaping (TapHealthNote) -> Void
     ) {
         self.source = source
         self.sink = sink
         self.clock = clock
+        self.secureInput = secureInput
         self.note = note
     }
 
@@ -445,19 +524,27 @@ public final class TapHealthPolicy {
     /// ``HotkeyEventSourceStart/unavailable`` and leaves as ``TapHealth/permissionMissing`` plus a
     /// note — never as a crash, and never as a silent no-op that leaves an owner believing the hotkey
     /// is live.
+    ///
+    /// **Acceptance H8's first half is here too**, and it is the half a user meets: arming while some
+    /// application holds Secure Input creates a perfectly good tap that will receive nothing, so the
+    /// answer is ``TapHealth/blockedBySecureInput`` rather than ``TapHealth/delivering``. The tap is
+    /// still created — this is a state that ends by itself, and a policy that declined to create one
+    /// while it held would be deaf *after* the password field closed, with nothing left to notice.
     public func arm() -> TapHealth {
         endAnyInFlightSession()
         // Wanting a tap survives a creation that fails. Having one does not — see ``aTapExists``.
         isArmed = true
 
-        guard aTapExists else {
-            return createTap(reportingSuccessAs: .armed, failureAs: .permissionMissing)
-        }
-        // Arming a policy that already has a tap replaces it, because `start(delivering:)` is
-        // documented as a `stop()` followed by a `start`. Reported as a re-creation so the log can
-        // show that something was replaced.
-        return createTap(
-            reportingSuccessAs: .recreated(.rearmed), failureAs: .recreationFailed(.rearmed))
+        let health =
+            aTapExists
+            // Arming a policy that already has a tap replaces it, because `start(delivering:)` is
+            // documented as a `stop()` followed by a `start`. Reported as a re-creation so the log
+            // can show that something was replaced.
+            ? createTap(
+                reportingSuccessAs: .recreated(.rearmed), failureAs: .recreationFailed(.rearmed))
+            : createTap(reportingSuccessAs: .armed, failureAs: .permissionMissing)
+
+        return reinterpreting(health, blockedBySecureInput: secureInputIsSwallowingEverything())
     }
 
     /// The operating system disabled the tap, out of band.
@@ -560,22 +647,45 @@ public final class TapHealthPolicy {
     ///
     /// ## What it cannot see, stated because the sentence above invites the wrong conclusion
     ///
-    /// **"Died without telling anyone" has two shapes and this catches one of them.** The detection
-    /// is a single read — `CGEventTapIsEnabled` — so it sees a tap that was *disabled* silently. It
-    /// cannot see a tap that is **enabled and deaf**: created successfully, reporting itself enabled,
-    /// delivering nothing.
+    /// **"Died without telling anyone" has two shapes.** `CGEventTapIsEnabled` sees a tap that was
+    /// *disabled* silently. It cannot see a tap that is **enabled and deaf**: created successfully,
+    /// reporting itself enabled, delivering nothing.
     ///
-    /// That state is not hypothetical and this package asserts elsewhere that it exists. Inherited
-    /// constraint 3 says a tap created before the Accessibility grant has its event mask **cleared at
-    /// creation** — which is the whole reason ``accessibilityGrantChanged()`` must re-create rather
-    /// than re-enable — and Secure Input (phase 6) is the second instance. In toggle mode that shape
-    /// is still a 120 s hot mic with nothing but the ceiling under it, exactly as before this method
-    /// existed. `TapHealthPolicyTests.testThePollCannotSeeATapThatIsEnabledAndDeaf` measures it:
-    /// 120 polls, a hot mic in both modes, and a health log with nothing to say.
+    /// That state is not hypothetical and this package asserts elsewhere that it exists. There are
+    /// two known instances, and **exactly one of them has an API**:
     ///
-    /// Closing it needs a read this layer does not have — evidence that events are *arriving*, or
-    /// phase 6's `IsSecureEventInputEnabled` for the one instance that has an API. Recorded rather
-    /// than fixed, because an overclaim here would stop anyone looking for it.
+    /// - **Secure Input** — now read, by ``SecureInputStateReader``, which is a second question this
+    ///   method asks and the whole of phase 6. The answer is ``TapHealth/blockedBySecureInput``, and
+    ///   any session in flight is ended, because no key event can reach the tap to end it.
+    /// - **A mask cleared at creation.** Inherited constraint 3: a tap created before the
+    ///   Accessibility grant has its event mask cleared, which is the whole reason
+    ///   ``accessibilityGrantChanged()`` must re-create rather than re-enable. **This one remains
+    ///   invisible here**, because there is no read for it short of evidence that events are
+    ///   *arriving*, which this layer does not have. In toggle mode it is still a 120 s hot mic with
+    ///   nothing but the ceiling under it.
+    ///   `TapHealthPolicyTests.testThePollCannotSeeATapThatIsEnabledAndDeafForAReasonWithNoRead`
+    ///   measures what is left: 120 polls, a hot mic in both modes, and a health log with nothing to
+    ///   say.
+    ///
+    /// The narrowing is recorded rather than the gap being called closed, because an overclaim here
+    /// would stop anyone looking for the half that is still open.
+    ///
+    /// ## Secure Input is not a tap failure, and nothing is done to the tap about it
+    ///
+    /// The read is answered before the tap is asked anything, and the branch it takes performs **no
+    /// recovery at all**: no re-enable, no `CGEvent.tapCreate`, and no synthetic disablement note.
+    /// A tap that receives nothing because another application is holding the keyboard is not sick;
+    /// recovering it would tear down and rebuild a healthy tap once per rate limit for as long as a
+    /// password field is focused, and every replacement would come back just as deaf.
+    ///
+    /// What *is* done is the ending, and that is not a recovery — it is this class's one standing
+    /// rule. A session in flight over a blocked tap has lost every way out that a key event
+    /// provides: no key-up in hold-to-talk, no second press in toggle, and no `flagsChanged`. The
+    /// end is delivered as `.tapDisabled` and travels with its audio, like every other retained end.
+    /// **The end reason does not name Secure Input**, deliberately: `RawKeyEvent.Kind` is `VoccaCore`
+    /// vocabulary shared with the decision table, "the tap can no longer deliver" is true here, and
+    /// phase 5 settled the same question the same way for `.pollDetectedRelease`. The distinction
+    /// lives in the note channel, which is where a distinction no rule acts on belongs.
     ///
     /// ## The one entry point that does *not* end the session unconditionally
     ///
@@ -604,6 +714,24 @@ public final class TapHealthPolicy {
     /// - Returns: where the tap stands. ``TapHealth/delivering`` is the ordinary answer and means the
     ///   poll found nothing wrong.
     public func pollTapHealth() -> TapHealth {
+        // Read first, and above every branch, because it is the one question whose answer is a fact
+        // about the machine rather than about this policy's state: Secure Input reaches a tap that
+        // exists and a tap that does not, an armed policy and a disarmed one. Reading it here is
+        // also what keeps the note channel's edge honest — a read taken on some paths only would
+        // report a "transition" whenever the path changed rather than whenever the world did.
+        let blocked = secureInputIsSwallowingEverything()
+        return reinterpreting(pollTheTapItself(), blockedBySecureInput: blocked)
+    }
+
+    /// The tap half of a poll: everything ``pollTapHealth()`` decides that Secure Input has no
+    /// bearing on.
+    ///
+    /// Separated so that the Secure Input verdict is applied **once**, to the answer, rather than at
+    /// each of the two places this can report ``TapHealth/delivering`` — the healthy fast path and a
+    /// recovery that took. The second is the one that would have been missed: a tap re-enabled on
+    /// this very turn is as deaf as one that was fine all along, and reporting it as healthy would
+    /// have been the old overclaim surviving in the branch nobody looked at.
+    private func pollTheTapItself() -> TapHealth {
         if aTapExists && source.isDelivering {
             // A healthy poll re-arms the entitlement to recover at once, so the *next* trouble is
             // treated as the new discovery it is rather than as a repeat of something already being
@@ -631,6 +759,58 @@ public final class TapHealthPolicy {
 
         note(.foundDeadByPoll)
         return resumeInPlace() ?? recreate(because: .reenableFailed)
+    }
+
+    /// **Secure Input reinterprets exactly one answer, and never any other.**
+    ///
+    /// The answer it reinterprets is ``TapHealth/delivering``, because that is the only one that
+    /// becomes a lie while another application holds the keyboard: the tap really is created,
+    /// enabled and configured, and it really is receiving nothing. Every other answer is left
+    /// alone, and each for its own reason — ``TapHealth/permissionMissing`` is the actionable fact
+    /// and Secure Input will pass on its own; ``TapHealth/notArmed`` is a state the owner chose;
+    /// ``TapHealth/notDelivering`` is a genuine tap fault that still needs its recovery, and
+    /// suppressing it would let a password field hide a dead tap for as long as it stayed open.
+    ///
+    /// **The ending is not a recovery.** Nothing here touches the tap: no re-enable, no
+    /// `CGEvent.tapCreate`, no note about a disablement that did not happen. What it does is close a
+    /// microphone that has lost every way out — no key-up in hold-to-talk, no second press in
+    /// toggle, no `flagsChanged` — for as long as the block holds. It runs on every call rather than
+    /// on the transition, unlike the note: a log line and a live microphone are not the same kind of
+    /// thing, and this class has already been bitten once by throttling an ending that was sharing a
+    /// gate with something cheap.
+    ///
+    /// Called from ``arm()`` as well as from the poll, and by the same route, so that "the hotkey
+    /// is blocked" cannot mean one thing at start-up and another a second later. Arming has its own
+    /// reason to want the ending: `start(delivering:)` tears down before it creates, a key-down
+    /// queued behind that teardown starts a session, and the ordinary argument for letting it live —
+    /// *there is a tap now and it will carry the key-up* — is exactly what Secure Input falsifies.
+    private func reinterpreting(
+        _ health: TapHealth, blockedBySecureInput blocked: Bool
+    ) -> TapHealth {
+        guard blocked, health == .delivering else { return health }
+        endAnyInFlightSession()
+        return .blockedBySecureInput
+    }
+
+    /// Whether some application is holding Secure Input **now**, writing the transition down if it
+    /// has changed since the last time anything asked.
+    ///
+    /// The one place ``secureInput`` is read, so that the edge cannot be computed from one call site
+    /// and the answer taken from another. Both callers act on the return value; neither knows the
+    /// note channel is involved.
+    ///
+    /// **The note is edge-triggered and the answer is not.** Six hundred identical lines describe one
+    /// fact and destroy the log they are in — which is the argument
+    /// ``TapHealthPolling/pollsBetweenRecoveryAttempts`` makes about recoveries, applied to the one
+    /// state that can legitimately persist for minutes. What the *caller* does with `true` is not
+    /// throttled by anything here: a microphone is not a log line.
+    private func secureInputIsSwallowingEverything() -> Bool {
+        let active = secureInput.isSecureInputActive
+        if active != secureInputWasActive {
+            secureInputWasActive = active
+            note(active ? .secureInputBegan : .secureInputEnded)
+        }
+        return active
     }
 
     /// Whether the poll may attempt a recovery on this turn, counting the turn if not.
