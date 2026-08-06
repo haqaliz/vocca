@@ -48,7 +48,11 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 363 by audio-capture phase 1 review round 2, which added two and closed a blocker.
+# 381 by audio-capture phase 2, which added eighteen: the format conversion to the 16 kHz mono
+# interchange format (A2, A8), the downmix, the streaming and session-reuse behaviour, and a lint
+# bounding which files in Sources/ may name AVFoundation.
+#
+# Raised to 363 by audio-capture phase 1 review round 2, which added two and closed a blocker.
 #
 # THE BLOCKER, because it is the one worth reading twice: a `// @realtime` marker above a **closure**
 # resolved to the next `func` below it. Measured — a marker over a closure containing
@@ -570,7 +574,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=363
+MINIMUM_EXECUTED_TESTS=381
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
