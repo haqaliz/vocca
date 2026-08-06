@@ -111,6 +111,17 @@ final class AudioRingBufferTests: XCTestCase {
             AudioRingBuffer.room(capacity: 8, write: 2, read: UInt64.max - 2), 3,
             "the occupancy across a cursor wrap is (write &- read), which is 5 here")
 
+        // A negative capacity. `room` is `public`, and `UInt64(capacity)` died here with
+        // `Fatal error: Negative value is not representable` — in the function extracted to remove a
+        // trapping conversion, licensed onto the realtime allow-list by a sentence saying it had
+        // none. A constructed ring cannot reach it, which is the same defence the conversion this
+        // function replaced was given.
+        XCTAssertEqual(
+            AudioRingBuffer.room(capacity: -1, write: 0, read: 0), 0,
+            "a negative capacity must be no room at all, not a trap and not a wrapped enormity")
+        XCTAssertEqual(AudioRingBuffer.room(capacity: Int.min, write: 0, read: 0), 0)
+        XCTAssertEqual(AudioRingBuffer.room(capacity: 0, write: 0, read: 0), 0)
+
         // And the states the API cannot produce. Every one of these would trap under `Int(_:)`.
         for (write, read) in [(0 as UInt64, 1 as UInt64), (5, 9), (0, UInt64.max / 2), (7, 4096)] {
             XCTAssertEqual(
@@ -244,9 +255,14 @@ final class AudioRingBufferTests: XCTestCase {
     // MARK: - The overrun policy: drop the newest block, whole, and count it
 
     /// The policy, stated as an assertion rather than as a doc comment: **the oldest audio survives
-    /// and the newest block is the one lost.** For a dictation session the beginning of the
-    /// utterance is the part the user is surest they said, and it is also the part already handed to
-    /// the ASR by the time an overrun could occur.
+    /// and the newest block is the one lost.**
+    ///
+    /// Which end is lost is not the argument for it — see `write(_:count:)`, which says so. The
+    /// argument is that drop-oldest gives `readIndex` two writers and forces a compare-exchange onto
+    /// the audio thread. This comment used to add that the oldest audio is "already handed to the
+    /// ASR by the time an overrun could occur", which is false twice over: nothing drains this ring,
+    /// and there is no ASR. Two files in one commit arguing opposite sides is worse than either
+    /// argument.
     func testAnOverrunDropsTheNewestBlockWholeAndKeepsTheOldestAudio() {
         let ring = AudioRingBuffer(capacity: 8)
         let oldest: [Float] = [1, 2, 3, 4, 5, 6]
@@ -513,6 +529,17 @@ final class AudioRingBufferTests: XCTestCase {
     ///   ``testDroppedSamplesAccumulateAcrossSeparateRefusals`` already covers single-threaded;
     /// - ``AudioRingBuffer/refusedSampleCount`` must be non-zero, or no overrun happened and the
     ///   test named for the overrun policy never reached it.
+    ///
+    /// ## What it proves, which is narrower than it reads
+    ///
+    /// It proves both threads ran, and that the accounting is exact while they did. It is **not**
+    /// the test that catches an overlap-only ordering defect. Measured: against a ring that
+    /// overwrites slots the consumer is mid-copy from, this test dies 5 of 5 — but on the
+    /// `refusedSampleCount > 0` guard alone, with the accounting and strictly-increasing assertions
+    /// both passing while the producer corrupts data throughout. Against publish-before-copy it is
+    /// 0 of 10; the A1 test above catches that at 3 of 12. And neither test's integrity check can
+    /// see a drop-oldest-shaped corruption at all, because dropping the oldest still yields an
+    /// increasing sequence.
     func testUnderContentionEveryProducedSampleIsEitherReceivedOrCounted() {
         let ring = AudioRingBuffer(capacity: 64)
         let blockCount = 4_000
@@ -589,6 +616,60 @@ final class AudioRingBufferTests: XCTestCase {
     }
 
     // MARK: - The source, where the runtime cannot look
+
+    /// **Claim 2 of the `@unchecked Sendable` comment, checked instead of counted.**
+    ///
+    /// The claim is that no atomic in `AudioRingBuffer.swift` is ever the target of a
+    /// read-modify-write — every one is a plain load or a plain store — and it is load-bearing: it
+    /// is why the refusal counter is `load`-then-`store`, and it is half the reason the overrun
+    /// policy is drop-newest rather than drop-oldest.
+    ///
+    /// It was enforced only on the realtime body, via the lint's allow-list. So
+    /// `readIndex.wrappingAdd(UInt64(wanted), ordering: .releasing)` in the **consumer** — an RMW on
+    /// a cursor, in a file whose comment says there are none — survived the whole suite. It is
+    /// behaviourally identical under one writer, so it was never a bug; it was a falsification of a
+    /// claim asserted as checkable, which for the only `@unchecked Sendable` in the codebase is the
+    /// thing that matters.
+    ///
+    /// The comment also used to instruct the reader to count `.store(` and told them the answer was
+    /// three. `grep` says four — the sentence counted itself. Counting over comment-stripped source
+    /// is the fix for both halves.
+    func testTheRingBuffersAtomicsAreOnlyEverLoadedAndStored() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaAudio/AudioRingBuffer.swift")
+        let code = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+
+        // Every read-modify-write `Synchronization.Atomic` offers. A deny-list is right here, unlike
+        // in the realtime lint, because this is a closed set fixed by the standard library rather
+        // than by what someone might write next.
+        let readModifyWrites = [
+            "wrappingAdd", "wrappingSubtract", "add(", "subtract(", "exchange(",
+            "compareExchange", "weakCompareExchange", "bitwiseAnd", "bitwiseOr", "bitwiseXor",
+            "logicalAnd", "logicalOr", "logicalXor", "min(ordering", "max(ordering",
+        ]
+        for spelling in readModifyWrites {
+            XCTAssertFalse(
+                code.contains(spelling),
+                """
+                AudioRingBuffer.swift uses `\(spelling)`, so claim 2 of its @unchecked Sendable \
+                comment is false. Every atomic in that file has exactly one writer, which is why a \
+                plain load and a plain store suffice — and why drop-oldest was rejected, since it \
+                would give `readIndex` two writers and force a compare-exchange onto the audio \
+                thread. If an RMW is genuinely wanted, the comment is what has to change first.
+                """)
+        }
+
+        let stores = code.components(separatedBy: ".store(").count - 1
+        XCTAssertEqual(
+            stores, 3,
+            """
+            Found \(stores) stores to atomics in the code of AudioRingBuffer.swift; there must be \
+            exactly three, one per atomic — writeIndex in the producer, readIndex in the consumer, \
+            refusedSamples in the producer. A fourth means an atomic acquired a second writer, which \
+            is the premise every relaxed self-load in the file rests on.
+            """)
+    }
 
     /// `deinit` must free the ring's storage, and nothing at runtime pins that it does.
     ///

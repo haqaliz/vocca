@@ -48,7 +48,36 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 361 by audio-capture phase 1 review round 1, which added seven. Four of them are a fourth pass in
+# 363 by audio-capture phase 1 review round 2, which added two and closed a blocker.
+#
+# THE BLOCKER, because it is the one worth reading twice: a `// @realtime` marker above a **closure**
+# resolved to the next `func` below it. Measured — a marker over a closure containing
+# `[Float](repeating:count:)` and `print(...)`, sited above `write`'s own marker, passed the entire
+# 361-test suite: both markers produced the same qualified name, `Set` collapsed them to one element,
+# the set-equality assertion that is the compensating control was satisfied, all four passes ran over
+# `write`'s body twice, and the allocating closure was read by nothing. **That is the exact shape
+# `AVAudioSinkNode` requires and the shape phase 4 writes next**, so acceptance A3 — "the realtime
+# block allocates nothing, asserted by a source lint" — would have been blind to the only realtime
+# block that matters, in a file CI never executes. A marker must now sit directly above a `func`,
+# with only attributes and declaration modifiers between; anything else is a hard error. The plan
+# tells phase 4 to pass a named function to the sink node, and why `[` must not be deleted to get
+# past the second rule.
+#
+# The other test is claim 2 of the @unchecked Sendable comment, checked instead of counted: no
+# read-modify-write spelling anywhere in AudioRingBuffer.swift, and exactly three stores to atomics.
+# It was enforced only on the realtime body, so an RMW on a cursor in the *consumer* survived the
+# whole suite — behaviourally identical under one writer, and a falsification of a claim asserted as
+# checkable, which is what the warrant for the codebase's only @unchecked Sendable cannot afford. The
+# same edit also fixes a comment that told the reader to count `.store(` and gave the answer three;
+# the grep says four, because the sentence counted itself.
+#
+# Two more mutations died without needing a new test: `room` — extracted the round before and left
+# unlinted, where an allocation and a `print` passed everything — is now marked `// @realtime` and in
+# `expectedRealtimeDeclarations`; and pass 4 now splits on `;`, closing its own bypass in the round
+# after it was added (`let probe = count; Self.sidecar.total = probe` clears every earlier pass and
+# cleared pass 4 because the *line* began with `let`).
+#
+# It was 361 after audio-capture phase 1 review round 1, which added seven. Four of them are a fourth pass in
 # RealtimeSafetyTests and its controls: three planted constructs — a subscript on a stored array, a
 # compound assignment on a captured object's property, and `scratch[0] = samples[0]` — survived all
 # three existing passes, and the last of those is what a sink-node block is most likely to reach for
@@ -541,7 +570,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=361
+MINIMUM_EXECUTED_TESTS=363
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

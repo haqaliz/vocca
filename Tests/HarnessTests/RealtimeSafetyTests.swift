@@ -27,8 +27,8 @@ import XCTest
 /// ## How a function opts in
 ///
 /// A function that runs on the realtime thread carries the line comment `// @realtime` immediately
-/// before its declaration. This suite finds every one of them, extracts the body, and applies three
-/// passes.
+/// **immediately** before its declaration — only attributes and declaration modifiers may stand
+/// between. This suite finds every one of them, extracts the body, and applies four passes.
 ///
 /// **Four passes, because each is blind to what the others see.** This repository has shipped
 /// several checks that passed while measuring less than they claimed, and a single-pass version of
@@ -83,7 +83,12 @@ final class RealtimeSafetyTests: XCTestCase {
     /// anyone reading this list. Phase 4 adds the `AVAudioSinkNode` block, and it should have to
     /// edit this line to do it.
     static let expectedRealtimeDeclarations: Set<String> = [
-        "AudioRingBuffer.swift: write"
+        "AudioRingBuffer.swift: write",
+        // Added after `room` was extracted from `write` and spent a round unlinted: an allocation
+        // and a `print` inside it passed the whole suite. The header's compensating control is that
+        // "the set of bodies a reviewer must read stays small and known" — it had grown from one to
+        // two without this set changing, which is the control failing quietly.
+        "AudioRingBuffer.swift: room",
     ]
 
     /// What a realtime body may call.
@@ -94,10 +99,16 @@ final class RealtimeSafetyTests: XCTestCase {
     ///   Apple silicon's LSE and would be perfectly safe here, but `AudioRingBuffer`'s second
     ///   invariant claim is that no atomic in that file is ever the target of one. Leaving the name
     ///   off this list is what makes the claim checkable instead of merely written down.
-    /// - `min` — arithmetic on `Int` and `UInt64`.
-    /// - `room` — `AudioRingBuffer.room(capacity:write:read:)`, four lines of fixed-width integer
-    ///   arithmetic with no conversion that can trap. It is a `static` function precisely so that
-    ///   the arithmetic is testable in states the API cannot reach; see its own documentation.
+    /// - `min`, `max` — arithmetic on `Int` and `UInt64`.
+    /// - `room` — `AudioRingBuffer.room(capacity:write:read:)`, two lines of fixed-width integer
+    ///   arithmetic with no conversion that can trap **for any argument at all**, which is a
+    ///   stronger claim than the one this entry made last round and is why `max(capacity, 0)` is in
+    ///   it: the previous wording said "no conversion that can trap" while `UInt64(capacity)` died
+    ///   on a negative capacity with `Fatal error: Negative value is not representable`. The
+    ///   function is `public`, so "a constructed ring cannot reach it" was the same reasoning that
+    ///   defended the trapping conversion `room` was extracted to remove. It is also **linted in its
+    ///   own right** now — being on this list is a claim about the call, not a substitute for
+    ///   reading the callee.
     /// - `advanced`, `update` — pointer arithmetic and a `memmove` over trivial memory. No
     ///   allocation, no reference count, no bridging.
     /// - `Int`, `UInt64` — width conversions between fixed-width integers.
@@ -106,7 +117,7 @@ final class RealtimeSafetyTests: XCTestCase {
     /// that costs and why the marker set is pinned by equality as the compensating control.
     static let permittedCalls: Set<String> = [
         "load", "store",
-        "min", "room",
+        "min", "max", "room",
         "advanced", "update",
         "Int", "UInt64",
     ]
@@ -346,7 +357,7 @@ final class RealtimeSafetyTests: XCTestCase {
         }
     }
 
-    func testTheCallAllowListRejectsTheAllocationsAndLocksItExistsToReject() {
+    func testTheCallAllowListRejectsTheAllocationsAndLocksItExistsToReject() throws {
         let violations: [(String, String)] = [
             ("os_unfair_lock_lock(&lock)", "os_unfair_lock_lock"),
             ("buffer.append(sample)", "append"),
@@ -360,14 +371,20 @@ final class RealtimeSafetyTests: XCTestCase {
                 "`\(body)` was not reported by the call allow-list")
         }
 
-        let shipped = """
-            let write = writeIndex.load(ordering: .relaxed)
-            storage.advanced(by: offset).update(from: samples, count: firstRun)
-            writeIndex.store(write &+ UInt64(count), ordering: .releasing)
-            """
-        XCTAssertTrue(
-            SwiftSourceScanner.callNames(inBody: shipped).subtracting(Self.permittedCalls).isEmpty,
-            "the shipped realtime body was reported as a violation, so this lint fails a correct build")
+        // The shipped bodies themselves, read from `Sources/` rather than transcribed. A
+        // hand-written approximation of "the shipped body" had already drifted after one round —
+        // it still carried the arithmetic as it read *before* `room` was extracted — and a control
+        // that no longer resembles what it clears is a control that will pass whatever ships.
+        for declaration in try Self.realtimeDeclarationsInSources() {
+            XCTAssertTrue(
+                SwiftSourceScanner.callNames(inBody: declaration.body)
+                    .subtracting(Self.permittedCalls).isEmpty,
+                """
+                \(declaration.qualifiedName) was reported by the call allow-list, so this lint fails \
+                a correct build. (The pass itself asserts the same thing; this control exists to \
+                fail here first, where the message says the lint is wrong rather than the code.)
+                """)
+        }
     }
 
     /// The pass-1 blind spot, demonstrated rather than asserted in prose: the call-name scan does
@@ -422,7 +439,7 @@ final class RealtimeSafetyTests: XCTestCase {
 
     /// Pass 4's controls: the two shapes that defeated the first three, and the shipped body which
     /// must stay clear of it.
-    func testTheMutationPassSeesWhatTheFirstThreeCannot() {
+    func testTheMutationPassSeesWhatTheFirstThreeCannot() throws {
         let storedArrayWrite = "scratch[0] = samples[0]"
         let capturedObjectWrite = "sidecar.total += count"
 
@@ -441,22 +458,30 @@ final class RealtimeSafetyTests: XCTestCase {
 
         // And the shipped shape must not be reported, or the lint fails a correct build. Every one
         // of these is a `let` binding, a comparison, or a call.
-        let shipped = """
-            guard count > 0 else { return count == 0 }
-            let write = writeIndex.load(ordering: .relaxed)
-            let used = min(write &- read, limit)
-            guard UInt64(count) <= limit &- used else {
-                refusedSamples.store(
-                    refusedSamples.load(ordering: .relaxed) &+ UInt64(count), ordering: .relaxed)
-                return false
-            }
-            if firstRun < count {
-                storage.update(from: samples.advanced(by: firstRun), count: count - firstRun)
-            }
-            """
+        // The same shape written with a semicolon, which is how this pass was bypassed in the round
+        // it was added: the *line* starts with `let`, so a per-line first-token test skips it whole.
+        let hiddenBehindASemicolon = "let probe = count; Self.sidecar.total = probe"
+        XCTAssertTrue(
+            SwiftSourceScanner.callNames(inBody: hiddenBehindASemicolon)
+                .subtracting(Self.permittedCalls).isEmpty,
+            "the call pass reported the semicolon form; this control needs a different example")
         XCTAssertEqual(
-            Self.mutatingStatements(inBody: shipped), [],
-            "the mutation pass reported the shipped body, so it fails a correct build")
+            Self.mutatingStatements(inBody: hiddenBehindASemicolon),
+            ["Self.sidecar.total = probe"],
+            """
+            A mutation hidden after a `;` on a line beginning with `let` was not reported. That is \
+            pass 4's own bypass: one extra character turns the exact shape this pass exists to catch \
+            back into something nothing in the suite sees.
+            """)
+
+        // The shipped bodies, read from `Sources/` rather than transcribed — see the same control in
+        // `testTheCallAllowListRejects…` for why. The version this replaced still carried the
+        // arithmetic as it read *before* `room` was extracted, one round after the code moved.
+        for declaration in try Self.realtimeDeclarationsInSources() {
+            XCTAssertEqual(
+                Self.mutatingStatements(inBody: declaration.body), [],
+                "\(declaration.qualifiedName) was reported by pass 4, so it fails a correct build")
+        }
 
         // A local `var` is stack storage and is allowed; mutating it afterwards is not, because the
         // scan cannot tell `total += 1` on a local from the same line on a captured property.
@@ -464,22 +489,78 @@ final class RealtimeSafetyTests: XCTestCase {
         XCTAssertEqual(Self.mutatingStatements(inBody: "total += 1"), ["total += 1"])
     }
 
-    /// The vacuity guard's own control. `noSourcesFound` is the case whose failure mode is the
-    /// whole lint silently measuring nothing, and it had no test.
-    func testTheScanFindsNothingToLintInAnEmptyTreeRatherThanPassing() throws {
+    /// The vacuity guard's own control: the scan **throws** on a tree with nothing in it.
+    ///
+    /// The first version of this test asserted that `SwiftSourceScanner.swiftFiles(under:)` returns
+    /// nothing for an empty directory — a property of the file walk — while its doc comment claimed
+    /// to stand for "the scan refuses to proceed when it returns nothing". Deleting the `guard`
+    /// left the whole suite green. It now calls the scan itself.
+    func testTheScanRefusesAnEmptyTreeRatherThanReportingNoViolations() throws {
         let empty = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("vocca-realtime-lint-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: empty) }
 
-        XCTAssertTrue(
-            SwiftSourceScanner.swiftFiles(under: empty).isEmpty,
+        XCTAssertThrowsError(try Self.realtimeDeclarations(under: empty)) {
+            XCTAssertTrue(
+                "\($0)".contains("evaluated against nothing"),
+                """
+                An empty tree was reported as something other than a vacuous scan. A broken package \
+                root must fail this suite loudly: every pass here returns "no violations" over zero \
+                bodies, which reads exactly like a clean build.
+                """)
+        }
+    }
+
+    /// **A marker above anything that is not a `func` is an error, and this is the blocking fix of
+    /// review round 2.**
+    ///
+    /// The closure is `AVAudioSinkNode`'s shape, which is what Phase 4 writes next, and the body
+    /// planted in it allocates *and* logs. Before this fix the marker walked past the closure to the
+    /// `func` below, both markers produced the same qualified name, `Set` collapsed them, the
+    /// set-equality control was satisfied, and this allocating realtime body was read by nothing.
+    func testAMarkerAboveAClosureIsRejectedRatherThanAdoptingTheNextFunction() {
+        let sinkNodeShape = """
+            // @realtime
+            let sink = AVAudioSinkNode { _, frameCount, audioBufferList in
+                let scratch = [Float](repeating: 0, count: Int(frameCount))
+                print("captured \\(scratch.count)")
+                return noErr
+            }
+
+            // @realtime
+            public func write(_ samples: UnsafePointer<Float>, count: Int) -> Bool {
+                return true
+            }
             """
-            The file walk found sources in an empty directory. Everything in this suite keys on that \
-            walk, and `realtimeDeclarationsInSources` refuses to proceed when it returns nothing — \
-            which is the only thing standing between a broken package root and four green tests \
-            that read no code at all.
-            """)
+
+        XCTAssertThrowsError(
+            try Self.realtimeDeclarationsOrThrow(inSource: sinkNodeShape, file: "Sink.swift")
+        ) {
+            XCTAssertTrue(
+                "\($0)".contains("no function declaration"),
+                """
+                A marked closure was resolved to something instead of being rejected. If it resolved \
+                to the `func` below, the two declarations carry the same qualified name, the \
+                set-equality assertion collapses them into one, and an allocating, logging realtime \
+                body ships with the whole suite green — which is measured, not hypothetical.
+                """)
+        }
+
+        // And the modifiers that legitimately stand between a marker and its function still do.
+        for prefix in ["", "@discardableResult\n", "@inlinable\npublic final ", "nonisolated static "]
+        {
+            let marked = """
+                // @realtime
+                \(prefix)func render(count: Int) -> Bool {
+                    return true
+                }
+                """
+            XCTAssertEqual(
+                Self.realtimeDeclarations(inSource: marked, file: "X.swift").map(\.qualifiedName),
+                ["X.swift: render"],
+                "the modifier prefix `\(prefix)` made a legitimate marked function unreachable")
+        }
     }
 
     /// `unbalancedBody`'s control: a marked declaration whose braces never close must be an error,
@@ -502,15 +583,23 @@ final class RealtimeSafetyTests: XCTestCase {
 
     /// Lines in `body` that assign to something other than a newly bound local.
     ///
-    /// Line-based and deliberately crude. A line counts as a mutation if it contains a compound
-    /// assignment operator, or a bare `=` — one not part of `==`, `<=`, `!=`, `&=` and the rest —
-    /// on a line whose first token is neither `let` nor `var`. A multi-line expression whose
+    /// Statement-based and deliberately crude. A statement counts as a mutation if it contains a
+    /// compound assignment operator, or a bare `=` — one not part of `==`, `<=`, `!=`, `&=` and the
+    /// rest — and its first token is neither `let` nor `var`. A multi-line expression whose
     /// continuation begins with `=` would be reported, which is over-reporting and therefore the
     /// safe direction for a lint; no shipped body is written that way.
+    ///
+    /// **A `;` separates statements as surely as a newline, and missing that was this pass's own
+    /// bypass in the round it was added.** `let probe = count; Self.sidecar.total = probe` — a write
+    /// to a property on a captured object, the exact shape pass 4 exists for — cleared passes 1-3
+    /// for the same reasons `sidecar.total += count` does, and cleared pass 4 because the *line*
+    /// began with `let`. Splitting on `;` first is the whole fix.
     static func mutatingStatements(inBody body: String) -> [String] {
         var offenders: [String] = []
 
-        for rawLine in SwiftSourceScanner.stripComments(from: body).split(separator: "\n") {
+        let statements = SwiftSourceScanner.stripComments(from: body)
+            .replacingOccurrences(of: ";", with: "\n")
+        for rawLine in statements.split(separator: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
 
@@ -572,9 +661,20 @@ final class RealtimeSafetyTests: XCTestCase {
     /// Every marked declaration under `Sources/`, failing loudly if there is nothing to scan.
     static func realtimeDeclarationsInSources() throws -> [RealtimeDeclaration] {
         let root = try PackageRootLocator.find(from: #filePath)
-        let sources = root.appendingPathComponent("Sources")
-        let files = SwiftSourceScanner.swiftFiles(under: sources)
-        guard !files.isEmpty else { throw ScanError.noSourcesFound(root: sources.path) }
+        return try realtimeDeclarations(under: root.appendingPathComponent("Sources"))
+    }
+
+    /// The same scan over an arbitrary root, so that the vacuity guard has somewhere to be tested
+    /// from.
+    ///
+    /// It was not, for a round: the control written for it asserted that
+    /// `SwiftSourceScanner.swiftFiles(under:)` returns nothing for an empty directory — a property
+    /// of the file *walk* — while claiming to stand for "this refuses to proceed when it returns
+    /// nothing". Deleting the `guard` below left the whole suite green. Taking the root as a
+    /// parameter is what makes the guard reachable from a test at all.
+    static func realtimeDeclarations(under root: URL) throws -> [RealtimeDeclaration] {
+        let files = SwiftSourceScanner.swiftFiles(under: root)
+        guard !files.isEmpty else { throw ScanError.noSourcesFound(root: root.path) }
 
         var declarations: [RealtimeDeclaration] = []
         for file in files {
@@ -591,13 +691,29 @@ final class RealtimeSafetyTests: XCTestCase {
         (try? realtimeDeclarationsOrThrow(inSource: source, file: file)) ?? []
     }
 
-    /// Finds each ``marker``, then the first `func` after it, and returns that function's signature
-    /// and brace-balanced body.
+    /// Finds each ``marker``, requires it to sit **immediately** above a `func`, and returns that
+    /// function's signature and brace-balanced body.
     ///
-    /// The search for `func` runs over the *comment-stripped* remainder, so neither the marker's own
-    /// prose nor a doc comment below it can be mistaken for a declaration. It inherits
-    /// ``SwiftSourceScanner``'s known limit — not string-literal aware — which fails towards reading
-    /// too much and therefore towards over-reporting, the safe direction for a lint.
+    /// "Immediately" is the whole of this round's blocking fix, so it is worth stating exactly. The
+    /// scan used to take the *next* `func` anywhere below the marker, walking past whatever lay
+    /// between. Measured: a marker placed above a **closure** containing `[Float](repeating:count:)`
+    /// and `print(…)`, sited just above `write`'s own marker, passed the entire suite — both markers
+    /// resolved to `write`, the two qualified names were identical, `Set` collapsed them to one
+    /// element, the set-equality assertion that is supposed to be the compensating control was
+    /// satisfied, all four passes ran over `write`'s body twice, and the allocating closure was read
+    /// by nothing.
+    ///
+    /// **That is the exact shape Phase 4 writes next.** `AVAudioSinkNode`'s receiver block is a
+    /// closure literal with no `func` in it, and acceptance A3 is "the realtime block allocates
+    /// nothing — asserted by a source lint". A lint blind to the only realtime block that matters is
+    /// not an assertion. So a marker that does not resolve to a `func` is now an error, and
+    /// `plan_20260806.md`'s Phase 4 says to write the sink body as a named function passed to the
+    /// node rather than inline.
+    ///
+    /// The search runs over the *comment-stripped* remainder, so neither the marker's own prose nor
+    /// a doc comment below it can be mistaken for a declaration. It inherits ``SwiftSourceScanner``'s
+    /// known limit — not string-literal aware — which fails towards reading too much and therefore
+    /// towards over-reporting, the safe direction for a lint.
     static func realtimeDeclarationsOrThrow(
         inSource source: String, file: String
     ) throws -> [RealtimeDeclaration] {
@@ -618,7 +734,7 @@ final class RealtimeSafetyTests: XCTestCase {
                 from: String(source[lineEnd..<source.endIndex]))
             let characters = Array(remainder)
             guard
-                let keyword = nextFuncKeyword(in: characters),
+                let keyword = funcKeywordDirectlyBelow(characters),
                 let name = identifier(in: characters, from: keyword + 4),
                 let brace = characters[keyword...].firstIndex(of: "{")
             else {
@@ -639,23 +755,45 @@ final class RealtimeSafetyTests: XCTestCase {
         return declarations
     }
 
-    /// The index of the `f` of the next whole-word `func`, or `nil`.
-    private static func nextFuncKeyword(in text: [Character]) -> Int? {
-        let keyword = Array("func")
+    /// Tokens that may stand between a marker and the `func` it marks: attributes, and the
+    /// declaration modifiers Swift allows in front of a method.
+    ///
+    /// An allow-list, and it has to be. A deny-list — or the old "find the next `func`" — walks past
+    /// `let sink = AVAudioSinkNode { … }` and lands on whatever function follows, which is how a
+    /// marked closure came to be silently linted as somebody else's body.
+    private static let permittedDeclarationModifiers: Set<String> = [
+        "public", "internal", "package", "private", "fileprivate", "open",
+        "static", "class", "final", "override", "mutating", "nonmutating", "dynamic",
+        "consuming", "borrowing", "nonisolated",
+    ]
+
+    /// The index of the `f` of the `func` keyword **directly** below the marker, or `nil` if the
+    /// next thing is not a function declaration.
+    ///
+    /// Directly means: only attributes (`@discardableResult`, `@inlinable`, …) and the modifiers
+    /// above may intervene. Anything else — `let`, `var`, a closure, a type declaration — is not a
+    /// marked function, and returning `nil` here is what turns it into a loud error rather than a
+    /// marker that quietly adopts the next function it can find.
+    private static func funcKeywordDirectlyBelow(_ text: [Character]) -> Int? {
         var index = 0
-        while index + keyword.count <= text.count {
-            defer { index += 1 }
-            guard Array(text[index..<(index + keyword.count)]) == keyword else { continue }
-            if index > 0, text[index - 1].isLetter || text[index - 1].isNumber
-                || text[index - 1] == "_"
-            {
-                continue
+        while index < text.count {
+            while index < text.count, text[index].isWhitespace { index += 1 }
+            guard index < text.count else { return nil }
+
+            // One token: everything up to the next whitespace.
+            var end = index
+            while end < text.count, !text[end].isWhitespace { end += 1 }
+            let token = String(text[index..<end])
+
+            if token == "func" { return index }
+
+            // The leading identifier of the token, so that `private(set)` and `@_spi(X)` are
+            // classified by what they are rather than rejected for their parentheses.
+            let head = String(token.prefix { $0.isLetter || $0 == "_" || $0 == "@" })
+            guard head.hasPrefix("@") || permittedDeclarationModifiers.contains(head) else {
+                return nil
             }
-            let after = index + keyword.count
-            guard after < text.count, !text[after].isLetter, !text[after].isNumber,
-                text[after] != "_"
-            else { continue }
-            return index
+            index = end
         }
         return nil
     }

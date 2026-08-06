@@ -62,9 +62,14 @@ public final class AudioRingBuffer: @unchecked Sendable {
     //    only by the producer. **No atomic in this file has two writers, and therefore no atomic in
     //    this file is ever the target of a read-modify-write** — every one of them is a plain load
     //    or a plain store, including the refusal counter, which is why it is `load`-then-`store`
-    //    below rather than the `wrappingAdd` that would read more naturally. Check that claim by
-    //    counting: `.store(` appears three times in this file, once per atomic, each inside the one
-    //    role that owns it.
+    //    below rather than the `wrappingAdd` that would read more naturally.
+    //
+    //    That claim is checked rather than counted by hand, by `testTheRingBuffersAtomicsAreOnly
+    //    EverLoadedAndStored`: exactly three stores to atomics in the code of this file, one per
+    //    atomic, and no read-modify-write spelling anywhere in it. The earlier version of this
+    //    paragraph told a reader to run a `grep` and gave the answer three — the `grep` says four,
+    //    because the sentence counted itself. A warrant for the only `@unchecked Sendable` in the
+    //    codebase should not hand its reader an instruction that disagrees with it.
     //
     //    It is also why the overrun policy is drop-newest and not drop-oldest: dropping the oldest
     //    sample means the *producer* advancing `readIndex`, which gives that cursor two writers and
@@ -100,9 +105,10 @@ public final class AudioRingBuffer: @unchecked Sendable {
     //    store there is nothing in the IR stopping it from sinking the sample copies past that store
     //    — at `-O`, on x86 as much as on arm64. Only then is it also a hardware argument: on arm64
     //    `.acquiring` and `.releasing` lower to `ldar` and `stlr`, and the all-relaxed version
-    //    passes on x86, where the hardware supplies what the compiler did not, and reorders on Apple
-    //    silicon. A reader who concludes that a strong enough memory model makes these optional has
-    //    stopped at the second half.
+    //    *happened to pass* on the x86 build it was tried on, where the hardware supplies what the
+    //    compiler did not — happened to, because by the paragraph above the compiler may sink the
+    //    copies there too, so that pass was luck and not a property of x86. A reader who concludes
+    //    that a strong enough memory model makes these optional has stopped at the second half.
     //
     //    AND NOTHING AUTOMATED CHECKS THEM. Measured, not assumed, and independently reproduced in
     //    review: **six** weakenings — each of the four load-bearing orderings on its own, the
@@ -178,8 +184,18 @@ public final class AudioRingBuffer: @unchecked Sendable {
     /// `Fatal error` inside a CoreAudio callback. Reverting this to the trapping form is invisible
     /// to every runtime test, because the trap only fires in a state the API cannot produce; the
     /// tests on *this function* are what hold it.
+    ///
+    /// `max(capacity, 0)` for the same reason one level down, and it is not theoretical: this
+    /// function is `public` and `UInt64(capacity)` traps on a negative one with `Fatal error:
+    /// Negative value is not representable`. A constructed ring cannot reach it — `init` refuses a
+    /// non-positive capacity — but "unreachable through the API" is the exact reasoning the trapping
+    /// conversion this function replaced was defended with, and it was wrong then too.
+    ///
+    // @realtime — `write` calls this on every callback, so it is realtime-path code and is linted
+    // as such. It was not, for one round: the F3 fix moved arithmetic off a linted body onto an
+    // unlinted one, and an allocation and a `print` inside here passed all 361 tests.
     public static func room(capacity: Int, write: UInt64, read: UInt64) -> UInt64 {
-        let limit = UInt64(capacity)
+        let limit = UInt64(max(capacity, 0))
         return limit &- min(write &- read, limit)
     }
 
