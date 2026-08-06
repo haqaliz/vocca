@@ -48,9 +48,20 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 381 by audio-capture phase 2, which added eighteen: the format conversion to the 16 kHz mono
-# interchange format (A2, A8), the downmix, the streaming and session-reuse behaviour, and a lint
-# bounding which files in Sources/ may name AVFoundation.
+# 384 by audio-capture phase 2 review round 1, which added three — all of them one defect:
+# **audio from one session reaching another session's transcript.** finish() cleaned up only after
+# its flush succeeded, so a throw left the resampler's filter state and a partial frame in place for
+# the next session to emit; and a session that ended any of the five ways that are not a normal
+# key-up never called finish() at all, with no other way to reset. Both are silent — nothing
+# downstream can tell contaminated audio from long audio. The cleanup is now in a `defer`, and
+# beginSession() anchors the reset at the one point in a session's life that cannot be skipped.
+# The third test drives the drain's iteration ceiling, which pins that the two drain constants
+# multiply out to 524 s of 16 kHz audio against the product's 120 s ceiling — a claim the previous
+# comment made without ever crossing it.
+#
+# It was 381 after audio-capture phase 2, which added eighteen: the format conversion to the 16 kHz
+# mono interchange format (A2, A8), the downmix, the streaming and session-reuse behaviour, and a
+# lint bounding which files in Sources/ may name AVFoundation.
 #
 # Raised to 363 by audio-capture phase 1 review round 2, which added two and closed a blocker.
 #
@@ -574,7 +585,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=381
+MINIMUM_EXECUTED_TESTS=384
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

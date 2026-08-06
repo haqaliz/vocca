@@ -129,12 +129,25 @@ public enum AudioFormatConversionError: Error, Equatable, CustomStringConvertibl
 /// 480 frames against a single 48000-frame call, max absolute difference 0). ``finish(_:)`` is the
 /// only thing that flushes the tail.
 ///
-/// And ``finish(_:)`` calls `AVAudioConverter.reset()` afterwards, which is **required, not
-/// hygiene**. Measured: a converter that has been flushed to end-of-stream and is then handed a
-/// fresh session's audio produces **zero frames** — the second session is entirely silent, with no
-/// error raised, on an object that looks perfectly alive.
-/// `testASecondSessionProducesTheSameAudioAsTheFirst` is the test that holds this, and it is the
-/// reason it exists.
+/// And the reset that follows is **required, not hygiene**. Measured: a converter that has been
+/// flushed to end-of-stream and is then handed a fresh session's audio produces **zero frames** —
+/// the second session is entirely silent, with no error raised, on an object that looks perfectly
+/// alive. `testASecondSessionProducesTheSameAudioAsTheFirst` is the test that holds this.
+///
+/// ## One session's audio must never reach another's, and `finish(_:)` alone cannot guarantee that
+///
+/// Two ways this type used to carry audio across the boundary, both silent and both worse than a
+/// glitch — the user reads words they spoke into a different application, minutes earlier:
+///
+/// - **``finish(_:)`` threw.** Its cleanup ran only after the flush succeeded, so a throw left the
+///   filter state and the partial frame in place for the next session to emit. The cleanup is now
+///   in a `defer`, which the throwing path cannot skip.
+/// - **``finish(_:)`` was never called.** A session can end six ways and only one is a normal
+///   key-up; the other five never reach it. ``beginSession()`` exists for that, and it is anchored
+///   at the one point in a session's life that cannot be skipped — its start.
+///
+/// Neither is detectable downstream: contaminated audio is indistinguishable from long audio.
+/// ``isMidStream`` makes the state observable so that an owner can at least assert on it.
 ///
 /// ## Thread confinement
 ///
@@ -155,9 +168,20 @@ public final class AudioFormatConverter {
 
     /// Output frames requested per iteration of the drain loop.
     ///
-    /// Measured irrelevant to correctness — capacities of 1, 7, 100 and 8192 all produce the same
-    /// 16000 frames from a one-second 48 kHz input — so it is chosen for the number of iterations,
-    /// not for the answer.
+    /// **These two constants are a pair, and the earlier version of this comment claimed an
+    /// independence they do not have.** What was measured is that the *output* does not depend on
+    /// the chunk size — capacities of 1, 7, 100 and 8192 all produce the same 16000 frames from a
+    /// one-second 48 kHz input — but that was measured with an effectively unbounded iteration
+    /// count. The ceiling above is expressed in **iterations**, so halving this doubles the
+    /// iterations the same audio needs: at a capacity of 1, a one-second capture would need 16000
+    /// of them and would throw ``AudioFormatConversionError/conversionDidNotTerminate(producedFrames:)``
+    /// on a perfectly correct conversion.
+    ///
+    /// What actually bounds the pair is their product: 1024 × 8192 is 8,388,608 output frames, or
+    /// **524 s of 16 kHz audio** against the product's 120 s session ceiling — a 4.4× margin.
+    /// `testTheDrainCeilingIsReachableAndReportsItself` drives past it deliberately, which is what
+    /// makes that number a measurement rather than a claim. Change either constant with the product
+    /// in front of you.
     private static let drainChunkFrames: AVAudioFrameCount = 8192
 
     /// The format this converter was built for.
@@ -201,6 +225,15 @@ public final class AudioFormatConverter {
 
     /// Mono at 16 kHz. `nil` in the pass-through and downmix-only regimes.
     private let resamplerOutputFormat: AVAudioFormat?
+
+    /// Whether this converter is holding state from a session that has not been finished.
+    ///
+    /// `true` from the first ``convert(_:)`` that is handed audio until the next ``finish(_:)`` or
+    /// ``beginSession()``. It exists so that an **abandoned** session is observable rather than
+    /// silent: everything held while this is `true` — the resampler's filter state and any partial
+    /// frame — belongs to a session that may never call ``finish(_:)``, and would otherwise reach
+    /// the next one's transcript. See ``beginSession()``.
+    public private(set) var isMidStream = false
 
     /// Samples left over from the previous ``convert(_:)`` that did not complete a frame.
     private var partialFrame: [Float] = []
@@ -291,6 +324,7 @@ public final class AudioFormatConverter {
     /// - Parameter samples: interleaved frames in ``inputFormat``. See ``CapturedAudioFormat`` for
     ///   what interleaved means here and whose obligation it is.
     public func convert(_ samples: [Float]) throws -> [Float] {
+        if !samples.isEmpty { isMidStream = true }
         let mono = downmixToMono(samples)
         guard !mono.isEmpty else { return [] }
         guard let resampler, let resamplerInputFormat, let resamplerOutputFormat else {
@@ -332,31 +366,72 @@ public final class AudioFormatConverter {
         }
     }
 
+    /// Begin a session, discarding anything a previous one left behind.
+    ///
+    /// ## Why the anchor is the *start* of a session and not the end
+    ///
+    /// A session can end six ways — `session-lifecycle` has six stop rules and only one of them is a
+    /// normal key-up. The ceiling fires, the tap dies, a configuration change ends it, the user
+    /// cancels. **Assume ``finish(_:)`` is not called**, because most of the time something other
+    /// than a key-up is what ended the capture.
+    ///
+    /// There is exactly one thing every session does, and it is starting. So that is where the
+    /// reset lives. Calling this is the owner's obligation, and it is the *only* obligation of its
+    /// kind on the non-optional path — where anchoring cleanup to ``finish(_:)`` alone puts it on
+    /// five paths that can be skipped.
+    ///
+    /// Idempotent, non-throwing and safe to call at any time, including on a converter that has
+    /// never been used. Whatever it discards is added to ``discardedPartialFrameSampleCount``, so
+    /// abandoning a session is countable rather than silent — the same standard
+    /// ``AudioRingBuffer``'s overrun policy is held to.
+    ///
+    /// **What this prevents is not a rounding error.** Audio held from one session and emitted into
+    /// the next is the user reading words they spoke into a different application, minutes earlier,
+    /// in a different context. Nothing downstream can tell contaminated audio from long audio.
+    public func beginSession() {
+        discardStreamState()
+    }
+
     /// Flush the resampler's tail and make this object ready for the next session.
     ///
     /// - Parameter samples: a final run of captured samples, converted before the flush. Defaults to
     ///   empty; the parameter exists so that the last drain of the ring and the flush are one call
     ///   and cannot be separated by an early `return`.
+    ///
+    /// **The cleanup is in a `defer`, and that is the fix rather than a tidiness.** Both `try`s
+    /// below can throw, and the earlier version cleaned up only after the second one succeeded — so
+    /// a throw left the resampler's filter state and any partial frame in place, and the *next*
+    /// session's first `convert` emitted the failed session's audio ahead of its own. A `defer`
+    /// runs on the throwing path too, which is the only version of this that a failure cannot skip.
     public func finish(_ samples: [Float] = []) throws -> [Float] {
+        defer { discardStreamState() }
+
         var output = try convert(samples)
-
-        // The partial frame, if any, dies here — there is no next call to carry it into. Counted,
-        // because an uncounted loss on this path is the one thing `AudioRingBuffer`'s overrun
-        // argument cannot survive.
-        discardedPartialFrameSampleCount += partialFrame.count
-        partialFrame.removeAll(keepingCapacity: true)
-
         guard let resampler, let resamplerOutputFormat else { return output }
 
         output += try drain(resampler, into: resamplerOutputFormat) { _, status in
             status.pointee = .endOfStream
             return nil
         }
-
-        // **Required.** A flushed converter handed a fresh session's audio produces zero frames
-        // until it is reset — measured, no error raised, the object apparently healthy.
-        resampler.reset()
         return output
+    }
+
+    /// Drop everything held on behalf of a session: the partial frame, and the resampler's state.
+    ///
+    /// The single implementation behind ``beginSession()`` and ``finish(_:)``'s `defer`, so the two
+    /// cannot drift into cleaning up different amounts.
+    private func discardStreamState() {
+        // Counted, because an uncounted loss on this path is the one thing `AudioRingBuffer`'s
+        // overrun argument cannot survive: at most `channelCount - 1` samples, and zero for mono.
+        discardedPartialFrameSampleCount += partialFrame.count
+        partialFrame.removeAll(keepingCapacity: true)
+
+        // **Required, and not only after a flush.** A converter that has been flushed to
+        // end-of-stream produces zero frames for the next session until it is reset — measured, no
+        // error raised, the object apparently healthy. A converter *abandoned* mid-stream is worse:
+        // it carries real audio forward rather than nothing.
+        resampler?.reset()
+        isMidStream = false
     }
 
     // MARK: - The pieces

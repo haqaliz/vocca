@@ -561,6 +561,138 @@ final class AudioFormatConverterTests: XCTestCase {
             "the tone did not survive a session at the ceiling")
     }
 
+    // MARK: - One session's audio must never reach another's
+
+    /// **A session abandoned without `finish()` must not leak into the next one.**
+    ///
+    /// This is the common case, not the exotic one. `session-lifecycle` has six stop rules and only
+    /// one of them is a normal key-up: the 120 s ceiling fires, the tap dies, a configuration change
+    /// ends the session, the user cancels. Most endings never reach ``AudioFormatConverter/finish(_:)``,
+    /// so a converter whose only cleanup lives there carries the previous capture forward — the
+    /// resampler's filter state *and* a partial frame.
+    ///
+    /// Kills: a ``AudioFormatConverter/beginSession()`` that does not reset the resampler, one that
+    /// does not drop the partial frame, and one that resets neither.
+    ///
+    /// **Asserted by content, not by length.** The second session is compared sample-for-sample
+    /// against what a brand-new converter produces from the same input. Equal lengths with wrong
+    /// contents is precisely the failure — a leaked filter state changes the leading samples without
+    /// changing how many there are.
+    func testASessionAbandonedWithoutFinishDoesNotLeakIntoTheNext() throws {
+        // Stereo, so the abandoned session strands a partial frame as well as filter state.
+        let format = CapturedAudioFormat(sampleRate: 48_000, channelCount: 2)
+        let converter = try AudioFormatConverter(inputFormat: format)
+
+        // Session one: a second of loud DC, ended by something that is not a key-up. The odd
+        // trailing sample is a drain of the ring that stopped mid-frame.
+        let abandoned = [Float](repeating: 1.0, count: 96_000) + [0.75]
+        _ = try converter.convert(abandoned)
+        XCTAssertTrue(
+            converter.isMidStream,
+            "a converter holding an unfinished session's state must say so")
+
+        // The next session begins. This is the only point in a session's life that cannot be
+        // skipped, which is why the reset is anchored here.
+        converter.beginSession()
+        XCTAssertFalse(converter.isMidStream, "beginSession() must clear the abandoned state")
+
+        let voice = Self.interleave([
+            Self.sine(frequency: 1000, sampleRate: 48_000, frames: 48_000),
+            Self.sine(frequency: 1000, sampleRate: 48_000, frames: 48_000),
+        ])
+        var second = try converter.convert(voice)
+        second += try converter.finish()
+
+        let (reference, _) = try Self.captureWhole(voice, from: format)
+        XCTAssertEqual(reference.count, 16_000, "the reference conversion is itself wrong")
+        XCTAssertEqual(
+            second, reference,
+            """
+            The second session did not match what a fresh converter produces from the same audio, \
+            so it contains something from the session before it. That is the user reading words \
+            they spoke into a different application, minutes earlier — and nothing downstream can \
+            tell contaminated audio from long audio.
+            """)
+    }
+
+    /// **A `finish(_:)` that throws must not carry its session into the next one.**
+    ///
+    /// The cleanup used to run only after the flush succeeded, so a throw left the resampler's
+    /// filter state and the partial frame in place. It is now in a `defer`, and this is the test
+    /// that a throwing path cannot skip it.
+    ///
+    /// The throw is a real one, driven end to end rather than injected: the drain's iteration
+    /// ceiling. 4 kHz input is not a device — it is the cheapest way to make one `convert` call
+    /// exceed 1024 pulls of 8192 frames, at 8.8 MB and milliseconds instead of the 100 MB it would
+    /// take at 48 kHz. The capture it represents is ~550 s, four and a half times the product's own
+    /// 120 s ceiling, which is the margin the two drain constants are chosen for.
+    ///
+    /// Kills: cleanup written after the `try` instead of in a `defer` — which is what shipped, and
+    /// which passes every other test in this file.
+    func testAThrowingFinishDoesNotCarryItsSessionIntoTheNext() throws {
+        let format = CapturedAudioFormat(sampleRate: 4_000, channelCount: 1)
+        let converter = try AudioFormatConverter(inputFormat: format)
+
+        let pastTheCeiling = [Float](repeating: 0.9, count: 2_200_000)
+        XCTAssertThrowsError(try converter.finish(pastTheCeiling)) { error in
+            guard
+                case .conversionDidNotTerminate = error as? AudioFormatConversionError
+            else {
+                return XCTFail("expected the drain ceiling to be reported, got \(error)")
+            }
+        }
+
+        // No `beginSession()` here, deliberately: the point is that `finish(_:)` itself left the
+        // converter clean, on the path where it failed.
+        XCTAssertFalse(
+            converter.isMidStream,
+            "finish() threw and left the converter mid-stream, so its cleanup was skipped")
+
+        let voice = Self.sine(frequency: 500, sampleRate: 4_000, frames: 4_000)
+        var second = try converter.convert(voice)
+        second += try converter.finish()
+
+        let (reference, _) = try Self.captureWhole(voice, from: format)
+        XCTAssertEqual(reference.count, 16_000, "the reference conversion is itself wrong")
+        XCTAssertEqual(
+            second, reference,
+            """
+            After a finish() that threw, the next session did not match a fresh converter's output \
+            on the same audio — so the failed session's samples were emitted into it. A throw that \
+            leaves state behind is how one dictation ends up inside another.
+            """)
+    }
+
+    /// The drain ceiling is reachable, reports itself, and is not merely a comment.
+    ///
+    /// It also pins where the boundary is: the two drain constants multiply out to 524 s of 16 kHz
+    /// audio against a 120 s product ceiling, and a test that never crosses it would let either
+    /// constant be changed until a legitimate capture threw.
+    func testTheDrainCeilingIsReachableAndReportsItself() throws {
+        let converter = try AudioFormatConverter(
+            inputFormat: CapturedAudioFormat(sampleRate: 4_000, channelCount: 1))
+
+        XCTAssertThrowsError(try converter.convert([Float](repeating: 0.9, count: 2_200_000))) {
+            error in
+            guard
+                case .conversionDidNotTerminate(let produced) = error as? AudioFormatConversionError
+            else {
+                return XCTFail("expected conversionDidNotTerminate, got \(error)")
+            }
+            XCTAssertGreaterThan(
+                produced, 8_000_000,
+                "the ceiling reported a frame count far below the one it is set at")
+        }
+
+        // A capture at the product's real ceiling must be nowhere near it. If this ever throws, the
+        // margin has been spent and one of the two constants moved.
+        let atTheProductCeiling = try AudioFormatConverter(
+            inputFormat: CapturedAudioFormat(sampleRate: 48_000, channelCount: 1))
+        XCTAssertNoThrow(
+            try atTheProductCeiling.convert([Float](repeating: 0.5, count: 48_000 * 120)),
+            "a 120 s capture — the product's own ceiling — hit the drain's iteration limit")
+    }
+
     /// Nothing in, nothing out — and no throw, because a poll of an empty ring is ordinary.
     func testConvertingNothingYieldsNothing() throws {
         for format in [

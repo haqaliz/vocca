@@ -45,12 +45,18 @@
 ///
 /// **This is an obligation on whoever fills the ring, and it is Phase 4's to discharge.** A
 /// CoreAudio `AudioBufferList` for a *deinterleaved* multi-channel device carries one buffer per
-/// channel, and the realtime block the plan describes reaches `.pointee.mBuffers.mData` — the first
-/// buffer, which is channel 0 alone. Writing that into the ring and then declaring
-/// `channelCount: 2` would make this type describe audio the ring does not contain, and the
-/// downmix would average channel 0 against itself, silently, forever. Phase 4 must either
-/// interleave (work on the realtime thread) or declare `channelCount: 1` because it kept only the
-/// first channel. Nothing here can check which it did.
+/// channel, so `.pointee.mBuffers.mData` is the first buffer — **channel 0 alone**.
+///
+/// `plan_20260806.md`'s Phase 4 decides this, and decides it as *interleave*: keeping only channel 0
+/// throws away half of every stereo capture and records silence outright on an interface whose
+/// microphone is wired to a later channel, and `AudioFormatConverter`'s downmix exists to prevent
+/// exactly that. Read the correction in that file before writing the sink node's body — it also
+/// names the A3 lint amendment interleaving needs, so that the lint is not what picks the product's
+/// behaviour.
+///
+/// **What this type cannot check:** whether the declared ``channelCount`` matches what actually went
+/// into the ring. Declaring `2` while writing channel 0 makes the downmix average channel 0 against
+/// itself — the mean of one number — silently, forever.
 public struct CapturedAudioFormat: Sendable, Equatable, CustomStringConvertible {
 
     /// Frames per second.
