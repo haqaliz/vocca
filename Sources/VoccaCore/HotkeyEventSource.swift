@@ -88,44 +88,46 @@ public protocol HotkeyEventSink: AnyObject {
     /// earns one is disabled by the OS **mid-session** — which is the hot-mic case, arrived at by
     /// the one route the session machine cannot see coming.
     ///
-    /// ## The shipped conformance blocks, and resolving that is Phase 4's decision
+    /// ## The capture start does not happen here — decided, on a measurement
     ///
-    /// Stated here rather than left for the adapter to discover, because the discovery would happen
-    /// in the half of this capability CI cannot execute.
-    ///
-    /// ``SessionEventSink`` — the only conformance — routes
-    /// `watchdog.observe → machine.observe → beginSession → SessionAudioSource.beginCapture()`, and
-    /// the production `beginCapture()` is `AVAudioEngine.start()`. So the call above is synchronous
-    /// all the way down to an engine start, and `spec.md:38` (inherited constraint 7) forbids
-    /// exactly that: *"Do nothing in the tap callback. No I/O, no allocation, no `await`, no engine
-    /// start."*
-    ///
-    /// **Three constraints, not two, and the third is what makes this hard:**
+    /// **Three constraints, not two, and the third is what made this hard:**
     ///
     /// 1. The callback must return fast, or the OS disables the tap mid-session.
-    /// 2. `AVAudioEngine.start()` is slow — milliseconds, and this module's own test double says so
-    ///    in as many words.
+    /// 2. `AVAudioEngine.start()` is slow.
     /// 3. **The engine cannot be pre-warmed to make (2) go away.** `AVAudioEngine.h:465-466`: *"if
     ///    the engine has at any point previously had its inputNode enabled and permission to record
     ///    was granted, then any time the engine is running, the mic-in-use indicator will appear."*
     ///    A warm engine therefore lights macOS's orange microphone dot **permanently, whether or not
     ///    Vocca is recording** — which `ARCHITECTURE.md` §6 and `prd.md` M23 both call the single
-    ///    most damaging signal this product could emit, and which is why start-on-demand is mandated
-    ///    rather than merely preferred. Pre-warming does not remove the problem; it trades a tap
-    ///    timeout for a lit mic indicator.
+    ///    most damaging signal this product could emit. Pre-warming does not remove the problem; it
+    ///    trades a tap timeout for a lit mic indicator.
     ///
-    /// **The shape that satisfies all three** — the leading candidate, not a decision made here — is
-    /// that the callback *decides* and returns, and the capture start happens **off** the callback.
-    /// Deciding is already fast and already pure: ``decide(_:state:config:)`` reads three values and
-    /// allocates nothing. And the machine already models a capture start that takes real time —
-    /// `SessionMachine`'s `isOpeningTheMicrophone` flag and its deferred-stop path exist precisely
-    /// because `beginCapture()` is slow, and they apply a stop that arrives during the opening the
-    /// instant the session exists. So the machinery this needs is built and tested; what is missing
-    /// is the hop, and choosing where it goes is a Phase 4 design decision with a real cost either
-    /// way — a hop is a scheduling latency on the press the user is waiting for.
+    /// Two aspects left this open because (2) had never been measured, and both wrote down the
+    /// estimate they were working from: *"milliseconds"*. `prd.md:280` had required the number since
+    /// C1 was planned. `audio-capture` took it, with `Scripts/measure-engine-start.sh`:
     ///
-    /// Whichever way it goes, the number belongs next to the constraint: `prd.md` already requires
-    /// the engine-start cost to be **measured in C1** so that C7 optimises against data.
+    /// > **`AVAudioEngine.start()` — median 114.0 ms, p90 116.5 ms, p99 119.1 ms, worst 126.8 ms,
+    /// > best 100.5 ms.** 120 sessions, every one verified to have actually started and actually
+    /// > delivered audio, M4 Max, macOS 26.5.2, built-in input at 48 kHz mono.
+    ///
+    /// Not milliseconds — an eighth of a second, on the fastest Mac Apple sells, with a *narrow*
+    /// distribution rather than a fat tail. So the shape both aspects had sketched as a candidate is
+    /// now what ships: **this method decides and returns; the capture start happens off the
+    /// callback.**
+    ///
+    /// It is ``CaptureStartTiming/whenTheOwnerAsks``, and the machinery it rests on was built and
+    /// tested in `session-lifecycle` precisely for a slow open — `SessionMachine`'s
+    /// `isOpeningTheMicrophone` and its deferred-stop path, which refuse a second start and hold a
+    /// stop until there is a session to apply it to. What the hop added is a wider window, not a new
+    /// rule: at 114 ms a held hotkey autorepeats one to four times *inside* every opening, so the
+    /// path those two mechanisms guard went from rare to universal. `ScheduledWatchdog` owns the
+    /// hop, because it is already the sink every session-starting route passes through.
+    ///
+    /// **What this does not buy, stated so nobody claims it later.** The microphone does not open
+    /// any sooner — ~114 ms either way, plus ~7.6 ms before the first realtime callback — so the
+    /// opening syllable of an utterance begun on the press is not captured at all. That is C7's
+    /// number to improve and `prd.md:280` says so. What the hop buys is that the cost falls on
+    /// Vocca's own run loop instead of on the user's keyboard and the tap's life.
     func receive(_ event: RawKeyEvent) -> EventPropagation
 }
 

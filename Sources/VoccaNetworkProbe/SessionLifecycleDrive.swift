@@ -279,6 +279,7 @@ extension VoccaNetworkProbe {
         switch effect {
         case .unchanged: return "unchanged"
         case .started: return "started"
+        case .opening: return "opening"
         case .captureUnavailable: return "captureUnavailable"
         case .ended(let outcome): return "ended(\(describe(outcome)))"
         }
@@ -351,7 +352,7 @@ extension VoccaNetworkProbe {
     /// only has to say whether a buffer travelled.
     private static func capturedAudio(in effect: SessionEffect<ProbeCapture>) -> ProbeCapture? {
         switch effect {
-        case .unchanged, .started, .captureUnavailable:
+        case .unchanged, .started, .captureUnavailable, .opening:
             return nil
         case .ended(let outcome):
             switch outcome.content {

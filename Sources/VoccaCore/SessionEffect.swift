@@ -29,6 +29,22 @@ public enum SessionEffect<Audio: CapturedAudio>: Sendable {
     /// The microphone is open and a session is recording.
     case started
 
+    /// **The hotkey was pressed, the start was decided, and the microphone has not opened yet.**
+    ///
+    /// Only ``SessionMachine/observe(_:)-(RawKeyEvent)`` returns this, and only under
+    /// ``CaptureStartTiming/whenTheOwnerAsks``. The owner owes the machine a
+    /// ``SessionMachine/completePendingOpening()``, after which the *real* effect —
+    /// ``started``, ``captureUnavailable``, or even ``ended`` if the user let go inside the window —
+    /// arrives by whatever route the owner delivers effects.
+    ///
+    /// **It is a distinct case rather than ``unchanged``, and the measurement is why.**
+    /// `AVAudioEngine.start()` costs ~114 ms (see ``CaptureStartTiming``), so this state lasts about
+    /// seven display frames — far past the 16 ms `PRODUCT_SPEC.md:71` gives the widget to react.
+    /// Reporting `unchanged` for it would tell the widget that a press it must show *did nothing*,
+    /// and the user would watch an eighth of a second of no feedback after pressing the hotkey. It
+    /// is also simply false: the key has been claimed and a microphone has been asked for.
+    case opening
+
     /// The hotkey was pressed and the microphone did not open, so no session began. Distinct from
     /// ``unchanged`` because the widget has something to say about it and the user needs to hear
     /// it: the alternative is a press that appears to do nothing at all.

@@ -192,7 +192,8 @@ final class OwnershipGraphTests: XCTestCase {
             let createdTimer = FakeTimer()
             watchdog = createdWatchdog
             timer = createdTimer
-            scheduled = ScheduledWatchdog(watchdog: createdWatchdog, timer: createdTimer) { _ in }
+            scheduled = ScheduledWatchdog(
+                watchdog: createdWatchdog, timer: createdTimer, deferOpening: { _ in }) { _ in }
         }
 
         XCTAssertNotNil(watchdog)
@@ -266,7 +267,7 @@ final class OwnershipGraphTests: XCTestCase {
             let createdWatchdog = SessionWatchdog(
                 machine: createdMachine, keyState: TruthfulKeyState(Keyboard()))
             let createdScheduled = ScheduledWatchdog(
-                watchdog: createdWatchdog, timer: FakeTimer()) { _ in }
+                watchdog: createdWatchdog, timer: FakeTimer(), deferOpening: { _ in }) { _ in }
             let createdSource = FakeHotkeyEventSource()
             let policy = TapHealthPolicy(
                 source: createdSource, sink: createdScheduled, clock: TestClock(),
@@ -346,7 +347,7 @@ final class OwnershipGraphTests: XCTestCase {
             let scheduled = ScheduledWatchdog(
                 watchdog: SessionWatchdog(
                     machine: createdMachine, keyState: TruthfulKeyState(Keyboard())),
-                timer: FakeTimer()
+                timer: FakeTimer(), deferOpening: { _ in }
             ) { _ in }
             let createdSource = FakeHotkeyEventSource()
             let policy = TapHealthPolicy(

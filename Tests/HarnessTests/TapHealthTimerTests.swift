@@ -54,6 +54,10 @@ private final class RuntimeHarness {
     let secureInput = FakeSecureInputState()
     let watchdogTimer = FakeTimer()
     let healthTimer = FakeTimer()
+
+    /// Present so the pipeline is the shipped one; never fires here, because this harness's machine
+    /// uses ``CaptureStartTiming/immediately`` and therefore never has an opening pending.
+    let runLoop = DeferralQueue()
     let keyState: TruthfulKeyState
     let machine: SessionMachine<RecordingSource.Buffer>
     let watchdog: SessionWatchdog<RecordingSource.Buffer>
@@ -73,8 +77,9 @@ private final class RuntimeHarness {
             configuration: configuration, ceiling: SessionCeiling.default, clock: clock,
             audioSource: microphone)
         self.watchdog = SessionWatchdog(machine: machine, keyState: keyState)
-        let scheduled = ScheduledWatchdog(watchdog: watchdog, timer: watchdogTimer) {
-            [effects] effect in
+        let scheduled = ScheduledWatchdog(
+            watchdog: watchdog, timer: watchdogTimer, deferOpening: runLoop.schedule
+        ) { [effects] effect in
             effects.record(effect)
         }
         self.scheduled = scheduled

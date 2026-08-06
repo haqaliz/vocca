@@ -599,7 +599,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=388
+MINIMUM_EXECUTED_TESTS=412
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -663,4 +663,26 @@ if [ "$harness_status" -ne 0 ]; then
     printf '%s\n' \
         "::error::The timer measurement harness (Tools/TimerProbe) does not compile. It is not a package target, so nothing else in a local run or in CI compiles it — this check is the only one. It links the shipped VoccaHotkey, so a change to RepeatingTimer, WatchdogPolicy or TapHealthPolling breaks it here first. Fix the conformance rather than skipping the check: this harness is what measured the run-loop-mode hazard and App Nap, and SMOKE_CHECKLIST.md steps 8-11 tell a human to run it before every release." >&2
     exit "$harness_status"
+fi
+
+# THE ENGINE-START HARNESS, COMPILED — for the same reason and by the same rule
+#
+# `Tools/EngineStartProbe/` opens the microphone, which nothing in `swift test` may do, so it is not
+# a package target either and nothing else compiles it. It is what answered `prd.md:280` — the
+# engine-start cost the PRD had required since C1 was planned and nobody had taken — and the number
+# it produced is what decided that the capture start happens off the tap callback
+# (`CaptureStartTiming`). A harness that stops compiling is a number that cannot be re-taken, and the
+# doc comments quoting it become unfalsifiable claims.
+#
+# It does not link the package: at the time it was written there was no adapter to link, because the
+# engine graph is the phase after this one. When there is, this is where it should be measured.
+set +e
+"$REPO_ROOT/Scripts/measure-engine-start.sh" --build-only
+engine_harness_status=$?
+set -e
+
+if [ "$engine_harness_status" -ne 0 ]; then
+    printf '%s\n' \
+        "::error::The engine-start measurement harness (Tools/EngineStartProbe) does not compile. It is not a package target, so this check is the only one. It is the instrument behind every engine-start number quoted in CaptureStartTiming, HotkeyEventSink.receive(_:) and SessionAudioSource.beginCapture() — if it cannot be run, those numbers cannot be re-taken and become claims nobody can check. Fix it rather than skipping it." >&2
+    exit "$engine_harness_status"
 fi

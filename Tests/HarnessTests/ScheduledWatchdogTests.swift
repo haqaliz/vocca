@@ -47,21 +47,33 @@ private final class ClockHarness {
     let effects = EffectLog()
     let timer = FakeTimer()
     let tap = FakeHotkeyEventSource()
+
+    /// The later turn of the run loop the microphone opens on, under
+    /// ``CaptureStartTiming/whenTheOwnerAsks``. Never drained by the harness itself — a test that
+    /// wants the session to exist must say so, which is what makes "the callback returned before the
+    /// microphone opened" an assertion rather than a hope.
+    let runLoop = DeferralQueue()
+
     let keyState: TruthfulKeyState
     let machine: SessionMachine<RecordingSource.Buffer>
     let watchdog: SessionWatchdog<RecordingSource.Buffer>
     let scheduled: ScheduledWatchdog<RecordingSource.Buffer>
     let configuration: HotkeyConfiguration
 
-    init(configuration: HotkeyConfiguration = chord) {
+    init(
+        configuration: HotkeyConfiguration = chord,
+        captureStartTiming: CaptureStartTiming = .immediately
+    ) {
         self.configuration = configuration
         let keyState = TruthfulKeyState(keyboard)
         self.keyState = keyState
         self.machine = SessionMachine(
             configuration: configuration, ceiling: SessionCeiling.default, clock: clock,
-            audioSource: microphone)
+            audioSource: microphone, captureStartTiming: captureStartTiming)
         self.watchdog = SessionWatchdog(machine: machine, keyState: keyState)
-        self.scheduled = ScheduledWatchdog(watchdog: watchdog, timer: timer) { [effects] effect in
+        self.scheduled = ScheduledWatchdog(
+            watchdog: watchdog, timer: timer, deferOpening: runLoop.schedule
+        ) { [effects] effect in
             effects.record(effect)
         }
     }
@@ -390,7 +402,8 @@ final class ScheduledWatchdogTests: XCTestCase {
                 audioSource: RecordingSource())
             let watchdog = SessionWatchdog(
                 machine: machine, keyState: TruthfulKeyState(keyboard))
-            let scheduled = ScheduledWatchdog(watchdog: watchdog, timer: timer) { _ in }
+            let scheduled = ScheduledWatchdog(
+                watchdog: watchdog, timer: timer, deferOpening: { _ in }) { _ in }
             released = scheduled
 
             keyboard.hold(chord)

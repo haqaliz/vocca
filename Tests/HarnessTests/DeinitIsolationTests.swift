@@ -57,7 +57,7 @@ final class DeinitIsolationTests: XCTestCase {
                     keyCode: 49, modifiers: [.option], activation: .holdToTalk),
                 ceiling: SessionCeiling.default, clock: clock, audioSource: RecordingSource())
             let watchdog = SessionWatchdog(machine: machine, keyState: TruthfulKeyState(keyboard))
-            _ = ScheduledWatchdog(watchdog: watchdog, timer: timer) { _ in }
+            _ = ScheduledWatchdog(watchdog: watchdog, timer: timer, deferOpening: { _ in }) { _ in }
         }
 
         XCTAssertEqual(

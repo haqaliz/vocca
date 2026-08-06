@@ -77,18 +77,47 @@ public final class ScheduledWatchdog<Audio: CapturedAudio>: HotkeyEventSink {
     /// in this package that must never be dropped.
     private let deliverEffect: (SessionEffect<Audio>) -> Void
 
+    /// How to reach a later turn of the run loop the tap is attached to, for the ~114 ms the
+    /// microphone takes to open. See ``deferredOpening``.
+    private let deferOpening: RunLoopDeferral
+
+    /// **Whether a block this object put on the run loop has not run yet.**
+    ///
+    /// The one thing here that is remembered rather than asked, and the exception is narrow enough to
+    /// state exactly: it is a record of what *this object* handed to the run loop, and nothing else in
+    /// the package can answer it. `reconsider()` refuses a flag because ``RepeatingTimer/interval`` is
+    /// a question the timer can be put; ``SessionWatchdog/hasPendingOpening`` answers "is an opening
+    /// owed", which stays true right up until the block runs and so cannot distinguish an opening
+    /// nobody has scheduled from one already sitting on the queue.
+    ///
+    /// Without it, one press schedules one block **per event delivered during the opening** — and at
+    /// a 30–90 ms autorepeat inside a 114 ms open that is three or four, every time. They are
+    /// individually harmless, because ``SessionMachine/completePendingOpening()`` is idempotent and
+    /// `reconsider()` is safe to call constantly, which is exactly why nothing else would ever have
+    /// caught it: the suite stayed green and the queue grew.
+    private var openingIsOnTheRunLoop = false
+
     /// - Parameters:
     ///   - watchdog: the session, and the schedule to obey.
     ///   - timer: the clock. See ``RepeatingTimer`` for the two obligations a conformance owes.
-    ///   - deliverEffect: where every effect goes — from a key event and from a wake alike. One
-    ///     closure, so a transcript cannot arrive by a route the owner forgot to wire.
+    ///   - deferOpening: where the microphone is opened, when the machine is configured to defer it.
+    ///     The shipped value is ``CGEventTapSource/deferToALaterMainRunLoopTurn(_:)``. It is
+    ///     required rather than defaulted, because the default that suggests itself — "just run it
+    ///     now" — is the 114 ms tap callback this parameter exists to prevent, and a defaulted one
+    ///     would be taken by exactly the caller who did not read why it is here.
+    ///   - deliverEffect: where every effect goes — from a key event, from a wake, **and from a
+    ///     completed opening**. One closure, so a transcript cannot arrive by a route the owner
+    ///     forgot to wire; under ``CaptureStartTiming/whenTheOwnerAsks`` the third of those is the
+    ///     only route by which a session is ever announced as started at all.
     public init(
         watchdog: SessionWatchdog<Audio>,
         timer: any RepeatingTimer,
+        deferOpening: @escaping RunLoopDeferral,
         deliverEffect: @escaping (SessionEffect<Audio>) -> Void
     ) {
         self.watchdog = watchdog
         self.timer = timer
+        self.deferOpening = deferOpening
         self.deliverEffect = deliverEffect
         self.events = SessionEventSink(watchdog: watchdog, deliverEffect: deliverEffect)
     }
@@ -126,7 +155,71 @@ public final class ScheduledWatchdog<Audio: CapturedAudio>: HotkeyEventSink {
     public func receive(_ event: RawKeyEvent) -> EventPropagation {
         let propagation = events.receive(event)
         reconsider()
+        deferredOpening()
         return propagation
+    }
+
+    // MARK: - The microphone, opened off the callback
+
+    /// **The hop.** If the last event decided to start a session, open the microphone on a later
+    /// turn of the run loop rather than on this one.
+    ///
+    /// `AVAudioEngine.start()` was measured at a **114 ms median and a 119 ms p99** over 120 verified
+    /// sessions on an M4 Max (`Scripts/measure-engine-start.sh`; the table is on
+    /// ``CaptureStartTiming``). A tap callback that blocks for that long risks
+    /// `kCGEventTapDisabledByTimeout` — the tap switched off mid-session, which is the hot mic —
+    /// **and**, with no risk about it at all, holds the user's keystroke back from the focused
+    /// application for an eighth of a second and stalls both of this package's timers while it does.
+    ///
+    /// ## Why it lives here and not in an object of its own
+    ///
+    /// `CallbackSafeTapDisablement` is a separate class because it holds a *decision* — which half
+    /// of a disablement happens now and which happens later. This holds no decision: it asks the
+    /// machine whether an opening is owed and, if so, schedules it. What it needs is the three
+    /// things this object already is — the ``HotkeyEventSink`` every session-starting route passes
+    /// through, the one place effects are delivered, and the one place the timer is settled. A
+    /// fourth object would need all three handed to it, and the handing-over is the mistake.
+    ///
+    /// **It is called after ``reconsider()``, not before.** During a pending opening the machine is
+    /// still `.idle`, so the schedule is `.stopped` and the timer is correctly off; the block below
+    /// re-reads the schedule *after* the session exists, which is what finally starts it. Calling
+    /// them the other way round would read the schedule of a session that had not begun.
+    ///
+    /// ## Weakly captured, and it is the opposite choice to `CallbackSafeTapDisablement`'s
+    ///
+    /// That class captures its policy **strongly**, because a disarm racing a disablement would
+    /// otherwise leave a tap nothing ever re-enables. Here the same reasoning inverts: if this object
+    /// is gone before the block runs, a strong capture would open a microphone owned by nobody, with
+    /// no timer, no watchdog and no route to ``SessionMachine/endSession(reason:)`` — a hot mic with
+    /// the widget showing nothing, which is the single worst state this product can reach. Weak
+    /// means the microphone simply never opens, and no session is lost because none had begun.
+    ///
+    /// ## What it does not promise
+    ///
+    /// **That the block ever runs.** A main thread that never returns to its run loop never performs
+    /// it, and the machine is left refusing every subsequent start — a silently dead hotkey. The
+    /// bound is that it is *the same run loop the tap callback is delivered on*: if it stops turning,
+    /// no key event can arrive either, so there is no press the pending opening is denying. That is a
+    /// stronger guarantee than `CallbackSafeTapDisablement` has, and it is the whole of the argument
+    /// — there is no backstop, because the watchdog's schedule is `.stopped` while the machine is
+    /// `.idle` and nothing else looks.
+    private func deferredOpening() {
+        guard watchdog.hasPendingOpening, !openingIsOnTheRunLoop else { return }
+        openingIsOnTheRunLoop = true
+        deferOpening { [weak self] in
+            guard let self else { return }
+            // Cleared before the ~114 ms open rather than after it, for the same reason
+            // `SessionMachine.openingAwaitsTheOwner` is: a run loop pumped from inside
+            // `beginCapture()` re-enters this object, and the state it finds must describe where
+            // things actually stand.
+            self.openingIsOnTheRunLoop = false
+            // Delivered before the schedule is settled, so that an opening which ended the session
+            // outright — the user let go inside the 114 ms, which at that width is an ordinary tap
+            // of the hotkey rather than an edge case — hands over its `SessionOutcome` first and has
+            // its timer stopped second.
+            self.deliverEffect(self.watchdog.completePendingOpening())
+            self.reconsider()
+        }
     }
 
     // MARK: - The timer
