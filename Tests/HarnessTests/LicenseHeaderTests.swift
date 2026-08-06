@@ -86,6 +86,13 @@ final class LicenseHeaderTests: XCTestCase {
         ScanRule(directory: "Tests", extensions: ["swift", "c", "h"], commentMarker: "//"),
         ScanRule(directory: "App", extensions: ["swift", "c", "h"], commentMarker: "//"),
         ScanRule(directory: "Scripts", extensions: ["sh"], commentMarker: "#"),
+        // `Tools/` is Swift that is deliberately **not** a package target — the phase 5 timer
+        // measurement harness, which is outside `Sources/` because everything inside it is inside
+        // the zero-network coverage guard and would have to be driven by `VoccaNetworkProbe`. Being
+        // outside the package means being outside `ModuleBoundaryTests` and the H7 seam lint too, so
+        // it is the newest instance of the gap this list was extended for once already: source in
+        // the repository with nothing checking it.
+        ScanRule(directory: "Tools", extensions: ["swift", "c", "h"], commentMarker: "//"),
         ScanRule(directory: ".github/workflows", extensions: ["yml", "yaml"], commentMarker: "#"),
     ]
 

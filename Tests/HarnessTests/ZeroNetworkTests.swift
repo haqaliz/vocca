@@ -117,6 +117,14 @@ final class ZeroNetworkTests: XCTestCase {
         "wake.effects=unchanged,unchanged,unchanged",
         "wake.keyReads=3",
         "wake.keyCodesRead=49,49,49",
+        // ...and read the chord each time too, which is the half added in `hotkey-source` phase 5.
+        // Stop rule (f) asks whether the user is still holding *the binding*, and a binding is a key
+        // and a chord: with only the key polled, a modifier release whose `.flagsChanged` never
+        // arrived was invisible until the key itself came up. Three, not fewer, because the key was
+        // down on every wake — the read is short-circuited on the wakes where it is not, and a count
+        // below three here would mean either that the second read is not happening or that the key
+        // was reported up.
+        "wake.modifierReads=3",
         // The machine accumulated the clock's forward motion across those wakes: three steps of the
         // probe's own 100 ms. Zero here would mean the ceiling can never fire.
         "elapsed=300ms",

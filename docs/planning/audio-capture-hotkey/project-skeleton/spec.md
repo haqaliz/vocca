@@ -28,6 +28,12 @@ than discovered at ship time.
   harder than starting with it).
 - Dependency graph strictly acyclic, pointing inward: `VoccaUI → VoccaCore → {leaf modules}`.
   Leaf modules never import `VoccaCore` and never import each other.
+
+  > **Superseded 2026-08-05 by `hotkey-source` phase 1.** The arrow runs the other way: `VoccaCore`
+  > owns the seams and imports nothing, and **adapters depend on `VoccaCore`** to implement them.
+  > This wording was never consistent with the enforced empty import allow-list on `VoccaCore` and
+  > was never realised. See `ARCHITECTURE.md` §2, which is authoritative. Left in place as the
+  > historical record of what this merged aspect built.
 - Minimum deployment target **macOS 15** — required for `Synchronization.Atomic`, which the
   lock-free ring buffer in `audio-capture` depends on.
 

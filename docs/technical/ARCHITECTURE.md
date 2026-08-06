@@ -32,7 +32,7 @@ Vocca.app  (single process, Swift 6, strict concurrency)
 ├── VoccaUI        SwiftUI  — widget, settings, onboarding    @MainActor
 ├── VoccaCore      Swift    — orchestration, session state    actors
 ├── VoccaAudio     Swift    — capture, playback, VAD          realtime + actor
-├── VoccaHotkey    Swift    — HotkeyEventSource, CGEvent tap  tap callback + actor
+├── VoccaHotkey    Swift    — the CGEvent tap behind the seam tap callback + actor
 ├── VoccaASR       Swift    — ASREngine implementations       actor
 ├── VoccaText      Swift    — cleanup, dictionary             actor (pure-ish)
 ├── VoccaInject    Swift    — AX / Pasteboard / CGEvent       actor (never main)
@@ -44,7 +44,11 @@ Vocca.app  (single process, Swift 6, strict concurrency)
 
 **Swift 6 strict concurrency is on from commit one.** Retrofitting it onto an audio pipeline with a realtime thread, an actor graph, and main-thread UI is materially harder than starting with it.
 
-Modules are **Swift Package Manager targets** in one repository. The dependency graph is strictly acyclic and points inward: `VoccaBootstrap → VoccaUI → VoccaCore → {VoccaAudio, VoccaHotkey, VoccaASR, VoccaText, VoccaInject, VoccaSpeech}`. Leaf modules never import `VoccaCore` and never import each other. This is what makes each capability testable in isolation.
+Modules are **Swift Package Manager targets** in one repository. The dependency graph is strictly acyclic and **points inward to the core**: `VoccaBootstrap → VoccaUI → VoccaCore ← {VoccaAudio, VoccaHotkey, VoccaASR, VoccaText, VoccaInject, VoccaSpeech}`.
+
+**`VoccaCore` imports nothing** — not Foundation, not a system framework, and not a sibling module. It owns the seams (`HotkeyEventSource`, `SessionAudioSource`, `ASREngine`, `SpeechSynthesizer`, …) and the plain-data vocabulary they are phrased in (`RawKeyEvent`, `ModifierSet`, `SessionOutcome`, …). **Adapters depend on the core** to implement those seams, and each imports `VoccaCore` and no other Vocca module. This is what makes each capability testable in isolation: every branch worth testing is expressed in types a `swift test` run can construct on a machine with no permissions, no microphone and no network, and the untestable half is reduced to translation with no decisions in it.
+
+> **Amended (`hotkey-source`, 2026-08-05).** This paragraph previously declared the arrow the other way — `VoccaCore → {leaves}`, with "leaf modules never import `VoccaCore`". That was never consistent with the enforced rule that `VoccaCore` imports nothing at all (`CoreBoundaryTests`, an empty allow-list), and so it was never realised: the core could not depend on a leaf without an import the other lint forbids. It went unnoticed because every leaf was a placeholder. `VoccaHotkey` is the first module to implement a core-owned seam — its flag translation returns a `ModifierSet` — which forced the resolution. The direction above is the one that survives: `VoccaCore` importing an adapter is the actual architectural error, because it is what would drag `CGEvent` and `AVAudioEngine` into the one module that must have neither. **The empty allow-list is the property being protected, and it is unchanged.** A module that has not yet implemented a seam stays a leaf and may still import nothing; `VoccaAudio` moves when `SessionAudioSource` gets a real implementation.
 
 **But SwiftPM alone cannot produce a shippable app, and that is a structural fact, not a packaging detail.** An SPM `.executable` builds a bare Mach-O, not a bundle — and macOS TCC keys every grant to a **bundle identifier plus a code signature**. A bare executable therefore cannot carry `NSMicrophoneUsageDescription` (so the microphone prompt has nothing to say), and cannot durably hold a Microphone or Accessibility grant across rebuilds. So the repository also carries a **thin Xcode app target** (`App/`, `Vocca.xcodeproj`) that owns *only* bundle assembly, `Info.plist`, entitlements, and signing. Every line of real code stays in the local SPM packages — which is what keeps modules testable headlessly and keeps them inside the zero-network coverage guard (§14), since the guard walks package targets.
 
@@ -73,7 +77,13 @@ Sources/
     Capture/                 # AudioCapture impls
     Playback/                # duckable output for barge-in
     VAD/                     # VoiceActivityDetector, TurnDetector
-  VoccaHotkey/               # HotkeyEventSource seam + the CGEvent tap behind it.
+  VoccaHotkey/               # The CGEvent tap, and the flag translation above it.
+                             #   The HotkeyEventSource seam it implements is declared
+                             #   in VoccaCore with every other seam (§2) — a module
+                             #   that imports nothing cannot name CGEventFlags, which
+                             #   makes half of acceptance H7 a compile-time property
+                             #   rather than a text lint. Amended `hotkey-source`,
+                             #   2026-08-05; this line used to place the seam here.
                              #   Separate from VoccaInject even though both speak
                              #   CGEvent: one reads the keyboard, one writes it, and
                              #   they fail for entirely different reasons.
@@ -349,6 +359,10 @@ Every stage emits a span into a **local-only** `LatencyRecorder`. Never transmit
 So: every session carries a hard ceiling (default 120 s, configurable), *and* a key-state poll that verifies the physical key is still down. Either tripping ends the session **and still runs the pipeline on what was captured** — an unexpectedly-ended session yields its transcript to custody rather than discarding it. I1 has no exceptions.
 
 `CGEvent` tap health is monitored and re-armed on `tapDisabledByTimeout` / `tapDisabledByUserInput`, which macOS issues without warning.
+
+**Re-arming is only half of it, and the other half is the one that matters.** *(Amended 2026-08-05, `hotkey-source` phase 3.)* A disabled tap receives nothing at all, so the key-up that would have ended an in-flight session is never coming — which means every recovery must **end the session first**, before it does anything that could fail. That is unconditional across every route into `TapHealthPolicy`: the two disable notifications, `NSWorkspace.didWakeNotification` (taps die silently across sleep/wake), `com.apple.accessibility.api`, arming, and a deliberate teardown — and a health poll, which ends on every answer except "the tap is delivering and is not blocked", because it runs once a second for as long as Vocca does. That one exception is the reason the rule is worth having: a poll that ended unconditionally would end every session within a second of its start. A re-created tap always ends any in-flight session, because a tap that died may have dropped the key-up.
+
+The two disable reasons **recover identically and are reported distinctly**: `tapDisabledByTimeout` means our own callback was too slow, and `tapDisabledByUserInput` means it was not. Only the diagnosis differs, which is why the policy returns where the tap stands and reports what happened through a separate channel — the seam itself cannot carry the distinction, since `RawKeyEvent.Kind.tapDisabled` is one kind for both.
 
 ---
 

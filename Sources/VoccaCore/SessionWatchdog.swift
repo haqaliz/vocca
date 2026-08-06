@@ -34,6 +34,34 @@ public protocol PhysicalKeyStateReader: AnyObject {
     /// never generated an event at all, so an implementation that derives it from observed events
     /// answers the wrong question and can only ever repeat what the tap already said.
     func isKeyDown(_ keyCode: UInt16) -> Bool
+
+    /// Which modifiers are physically held down **at this instant**, read the same way.
+    ///
+    /// `CGEventSourceFlagsState` in the shipped conformance, and it is the sibling of
+    /// ``isKeyDown(_:)`` rather than a second seam because it answers the same question about the
+    /// same hardware at the same moment: *is the user still holding what they pressed?* A binding is
+    /// a key **and** a chord, so a poll that read only half of it can only ever recover half of a
+    /// lost release — see ``SessionWatchdog/wake()``, which is where both are put to that one use.
+    ///
+    /// ## The missing key code costs nothing here, and that is an argument rather than a hope
+    ///
+    /// `HotkeyFlagTranslation`'s `fn` rule needs a key code, because macOS sets the `fn` bit on
+    /// F1–F20, the arrows and the navigation cluster with no user involvement, and only the key code
+    /// separates that from a `fn` the user is holding. **A flags-state read has no key code**: it is
+    /// a reading of the modifier word and nothing else, so an implicitly-set `fn` cannot be told from
+    /// a held one and the bit therefore survives.
+    ///
+    /// That is harmless *here* and nowhere else, for one reason: this value is only ever asked
+    /// whether it **contains** the configured chord. An extra bit can only ever add a modifier the
+    /// binding does not require, so the containment answer is unchanged — the failure would be a bit
+    /// going *missing*, and nothing in the `fn` ambiguity can remove one. A caller that compared this
+    /// for equality, or that started a session from it, would be reading it under a rule this
+    /// argument does not cover.
+    ///
+    /// Locks are **not** masked by the conformance. `ModifierSet/locking` is applied by the caller,
+    /// on both sides at once, exactly as `SessionRules` applies it — a conformance that masked here
+    /// would be making a comparison decision inside a read.
+    var physicalModifiers: ModifierSet { get }
 }
 
 /// The watchdog's numbers, and the one derivation the widget reads.
@@ -57,8 +85,10 @@ public enum WatchdogPolicy {
     /// figure for a mode that does not have it.
     ///
     /// **Faster costs battery,** and it costs it during exactly the moments the user is talking: one
-    /// `CGEventSourceKeyState` call plus one timer wake per interval, for the whole session — the
-    /// system call being hold-to-talk's alone. 150 ms is 800 wakes across a full 120 s session.
+    /// timer wake per interval for the whole session, plus **up to two** system calls —
+    /// `CGEventSourceKeyState`, and `CGEventSourceFlagsState` only when the first answered that the
+    /// key is still down (see ``SessionWatchdog/theBindingIsStillHeld``). Both are hold-to-talk's
+    /// alone. 150 ms is 800 wakes across a full 120 s session.
     ///
     /// It is also the ceiling's resolution, because one timer drives both — see
     /// ``SessionWatchdog/wake()``. A 120 s ceiling measured to 150 ms is not a compromise anybody
@@ -272,8 +302,7 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
             // not held is a session that should not be running. The machine decides what to do
             // about the answer — including that `isDown: true` is a no-op — so the poll reports
             // what it read rather than deciding on its way in.
-            let polled = machine.observePhysicalKey(
-                isDown: keyState.isKeyDown(machine.configuration.keyCode))
+            let polled = machine.observePhysicalKey(isDown: theBindingIsStillHeld)
 
             switch polled {
             case .ended:
@@ -308,13 +337,16 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
             //   reconstructed from samples — and at 150 ms an ordinary 60 ms tap falls between two
             //   of them and is missed outright. A mechanism that fires late and only sometimes is
             //   worse than none, because the hot-mic bound would then be quoted from it.
-            // - **A cost, not an impossibility:** `isKeyDown(_:)` takes one key code, so the chord
-            //   would have to be read modifier by modifier — the modifier keys have virtual key
-            //   codes of their own, left and right, readable through the same primitive. That is
-            //   several more calls per wake plus a `ModifierSet`-to-key-codes map, and the map is a
-            //   fact about the system, so it belongs to `hotkey-source` and would mean widening
-            //   this seam. Worth stating accurately rather than as a wall: a reader who checks this
-            //   and finds it overstated has cause to discount the decisive reason too.
+            // - **Not a cost any more, and this bullet used to say otherwise.** It read that the
+            //   chord would have to be assembled key code by key code through `isKeyDown(_:)`,
+            //   needing a `ModifierSet`-to-key-codes map and a widening of this seam. That is no
+            //   longer true and was never the load-bearing half: `hotkey-source` widened the seam
+            //   with ``PhysicalKeyStateReader/physicalModifiers``, which reads the whole modifier
+            //   word in **one** call and needs no map. It was widened for the hold-to-talk poll
+            //   above, not for this branch, and it changes nothing here — the decisive reason is
+            //   untouched, because a chord read is still a level and detecting a press still needs
+            //   an edge. Corrected rather than deleted: a reader who checks a justification and
+            //   finds it stale has cause to discount the one beside it.
             //
             // So what bounds a toggle session *today* is: this ceiling, `.tapDisabled`, the five
             // system triggers, cancellation, and the user's own next press. The ceiling is the only
@@ -345,6 +377,54 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
             // front of the user.
             return machine.tick()
         }
+    }
+
+    /// **Is the user still holding what they pressed?** — asked of the hardware, not of the event
+    /// stream.
+    ///
+    /// A binding is a key code *and* a chord, so this is two reads, and it is one predicate because
+    /// it is one question. Stop rule (f) is "a poll of the physical key state found it released";
+    /// with only half the binding read, half of every release is invisible to it.
+    ///
+    /// ## What the second read recovers, stated as the case it is for
+    ///
+    /// With `⌥Space` bound and the session running, the user lifts Option while Space is still
+    /// down. That is stop rule (b), and it is applied by ``SessionRules`` on the `.flagsChanged`
+    /// event — **when that event arrives.** If it does not, the session is now running on a chord
+    /// nobody is holding, and until this read existed nothing polled it: `isKeyDown(Space)` answered
+    /// `true` for as long as the finger stayed on the key. `spec.md:35` names a dropped event as an
+    /// ordinary occurrence rather than an exotic one — macOS disables taps under load without
+    /// warning — and `SessionRules.swift:39-42` records the same fact as the reason modifier state is
+    /// derived and never accumulated.
+    ///
+    /// The residual was bounded, which is why this is a correctness fix rather than a hot-mic fix,
+    /// and the bound is worth naming: the session still ended when Space came up, by this same rule.
+    /// What was lost was the *ending the user asked for*, at the moment they asked for it.
+    ///
+    /// ## Two decisions inside three lines
+    ///
+    /// **Containment, and locks masked from both sides** — the same comparison
+    /// `SessionRules.holdToTalkDecision` makes for stop rules (b)/(c), for the same reasons argued at
+    /// length there. Equality would end a session because the user reached for Shift mid-sentence.
+    /// An unmasked comparison would end one the moment Caps Lock came on.
+    ///
+    /// **The key is read first, and the short circuit is deliberate.** A released key ends the
+    /// session on its own, so the second read would change no answer, and `physicalModifiers` is a
+    /// system call in the shipped conformance — one that would otherwise be made 800 times per
+    /// session for nothing. It also means a test cannot observe a modifier read on the path where
+    /// the key is already up, which is stated here so that it reads as the design rather than as a
+    /// gap in the assertions.
+    ///
+    /// The reported reason is unchanged — `.pollDetectedRelease`, for both halves. That is a
+    /// deliberate loss of resolution rather than an oversight: a new `RetainedEndReason` would say
+    /// *which* half the poll found, and `RetainedEndReason.pollDetectedRelease` already means "the
+    /// poll found the binding released, so an event was missed", which is true of both. What a log
+    /// cannot distinguish is a released key from a released modifier, and the smoke checklist says so.
+    private var theBindingIsStillHeld: Bool {
+        let config = machine.configuration
+        guard keyState.isKeyDown(config.keyCode) else { return false }
+        return keyState.physicalModifiers.subtracting(.locking)
+            .isSuperset(of: config.modifiers.subtracting(.locking))
     }
 
     /// A system event that makes continuing impossible or wrong, on its way to the machine.
