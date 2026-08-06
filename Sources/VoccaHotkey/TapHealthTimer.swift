@@ -108,9 +108,12 @@ public final class TapHealthTimer {
         self.reportHealth = reportHealth
     }
 
-    /// Stops the clock when the graph is torn down. See ``ScheduledWatchdog/deinit`` — same reason.
+    /// Stops the clock when the graph is torn down. See ``ScheduledWatchdog/deinit`` — same reason,
+    /// and the same ``RepeatingTimer/stopWithoutAssertingIsolation()`` for the same reason after
+    /// that: `stop()` asserts main-actor isolation, a precondition is not compiled out at `-O`, and a
+    /// `deinit` runs wherever the last release happens.
     deinit {
-        timer.stop()
+        timer.stopWithoutAssertingIsolation()
     }
 
     // MARK: - The owner's lifecycle

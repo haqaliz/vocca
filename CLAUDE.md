@@ -46,7 +46,7 @@ This file orients a coding agent working in this repository. Read it first.
 >   measurement harness (`Tools/TimerProbe/`, deliberately not a package target), which links the
 >   shipped timer and measures the two hazards CI cannot reach: the run-loop mode during a window
 >   drag, and App Nap on an `LSUIElement` app.
-> - `Tests/HarnessTests/`: 317 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 324 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
@@ -60,14 +60,24 @@ This file orients a coding agent working in this repository. Read it first.
 >   driven over a closed set of all eight, in both activation modes, because a session that outlives
 >   its tap is a hot mic. The one exception is the ~1 s health poll, which asserts the *opposite* and
 >   has to: it runs once a second for as long as Vocca runs. Phase 5 added the two timers' scheduling
->   decisions, the **H10 run-loop-mode hazard measured in the suite** (a `.default`-mode timer
->   delivers 0 of 33 fires through an event-tracking gesture; the shipped `.common` one delivers all
->   33), and `OwnershipGraphTests` — which pins the four sole-owner edges a review had measured as
+>   decisions, the **H10 run-loop-mode mechanism measured in the suite** (a `.default`-mode timer
+>   delivers none of its due fires through an event-tracking gesture; the shipped `.common` one
+>   delivers all of them — the suite runs at 20 ms over 0.4 s; the 0-of-33 figures are
+>   `Scripts/measure-timers.sh`'s, at 150 ms over 5 s, and CI does not run it),
+>   and `OwnershipGraphTests` — which pins the four sole-owner edges a review had measured as
 >   held by no test at all. Phase 6 added the Secure Input decision over an injected read — the state
 >   itself cannot be entered by a test, since `IsSecureEventInputEnabled` is set by other people's
 >   software — including that a blocked poll ends a session that started *after* the block began,
 >   which is the fifth instance in this aspect of a guard justified by a claim about what cannot be
->   in flight.
+>   in flight. The final review closed two more: the Secure Input reinterpretation now runs on **all
+>   five** entry points that can answer `delivering` — a machine woken with Terminal's *Secure
+>   Keyboard Entry* ticked, a grant notification over a password field, and a recovered timeout all
+>   reported *ready* while deaf, which is the sixth instance of that same shape — and
+>   `DeinitIsolationTests` pins the rule that **a `deinit` must not reach an isolation
+>   precondition**: two `deinit`s routed into `MainRunLoopTimer.stop()`, whose
+>   `MainActor.preconditionIsolated` is not compiled out at `-O`, so releasing the tap source off the
+>   main actor was a release-build crash. The rule is now a lint over `Sources/`, because
+>   `audio-capture` will need it a fourth time.
 > - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
 >   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
 >   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.

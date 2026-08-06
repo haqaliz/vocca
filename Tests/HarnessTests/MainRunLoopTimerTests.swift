@@ -49,6 +49,13 @@ private final class DefaultModeTimer: RepeatingTimer {
         timer = nil
     }
 
+    /// The mutant asserts no isolation in ``stop()``, so it may forward — which is the one-line case
+    /// `RepeatingTimer.stopWithoutAssertingIsolation()`'s documentation describes. The mutation this
+    /// class exists to be is the run-loop mode and nothing else.
+    func stopWithoutAssertingIsolation() {
+        stop()
+    }
+
     deinit { timer?.invalidate() }
 }
 
@@ -232,6 +239,39 @@ final class MainRunLoopTimerTests: XCTestCase {
 
         timer.stop()
         XCTAssertNil(timer.interval, "stop must be idempotent")
+    }
+
+    /// **The `Duration` → `TimeInterval` → `Duration` round trip, at the two cadences that ship.**
+    ///
+    /// The test above asserts the same round trip at `cadence`, which is 20 ms and chosen to keep the
+    /// suite fast — so neither shipped number was pinned anywhere until this test. What that gap
+    /// costs if the round trip is ever inexact is not a rounding error:
+    /// `ScheduledWatchdog.reconsider()` compares `timer.interval != interval`, so an interval that
+    /// came back a nanosecond off would never match, the timer would restart on **every** key event,
+    /// and — at macOS's 30–90 ms autorepeat against a 150 ms cadence — it would never reach its
+    /// deadline. No physical-key poll and no 120 s ceiling, for every hold-to-talk session there is.
+    ///
+    /// That is the exact defect phase 5 found and closed with
+    /// `testAnAutorepeatTrainDoesNotRestartTheTimer` — but that test drives `FakeTimer`, which stores
+    /// the `Duration` losslessly and so cannot see this route. **Latent rather than live**: both
+    /// values are measured exact today. Pinned because the consequence of it ceasing to be exact is a
+    /// green suite and a dead watchdog.
+    func testTheShippedCadencesSurviveTheRoundTripThroughTimeInterval() {
+        for cadence in [WatchdogPolicy.pollInterval, TapHealthPolling.interval] {
+            let timer = MainRunLoopTimer()
+            timer.start(every: cadence) {}
+            defer { timer.stop() }
+
+            XCTAssertEqual(
+                timer.interval, cadence,
+                """
+                \(cadence) did not survive Duration → TimeInterval → Duration. \
+                ScheduledWatchdog.reconsider() compares the interval it asked for against the one \
+                the timer reports; if they can never be equal, a held key restarts the timer on \
+                every autorepeat and it never fires at all — no physical-key poll and no 120 s \
+                ceiling, for the whole class of sessions where the user is holding the key.
+                """)
+        }
     }
 
     /// A start on a running timer is a stop followed by a start.

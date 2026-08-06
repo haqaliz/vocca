@@ -246,6 +246,37 @@ private func strandASessionOverAPolicyWithNoTap(
     harness.startASessionBypassingTheTap()
 }
 
+/// **The routes that get a tap delivering again**, each driven from the state it really arrives in.
+///
+/// Named as a set because the finding that produced it was about the set: `arm()` and
+/// `pollTapHealth()` reinterpreted their answer for Secure Input and these four did not, so *how many
+/// routes go through the reinterpretation* is the fact worth asserting rather than any one of them.
+/// `arm()` and the poll are covered by their own tests above and below; these are the four that were
+/// missing.
+///
+/// Computed rather than stored, because a stored global of non-`Sendable` closures is a
+/// strict-concurrency error and there is no state here to keep.
+private var routesThatRecoverATap: [(String, (PolicyHarness) -> TapHealth)] {
+    [
+        (
+            "tapWasDisabled(.timeout)",
+            { harness in
+                harness.tap.systemDisablesTheTap()
+                return harness.policy.tapWasDisabled(.timeout)
+            }
+        ),
+        (
+            "tapWasDisabled(.userInput)",
+            { harness in
+                harness.tap.systemDisablesTheTap()
+                return harness.policy.tapWasDisabled(.userInput)
+            }
+        ),
+        ("systemDidWake()", { $0.policy.systemDidWake() }),
+        ("accessibilityGrantChanged()", { $0.policy.accessibilityGrantChanged() }),
+    ]
+}
+
 // MARK: - The entry points, as a closed set
 
 /// Every way the outside world tells the policy something.
@@ -2143,6 +2174,94 @@ final class TapHealthPolicyTests: XCTestCase {
             XCTAssertEqual(
                 harness.secureInput.reads, expected,
                 "a poll that did not ask is a poll reporting a state nobody checked")
+        }
+    }
+
+    /// **Every route that can answer `.delivering` answers `blockedBySecureInput` instead**, and not
+    /// only the two that did.
+    ///
+    /// For one commit `arm()` and `pollTapHealth()` went through the reinterpretation and
+    /// `tapWasDisabled(_:)`, `systemDidWake()` and `accessibilityGrantChanged()` did not. So a
+    /// machine woken with Terminal's *Secure Keyboard Entry* ticked, a grant notification arriving
+    /// over a focused password field, and a timeout recovered under either, all reported
+    /// **`.delivering`** — which `TapHealth.blockedBySecureInput`'s own documentation calls the worst
+    /// of the three available lies: *"the widget saying ready while the hotkey does nothing, in a
+    /// password field."* Waking the machine and granting Accessibility are two of the three routes a
+    /// user most plausibly meets this on.
+    ///
+    /// Driven as a set rather than as three test bodies, for the reason ``PolicyEntryPoint`` is a
+    /// `CaseIterable`: the claim is about *which routes*, and a claim about a set written out one
+    /// member at a time stops covering the member somebody adds next.
+    func testEveryRouteThatCanReportDeliveringSaysBlockedWhileSecureInputIsHeld() {
+        for (name, drive) in routesThatRecoverATap {
+            let harness = PolicyHarness()
+            XCTAssertEqual(harness.policy.arm(), .delivering, "precondition: \(name)")
+
+            harness.secureInput.isActive = true
+
+            XCTAssertEqual(
+                drive(harness), .blockedBySecureInput,
+                """
+                \(name) reported a tap that is enabled, configured, and receiving nothing as \
+                .delivering. The recovery worked and the keyboard is still held by another \
+                application; ≤1 s of a widget saying "ready" while Vocca is deaf, on the routes a \
+                user meets when waking the machine and when granting Accessibility.
+                """)
+            XCTAssertTrue(
+                harness.tap.isAttached,
+                "\(name): and the route still did its own job — the tap exists")
+        }
+    }
+
+    /// **The sharper half: a session started inside the recovery, on each of those routes.**
+    ///
+    /// `source.start(delivering:)` is documented as a `stop()` followed by a `start`, and
+    /// `resumeDelivery()` runs through CoreFoundation — both pump the run loop, so a key-down queued
+    /// behind them is delivered in the middle of the recovery. `endAnyStrandedSession()` then returns
+    /// early, because `aTapExists` is `true`, on the argument *"a creation that succeeded leaves a tap
+    /// that will carry the key-up"* — which `reinterpreting(_:blockedBySecureInput:)`'s own
+    /// documentation says, verbatim, *"is exactly what Secure Input falsifies"*. It said it only
+    /// about `arm()`; it is true of these three word for word.
+    ///
+    /// The residual is ≤1 s of open microphone, closed by the next poll, so this is not a hot mic. It
+    /// is the sixth instance in this aspect of *a guard justified by a claim about what cannot be in
+    /// flight, false on a path the file already models* — which is the reason it is measured rather
+    /// than argued about.
+    func testASessionStartedInsideARecoveryIsClosedWhileSecureInputIsHeld() {
+        for configuration in bothActivationModes {
+            for (name, drive) in routesThatRecoverATap {
+                let harness = PolicyHarness(configuration: configuration)
+                XCTAssertEqual(harness.policy.arm(), .delivering, "precondition: \(name)")
+                harness.secureInput.isActive = true
+
+                // The key-down that was already queued when the recovery began. It arrives while the
+                // sink is still attached, which is what a real teardown and a real re-enable both
+                // look like from the inside.
+                harness.tap.duringStop = { harness.press() }
+                harness.tap.duringResume = { harness.press() }
+
+                XCTAssertEqual(drive(harness), .blockedBySecureInput, "\(name)")
+
+                // Read from the *tap*, not from the machine: whether a session is still running is
+                // the thing under test, so a precondition phrased in those terms would be satisfied
+                // by the fix and fail on the build this exists to catch, which is the wrong way
+                // round for a precondition.
+                XCTAssertEqual(
+                    harness.tap.deliveredEvents.count, 1,
+                    "\(name): precondition — the queued key-down must have reached the sink")
+                XCTAssertFalse(
+                    harness.microphone.isOpen,
+                    """
+                    \(configuration.activation) / \(name): a session started inside the recovery and \
+                    was left running because there is a tap now. There is, and it receives nothing: \
+                    no key-up in hold-to-talk, no second press in toggle, no flagsChanged.
+                    """)
+                XCTAssertEqual(harness.machine.state, .idle, "\(name)")
+                XCTAssertEqual(
+                    harness.effects.endReasons, [.tapDisabled],
+                    "\(name): ended as a retaining reason, so the audio travels with it")
+                XCTAssertEqual(harness.microphone.handedOut.count, 1, "\(name): with its audio")
+            }
         }
     }
 

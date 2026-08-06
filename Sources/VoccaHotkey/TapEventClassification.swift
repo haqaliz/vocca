@@ -59,10 +59,15 @@ public enum TapEventClass: Sendable, Hashable {
 ///
 /// ## Why the numbers are written out rather than imported
 ///
-/// The same two reasons `HotkeyFlagTranslation` gives, pointing the same way: CoreGraphics is
-/// deliberately not imported here, so that the seam's forbidden types have no way to reach a file
-/// that is not the adapter, and so that this module stays a `UInt64` and a `UInt32` away from any
-/// framework whose start-up behaviour would have to be argued about inside the zero-network guard.
+/// The same reason `HotkeyFlagTranslation` gives: CoreGraphics is deliberately not imported here, so
+/// that the seam's forbidden types have no way to reach a file that is not the adapter — which is
+/// also what the H7 lint checks from outside.
+///
+/// It used to give a second reason as well — that this keeps the module a `UInt64` and a `UInt32`
+/// away from any framework whose start-up behaviour would have to be argued about inside the
+/// zero-network guard — and that clause became false in phase 4, when the module gained CoreGraphics,
+/// CoreFoundation, Foundation and Carbon. See `HotkeyFlagTranslation`'s retraction of the identical
+/// sentence. What is true is the narrow form: **this file** needs no framework to be read.
 ///
 /// The cost is that a wrong number is not a compile error. Getting the *mask* wrong is the worst
 /// failure in this file and it is silent in both directions: too narrow and the hotkey never fires,

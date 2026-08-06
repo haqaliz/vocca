@@ -137,7 +137,7 @@ Stated positively, so the checklist below does not re-check things a machine alr
 
 | Job | Proves |
 |---|---|
-| Headless suite | The package builds with **zero** strict-concurrency warnings, and all tests pass: module boundaries, licence headers, the package manifest, and the zero-network invariant (with the settle window raised to 6s). It also **measures** two things that used to be on this list: the run-loop-mode hazard (a `.default`-mode timer delivers 0 of 33 fires through an event-tracking gesture; the shipped `.common` one delivers all 33), and every decision about Secure Input over an injected read. |
+| Headless suite | The package builds with **zero** strict-concurrency warnings, and all tests pass: module boundaries, licence headers, the package manifest, and the zero-network invariant (with the settle window raised to 6s). It also **measures** two things that used to be on this list: the run-loop-mode **mechanism** (a `.default`-mode timer delivers none of its due fires through an event-tracking gesture; the shipped `.common` one delivers all of them), and every decision about Secure Input over an injected read. The 0-of-33 figures quoted elsewhere come from `Scripts/measure-timers.sh`, at 150 ms over 5 s, **which CI does not run** — `MainRunLoopTimerTests` runs at 20 ms over 0.4 s, about twenty fires. |
 | Bundle contract (Debug) | A real `xcodebuild` Debug build produces a signed `Vocca.app` whose processed `Info.plist` and embedded entitlements match the checked-in sources, with the hardened runtime actually in the signature. |
 | Bundle contract (Release) | The same for Release, **plus** that the Release bundle carries no entitlement beyond what `App/Vocca.entitlements` declares — in particular not `com.apple.security.get-task-allow`, which Debug is allowed and Release is not. |
 
@@ -282,8 +282,8 @@ it: the health poll asks `CGEventTapIsEnabled`, which catches a tap that was *di
 **not** one that is enabled and deaf — created successfully, reporting itself enabled, delivering
 nothing. Two known instances: a mask cleared at creation before the Accessibility grant, and Secure
 Input. **Phase 6 closed the second and left the first**, because only the second has an API
-(`IsSecureEventInputEnabled`); see "What CI cannot cover" §6 and steps 27–29. For the first, step 15's
-toggle-mode check and step 32's note are still the only places it would be noticed at all.
+(`IsSecureEventInputEnabled`); see "What CI cannot cover" §6 and steps 36–38. For the first, step 15's
+toggle-mode check and step 30's note are still the only places it would be noticed at all.
 
 21. **The disable notifications reach `TapHealthPolicy.tapWasDisabled(_:)`, not the sink.** Routing
     `kCGEventTapDisabledByTimeout` / `…ByUserInput` into `HotkeyEventSink` ends the session correctly
@@ -339,8 +339,20 @@ by what their failure costs, not by convenience.
     source (`CFRunLoopAddSource`); the deferred recovery is a *different* call
     (`CFRunLoopPerformBlock` + `CFRunLoopWakeUp`) with the same exposure and no test that can see it.
 
-    *Pass:* the tap recovers **before the gesture ends** — press the hotkey while still dragging and
-    confirm a session starts. Recovery only once the mouse button is released is the failure.
+    *Gesture — and it is named, because step 22's method does not work here.* Step 22 provokes
+    `kCGEventTapDisabledByTimeout` by attaching a debugger and breaking during a keystroke, which
+    halts the process: nothing is then tracking, so the gesture this step asks for cannot be held.
+    Use `kCGEventTapDisabledByUserInput` instead, which is reachable without stopping the process —
+    **open a menu and hold it open, then toggle Accessibility for Vocca off and on in System
+    Settings.** If you would rather keep the timeout route, post a `sleep(3)` onto the main thread
+    from a debugger console *before* starting the drag, then start dragging within those three
+    seconds. If neither is practical on the machine in front of you, record it as **not performed**,
+    the way step 28 records its unavailable case. A step whose gesture is unperformable as written is
+    a step that gets ticked.
+
+    *Pass:* the tap recovers **before the gesture ends** — press the hotkey while still dragging or
+    while the menu is still open, and confirm a session starts. Recovery only once the gesture ends
+    is the failure.
 
 26. **Release Option while still holding Space.** The one gesture that distinguishes an event mask
     with `flagsChanged` in it from one without, and nothing else in this document exercises what that
@@ -364,18 +376,30 @@ by what their failure costs, not by convenience.
     that last assertion a permanently-swallowing tap and a correctly-swallowing one look identical,
     and the permanently-swallowing one eats the user's whole keyboard.
 
-28. **Release the hotkey by a different route than the one that pressed it.** `CGEventSourceKeyState`
-    is asked with `.combinedSessionState`, and nothing distinguishes that from `.hidSystemState` or
-    `.privateState` except this.
+28. **Hold the hotkey down with no hand on the keyboard.** `CGEventSourceKeyState` is asked with
+    `.combinedSessionState`, and nothing distinguishes that from `.hidSystemState` or `.privateState`
+    except a key that is *logically* down and *physically* is not.
 
-    *Gesture:* start a hold-to-talk session with a key on one keyboard and release it via a second
-    connected keyboard, or by posting the key-up with `cliclick`/a script.
+    *Gesture:* with Vocca armed and hold-to-talk bound to `⌥Space`, run `cliclick kd:alt kd:space`
+    from Terminal and take your hands off the keyboard.
 
-    *Pass:* the session ends. `.hidSystemState` answers wrongly here and `.combinedSessionState` does
-    not.
+    *Pass:* a session starts and is **still running 2 s later**. Then `cliclick ku:space ku:alt` and
+    confirm it ends.
 
-    *If you have no second keyboard and no way to post events:* **this step cannot be performed.**
-    Record it as not performed. It is not a pass.
+    *What it discriminates, and why the gesture is inverted:* an earlier version of this step
+    released the key by a second route — a second keyboard, or a posted key-up — and **could not
+    fail for the reason it exists.** Both of those deliver a genuine `.keyUp` for the bound key code
+    to the tap, and stop rule (a) ends the session on that event via `matchesKey` without consulting
+    `PhysicalKeyStateReader` at all (`HotkeyEventSource.swift:67-68` says so explicitly). The session
+    therefore ended under all three state IDs. Posting only the key-*down* removes rule (a) from the
+    picture: `.combinedSessionState` includes events posted into the session, so `isKeyDown` answers
+    `true` and the session runs on; `.hidSystemState` reads the hardware alone — no key is physically
+    down — so stop rule (f) ends it inside one 150 ms watchdog tick and the step fails within the
+    first quarter-second. `.privateState` behaves as `.hidSystemState` does for a key posted by
+    another process.
+
+    *If `cliclick` (or an equivalent way to post events) is unavailable:* **this step cannot be
+    performed.** Record it as not performed. It is not a pass.
 
 29. **Disarm mid-session.** The manual counterpart to the Critical that phase 5's review found: the
     forward from the wrapper an owner holds to the policy's `disarm()` was, for one commit, held by no
@@ -394,19 +418,32 @@ by what their failure costs, not by convenience.
 
 ### The timers, which is where the last hot mic hides
 
-31. **Hold the hotkey while dragging a window** — the H10 hazard, with the one part of it no
-    automation here can reach.
+31. **Stop a *toggle* session mid-drag** — the H10 hazard applied to the **tap's** run-loop source,
+    which is the half step 32 does not cover.
 
-    *Gesture:* start a session, grab a window's title bar and keep dragging for at least five
-    seconds, and **release the hotkey in the middle of the drag** without letting go of the mouse.
+    *Gesture:* start a **toggle** session, grab a window's title bar and keep dragging, and press the
+    hotkey again mid-drag without letting go of the mouse.
 
-    *Pass:* the session ends, and the microphone indicator goes out, **while the drag is still in
-    progress** — within about 300 ms of the release, not when you let go of the window.
+    *Pass:* the session ends and the microphone indicator goes out within about 300 ms of the second
+    press, **while the drag is still in progress** — not when you let go of the window.
 
-    *Why that number:* measured, the shipped `.common`-mode timer's worst gap through a tracking
-    gesture is 151 ms, and a `.default`-mode one delivered **0 fires in 5 s** — the gap is the whole
-    gesture. So anything that ends only at the end of the drag is the failure, and 300 ms is comfortably
-    above the healthy build and far below the broken one. `Scripts/measure-timers.sh runloop --window`
+    *Why toggle, and why the press rather than a release:* this step used to be a hold-to-talk
+    session with the hotkey released mid-drag, and it was **looser than either failure it guards.**
+    In hold-to-talk two independent mechanisms end that session and they live on different run-loop
+    registrations — the key-up, delivered through the tap's `CFRunLoopAddSource`
+    (`CGEventTapSource.swift:211`) → stop rule (a); and the physical-key poll, delivered by the
+    watchdog's `RunLoop.main.add(timer, forMode:)` (`MainRunLoopTimer.swift:202`) → stop rule (f),
+    within 150 ms. Either alone met the criterion, so the step passed with a `.default`-mode timer
+    *and* passed with a `.default`-mode tap source; it failed only if both were broken, while its
+    rationale quoted the timer measurement as though it tested the timer. Toggle has no physical-key
+    poll, so only a delivered event can end this session: with the tap's source in `.defaultMode` the
+    second press is not delivered until the drag ends, and the only remaining backstop is the 120 s
+    ceiling.
+
+    *Why 300 ms:* measured, the shipped `.common`-mode timer's worst gap through a tracking gesture
+    is 151 ms, and a `.default`-mode one delivered **0 fires in 5 s** — the gap is the whole gesture.
+    So anything that ends only at the end of the drag is the failure, and 300 ms is comfortably above
+    the healthy build and far below the broken one. `Scripts/measure-timers.sh runloop --window`
     prints live counters and the run-loop mode it observed if you want the numbers rather than the
     indicator.
 
@@ -420,6 +457,12 @@ by what their failure costs, not by convenience.
     (120 s ceiling, one 150 ms watchdog tick, and a quarter-second of slack for the throttle in step
     33. Not "about two minutes": a session that ends when the drag ends has failed even if the drag
     lasted 121 s.)
+
+    *This, and not step 31, is the **timer's** step.* Toggle has no physical-key poll and no key-up
+    rule, so the ceiling is the only thing that can end this session and the watchdog's timer is the
+    only thing that can deliver it — which is what isolates `RunLoop.main.add(timer, forMode: .common)`
+    from the tap's own run-loop registration. Step 31 covers that registration; this covers the timer.
+    The pair is deliberate, because a step that passes when either half works measures neither.
 
 33. **App Nap on battery — and check the suppression state *before* believing the result.** This is
     rule 1 of the preamble, and the step is written the way it is because the first version of this

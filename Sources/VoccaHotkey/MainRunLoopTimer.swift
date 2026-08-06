@@ -208,6 +208,13 @@ public final class MainRunLoopTimer: RepeatingTimer {
         tearDown()
     }
 
+    /// The same teardown with the assertion left off, for the callers that cannot promise where they
+    /// are running. See ``RepeatingTimer/stopWithoutAssertingIsolation()`` for why that is a
+    /// requirement rather than a courtesy, and ``deinit`` for the rule it belongs to.
+    public func stopWithoutAssertingIsolation() {
+        tearDown()
+    }
+
     /// The net under an owner that dropped this without stopping it.
     ///
     /// A `Timer` scheduled on a run loop is retained *by the run loop*, so nothing about this object
@@ -216,6 +223,16 @@ public final class MainRunLoopTimer: RepeatingTimer {
     /// It skips the isolation assertion for the reason ``CGEventTapSource/deinit`` does: a `deinit`
     /// runs wherever the last release happens, which is not this object's choice, and trapping there
     /// would turn "an owner released me on the wrong thread" into a crash at exit.
+    ///
+    /// **The rule is not this object's alone, and stating it only here is how it got broken one layer
+    /// up.** ``ScheduledWatchdog/deinit`` and ``TapHealthTimer/deinit`` both tear this timer down
+    /// from their own `deinit`s, and both called the *asserting* ``stop()`` for one commit — so the
+    /// chain `CGEventTapSource.deinit` → `tearDown()` → `sink = nil` → `ScheduledWatchdog.deinit` →
+    /// `stop()` ended in a precondition failure in a release build, at exactly the moment this file
+    /// was written to stay quiet. They call ``stopWithoutAssertingIsolation()`` now. **Any further
+    /// object that owns a timer and stops it in `deinit` owes the same**, and
+    /// `DeinitIsolationTests.testNoDeinitInTheSourcesReachesAnAssertingTeardown` is what says so to
+    /// somebody who has not read this paragraph.
     ///
     /// **The thread question is not a clean no here, and saying otherwise would be the false safety
     /// claim this repository has now corrected twice.** `Timer.invalidate()` is documented as having

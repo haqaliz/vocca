@@ -99,8 +99,16 @@ public final class ScheduledWatchdog<Audio: CapturedAudio>: HotkeyEventSink {
     /// timer firing into nothing rather than into freed memory — but it would still fire, forever, on
     /// the main run loop. `MainRunLoopTimer` has a `deinit` of its own that covers the case where
     /// this object is the timer's only owner; this covers the case where it is not.
+    ///
+    /// **It calls ``RepeatingTimer/stopWithoutAssertingIsolation()`` and not `stop()`, and the
+    /// difference is a release-build crash.** `MainRunLoopTimer.stop()` opens with
+    /// `MainActor.preconditionIsolated`, which is not compiled out at `-O`, and a `deinit` runs
+    /// wherever the last release happens. The reachable chain is the package's own:
+    /// ``CGEventTapSource/deinit`` is deliberately non-asserting because it may run anywhere, and it
+    /// calls `tearDown()`, which sets `sink = nil` — and the sink is this object. So a tap source
+    /// released off the main actor arrives here, and for one commit arrived at a trap.
     deinit {
-        timer.stop()
+        timer.stopWithoutAssertingIsolation()
     }
 
     // MARK: - HotkeyEventSink

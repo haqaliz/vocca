@@ -600,7 +600,13 @@ public final class TapHealthPolicy {
         endAnyInFlightSession()
         note(.disabled(reason))
         guard isArmed else { return .notArmed }
-        return restoreDelivery()
+        // A recovery that took over a held keyboard is a tap that is enabled and receives nothing —
+        // `.delivering` here is the report `TapHealth.blockedBySecureInput` calls the worst of the
+        // three available lies. See ``reinterpreting(_:blockedBySecureInput:)``: every route that can
+        // answer `.delivering` goes through it, and this one recreates as well, so it inherits the
+        // session argument too.
+        return reinterpreting(
+            restoreDelivery(), blockedBySecureInput: secureInputIsSwallowingEverything())
     }
 
     /// **Close the microphone, and do nothing else.** The half of ``tapWasDisabled(_:)`` that has to
@@ -779,11 +785,25 @@ public final class TapHealthPolicy {
     /// thing, and this class has already been bitten once by throttling an ending that was sharing a
     /// gate with something cheap.
     ///
-    /// Called from ``arm()`` as well as from the poll, and by the same route, so that "the hotkey
-    /// is blocked" cannot mean one thing at start-up and another a second later. Arming has its own
-    /// reason to want the ending: `start(delivering:)` tears down before it creates, a key-down
-    /// queued behind that teardown starts a session, and the ordinary argument for letting it live —
-    /// *there is a tap now and it will carry the key-up* — is exactly what Secure Input falsifies.
+    /// **Called from every entry point that can answer ``TapHealth/delivering``** — ``arm()``, the
+    /// poll, ``tapWasDisabled(_:)``, ``systemDidWake()`` and ``accessibilityGrantChanged()`` — and by
+    /// the same route, so that "the hotkey is blocked" cannot mean one thing at start-up and another
+    /// a second later. That closure over the routes is the correction a review had to make: for one
+    /// commit only the first two went through here, so a machine woken with Terminal's *Secure
+    /// Keyboard Entry* ticked, a grant notification arriving over a focused password field, and a
+    /// timeout recovered under either, all reported `.delivering` — the answer
+    /// ``TapHealth/blockedBySecureInput``'s own documentation calls the worst of the three available
+    /// lies.
+    ///
+    /// **Every one of them also has arming's reason to want the ending, word for word**, which is the
+    /// sharper half: `start(delivering:)` tears down before it creates, a key-down queued behind that
+    /// teardown starts a session, and the ordinary argument for letting it live — *there is a tap now
+    /// and it will carry the key-up* — is exactly what Secure Input falsifies. That sentence was
+    /// written about ``arm()`` and is true of all four creating routes; ``endAnyStrandedSession()``
+    /// returns early on every one of them, because `aTapExists` is `true`. The residual without this
+    /// is ≤1 s of open microphone, closed by the next poll — not a hot mic, and still the sixth
+    /// instance in this aspect of *a guard justified by a claim about what cannot be in flight,
+    /// false on a path the file already models*.
     private func reinterpreting(
         _ health: TapHealth, blockedBySecureInput blocked: Bool
     ) -> TapHealth {
@@ -834,10 +854,16 @@ public final class TapHealthPolicy {
     /// silently — there was no disable event, so there is no reason to believe there is anything
     /// left to enable — and a `CGEventTapEnable` on a dead tap succeeds at doing nothing, which is
     /// the failure mode that would leave Vocca deaf while reporting itself healthy.
+    ///
+    /// **A machine woken with a password field already focused is the likeliest route to Secure
+    /// Input there is**, so the answer goes through ``reinterpreting(_:blockedBySecureInput:)`` like
+    /// every other route that can report ``TapHealth/delivering``.
     public func systemDidWake() -> TapHealth {
         endAnyInFlightSession()
         guard isArmed else { return .notArmed }
-        return recreate(because: .systemDidWake)
+        return reinterpreting(
+            recreate(because: .systemDidWake),
+            blockedBySecureInput: secureInputIsSwallowingEverything())
     }
 
     /// The Accessibility grant changed.
@@ -851,10 +877,16 @@ public final class TapHealthPolicy {
     /// The notification does not say which way the grant went, and this does not guess. It
     /// re-creates and reports what happened — so a **revoked** grant arrives here too, and leaves as
     /// ``TapHealth/permissionMissing``, which is the truth.
+    ///
+    /// A grant notification arriving while a password field is focused is reported as blocked rather
+    /// than as delivering, for the reason ``reinterpreting(_:blockedBySecureInput:)`` gives about
+    /// every route that re-creates.
     public func accessibilityGrantChanged() -> TapHealth {
         endAnyInFlightSession()
         guard isArmed else { return .notArmed }
-        return recreate(because: .accessibilityGrantChanged)
+        return reinterpreting(
+            recreate(because: .accessibilityGrantChanged),
+            blockedBySecureInput: secureInputIsSwallowingEverything())
     }
 
     /// Stop delivering, deliberately.

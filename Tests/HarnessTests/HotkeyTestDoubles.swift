@@ -302,6 +302,16 @@ final class FakeTimer: RepeatingTimer {
     private(set) var startCount = 0
     private(set) var stopCount = 0
 
+    /// How many times the **non-asserting** teardown was used, counted separately from ``stopCount``.
+    ///
+    /// **Two counters for what is one effect, because the difference between them is a release-build
+    /// crash and nothing else can see it.** `MainRunLoopTimer.stop()` opens with
+    /// `MainActor.preconditionIsolated`, which is not compiled out at `-O`; a `deinit` runs wherever
+    /// the last release happens. Every test in this suite releases on the main actor, so the trap is
+    /// invisible to all of them — the only way it is observable at all is by asking *which entry
+    /// point* a `deinit` took. `DeinitIsolationTests` is what asks.
+    private(set) var stopWithoutAssertingIsolationCount = 0
+
     /// Every cadence ever asked for, in order. A count alone cannot tell a restart at the same
     /// cadence from a restart at a different one, and one of those is a defect.
     private(set) var cadencesRequested: [Duration] = []
@@ -320,6 +330,17 @@ final class FakeTimer: RepeatingTimer {
 
     func stop() {
         stopCount += 1
+        tearDown()
+    }
+
+    func stopWithoutAssertingIsolation() {
+        stopWithoutAssertingIsolationCount += 1
+        tearDown()
+    }
+
+    /// The effect both entry points share, so that a test reading ``isRunning`` cannot tell them
+    /// apart — which is the whole reason the counters exist.
+    private func tearDown() {
         interval = nil
         fire = nil
     }

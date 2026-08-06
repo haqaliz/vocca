@@ -25,14 +25,20 @@ import VoccaCore
 /// ## Why the bits are written out rather than imported
 ///
 /// The constants below are CoreGraphics' `CGEventFlags` values, transcribed. The framework is
-/// deliberately **not** imported, for two reasons that point the same way:
+/// deliberately **not** imported, and the reason is this: `ModifierSet`'s raw bit positions are this
+/// package's own, starting at bit 0, *specifically* so that nobody can bridge the two worlds with a
+/// cast or a `rawValue` round-trip. Having the source values in scope is the temptation that
+/// documentation asks to remove. The H7 seam lint enforces the same thing from outside — exactly one
+/// file in `Sources/` may name a CoreGraphics event type, and it is the adapter.
 ///
-/// - `ModifierSet`'s raw bit positions are this package's own, starting at bit 0, *specifically* so
-///   that nobody can bridge the two worlds with a cast or a `rawValue` round-trip. Having the
-///   source values in scope is the temptation that documentation asks to remove.
-/// - This module is inside the zero-network coverage guard, and every framework linked into that
-///   path is a framework whose start-up behaviour has to be argued about. A `UInt64` needs no
-///   argument.
+/// **A second reason used to be given here and it is now false, so it is retracted rather than
+/// quietly dropped:** *"this module is inside the zero-network coverage guard, and every framework
+/// linked into that path is a framework whose start-up behaviour has to be argued about."* That was
+/// true of `VoccaHotkey` when this file was written and stopped being true in phase 4 — the module
+/// links CoreGraphics and CoreFoundation (`CGEventTapSource.swift`), Foundation
+/// (`MainRunLoopTimer.swift`) and Carbon.HIToolbox (`SecureInput.swift`), and `VoccaNetworkProbe`
+/// imports it. What survives, and is worth saying, is the narrow form: **this file** needs no
+/// framework to be read or to be right.
 ///
 /// The cost of transcribing is that a wrong constant is not a compile error — it is a hotkey that
 /// silently never fires. `HotkeyFlagTranslationTests` pays that cost off: it drives this function

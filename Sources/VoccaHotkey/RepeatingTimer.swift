@@ -86,5 +86,32 @@ public protocol RepeatingTimer: AnyObject {
     /// Releasing the closure is part of the contract rather than a consequence of it: `fire` reaches
     /// the session machine, and a timer that held one after being stopped would keep the whole
     /// session graph alive for as long as the timer object lived.
+    ///
+    /// **A conformance is entitled to assert its isolation here**, and the shipped one does — which
+    /// is why ``stopWithoutAssertingIsolation()`` exists and why a `deinit` must call that instead.
     func stop()
+
+    /// ``stop()``, for the one caller that cannot promise where it is running: a `deinit`.
+    ///
+    /// **This exists because a `deinit` runs wherever the last release happens, which is not its
+    /// object's choice.** ``MainRunLoopTimer/stop()`` opens with `MainActor.preconditionIsolated`,
+    /// and a precondition is *not* compiled out at `-O`, so a `deinit` that called it would turn "an
+    /// owner released me on the wrong thread" into a crash at exit in a release build. That is
+    /// reachable by this package's own documented chain rather than by an owner doing something
+    /// silly: ``CGEventTapSource/deinit`` is deliberately non-asserting for exactly this reason, and
+    /// its `tearDown()` sets `sink = nil` — releasing the ``ScheduledWatchdog``, whose `deinit` stops
+    /// this timer.
+    ///
+    /// **It is a protocol requirement rather than a default implementation calling ``stop()``**, and
+    /// deliberately: a default would be the trap again, silently, for the next conformance. A
+    /// conformance that asserts nothing in `stop()` may forward to it in one line; one that asserts
+    /// has to say what it does instead.
+    ///
+    /// Same contract as ``stop()`` in every other respect — it stops firing, it releases `fire`, and
+    /// it is idempotent.
+    ///
+    /// **The two callers are** ``ScheduledWatchdog/deinit`` and ``TapHealthTimer/deinit``. Named so
+    /// that the third object in this package to own a timer inherits the rule rather than
+    /// rediscovering it; `DeinitIsolationTests` is what makes that structural rather than hopeful.
+    func stopWithoutAssertingIsolation()
 }
