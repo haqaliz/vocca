@@ -588,13 +588,13 @@ final class AudioFormatConverterTests: XCTestCase {
         let abandoned = [Float](repeating: 1.0, count: 96_000) + [0.75]
         _ = try converter.convert(abandoned)
         XCTAssertTrue(
-            converter.isMidStream,
+            converter.isHoldingAudio,
             "a converter holding an unfinished session's state must say so")
 
         // The next session begins. This is the only point in a session's life that cannot be
         // skipped, which is why the reset is anchored here.
         converter.beginSession()
-        XCTAssertFalse(converter.isMidStream, "beginSession() must clear the abandoned state")
+        XCTAssertFalse(converter.isHoldingAudio, "beginSession() must clear the abandoned state")
 
         let voice = Self.interleave([
             Self.sine(frequency: 1000, sampleRate: 48_000, frames: 48_000),
@@ -645,7 +645,7 @@ final class AudioFormatConverterTests: XCTestCase {
         // No `beginSession()` here, deliberately: the point is that `finish(_:)` itself left the
         // converter clean, on the path where it failed.
         XCTAssertFalse(
-            converter.isMidStream,
+            converter.isHoldingAudio,
             "finish() threw and left the converter mid-stream, so its cleanup was skipped")
 
         let voice = Self.sine(frequency: 500, sampleRate: 4_000, frames: 4_000)
@@ -661,6 +661,246 @@ final class AudioFormatConverterTests: XCTestCase {
             on the same audio — so the failed session's samples were emitted into it. A throw that \
             leaves state behind is how one dictation ends up inside another.
             """)
+    }
+
+    /// **A `convert(_:)` that throws mid-session must not carry its session into the next one.**
+    ///
+    /// `finish(_:)` got this treatment first and `convert(_:)` did not — while a test in this file
+    /// asserted the standard for one and not the other. `convert(_:)` is the **higher-frequency**
+    /// throw site by a wide margin: once per poll of the ring against once per session.
+    ///
+    /// The throw is mid-session on purpose. Real audio is converted first, so the converter holds
+    /// genuine filter state and a genuine partial frame when the failing call arrives — which is
+    /// what makes contamination possible at all. A test that threw on the very first call would
+    /// have nothing to carry forward and would pass against the unprotected code.
+    ///
+    /// Kills: cleanup applied to `finish(_:)` alone. Asserted by content against a fresh
+    /// converter's output, because equal lengths with wrong contents is the failure.
+    func testAThrowingConvertDoesNotCarryItsSessionIntoTheNext() throws {
+        // Stereo, so the failing session holds a partial frame as well as filter state.
+        let format = CapturedAudioFormat(sampleRate: 4_000, channelCount: 2)
+        let converter = try AudioFormatConverter(inputFormat: format)
+
+        // Real audio first, ending mid-frame: this is what the throw must not carry forward.
+        let opening = Self.interleave([
+            Self.sine(frequency: 500, sampleRate: 4_000, frames: 4_000),
+            Self.sine(frequency: 500, sampleRate: 4_000, frames: 4_000),
+        ]) + [0.75]
+        _ = try converter.convert(opening)
+        XCTAssertTrue(
+            converter.isHoldingAudio,
+            "the session must be holding something, or this test cannot prove anything")
+
+        // Now a call that fails: past the drain's iteration ceiling.
+        XCTAssertThrowsError(try converter.convert([Float](repeating: 0.9, count: 4_400_000))) {
+            error in
+            guard case .conversionDidNotTerminate = error as? AudioFormatConversionError else {
+                return XCTFail("expected the drain ceiling to be reported, got \(error)")
+            }
+        }
+
+        // No `beginSession()`, deliberately — the point is that `convert(_:)` cleaned up after
+        // itself on the path where it failed.
+        XCTAssertFalse(
+            converter.isHoldingAudio,
+            "convert() threw and left audio held, so its cleanup was skipped")
+
+        let voice = Self.interleave([
+            Self.sine(frequency: 800, sampleRate: 4_000, frames: 4_000),
+            Self.sine(frequency: 800, sampleRate: 4_000, frames: 4_000),
+        ])
+        var second = try converter.convert(voice)
+        second += try converter.finish()
+
+        let (reference, _) = try Self.captureWhole(voice, from: format)
+        XCTAssertEqual(reference.count, 16_000, "the reference conversion is itself wrong")
+        XCTAssertEqual(
+            second, reference,
+            """
+            After a convert() that threw, the next session did not match a fresh converter's output \
+            on the same audio — so the failed session's samples were emitted into it. This is the \
+            throw site that fires once per poll, not once per session.
+            """)
+    }
+
+    // MARK: - The accounting the reset rests on
+
+    /// **Every sample handed in is either converted or counted. Nothing is silently dropped.**
+    ///
+    /// This is the premise the whole reset rests on and it was, until now, held by no test.
+    /// ``AudioFormatConverter/beginSession()`` and the two error paths discard whatever partial
+    /// frame is held — and that is only acceptable because what is held is always **less than one
+    /// frame**. If a whole frame could ever be retained, the reset would trade cross-session
+    /// contamination for silent truncation of the session in hand, which is the same defect pointed
+    /// at a different session.
+    ///
+    /// So the law is asserted exactly, not bounded loosely:
+    /// `outputSamples × channelCount + discarded == samplesFed`. It is the analogue of
+    /// `AudioRingBuffer`'s `received + refused == sent`, and it is checked at 16 kHz so that no
+    /// resampler filter delay stands between the input and the arithmetic — the partial-frame
+    /// handling is the whole subject.
+    ///
+    /// Randomised chunk sizes over a seeded generator, because the defect only appears when a drain
+    /// boundary lands mid-frame, and a fixed chunk size either always lands there or never does.
+    ///
+    /// Kills: a partial frame that is dropped without being counted; one that is counted twice; one
+    /// retained across a reset; and any implementation that can hold a whole frame back.
+    func testEverySampleIsEitherConvertedOrCounted() throws {
+        var generator = SeededGenerator(seed: 0x5EED_A1D0)
+
+        for channelCount in 1...8 {
+            let format = CapturedAudioFormat(sampleRate: 16_000, channelCount: channelCount)
+            let converter = try AudioFormatConverter(inputFormat: format)
+            var discardedBefore = 0
+
+            // Several sessions on the one converter, so the reset is inside the measurement.
+            for _ in 0..<5 {
+                converter.beginSession()
+                discardedBefore = converter.discardedPartialFrameSampleCount
+
+                var fed = 0
+                var produced = 0
+                for _ in 0..<12 {
+                    let chunk = Int.random(in: 0...97, using: &generator)
+                    fed += chunk
+                    produced += try converter.convert(
+                        (0..<chunk).map { Float($0) * 0.01 }
+                    ).count
+
+                    XCTAssertLessThan(
+                        converter.discardedPartialFrameSampleCount - discardedBefore, channelCount,
+                        """
+                        More than a frame's worth was discarded mid-session at \(channelCount) \
+                        channels. The reset may only ever throw away a remainder too short to be a \
+                        frame — anything more is real audio deleted without a transcript being \
+                        marked short.
+                        """)
+                }
+
+                produced += try converter.finish().count
+                let discarded = converter.discardedPartialFrameSampleCount - discardedBefore
+
+                XCTAssertEqual(
+                    produced * channelCount + discarded, fed,
+                    """
+                    \(channelCount) channels: \(fed) samples in, \(produced) frames out, \
+                    \(discarded) counted as discarded. Every sample must be one or the other — a \
+                    sample that is neither is audio deleted with nothing recording that it was.
+                    """)
+                XCTAssertEqual(
+                    discarded, fed % channelCount,
+                    "the discarded count is not the remainder, so the boundary is being mishandled")
+                XCTAssertLessThan(discarded, channelCount, "a whole frame was discarded")
+            }
+        }
+    }
+
+    /// **`isHoldingAudio` reports what is actually held, term by term.**
+    ///
+    /// Two things can be held — a partial frame and the resampler's filter state — and each has a
+    /// regime where it is the *only* one that can be. Asserting the flag only where both are true
+    /// (which is what the contamination tests do, since they use a multi-channel resampling
+    /// converter) leaves an implementation reading either term alone indistinguishable from the
+    /// correct one. Measured: dropping either term from the disjunction failed nothing.
+    ///
+    /// The third regime is the one that prompted the rename. A 16 kHz mono pass-through holds
+    /// nothing at any point in its life, so the flag must stay `false` through a whole session — the
+    /// stored flag this replaced answered "has audio been through here" and said `true`, which is a
+    /// hazard flag raised where there is no hazard.
+    func testIsHoldingAudioReflectsWhatIsActuallyHeld() throws {
+        // A partial frame and nothing else: 16 kHz multi-channel builds no resampler at all.
+        let partialOnly = try AudioFormatConverter(
+            inputFormat: CapturedAudioFormat(sampleRate: 16_000, channelCount: 2))
+        XCTAssertFalse(partialOnly.isHoldingAudio, "nothing has been converted yet")
+        _ = try partialOnly.convert([1, 2, 3, 4])
+        XCTAssertFalse(
+            partialOnly.isHoldingAudio,
+            "two whole frames leave no remainder, so nothing is held")
+        _ = try partialOnly.convert([5])
+        XCTAssertTrue(
+            partialOnly.isHoldingAudio,
+            """
+            A stranded half-frame is held and would reach the next session, but the flag says \
+            nothing is. This regime has no resampler, so the partial frame is the only term that \
+            can be true here.
+            """)
+        partialOnly.beginSession()
+        XCTAssertFalse(partialOnly.isHoldingAudio, "beginSession() did not clear the partial frame")
+
+        // Resampler state and nothing else: mono input never strands a partial frame.
+        let resamplerOnly = try AudioFormatConverter(
+            inputFormat: CapturedAudioFormat(sampleRate: 48_000, channelCount: 1))
+        XCTAssertFalse(resamplerOnly.isHoldingAudio, "nothing has been converted yet")
+        _ = try resamplerOnly.convert(Self.sine(frequency: 1000, sampleRate: 48_000, frames: 4800))
+        XCTAssertTrue(
+            resamplerOnly.isHoldingAudio,
+            """
+            The resampler holds filter state and a tail that a flush would emit, but the flag says \
+            nothing is held. Mono input strands no partial frame, so the resampler is the only term \
+            that can be true here.
+            """)
+        _ = try resamplerOnly.finish()
+        XCTAssertFalse(resamplerOnly.isHoldingAudio, "finish() did not clear the resampler state")
+
+        // Neither, ever: the pass-through retains nothing at any point.
+        let passThrough = try AudioFormatConverter(
+            inputFormat: CapturedAudioFormat(sampleRate: 16_000, channelCount: 1))
+        for _ in 0..<3 {
+            _ = try passThrough.convert(Self.sine(frequency: 500, sampleRate: 16_000, frames: 1600))
+            XCTAssertFalse(
+                passThrough.isHoldingAudio,
+                """
+                A 16 kHz mono pass-through copies its argument and keeps nothing, so it can \
+                contaminate nothing — reporting otherwise is a hazard flag raised where there is no \
+                hazard, which is one an owner learns to ignore.
+                """)
+        }
+        XCTAssertTrue(passThrough.isPassThrough, "the pass-through control is not passing through")
+    }
+
+    /// A press that captures nothing is a real session, and must behave like one.
+    ///
+    /// `CapturedAudio`'s own doc makes the case: "a 20 ms tap that captures almost nothing is a real
+    /// session that ended for a real reason, and its outcome is `.completed`, not a discard." So the
+    /// empty press must not throw, must not produce audio, must not count a loss, and must leave the
+    /// converter exactly as clean as it found it.
+    ///
+    /// Kills: a `finish(_:)` that assumes at least one `convert(_:)` ran; a reset that counts a
+    /// discard when nothing was held; and any state left behind that the next real press would
+    /// inherit.
+    func testAPressThatCapturesNothingIsACleanSession() throws {
+        for format in [
+            CapturedAudioFormat(sampleRate: 48_000, channelCount: 1),
+            CapturedAudioFormat(sampleRate: 16_000, channelCount: 1),
+            CapturedAudioFormat(sampleRate: 44_100, channelCount: 2),
+        ] {
+            let converter = try AudioFormatConverter(inputFormat: format)
+
+            converter.beginSession()
+            XCTAssertFalse(converter.isHoldingAudio, "\(format): a fresh session holds nothing")
+            XCTAssertEqual(
+                try converter.finish(), [],
+                "\(format): a press with no audio produced audio")
+            XCTAssertEqual(
+                converter.discardedPartialFrameSampleCount, 0,
+                "\(format): an empty press counted a loss it did not have")
+            XCTAssertFalse(converter.isHoldingAudio, "\(format): an empty press left state behind")
+
+            // And the next, real press is unaffected by having followed an empty one.
+            let frames = Int(format.sampleRate)
+            let voice = Self.interleave(
+                (0..<format.channelCount).map { _ in
+                    Self.sine(frequency: 440, sampleRate: format.sampleRate, frames: frames)
+                })
+            converter.beginSession()
+            var audio = try converter.convert(voice)
+            audio += try converter.finish()
+
+            let (reference, _) = try Self.captureWhole(voice, from: format)
+            XCTAssertEqual(
+                audio, reference,
+                "\(format): a real press following an empty one did not convert normally")
+        }
     }
 
     /// The drain ceiling is reachable, reports itself, and is not merely a comment.

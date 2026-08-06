@@ -48,7 +48,21 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 384 by audio-capture phase 2 review round 1, which added three — all of them one defect:
+# 388 by audio-capture phase 2 review round 2, which added four. The instructive one:
+# `convert(_:)` throws too, is called once per poll rather than once per session, and did **not**
+# get the exception-safety treatment round 1 gave `finish(_:)` — so a test in the suite asserted a
+# standard the code met in one place and not the other, which is this project's recurring shape.
+# The rule now runs at every throwing entry point through one `discardStreamState()`.
+# The second pins the premise the whole reset rests on and that nothing asserted: every sample handed
+# in is either converted or counted — `output × channels + discarded == fed`, the analogue of the
+# ring's `received + refused == sent`. Discarding a remainder is only defensible while it is smaller
+# than a frame; unasserted, that bound was one edit away from trading contamination for silent
+# truncation. The other two are an empty press (a real session that captures nothing) and
+# `isHoldingAudio`, which is now computed from what is held rather than from whether convert ran —
+# it reported a hazard for a pass-through that retains nothing, and each of its two terms was
+# separately deletable with the suite green.
+#
+# It was 384 after audio-capture phase 2 review round 1, which added three — all of them one defect:
 # **audio from one session reaching another session's transcript.** finish() cleaned up only after
 # its flush succeeded, so a throw left the resampler's filter state and a partial frame in place for
 # the next session to emit; and a session that ended any of the five ways that are not a normal
@@ -585,7 +599,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=384
+MINIMUM_EXECUTED_TESTS=388
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
