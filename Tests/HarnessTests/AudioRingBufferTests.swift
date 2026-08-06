@@ -62,6 +62,68 @@ final class AudioRingBufferTests: XCTestCase {
         XCTAssertEqual(ring.availableToRead, 0, "a drained ring must be empty, not merely readable")
     }
 
+    /// The capacity rule, as a pure function, because the `precondition` that enforces it cannot be
+    /// caught in-process and so was satisfiable by any predicate at all: neutering either half of it
+    /// left the whole suite green.
+    func testOnlyAPositivePowerOfTwoIsALegalCapacity() {
+        for legal in [1, 2, 4, 8, 64, 1024, 1 << 20] {
+            XCTAssertTrue(
+                AudioRingBuffer.isValidCapacity(legal), "\(legal) is a power of two and was refused")
+        }
+        for illegal in [0, 3, 5, 6, 7, 9, 63, 100, 1000, (1 << 20) + 1] {
+            XCTAssertFalse(
+                AudioRingBuffer.isValidCapacity(illegal),
+                """
+                \(illegal) was accepted as a capacity. The cursors are masked with `capacity - 1`, \
+                so a non-power-of-two silently folds the ring onto itself and corrupts every sample \
+                rather than crashing.
+                """)
+        }
+        for negative in [-1, -8, Int.min] {
+            XCTAssertFalse(
+                AudioRingBuffer.isValidCapacity(negative),
+                """
+                \(negative) was accepted as a capacity. Int.min matters on its own: it satisfies \
+                `capacity & (capacity - 1) == 0`, so the power-of-two half of the rule passes it and \
+                only the positivity half rejects it.
+                """)
+        }
+    }
+
+    /// **The producer's arithmetic must not trap, including in the state the API cannot produce.**
+    ///
+    /// `Int(write &- read)` was the original form and it is a trapping conversion on the realtime
+    /// thread. Reverting to it is invisible to every other test in this file — measured: the whole
+    /// suite stays green — because the trap only fires once the SPSC discipline is already violated
+    /// and the cursors have inverted. That is precisely the discipline `@unchecked Sendable` leaves
+    /// unenforced, so "unreachable through the API" is not the same as "unreachable". The function
+    /// exists to be callable in that state; this is the test that calls it there.
+    func testTheProducersRoomArithmeticRefusesRatherThanTrappingOnInvertedCursors() {
+        // Normal states first, so the function is known to compute the right answer at all.
+        XCTAssertEqual(AudioRingBuffer.room(capacity: 8, write: 0, read: 0), 8, "an empty ring")
+        XCTAssertEqual(AudioRingBuffer.room(capacity: 8, write: 3, read: 0), 5)
+        XCTAssertEqual(AudioRingBuffer.room(capacity: 8, write: 8, read: 0), 0, "a full ring")
+        XCTAssertEqual(AudioRingBuffer.room(capacity: 8, write: 8, read: 8), 8, "drained again")
+
+        // Cursors that have wrapped past UInt64.max. Ordinary arithmetic, not an edge case, because
+        // the cursors are monotonic and `&-` is exact across the wrap.
+        XCTAssertEqual(
+            AudioRingBuffer.room(capacity: 8, write: 2, read: UInt64.max - 2), 3,
+            "the occupancy across a cursor wrap is (write &- read), which is 5 here")
+
+        // And the states the API cannot produce. Every one of these would trap under `Int(_:)`.
+        for (write, read) in [(0 as UInt64, 1 as UInt64), (5, 9), (0, UInt64.max / 2), (7, 4096)] {
+            XCTAssertEqual(
+                AudioRingBuffer.room(capacity: 8, write: write, read: read), 0,
+                """
+                room(write: \(write), read: \(read)) must be zero, so the producer refuses. With \
+                inverted cursors `write &- read` is enormous; `Int(_:)` of it is a `Fatal error: Not \
+                enough bits to represent the passed value` inside a CoreAudio callback, which is a \
+                dead microphone in the middle of a sentence rather than a crash report.
+                """)
+        }
+    }
+
     /// A one-slot ring. The smallest legal capacity, and the one where "full" and "empty" are one
     /// sample apart — the case a cursor scheme that sacrifices a slot cannot represent at all.
     func testARingOfOneHoldsExactlyOneSample() {
@@ -374,14 +436,23 @@ final class AudioRingBufferTests: XCTestCase {
 
         Thread.detachNewThread { [blocks] in
             for block in blocks {
+                // `abandoned` rather than a `return` inside the closure: a `return` there leaves
+                // only `withUnsafeBufferPointer`, so a deadline breach would skip one block and go
+                // on to re-breach on each of the remaining 3 999. The run still failed loudly, but
+                // not for the reason a reader would assume.
+                var abandoned = false
                 block.withUnsafeBufferPointer { buffer in
                     // Spin rather than drop: this test is about the ordering, and a drop would make
                     // a lost sample indistinguishable from a legitimate refusal.
                     while !ring.write(buffer.baseAddress!, count: buffer.count) {
-                        if Date() > deadline { return }
+                        if Date() > deadline {
+                            abandoned = true
+                            return
+                        }
                         sched_yield()
                     }
                 }
+                if abandoned { break }
             }
             finished.signal()
         }
@@ -422,10 +493,26 @@ final class AudioRingBufferTests: XCTestCase {
     /// The same two threads with the producer refusing to wait, so that overruns happen **under
     /// real contention** rather than being staged by a single-threaded test.
     ///
-    /// Two things are asserted, and the second is the one worth having: the received stream is
-    /// strictly increasing (so no drop ever reordered or duplicated anything), and
-    /// `received + dropped == sent` **exactly** — the drop counter is the only record that audio is
-    /// missing, so an approximate one is no record at all.
+    /// ## This test previously did not do what it says, and the fix is the shape of it
+    ///
+    /// The first version had the consumer wait on `finished.wait(timeout: .now() + 0.001)` between
+    /// drains. The producer ran to completion inside that first millisecond: measured, the consumer
+    /// received **48 of 96 000 samples — 0.05 %** — so the accounting assertion was satisfied almost
+    /// entirely by the refusal counter, the strictly-increasing check ran over two blocks out of
+    /// four thousand, and the vacuity guard (`received.count > 0`) was calibrated three orders of
+    /// magnitude below what the doc comment claimed. It was a single-threaded producer with a drain
+    /// bolted on the end, named for a property it did not exercise — the exact shape this project
+    /// keeps finding.
+    ///
+    /// So now: the consumer drains in a tight loop with no wait at all, and the producer yields
+    /// between blocks so both threads are live at once. And the claim is asserted in **both**
+    /// directions, because each half is satisfiable while the other fails —
+    ///
+    /// - a real fraction of the audio must actually reach the consumer, or the test is measuring a
+    ///   lone producer counting its own refusals, which
+    ///   ``testDroppedSamplesAccumulateAcrossSeparateRefusals`` already covers single-threaded;
+    /// - ``AudioRingBuffer/refusedSampleCount`` must be non-zero, or no overrun happened and the
+    ///   test named for the overrun policy never reached it.
     func testUnderContentionEveryProducedSampleIsEitherReceivedOrCounted() {
         let ring = AudioRingBuffer(capacity: 64)
         let blockCount = 4_000
@@ -447,22 +534,46 @@ final class AudioRingBufferTests: XCTestCase {
                     // No retry. A refusal here is the overrun policy firing for real.
                     _ = ring.write(buffer.baseAddress!, count: buffer.count)
                 }
+                // Pace the producer so the consumer is scheduled *during* the run rather than
+                // after it. Without this the producer finishes before the consumer starts and the
+                // whole test degenerates into the single-threaded case.
+                sched_yield()
             }
             finished.signal()
         }
 
+        // Drain in a tight loop, with no wait, until the producer has signalled — then drain the
+        // tail. `wait(timeout: .now())` polls the semaphore without blocking.
         var received: [Float] = []
         received.reserveCapacity(totalSent)
-        while finished.wait(timeout: .now() + 0.001) != .success {
+        while finished.wait(timeout: .now()) != .success {
             received.append(contentsOf: ring.drain())
         }
         received.append(contentsOf: ring.drain())
 
-        XCTAssertGreaterThan(received.count, 0, "the consumer received nothing at all")
+        // The two directions of "this test contended". Both are deliberately generous — the point
+        // is to exclude 0.05 %, not to pin a scheduler.
+        XCTAssertGreaterThan(
+            received.count, totalSent / 20,
+            """
+            The consumer received \(received.count) of \(totalSent) samples. Below a few per cent \
+            this is not a contention test: the producer ran to completion before the consumer was \
+            scheduled, and everything below is really a single-threaded producer counting its own \
+            refusals.
+            """)
+        XCTAssertGreaterThan(
+            ring.refusedSampleCount, 0,
+            """
+            No overrun occurred, so the test named for the overrun policy never exercised it. A ring \
+            of \(ring.capacity) against \(blockCount) blocks of \(blockSize) must overrun; if it did \
+            not, the consumer is somehow keeping up and the accounting assertion below proves \
+            nothing it does not already prove single-threaded.
+            """)
+
         XCTAssertEqual(
             received.count + ring.refusedSampleCount, totalSent,
             """
-            \(received.count) received + \(ring.refusedSampleCount) dropped != \(totalSent) sent. \
+            \(received.count) received + \(ring.refusedSampleCount) refused != \(totalSent) sent. \
             Every sample is either stored or refused, and the refusal counter is the only thing \
             that tells a consumer the audio it holds is short.
             """)
@@ -475,5 +586,32 @@ final class AudioRingBufferTests: XCTestCase {
             }
             previous = value
         }
+    }
+
+    // MARK: - The source, where the runtime cannot look
+
+    /// `deinit` must free the ring's storage, and nothing at runtime pins that it does.
+    ///
+    /// Deleting `storage.deallocate()` leaves all of the tests above green — a review's mutation
+    /// battery measured exactly that. At the capacities under discussion for this type (~23 MB for
+    /// 120 s at 48 kHz) a ring leaked per session is not a rounding error. An RSS-watching test is
+    /// fragile and an allocation counter is shipping code that exists only for a test, so this pins
+    /// the source instead: the `deinit` is one line, and this asserts it is that line.
+    func testTheRingBuffersDeinitFreesItsStorage() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaAudio/AudioRingBuffer.swift")
+        let source = try String(contentsOf: file, encoding: .utf8)
+
+        let bodies = DeinitIsolationTests.deinitBodies(inSource: source)
+        XCTAssertEqual(
+            bodies.count, 1, "AudioRingBuffer.swift no longer has exactly one deinit to check")
+        XCTAssertTrue(
+            SwiftSourceScanner.callNames(inBody: bodies[0]).contains("deallocate"),
+            """
+            AudioRingBuffer.deinit does not call deallocate(). It owns a raw allocation of \
+            `capacity` Floats — the only one in the package — and it is the only thing that frees \
+            it. DeinitIsolationTests checks that this deinit reaches nothing that asserts its \
+            isolation; it does not check that the deinit does the one thing it exists to do.
+            """)
     }
 }

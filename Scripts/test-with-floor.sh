@@ -48,8 +48,26 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 354 by audio-capture phase 1, the SPSC ring buffer the realtime thread writes into: twenty in
-# AudioRingBufferTests and ten in RealtimeSafetyTests.
+# 361 by audio-capture phase 1 review round 1, which added seven. Four of them are a fourth pass in
+# RealtimeSafetyTests and its controls: three planted constructs — a subscript on a stored array, a
+# compound assignment on a captured object's property, and `scratch[0] = samples[0]` — survived all
+# three existing passes, and the last of those is what a sink-node block is most likely to reach for
+# in phase 4. The lint now also refuses `[` outright, and its header no longer reads as though the
+# passes between them see everything: a permitted call *name* on a different receiver is outside
+# what any text lint can reach, and that is now stated rather than implied.
+#
+# The other three close mutations that survived review's battery. `isValidCapacity` makes the
+# power-of-two rule a testable function, because a `precondition` cannot be caught in-process and so
+# both capacity checks were satisfiable by any predicate at all. A source lint pins that
+# `AudioRingBuffer.deinit` calls `deallocate()`, because deleting it leaks ~23 MB per session with
+# every runtime test green. And `room(capacity:write:read:)` exists so that the producer's occupancy
+# arithmetic can be called with *inverted* cursors: the trapping `Int(write &- read)` it replaced is
+# a `Fatal error` inside a CoreAudio callback — a dead microphone mid-sentence — and reverting to it
+# is invisible to every test that goes through the API, because the trap only fires once the SPSC
+# discipline is already violated. That is exactly the discipline `@unchecked Sendable` leaves
+# unenforced, so it is not a state "the API cannot reach" in any sense that helps.
+#
+# It was 354 after audio-capture phase 1, the SPSC ring buffer the realtime thread writes into.
 #
 # The two that justify the raise on their own are AudioRingBufferTests'
 # `testASingleProducerAndSingleConsumerNeverLoseReorderOrDuplicateASample` and
@@ -69,12 +87,13 @@ set -euo pipefail
 # ordering, which nothing automated in this repository can catch — see the note in
 # AudioRingBuffer.swift, which says so rather than implying otherwise.
 #
-# RealtimeSafetyTests is acceptance A3, and it is three passes rather than one because each is blind
-# to what the next sees: an allow-list over call names cannot see `Task { … }` (no parentheses, so
-# no call token), and neither identifier pass can see `[Float](repeating:count:)` or a string
-# interpolation. Four of its ten tests are positive controls that watch each pass reject the shape it
-# exists to reject, because nothing in CI ever executes the realtime block — `AVAudioSinkNode` is
-# unsupported in manual rendering mode — so the lint is the only check there is.
+# RealtimeSafetyTests is acceptance A3, and it was three passes at that raise (a fourth arrived the
+# round after) because each is blind to what the others see: an allow-list over call names cannot see
+# `Task { … }` (no parentheses, so no call token), and neither identifier pass can see
+# `[Float](repeating:count:)` or a string interpolation. Most of its tests are positive controls that
+# watch each pass reject the shape it exists to reject, because nothing in CI ever executes the
+# realtime block — `AVAudioSinkNode` is unsupported in manual rendering mode — so the lint is the
+# only check there is.
 #
 # It was 317 after hotkey-source phase 6, which detects Secure Input. Of the ten tests it adds, the ones that
 # justify the raise are `testSecureInputIsReportedAsBlockedAndNothingIsDoneToTheTap` and
@@ -522,7 +541,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=354
+MINIMUM_EXECUTED_TESTS=361
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

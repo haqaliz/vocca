@@ -30,7 +30,7 @@ import XCTest
 /// before its declaration. This suite finds every one of them, extracts the body, and applies three
 /// passes.
 ///
-/// **Three passes, because each is blind to what the next one sees.** This repository has shipped
+/// **Four passes, because each is blind to what the others see.** This repository has shipped
 /// several checks that passed while measuring less than they claimed, and a single-pass version of
 /// this lint would be another:
 ///
@@ -43,9 +43,32 @@ import XCTest
 ///    from the audio thread. Pass 1 is structurally blind to it.
 /// 3. **Forbidden substrings.** `[Float](repeating:count:)` allocates and its call name is not an
 ///    identifier at all — the character before `(` is `]`. `"\(value)"` allocates and involves no
-///    call token either. Passes 1 and 2 are both blind to these.
+///    call token either. A subscript, `scratch[0]`, carries no call token, no forbidden identifier
+///    and not even a `](`. Passes 1 and 2 are blind to all three.
+/// 4. **No mutation.** A realtime body may bind locals and call permitted functions. It may not
+///    assign to anything else, because everything else it could assign to is either a heap-backed
+///    collection (a copy-on-write uniqueness check, and possibly a reallocation) or a property on a
+///    captured object (an ARC-relevant access and a dynamic exclusivity check). `sidecar.total +=
+///    count` has no call token, no forbidden identifier and no forbidden substring; it is invisible
+///    to the first three passes and it is exactly what a sink-node block will reach for.
 ///
 /// And the signature is checked as well as the body, because `throws` and `async` appear in neither.
+///
+/// ## What these four still cannot see, stated rather than implied
+///
+/// "Each is blind to what the others see" is not "between them they see everything", and the
+/// difference matters because **nothing in CI ever executes this code**. A text lint cannot reach:
+///
+/// - **A permitted *name* on a different receiver.** The allow-list matches the bare identifier
+///   before a `(`, so an allocating method that happens to be called `update`, defined anywhere,
+///   passes pass 1. `update`, `store`, `load`, `min`, `advanced`, `Int` and `UInt64` are permitted
+///   names, not permitted operations. Closing this needs type resolution, which needs a real Swift
+///   parser in the harness; the guard against it today is that ``expectedRealtimeDeclarations`` is
+///   asserted as an equality, so the *set* of bodies a reviewer must read stays small and known.
+/// - **What a called function does.** Pass 1 says `min` is bounded; it does not check that.
+///
+/// So this suite bounds the shapes, and a human bounds the semantics. That is the honest division,
+/// and the reason the marker set is a reviewed constant rather than a discovered one.
 final class RealtimeSafetyTests: XCTestCase {
 
     /// The marker. Everything this suite checks is selected by it and nothing else, so that a
@@ -66,15 +89,24 @@ final class RealtimeSafetyTests: XCTestCase {
     /// What a realtime body may call.
     ///
     /// Each name is a claim that the call is bounded, lock-free and allocation-free:
-    /// - `load`, `store`, `wrappingAdd` — `Synchronization.Atomic`, lock-free for a 64-bit word on
-    ///   every platform this package supports.
-    /// - `min` — arithmetic on `Int`.
+    /// - `load`, `store` — `Synchronization.Atomic`, a plain 64-bit load and a plain 64-bit store.
+    ///   **Not `wrappingAdd`**, and its absence is deliberate: a read-modify-write is wait-free on
+    ///   Apple silicon's LSE and would be perfectly safe here, but `AudioRingBuffer`'s second
+    ///   invariant claim is that no atomic in that file is ever the target of one. Leaving the name
+    ///   off this list is what makes the claim checkable instead of merely written down.
+    /// - `min` — arithmetic on `Int` and `UInt64`.
+    /// - `room` — `AudioRingBuffer.room(capacity:write:read:)`, four lines of fixed-width integer
+    ///   arithmetic with no conversion that can trap. It is a `static` function precisely so that
+    ///   the arithmetic is testable in states the API cannot reach; see its own documentation.
     /// - `advanced`, `update` — pointer arithmetic and a `memmove` over trivial memory. No
     ///   allocation, no reference count, no bridging.
     /// - `Int`, `UInt64` — width conversions between fixed-width integers.
+    ///
+    /// These are permitted **names**, not permitted operations — see this type's header for what
+    /// that costs and why the marker set is pinned by equality as the compensating control.
     static let permittedCalls: Set<String> = [
-        "load", "store", "wrappingAdd",
-        "min",
+        "load", "store",
+        "min", "room",
         "advanced", "update",
         "Int", "UInt64",
     ]
@@ -112,10 +144,37 @@ final class RealtimeSafetyTests: XCTestCase {
     ]
 
     /// Substrings neither identifier pass can see. See this type's header for why each is here.
+    ///
+    /// `[` subsumes `](` and is listed separately from it anyway, because the two report different
+    /// things to whoever hits them and the message is most of a lint's value.
     static let forbiddenSubstrings: [(text: String, why: String)] = [
-        ("](", "an array or dictionary type instantiation such as [Float](repeating:count:) allocates"),
+        (
+            "](",
+            "an array or dictionary type instantiation such as [Float](repeating:count:) allocates"
+        ),
         ("\\(", "string interpolation allocates a String"),
+        (
+            "[",
+            """
+            a subscript on the realtime path is either a bounds check on a pointer — write it as \
+            .advanced(by:) — or a copy-on-write uniqueness check on a heap-backed collection, which \
+            can reallocate. The shipped body contains no `[` at all, so this costs nothing today \
+            and makes the first one a deliberate argument rather than an accident
+            """
+        ),
     ]
+
+    /// Assignment operators forbidden outright on the realtime path, and the shape pass 4 uses to
+    /// find a bare `=` that is not a local binding.
+    ///
+    /// Compound assignment is always a mutation of something that already exists, which on this
+    /// path is always either a collection or a property on a captured object.
+    static let forbiddenAssignments: [String] = [
+        "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=",
+    ]
+
+    /// Operators that end in `=` without being an assignment. Pass 4 must not read these as one.
+    private static let comparisonSuffixes: Set<Character> = ["=", "!", "<", ">", "+", "-", "*", "/", "%", "&", "|", "^"]
 
     // MARK: - The lint, over Sources/
 
@@ -196,6 +255,34 @@ final class RealtimeSafetyTests: XCTestCase {
                     why there is a third one.
                     """)
             }
+        }
+    }
+
+    /// Pass 4: a realtime body binds locals and calls permitted functions. It mutates nothing.
+    ///
+    /// The two shapes this exists for — `scratch[0] = samples[0]` on a stored array and
+    /// `sidecar.total += count` on a stored object — carry no call token, no forbidden identifier
+    /// and (before `[` was added) no forbidden substring. Both survived the first three passes when
+    /// they were planted.
+    func testNoRealtimeBodyAssignsToAnythingButANewLocal() throws {
+        let declarations = try Self.realtimeDeclarationsInSources()
+        XCTAssertFalse(declarations.isEmpty, "the lint found no realtime bodies, which is not a pass")
+
+        for declaration in declarations {
+            let offenders = Self.mutatingStatements(inBody: declaration.body)
+            XCTAssertTrue(
+                offenders.isEmpty,
+                """
+                \(declaration.qualifiedName) mutates something on the realtime path:
+                \(offenders.joined(separator: "\n"))
+
+                A realtime body may bind locals and call permitted functions. Everything else it \
+                could assign to is either a heap-backed collection — a copy-on-write uniqueness \
+                check, and a reallocation if the check fails — or a property on a captured object, \
+                which is an ARC-relevant access with a dynamic exclusivity check on it. If a sample \
+                has to reach memory the buffer owns, it goes through a pointer, which is what \
+                AudioRingBuffer.write does.
+                """)
         }
     }
 
@@ -314,6 +401,142 @@ final class RealtimeSafetyTests: XCTestCase {
         XCTAssertTrue(
             interpolation.contains(Self.forbiddenSubstrings[1].text),
             "the substring pass missed a string interpolation on the realtime path")
+
+        // The subscript, which carries no call token, no forbidden identifier and not even a `](`.
+        let subscripting = "scratch[0] = samples[0]"
+        XCTAssertTrue(
+            SwiftSourceScanner.callNames(inBody: subscripting).subtracting(Self.permittedCalls)
+                .isEmpty,
+            "the call scan reported a subscript; if so this control needs a different example")
+        XCTAssertTrue(
+            SwiftSourceScanner.identifiers(inBody: subscripting)
+                .intersection(Self.forbiddenIdentifiers).isEmpty,
+            "the identifier scan reported a subscript; if so this control needs a different example")
+        XCTAssertFalse(
+            subscripting.contains(Self.forbiddenSubstrings[0].text),
+            "`](` matched a plain subscript, so it was never the narrow rule it claimed to be")
+        XCTAssertTrue(
+            subscripting.contains(Self.forbiddenSubstrings[2].text),
+            "a subscript reached the realtime path with every earlier pass green")
+    }
+
+    /// Pass 4's controls: the two shapes that defeated the first three, and the shipped body which
+    /// must stay clear of it.
+    func testTheMutationPassSeesWhatTheFirstThreeCannot() {
+        let storedArrayWrite = "scratch[0] = samples[0]"
+        let capturedObjectWrite = "sidecar.total += count"
+
+        for body in [storedArrayWrite, capturedObjectWrite] {
+            XCTAssertTrue(
+                SwiftSourceScanner.callNames(inBody: body).subtracting(Self.permittedCalls).isEmpty,
+                "`\(body)` was reported by the call pass; this control needs a different example")
+            XCTAssertTrue(
+                SwiftSourceScanner.identifiers(inBody: body)
+                    .intersection(Self.forbiddenIdentifiers).isEmpty,
+                "`\(body)` was reported by the identifier pass; pick a different example")
+            XCTAssertEqual(
+                Self.mutatingStatements(inBody: body), [body],
+                "`\(body)` reached the realtime path with nothing reporting it")
+        }
+
+        // And the shipped shape must not be reported, or the lint fails a correct build. Every one
+        // of these is a `let` binding, a comparison, or a call.
+        let shipped = """
+            guard count > 0 else { return count == 0 }
+            let write = writeIndex.load(ordering: .relaxed)
+            let used = min(write &- read, limit)
+            guard UInt64(count) <= limit &- used else {
+                refusedSamples.store(
+                    refusedSamples.load(ordering: .relaxed) &+ UInt64(count), ordering: .relaxed)
+                return false
+            }
+            if firstRun < count {
+                storage.update(from: samples.advanced(by: firstRun), count: count - firstRun)
+            }
+            """
+        XCTAssertEqual(
+            Self.mutatingStatements(inBody: shipped), [],
+            "the mutation pass reported the shipped body, so it fails a correct build")
+
+        // A local `var` is stack storage and is allowed; mutating it afterwards is not, because the
+        // scan cannot tell `total += 1` on a local from the same line on a captured property.
+        XCTAssertEqual(Self.mutatingStatements(inBody: "var total = 0"), [])
+        XCTAssertEqual(Self.mutatingStatements(inBody: "total += 1"), ["total += 1"])
+    }
+
+    /// The vacuity guard's own control. `noSourcesFound` is the case whose failure mode is the
+    /// whole lint silently measuring nothing, and it had no test.
+    func testTheScanFindsNothingToLintInAnEmptyTreeRatherThanPassing() throws {
+        let empty = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("vocca-realtime-lint-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: empty) }
+
+        XCTAssertTrue(
+            SwiftSourceScanner.swiftFiles(under: empty).isEmpty,
+            """
+            The file walk found sources in an empty directory. Everything in this suite keys on that \
+            walk, and `realtimeDeclarationsInSources` refuses to proceed when it returns nothing — \
+            which is the only thing standing between a broken package root and four green tests \
+            that read no code at all.
+            """)
+    }
+
+    /// `unbalancedBody`'s control: a marked declaration whose braces never close must be an error,
+    /// not a body the scan quietly truncates or skips.
+    func testAMarkedDeclarationWithUnbalancedBracesIsAnError() {
+        let truncated = """
+            // @realtime
+            func write(count: Int) -> Bool {
+                if count > 0 {
+                    return true
+            """
+        XCTAssertThrowsError(
+            try Self.realtimeDeclarationsOrThrow(inSource: truncated, file: "X.swift")
+        ) {
+            XCTAssertTrue(
+                "\($0)".contains("brace-balance"),
+                "an unbalanced marked body was reported as something other than unbalanced")
+        }
+    }
+
+    /// Lines in `body` that assign to something other than a newly bound local.
+    ///
+    /// Line-based and deliberately crude. A line counts as a mutation if it contains a compound
+    /// assignment operator, or a bare `=` — one not part of `==`, `<=`, `!=`, `&=` and the rest —
+    /// on a line whose first token is neither `let` nor `var`. A multi-line expression whose
+    /// continuation begins with `=` would be reported, which is over-reporting and therefore the
+    /// safe direction for a lint; no shipped body is written that way.
+    static func mutatingStatements(inBody body: String) -> [String] {
+        var offenders: [String] = []
+
+        for rawLine in SwiftSourceScanner.stripComments(from: body).split(separator: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+
+            if forbiddenAssignments.contains(where: line.contains) {
+                offenders.append(line)
+                continue
+            }
+
+            let first = line.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? ""
+            guard first != "let", first != "var" else { continue }
+            if containsABareAssignment(line) { offenders.append(line) }
+        }
+        return offenders
+    }
+
+    /// Whether `line` contains an `=` that is an assignment rather than part of a comparison or a
+    /// compound operator.
+    private static func containsABareAssignment(_ line: String) -> Bool {
+        let characters = Array(line)
+        for (index, character) in characters.enumerated() where character == "=" {
+            let before = index > 0 ? characters[index - 1] : " "
+            let after = index + 1 < characters.count ? characters[index + 1] : " "
+            if comparisonSuffixes.contains(before) || after == "=" { continue }
+            return true
+        }
+        return false
     }
 
     // MARK: - The scan

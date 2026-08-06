@@ -25,14 +25,18 @@
 # It does NOT prove the memory orderings are strong enough, and nobody should read a green run as
 # saying so. Measured on this repository, on this toolchain:
 #
-#   - Replacing the producer's `.releasing` store of `writeIndex` with `.relaxed` — the exact defect
-#     that is invisible on x86 and real on Apple silicon — leaves this run completely clean. LLVM's
-#     ThreadSanitizer does not model orderings weaker than sequentially consistent; it detects
-#     *missing synchronisation*, not *insufficient* synchronisation.
+#   - Weakening any of the four load-bearing orderings — or all four at once — leaves this run
+#     completely clean, and leaves the whole suite clean too. Independently reproduced in review
+#     across six such mutations. LLVM's ThreadSanitizer does not model orderings weaker than
+#     sequentially consistent; it detects *missing synchronisation*, not *insufficient*
+#     synchronisation.
 #   - Publishing the write cursor before copying the samples in — a genuine ordering bug — is also
 #     clean here, and correctly so: the consumer's own release of `readIndex` still orders the
-#     producer's later write after the consumer's read, so there is no data race. What catches it is
-#     AudioRingBufferTests' value check, which fails on the stale sample.
+#     producer's later write after the consumer's read, so there is no data race for TSan to see.
+#     AudioRingBufferTests' value check does catch it, but **intermittently**: measured at 2 of 12
+#     plain runs and 0 of 2 under this script. Do not read a single green run as clearing it. This
+#     was first written down here as though the value check caught it reliably; it does not, and the
+#     rate is the honest version.
 #
 # So the two mechanisms cover different failures and neither subsumes the other. The argument for
 # the orderings themselves is the comment at the top of Sources/VoccaAudio/AudioRingBuffer.swift and
