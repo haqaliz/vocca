@@ -315,15 +315,41 @@ final class DeferredCaptureStartTests: XCTestCase {
 
     /// A second press inside the window is refused, which is the fail-closed rule
     /// `isOpeningTheMicrophone` was invented for — reached now on every press rather than in a race.
-    func testASecondPressDuringThePendingOpeningOpensNothing() {
-        let harness = MachineHarness()
-        harness.press()
+    ///
+    /// **The two activation modes diverge here, and the divergence is correct.** In hold-to-talk a
+    /// second `.keyDown` at `.recording` is an unconditional `.ignore`, so the session opens
+    /// normally. In toggle it is `.toggledOff` — a stop — so it is *held* and applied the instant the
+    /// session exists, and the user's double-tap ends the session it started. Both are asserted
+    /// rather than one, because "opens nothing" is true of both and is not the whole of either.
+    func testASecondPressDuringThePendingOpeningOpensNoSecondMicrophone() {
+        for configuration in [chord, toggleChord] {
+            let harness = MachineHarness(configuration: configuration)
+            harness.press()
 
-        XCTAssertEqual(harness.press().effect, .unchanged)
+            XCTAssertEqual(
+                harness.press().effect, .unchanged,
+                "\(configuration.activation): no second session may begin inside the first's opening")
 
-        XCTAssertEqual(harness.machine.completePendingOpening(), .started)
-        XCTAssertEqual(harness.microphone.beginCount, 1, "one press, one microphone")
-        XCTAssertEqual(harness.microphone.overlappingBegins, 0)
+            let completed = harness.machine.completePendingOpening()
+            switch configuration.activation {
+            case .holdToTalk:
+                XCTAssertEqual(completed, .started)
+                XCTAssertTrue(harness.microphone.isOpen)
+            case .toggle:
+                guard case .ended(let outcome) = completed,
+                    case .completed(let reason, _, _) = outcome.content
+                else {
+                    return XCTFail("toggle: the second press is a toggle-off and must end it")
+                }
+                XCTAssertEqual(reason, .toggledOff)
+                XCTAssertFalse(harness.microphone.isOpen)
+            }
+
+            XCTAssertEqual(
+                harness.microphone.beginCount, 1,
+                "\(configuration.activation): one press, one microphone")
+            XCTAssertEqual(harness.microphone.overlappingBegins, 0, "\(configuration.activation)")
+        }
     }
 
     /// **The autorepeat train, which the measurement turned from a curiosity into the norm.** macOS
@@ -427,15 +453,22 @@ final class DeferredCaptureStartTests: XCTestCase {
     /// the same outcome content, the same end reason, the same ledger. If the hop changed *what*
     /// happens rather than only *when*, this is what says so — and it is checked across the four
     /// gestures whose stop lands in different places.
+    ///
+    /// **It is anchored, because a differential comparison alone proves only agreement.** Every
+    /// `deferred == immediate` clause below is satisfied by a mutation that breaks *both* timings
+    /// identically — which is not hypothetical: "the deferred timing silently behaves like
+    /// `.immediately`" is one of the mutations this suite is measured against, and a purely
+    /// differential test is exactly what it walks past. So each gesture also asserts absolutely that
+    /// one microphone was opened, and the two that retain audio assert that a buffer reached custody.
     func testBothTimingsReachTheSameOutcomeForTheSameGesture() {
-        let gestures: [(String, (MachineHarness) -> Void)] = [
-            ("press, complete, release", { $0.press(); _ = $0.machine.completePendingOpening(); $0.release() }),
-            ("press, release, complete", { $0.press(); $0.release(); _ = $0.machine.completePendingOpening() }),
-            ("press, complete, cancel", { $0.press(); _ = $0.machine.completePendingOpening(); _ = $0.machine.cancel() }),
-            ("press, cancel, complete", { $0.press(); _ = $0.machine.cancel(); _ = $0.machine.completePendingOpening() }),
+        let gestures: [(String, retainsAudio: Bool, (MachineHarness) -> Void)] = [
+            ("press, complete, release", true, { $0.press(); _ = $0.machine.completePendingOpening(); $0.release() }),
+            ("press, release, complete", true, { $0.press(); $0.release(); _ = $0.machine.completePendingOpening() }),
+            ("press, complete, cancel", false, { $0.press(); _ = $0.machine.completePendingOpening(); _ = $0.machine.cancel() }),
+            ("press, cancel, complete", false, { $0.press(); _ = $0.machine.cancel(); _ = $0.machine.completePendingOpening() }),
         ]
 
-        for (name, gesture) in gestures {
+        for (name, retainsAudio, gesture) in gestures {
             let deferred = MachineHarness(timing: .whenTheOwnerAsks)
             let immediate = MachineHarness(timing: .immediately)
             gesture(deferred)
@@ -450,6 +483,23 @@ final class DeferredCaptureStartTests: XCTestCase {
             XCTAssertEqual(deferred.microphone.overlappingBegins, 0, name)
             XCTAssertEqual(deferred.microphone.closesWithoutOpen, 0, name)
             XCTAssertEqual(deferred.machine.state, immediate.machine.state, name)
+
+            // The anchors. Absolute, not comparative.
+            for (label, harness) in [("deferred", deferred), ("immediate", immediate)] {
+                XCTAssertEqual(
+                    harness.microphone.beginCount, 1,
+                    "\(name)/\(label): the gesture must have opened exactly one microphone")
+                XCTAssertEqual(
+                    harness.microphone.endCount, 1,
+                    "\(name)/\(label): and closed it exactly once")
+                XCTAssertFalse(harness.microphone.isOpen, "\(name)/\(label)")
+                XCTAssertEqual(harness.machine.state, .idle, "\(name)/\(label)")
+            }
+            if retainsAudio {
+                XCTAssertFalse(
+                    deferred.microphone.handedOut.isEmpty,
+                    "\(name): a retaining gesture must carry a buffer into custody")
+            }
         }
     }
 

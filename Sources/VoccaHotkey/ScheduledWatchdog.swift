@@ -180,10 +180,16 @@ public final class ScheduledWatchdog<Audio: CapturedAudio>: HotkeyEventSink {
     /// through, the one place effects are delivered, and the one place the timer is settled. A
     /// fourth object would need all three handed to it, and the handing-over is the mistake.
     ///
-    /// **It is called after ``reconsider()``, not before.** During a pending opening the machine is
-    /// still `.idle`, so the schedule is `.stopped` and the timer is correctly off; the block below
-    /// re-reads the schedule *after* the session exists, which is what finally starts it. Calling
-    /// them the other way round would read the schedule of a session that had not begun.
+    /// **On its ordering against ``reconsider()``: it does not matter, and the first version of this
+    /// comment claimed it did.** That claim was *"calling them the other way round would read the
+    /// schedule of a session that had not begun"* — which cannot happen, because a ``RunLoopDeferral``
+    /// must enqueue and never call, so after this method returns the session has still not begun and
+    /// `reconsider()` reads the identical `.stopped` schedule either way. A review swapped the two
+    /// lines and all 412 tests passed, which is the correct result and not a coverage gap. What
+    /// actually makes the order immaterial is that **the block re-reads the schedule itself**, after
+    /// the session exists; that line is load-bearing and is pinned
+    /// (`testTheWatchdogTimerStartsWhenTheOpeningCompletesRatherThanWhenTheKeyIsPressed`). The order
+    /// here is house style, and is documented as such rather than dressed up as an invariant.
     ///
     /// ## Weakly captured, and it is the opposite choice to `CallbackSafeTapDisablement`'s
     ///
@@ -208,15 +214,19 @@ public final class ScheduledWatchdog<Audio: CapturedAudio>: HotkeyEventSink {
         openingIsOnTheRunLoop = true
         deferOpening { [weak self] in
             guard let self else { return }
-            // Cleared before the ~114 ms open rather than after it, for the same reason
-            // `SessionMachine.openingAwaitsTheOwner` is: a run loop pumped from inside
-            // `beginCapture()` re-enters this object, and the state it finds must describe where
-            // things actually stand.
+            // Cleared here rather than in a `defer`, and — unlike
+            // `SessionMachine.openingAwaitsTheOwner`, which the first version of this comment
+            // wrongly equated it with — **nothing can observe the difference.** The guard above
+            // short-circuits on `watchdog.hasPendingOpening`, which the machine clears before
+            // `beginCapture()`, so a re-entrant call during the open never reaches this flag at all.
+            // Moving it to a `defer` passes all 412 tests. It is written this way for symmetry with
+            // the machine, not because it is load-bearing.
             self.openingIsOnTheRunLoop = false
-            // Delivered before the schedule is settled, so that an opening which ended the session
-            // outright — the user let go inside the 114 ms, which at that width is an ordinary tap
-            // of the hotkey rather than an edge case — hands over its `SessionOutcome` first and has
-            // its timer stopped second.
+            // Delivered before the schedule is settled. Also not observable — swapping these passes
+            // the suite, because `deliverEffect` cannot change the machine's state — but it is the
+            // order the rest of this class uses, and the one that reads correctly for an opening
+            // which ended the session outright: hand over the `SessionOutcome` first, stop the timer
+            // second. At 114 ms that case is an ordinary tap of the hotkey, not an edge case.
             self.deliverEffect(self.watchdog.completePendingOpening())
             self.reconsider()
         }

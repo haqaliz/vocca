@@ -108,9 +108,20 @@ final class ZeroNetworkTests: XCTestCase {
     /// custody and released the microphone — so weakening the probe and pasting in whatever it now
     /// prints does not restore a green suite.
     private static let expectedSessionLifecycle = [
-        // The hotkey press started a session, and the focused application did not receive it.
-        "press=started",
+        // The hotkey press *decided* on a session and did not open a microphone, because the
+        // shipped timing opens it off the tap callback — `AVAudioEngine.start()` is 114 ms
+        // (`CaptureStartTiming`). The focused application did not receive the press.
+        "press=opening",
         "press.propagation=swallow",
+        // Zero, and it is the whole of the phase-3 decision expressed as a post-condition: the
+        // callback returned with the microphone still shut.
+        "press.openedMicrophone=0",
+        // The machine said an opening was owed before it was asked for one. Without this, a drive
+        // that asked unconditionally would report the same `opening=started` against a machine that
+        // had silently reverted to opening inline, which is the mutation this field exists to kill.
+        "openingWasOwed=true",
+        // ...and the owner's later turn is what actually started the session.
+        "opening=started",
         // The watchdog's wakes ran, read the configured key code each time, and — the key being
         // held and the ceiling being 120 s away — ended nothing.
         "wakes=3",
@@ -355,9 +366,33 @@ final class ZeroNetworkTests: XCTestCase {
         }
 
         // A session began, and the press did not also reach the focused application.
+        //
+        // It began in **two** steps, which is the shipped timing rather than an accident of this
+        // drive: the press decides, and the owner opens the microphone afterwards, off the tap
+        // callback. All three clauses are asserted, because each refuses a different weakening — a
+        // drive that reverted to opening inline (`press=started`), one that asked for an opening
+        // nobody owed (`openingWasOwed=false`), and one that opened the microphone on the callback
+        // after all (`press.openedMicrophone` non-zero). The third is the decision `CaptureStartTiming`
+        // records, asserted end-to-end in the only place in `Sources/` that runs it.
         XCTAssertEqual(
-            try value("press"), "started",
+            try value("press"), "opening",
+            "The asserted post-condition no longer decides a session on the press, so nothing after it is a session.")
+        XCTAssertEqual(
+            try value("openingWasOwed"), "true",
+            """
+            The asserted post-condition no longer checks that an opening was *owed* before it was \
+            performed, so it would pass against a machine that had reverted to opening the \
+            microphone inline on the tap callback.
+            """)
+        XCTAssertEqual(
+            try value("opening"), "started",
             "The asserted post-condition no longer starts a session, so nothing after it is a session.")
+        XCTAssertEqual(
+            try value("press.openedMicrophone"), "0",
+            """
+            The asserted post-condition tolerates the microphone being opened on the tap callback. \
+            That is the 114 ms engine start this phase exists to move off it — see CaptureStartTiming.
+            """)
 
         // It ended through the funnel, on the side that hands audio downstream. `cancelled` here —
         // or anything but `ended(completed(…))` — would mean the invariant is being asserted against

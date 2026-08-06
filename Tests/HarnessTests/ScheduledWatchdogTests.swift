@@ -48,10 +48,13 @@ private final class ClockHarness {
     let timer = FakeTimer()
     let tap = FakeHotkeyEventSource()
 
-    /// The later turn of the run loop the microphone opens on, under
-    /// ``CaptureStartTiming/whenTheOwnerAsks``. Never drained by the harness itself — a test that
-    /// wants the session to exist must say so, which is what makes "the callback returned before the
-    /// microphone opened" an assertion rather than a hope.
+    /// Present so the pipeline is the shipped one, and **never fired**: this harness pins the
+    /// timer's behaviour, so its machine opens the microphone inline and never owes an opening.
+    ///
+    /// It carried a `captureStartTiming` parameter for one commit and no test ever passed
+    /// `.whenTheOwnerAsks` to it. An unused test seam is a claim of coverage that does not exist, so
+    /// the parameter is gone; the deferred timing is covered by `DeferredCaptureStartTests` at this
+    /// level and by `TapHealthTimerTests` through the whole runtime.
     let runLoop = DeferralQueue()
 
     let keyState: TruthfulKeyState
@@ -60,16 +63,13 @@ private final class ClockHarness {
     let scheduled: ScheduledWatchdog<RecordingSource.Buffer>
     let configuration: HotkeyConfiguration
 
-    init(
-        configuration: HotkeyConfiguration = chord,
-        captureStartTiming: CaptureStartTiming = .immediately
-    ) {
+    init(configuration: HotkeyConfiguration = chord) {
         self.configuration = configuration
         let keyState = TruthfulKeyState(keyboard)
         self.keyState = keyState
         self.machine = SessionMachine(
             configuration: configuration, ceiling: SessionCeiling.default, clock: clock,
-            audioSource: microphone, captureStartTiming: captureStartTiming)
+            audioSource: microphone, captureStartTiming: .immediately)
         self.watchdog = SessionWatchdog(machine: machine, keyState: keyState)
         self.scheduled = ScheduledWatchdog(
             watchdog: watchdog, timer: timer, deferOpening: runLoop.schedule

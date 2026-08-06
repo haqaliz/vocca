@@ -106,14 +106,19 @@ public protocol HotkeyEventSink: AnyObject {
     /// estimate they were working from: *"milliseconds"*. `prd.md:280` had required the number since
     /// C1 was planned. `audio-capture` took it, with `Scripts/measure-engine-start.sh`:
     ///
-    /// > **`AVAudioEngine.start()` — median 114.0 ms, p90 116.5 ms, p99 119.1 ms, worst 126.8 ms,
-    /// > best 100.5 ms.** 120 sessions, every one verified to have actually started and actually
-    /// > delivered audio, M4 Max, macOS 26.5.2, built-in input at 48 kHz mono.
+    /// > **`AVAudioEngine.start()` — median 114.0 ms, p99 119.1 ms, worst 126.8 ms** on the **analog
+    /// > headphone-jack input** (`BuiltInHeadphoneInputDevice`), this machine's system default;
+    /// > **median 42.0 ms, p99 52.6 ms** on the **built-in microphone array**
+    /// > (`BuiltInMicrophoneDevice`), which is the default on any Mac with an empty jack. 120 and 60
+    /// > sessions respectively, every one verified to have actually started and actually delivered
+    /// > audio. M4 Max, macOS 26.5.2, 48 kHz mono.
     ///
-    /// Not milliseconds — an eighth of a second, on the fastest Mac Apple sells, with a *narrow*
-    /// distribution rather than a fat tail. So the shape both aspects had sketched as a candidate is
-    /// now what ships: **this method decides and returns; the capture start happens off the
-    /// callback.**
+    /// Not milliseconds — 42 ms at best and an eighth of a second at worst, on the fastest Mac Apple
+    /// sells, with *narrow* distributions rather than fat tails. Both rows are given because the
+    /// device is 2.7× of the answer; see ``CaptureStartTiming`` for why quoting one without naming it
+    /// is how the figure C7 optimises against goes wrong. So the shape both aspects had sketched as a
+    /// candidate is now what ships: **this method decides and returns; the capture start happens off
+    /// the callback.**
     ///
     /// It is ``CaptureStartTiming/whenTheOwnerAsks``, and the machinery it rests on was built and
     /// tested in `session-lifecycle` precisely for a slow open — `SessionMachine`'s

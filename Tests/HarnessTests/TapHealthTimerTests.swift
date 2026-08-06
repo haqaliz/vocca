@@ -55,8 +55,9 @@ private final class RuntimeHarness {
     let watchdogTimer = FakeTimer()
     let healthTimer = FakeTimer()
 
-    /// Present so the pipeline is the shipped one; never fires here, because this harness's machine
-    /// uses ``CaptureStartTiming/immediately`` and therefore never has an opening pending.
+    /// The later turn of the run loop the microphone opens on. Fires only when the harness is built
+    /// with ``CaptureStartTiming/whenTheOwnerAsks``; under the default it never has an opening to
+    /// carry, and `scheduled` never hands it one.
     let runLoop = DeferralQueue()
     let keyState: TruthfulKeyState
     let machine: SessionMachine<RecordingSource.Buffer>
@@ -69,13 +70,16 @@ private final class RuntimeHarness {
     private(set) var notes: [TapHealthNote] = []
     private(set) var reportedHealth: [TapHealth] = []
 
-    init(configuration: HotkeyConfiguration = chord) {
+    init(
+        configuration: HotkeyConfiguration = chord,
+        captureStartTiming: CaptureStartTiming = .immediately
+    ) {
         self.configuration = configuration
         let keyState = TruthfulKeyState(keyboard)
         self.keyState = keyState
         self.machine = SessionMachine(
             configuration: configuration, ceiling: SessionCeiling.default, clock: clock,
-            audioSource: microphone)
+            audioSource: microphone, captureStartTiming: captureStartTiming)
         self.watchdog = SessionWatchdog(machine: machine, keyState: keyState)
         let scheduled = ScheduledWatchdog(
             watchdog: watchdog, timer: watchdogTimer, deferOpening: runLoop.schedule
@@ -341,6 +345,106 @@ final class TapHealthTimerTests: XCTestCase {
                 changes — it runs for as long as Vocca is armed, in every state, because the case it \
                 exists for is precisely the one where nothing else is happening.
                 """)
+        }
+    }
+
+    // MARK: - The same runtime, with the microphone opening off the tap callback
+
+    /// **The shipped composition, end to end, at the shipped timing.**
+    ///
+    /// Every other test in this file builds its machine with ``CaptureStartTiming/immediately``,
+    /// which is not what ships: `AVAudioEngine.start()` is 114 ms, so the open happens on a later
+    /// run-loop turn (``CaptureStartTiming``). Until this test existed, the composition that ships —
+    /// tap → `TapHealthPolicy` → `ScheduledWatchdog` → deferred opening, with the ~1 s health poll
+    /// running — was exercised by nothing, and every link being individually tested is not the chain
+    /// being tested.
+    func testAPressOpensTheMicrophoneOnlyOnTheLaterTurnThroughTheWholeRuntime() {
+        for configuration in bothActivationModes {
+            let harness = RuntimeHarness(
+                configuration: configuration, captureStartTiming: .whenTheOwnerAsks)
+            harness.runtime.arm()
+
+            harness.press()
+            XCTAssertFalse(
+                harness.microphone.isOpen,
+                "\(configuration.activation): 114 ms of engine start happened on the tap callback")
+            XCTAssertFalse(harness.watchdogTimer.isRunning, "\(configuration.activation)")
+            XCTAssertTrue(
+                harness.healthTimer.isRunning,
+                "\(configuration.activation): the health poll runs regardless of any session")
+
+            harness.runLoop.drain()
+
+            XCTAssertTrue(harness.microphone.isOpen, "\(configuration.activation)")
+            XCTAssertTrue(
+                harness.watchdogTimer.isRunning,
+                """
+                \(configuration.activation): the session exists and nothing is watching it. The \
+                schedule is derived from the machine's state, and that state now changes on a later \
+                turn than the event — so the timer must be settled by the completed opening.
+                """)
+            XCTAssertEqual(
+                harness.effects.effects.suffix(2), [.opening, .started],
+                """
+                \(configuration.activation): the press must announce `.opening` and the completed \
+                open must announce `.started`. That second delivery is the only announcement a \
+                session started this way ever gets — a sink that dropped it would leave the widget \
+                showing an opening that never finished.
+                """)
+        }
+    }
+
+    /// **The chain the review named as the one with no test: a tap that dies during a pending
+    /// opening.**
+    ///
+    /// The health poll finds the tap dead while the microphone is still shut, mints a synthetic
+    /// `.tapDisabled` through the sink, and the machine holds it — because there is no session yet to
+    /// end. The block that opens the microphone must still be on the run loop, and applying the held
+    /// stop the instant the session exists is what stops this being a hot mic.
+    ///
+    /// **It also pins the cost this timing accepts**, which is documented on
+    /// `SessionMachine.stopDeferredByTheOpening` and is easier to disbelieve than to read: the
+    /// microphone *is* opened, for a tap that is already dead, and then immediately closed. One open,
+    /// one close, shut at the end. Asserted rather than described, so that a later phase choosing to
+    /// remove the flash has to change a test rather than notice a comment.
+    func testATapThatDiesDuringAPendingOpeningEndsTheSessionTheInstantItExists() {
+        for configuration in bothActivationModes {
+            let harness = RuntimeHarness(
+                configuration: configuration, captureStartTiming: .whenTheOwnerAsks)
+            harness.runtime.arm()
+            harness.press()
+
+            harness.tap.systemDisablesTheTap()
+            harness.healthTimer.tick()
+
+            XCTAssertTrue(
+                harness.effects.endReasons.isEmpty,
+                "\(configuration.activation): nothing has opened, so nothing can have ended")
+            XCTAssertTrue(
+                harness.runLoop.hasPendingWork,
+                """
+                \(configuration.activation): the opening was dropped by the tap's death. The session \
+                would then never exist, the machine would refuse every later start, and the hotkey \
+                would be dead for the life of the process.
+                """)
+
+            harness.runLoop.drain()
+
+            XCTAssertEqual(harness.effects.endReasons, [.tapDisabled], "\(configuration.activation)")
+            XCTAssertFalse(
+                harness.microphone.isOpen,
+                "\(configuration.activation): the tap is dead and the microphone is open")
+            XCTAssertEqual(
+                harness.microphone.beginCount, 1,
+                """
+                \(configuration.activation): the accepted cost — a tap already dead still opens the \
+                microphone for ~114 ms before the held stop closes it. See \
+                SessionMachine.stopDeferredByTheOpening. If this is now 0, the abandon path was \
+                built and that doc comment needs rewriting rather than this number.
+                """)
+            XCTAssertEqual(harness.microphone.endCount, 1, "\(configuration.activation)")
+            XCTAssertFalse(harness.watchdogTimer.isRunning, "\(configuration.activation)")
+            XCTAssertTrue(harness.healthTimer.isRunning, "\(configuration.activation)")
         }
     }
 

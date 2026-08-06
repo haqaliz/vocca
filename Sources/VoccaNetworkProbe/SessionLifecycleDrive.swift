@@ -200,7 +200,14 @@ extension VoccaNetworkProbe {
             configuration: configuration,
             ceiling: SessionCeiling.default,
             clock: clock,
-            audioSource: microphone)
+            audioSource: microphone,
+            // **The shipped timing, and this is the only place in `Sources/` that exercises it.**
+            // `AVAudioEngine.start()` was measured at 114 ms, so the capture start happens off the
+            // tap callback (`CaptureStartTiming`). A drive that took the default would run the
+            // configuration Vocca does *not* ship and would leave the one it does with no end-to-end
+            // coverage anywhere — which is exactly the state the first version of this phase left
+            // behind. `SessionMachineConstructionTests` is what stops that recurring.
+            captureStartTiming: .whenTheOwnerAsks)
         let watchdog = SessionWatchdog(machine: machine, keyState: keyState)
 
         // Every input goes through the watchdog, which is how a session owner is meant to drive
@@ -208,6 +215,16 @@ extension VoccaNetworkProbe {
         // would exercise the same rules while skipping the wrapper the app will actually hold.
         let press = watchdog.observe(
             keyEvent(.keyDown, configuration: configuration, at: clock.now))
+
+        // The owner's half of the deferred start. The press only *decided*; nothing is captured
+        // until this runs, and in the app it runs on a later turn of the tap's own run loop. Both
+        // facts are reported below — a drive that asked without checking that an opening was owed
+        // would pass just as well against a machine that had silently reverted to opening inline.
+        let openingWasOwed = watchdog.hasPendingOpening
+        // Read before the opening, and it is the assertion the whole decision rests on: the tap
+        // callback returned with the microphone still shut.
+        let microphoneOpensAfterThePress = microphone.opens
+        let opening = watchdog.completePendingOpening()
 
         var wakeEffects: [String] = []
         for _ in 0..<wakeCount {
@@ -227,6 +244,9 @@ extension VoccaNetworkProbe {
         let fields = [
             "press=\(describe(press.effect))",
             "press.propagation=\(describe(press.eventPropagation))",
+            "press.openedMicrophone=\(microphoneOpensAfterThePress)",
+            "openingWasOwed=\(openingWasOwed)",
+            "opening=\(describe(opening))",
             "wakes=\(wakeEffects.count)",
             "wake.effects=\(wakeEffects.joined(separator: ","))",
             "wake.keyReads=\(keyState.reads)",

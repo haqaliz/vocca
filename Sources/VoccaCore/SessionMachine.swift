@@ -192,6 +192,39 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// **First one wins.** If a key-up and a tap death both land there, the key-up is the user's own
     /// gesture and the more specific fact — the same precedence the stop rules already use, for the
     /// same reason: the log is the only evidence anyone gets.
+    ///
+    /// ## The microphone is opened before the held stop is applied, and at 114 ms that is now visible
+    ///
+    /// **Accepted, with the cost stated, because a reader will otherwise assume the opposite.** The
+    /// stop is held here and applied by ``openTheMicrophone()`` only *after* `beginCapture()` has
+    /// returned. So for every reason, the sequence is open-then-close — and macOS's orange indicator
+    /// is lit for the ~114 ms in between. `prd.md` M23 calls a lit indicator *"the most damaging
+    /// possible signal for this product"*, and it is the whole reason the engine may not be
+    /// pre-warmed, so this is not a small thing to inherit silently.
+    ///
+    /// | stop held here | what it costs |
+    /// |---|---|
+    /// | key-up — a tap shorter than the opening | **correct and wanted**: the session exists, the audio it caught is kept |
+    /// | `.userCancelled` (Escape) | the microphone opens, closes, and the audio is discarded by definition. Opened for nothing |
+    /// | `.tapDisabled` | the tap is already dead and no key event can reach Vocca, yet the microphone opens |
+    /// | `.systemEvent(.willSleep)` | the microphone opens as the machine goes to sleep |
+    ///
+    /// Under ``CaptureStartTiming/immediately`` this window was a few instructions and none of it was
+    /// reachable. It is reachable on every press now.
+    ///
+    /// **Why it is accepted rather than fixed.** The fix would be an abandon path: clear the flags
+    /// and never call `beginCapture()`. It costs more than it looks. ``endSession(reason:)`` requires
+    /// `.recording`, and ``SessionOutcome/make(reason:audio:)`` is called in exactly one place in
+    /// this module — a rule `CoreBoundaryTests` enforces — so an abandoning path needs either a
+    /// second call site or a `endCapture()` with no matching `beginCapture()`, which the seam
+    /// forbids. It would also need an effect of its own: the widget has been told ``SessionEffect/opening``
+    /// and would otherwise sit in that state forever. That is a design change, not a guard.
+    ///
+    /// **What makes the cost acceptable meanwhile** is that it is *bounded and closed*: the open is
+    /// followed immediately by the close, on the same turn, through the same funnel, so the
+    /// indicator flashes for ~114 ms and is never left lit. A hot mic would not be acceptable; a
+    /// bounded flash on a gesture the user abandoned is. If a later phase decides the flash is too
+    /// much, the abandon path above is the shape it takes.
     private var stopDeferredByTheOpening: EndReason?
 
     /// **A start that has been decided but not performed, and that nobody but the owner will
@@ -279,6 +312,16 @@ public final class SessionMachine<Audio: CapturedAudio> {
             // keystroke made during the opening reaches the focused application untouched, which is
             // inherited constraint 4. What `decide` would additionally have swallowed at
             // `.recording` is exactly that claimed set, so nothing is lost by not consulting it.
+            //
+            // **What this branch skips, and why that is still safe at the new width.** It returns
+            // before `releaseStaleClaim(before:)`, so the stale-claim safety valve is disabled for
+            // the whole opening — an eighth of a second now rather than a few instructions. It is
+            // safe because a claim cannot *be* stale here: it was taken by the key-down that began
+            // this very opening, so the only key code the valve could release is the one the user
+            // is holding, where swallowing is exactly right. The valve exists for a claim that
+            // outlived a session — a tap that died, a focus lost — and no session has existed yet.
+            // Named rather than left implicit, because the window it is disabled for grew by four
+            // orders of magnitude and nothing else in this file would have told the next reader.
             //
             // `decide` never returns `.start` from `.recording`, so asking it that way cannot open
             // anything; the only thing it can produce is the stop that would otherwise be lost.

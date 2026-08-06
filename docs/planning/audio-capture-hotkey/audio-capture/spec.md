@@ -37,26 +37,34 @@ offline equivalent at all — not a permission problem, an architectural one. Th
 
 ---
 
-## The first decision — and it is this aspect's, not a later one's
+## The first decision — RESOLVED in Phase 3
 
-**The three-constraint tension on the tap callback is still unresolved, and it is now load-bearing.**
+**The three-constraint tension on the tap callback was unresolved across two aspects. It is now
+decided, on a measurement.**
 
-`HotkeyEventSource.receive(_:)`'s doc records it: the callback must return fast (a slow return earns
-`kCGEventTapDisabledByTimeout`, which disables the tap **mid-session**); `AVAudioEngine.start()` takes
-milliseconds; and the engine cannot be pre-warmed because that lights the microphone indicator
-permanently.
+The three constraints: the callback must return fast (a slow return earns
+`kCGEventTapDisabledByTimeout`, which disables the tap **mid-session**); `AVAudioEngine.start()` is
+slow; and the engine cannot be pre-warmed because that lights the microphone indicator permanently.
 
-The shipped chain today is **synchronous from the tap callback into `beginCapture()`**. Once
-`beginCapture()` is a real engine start, that chain is the defect.
+Both aspects wrote down the estimate they were working from — *"milliseconds"*. Measured:
+**114 ms median / 119 ms p99 on the analog headphone-jack input, 42 ms median on the built-in
+microphone array**, M4 Max, over 120 and 60 verified sessions. One to two orders of magnitude out,
+with a 2.7× spread between devices on one machine.
 
-The candidate resolution, recorded across two aspects: the callback computes the decision (`decide`
-is pure and fast), returns the disposition immediately, and the capture start happens **off** the
-callback. The machinery already exists and is tested — `isOpeningTheMicrophone` and the deferred-stop
-path were built in `session-lifecycle` precisely because `beginCapture()` takes real time, and a stop
-arriving during it is applied the instant the session exists.
+**Decision: the capture start happens off the tap callback** — `CaptureStartTiming.whenTheOwnerAsks`.
+The callback decides and returns; `ScheduledWatchdog` opens the microphone on a later turn of the
+tap's own run loop. It rests on machinery `session-lifecycle` already built and tested for a slow
+open (`isOpeningTheMicrophone`, the deferred-stop path); the hop widened that window from a few
+instructions to ~114 ms, it did not add a rule.
 
-**Decide it first, measure the engine-start cost the PRD requires and nobody has measured, and say
-which way you went.** Everything else in this aspect depends on the answer.
+The decision rests on two of the three grounds. The tap-timeout deadline is `prd.md` C1-G and is
+still **[UNVERIFIED]**, so it is a real risk that cannot be quantified rather than an argument from
+arithmetic. What carries it: the tap is a single serialization point in front of the whole keyboard,
+so for 114 ms after every press whatever the user types next is held; and the main run loop stops,
+overshooting the 150 ms watchdog poll that bounds the hot-mic window by 76%.
+
+Full reasoning and both tables: `CaptureStartTiming` in `VoccaCore`, and `plan_20260806.md`
+§"Result, written after Phase 3". Instrument: `Scripts/measure-engine-start.sh`.
 
 ---
 
@@ -80,6 +88,12 @@ which way you went.** Everything else in this aspect depends on the answer.
 - ASR (C2). The buffer is handed over; nothing transcribes it.
 - Permissions UI, onboarding, the widget.
 - Bluetooth/HFP device selection beyond noting what it does to the format.
+- **HFP engine-start latency.** Phase 3 measured `AVAudioEngine.start()` on three inputs and found a
+  2.7× spread between them (42 ms built-in array, 114 ms headphone-jack input). No HFP-capable device
+  was reachable on the measuring machine, and HFP is the configuration most likely to be *worse* than
+  any of those. It is out of scope here and it is **unmeasured, not assumed fine** —
+  `./Scripts/measure-engine-start.sh warm --device "<name>"` is one command for whoever has the
+  hardware.
 
 ---
 
@@ -93,7 +107,7 @@ which way you went.** Everything else in this aspect depends on the answer.
 | A4 | `endCapture()` releases the device before returning; a conformance that cannot, traps | ⚠️ partly |
 | A5 | A configuration change mid-session ends the session **with** the audio | ✅ over the seam |
 | A6 | The engine is not running between sessions — the mic indicator is dark when idle | ❌ manual |
-| A7 | Engine-start latency, measured and recorded | ❌ manual, but **required** |
+| A7 | Engine-start latency, measured and recorded | ❌ manual, but **required** — **done in Phase 3**: `Scripts/measure-engine-start.sh`, numbers on `CaptureStartTiming` and in `plan_20260806.md`. HFP remains unmeasured |
 | A8 | 16 kHz mono Float32 at the seam boundary; a sample-rate or channel-count regression fails loudly | ✅ |
 
 **A6 and A7 go in `SMOKE_CHECKLIST.md`** with pass criteria tighter than the failures they guard —
@@ -107,5 +121,13 @@ the rule `hotkey-source` earned when a looser one would have accepted a broken p
    or is the ceiling the lever? (PRD open question 2, still unanswered.)
 2. What happens when the engine fails to start — `CaptureStart.unavailable` exists and the machine
    handles it, but what does the user see?
-3. Does `prepare()` after every stop measurably reduce start latency, and does it cost anything while
-   idle?
+3. ~~Does `prepare()` after every stop measurably reduce start latency, and does it cost anything
+   while idle?~~ **Answered in Phase 3, and the answer is negative.** Measured
+   (`Scripts/measure-engine-start.sh prepare-matrix`, 30 rows per cell, `start()` median): with any
+   realistic gap between sessions it saves **7.6 ms** (120.7 → 113.1 ms at a 1 s gap) and **costs
+   ~55 ms of idle CPU per session** to do it. Back to back it saves 49 ms, but back to back is not a
+   user pattern, and whatever it warms is torn down within one second. On the built-in microphone
+   array `prepare()` costs 11.8 ms rather than 55 — a materially different trade, so the verdict is
+   device-dependent and the number must be re-taken per device. `prd.md` M23 mandates it as a
+   must-have; Phase 4 implements it as written and flags it, or the PRD is amended. See
+   `plan_20260806.md` §"Result, written after Phase 3".
