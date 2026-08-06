@@ -48,7 +48,35 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 317 by hotkey-source phase 6, which detects Secure Input. Of the ten tests it adds, the ones that
+# 354 by audio-capture phase 1, the SPSC ring buffer the realtime thread writes into: twenty in
+# AudioRingBufferTests and ten in RealtimeSafetyTests.
+#
+# The two that justify the raise on their own are AudioRingBufferTests'
+# `testASingleProducerAndSingleConsumerNeverLoseReorderOrDuplicateASample` and
+# `testUnderContentionEveryProducedSampleIsEitherReceivedOrCounted`. They drive two *real* threads
+# through thousands of blocks of varying size — a hand-driven interleaving asks the hardware to
+# reorder nothing — and the second pins the overrun accounting exactly: received + refused == sent,
+# because the refusal counter is the only record a consumer has that the audio it holds is short.
+# Scripts/test-under-tsan.sh runs both under ThreadSanitizer; read its header for what that does and
+# does not prove.
+#
+# One of the twenty is there because a mutation battery of eighteen found it held by nothing:
+# advancing the read cursor by the *requested* count rather than by what was taken drives the read
+# cursor past the write cursor, `write &- read` underflows to an occupancy of about eighteen
+# quintillion samples, and the ring then reports itself permanently full while the session records
+# silence. The return value is identical either way and `drain()` never over-asks, so the original
+# test could not see it. Of the eighteen, seventeen die; the survivor is weakening a memory
+# ordering, which nothing automated in this repository can catch — see the note in
+# AudioRingBuffer.swift, which says so rather than implying otherwise.
+#
+# RealtimeSafetyTests is acceptance A3, and it is three passes rather than one because each is blind
+# to what the next sees: an allow-list over call names cannot see `Task { … }` (no parentheses, so
+# no call token), and neither identifier pass can see `[Float](repeating:count:)` or a string
+# interpolation. Four of its ten tests are positive controls that watch each pass reject the shape it
+# exists to reject, because nothing in CI ever executes the realtime block — `AVAudioSinkNode` is
+# unsupported in manual rendering mode — so the lint is the only check there is.
+#
+# It was 317 after hotkey-source phase 6, which detects Secure Input. Of the ten tests it adds, the ones that
 # justify the raise are `testSecureInputIsReportedAsBlockedAndNothingIsDoneToTheTap` and
 # `testAPasswordFieldFocusedForTwoMinutesCostsNoTapWorkAndTwoLogLines` — a state that no test could
 # reach before, because `IsSecureEventInputEnabled` is set by other people's software and a test
@@ -494,7 +522,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=324
+MINIMUM_EXECUTED_TESTS=354
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

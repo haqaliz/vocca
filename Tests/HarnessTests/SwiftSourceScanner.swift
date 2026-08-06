@@ -178,4 +178,85 @@ enum SwiftSourceScanner {
     static func importedModuleNames(in file: URL) throws -> [String] {
         importedModuleNames(inSource: try String(contentsOf: file, encoding: .utf8))
     }
+
+    // MARK: - Reading the inside of a declaration
+
+    /// The text between the brace at `openingBraceIndex` and its match, or `nil` if the braces
+    /// never balance.
+    ///
+    /// Shared rather than copied, on the same reasoning as the parse above: ``DeinitIsolationTests``
+    /// needed the body of every `deinit` and ``RealtimeSafetyTests`` needs the body of every
+    /// function marked as running on the realtime thread. Those are the same ten lines, and this
+    /// repository has already paid once for five copies of a directory walk that were five chances
+    /// to diverge.
+    ///
+    /// It inherits this type's known limit — it is not string-literal aware, so a `{` inside a
+    /// literal unbalances the body. That fails towards reading *too much*, and therefore towards
+    /// over-reporting, which is the safe direction for a lint.
+    /// Returns the body text and the index of the closing brace, so a caller scanning for several
+    /// declarations can resume immediately after it without re-deriving the position from the
+    /// body's length.
+    static func bracedBody(
+        in text: [Character], openingBraceIndex: Int
+    ) -> (body: String, closingBraceIndex: Int)? {
+        guard openingBraceIndex < text.count, text[openingBraceIndex] == "{" else { return nil }
+        var depth = 0
+        var end = openingBraceIndex
+        while end < text.count {
+            if text[end] == "{" { depth += 1 }
+            if text[end] == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return (String(text[(openingBraceIndex + 1)..<end]), end)
+                }
+            }
+            end += 1
+        }
+        return nil
+    }
+
+    /// Every name called in `body`: the identifier immediately preceding a `(`.
+    ///
+    /// Names rather than full expressions, because the rules built on this are about *what is
+    /// reached* and the receiver is irrelevant — `timer.stop()` and `self.timer.stop()` are the
+    /// same call.
+    ///
+    /// **It cannot see a call with no parentheses.** `Task { … }` is a call written entirely in
+    /// trailing-closure form and does not appear here at all. Any lint that must forbid such a
+    /// construct needs a second pass over the identifiers; ``RealtimeSafetyTests`` has one, and it
+    /// is there because this function structurally cannot.
+    static func callNames(inBody body: String) -> Set<String> {
+        var names: Set<String> = []
+        var current = ""
+
+        for character in body {
+            if character.isLetter || character.isNumber || character == "_" {
+                current.append(character)
+            } else {
+                if character == "(", !current.isEmpty { names.insert(current) }
+                current = ""
+            }
+        }
+        return names
+    }
+
+    /// Every identifier in `body`, as whole words.
+    ///
+    /// The companion to ``callNames(inBody:)`` for rules that must catch constructs written without
+    /// parentheses — `await`, `try`, `throw`, and `Task { … }`.
+    static func identifiers(inBody body: String) -> Set<String> {
+        var names: Set<String> = []
+        var current = ""
+
+        for character in body {
+            if character.isLetter || character.isNumber || character == "_" {
+                current.append(character)
+            } else {
+                if !current.isEmpty { names.insert(current) }
+                current = ""
+            }
+        }
+        if !current.isEmpty { names.insert(current) }
+        return names
+    }
 }

@@ -143,11 +143,12 @@ final class DeinitIsolationTests: XCTestCase {
         }
 
         XCTAssertGreaterThanOrEqual(
-            found, 4,
+            found, 5,
             """
-            The scan found \(found) deinits and there are at least four in Sources/ \
-            (MainRunLoopTimer, CGEventTapSource, ScheduledWatchdog, TapHealthTimer). A lint that \
-            parses nothing passes everything.
+            The scan found \(found) deinits and there are at least five in Sources/ \
+            (MainRunLoopTimer, CGEventTapSource, ScheduledWatchdog, TapHealthTimer, and — the \
+            fourth time this rule was needed, exactly as predicted — AudioRingBuffer, which frees \
+            the realtime thread's sample storage). A lint that parses nothing passes everything.
             """)
     }
 
@@ -217,9 +218,14 @@ final class DeinitIsolationTests: XCTestCase {
     /// `RepeatingTimer.stopWithoutAssertingIsolation()`, whose shipped implementation is the first
     /// of those. Adding a name here is a claim that it asserts nothing, and it is checkable in one
     /// read.
+    /// `AudioRingBuffer.deinit` frees the ring's preallocated sample storage. `deallocate()` is
+    /// `free(3)` behind a pointer method — it takes no lock this process owns, reaches no actor,
+    /// and asserts no isolation domain — so it is safe on whatever thread the last release lands
+    /// on, which is the whole of the rule.
     static let permittedInADeinit: Set<String> = [
         "tearDown",
         "stopWithoutAssertingIsolation",
+        "deallocate",
     ]
 
     /// The body of every `deinit` in `source`, brace-balanced, with comments already stripped.
@@ -238,21 +244,12 @@ final class DeinitIsolationTests: XCTestCase {
             guard
                 let start = Self.nextDeinitBrace(in: text, from: index)
             else { break }
+            guard
+                let found = SwiftSourceScanner.bracedBody(in: text, openingBraceIndex: start)
+            else { break }
 
-            var depth = 0
-            var end = start
-            while end < text.count {
-                if text[end] == "{" { depth += 1 }
-                if text[end] == "}" {
-                    depth -= 1
-                    if depth == 0 { break }
-                }
-                end += 1
-            }
-            guard end < text.count else { break }
-
-            bodies.append(String(text[(start + 1)..<end]))
-            index = end + 1
+            bodies.append(found.body)
+            index = found.closingBraceIndex + 1
         }
         return bodies
     }
@@ -282,24 +279,11 @@ final class DeinitIsolationTests: XCTestCase {
 
     /// Every name called in `body`: the identifier immediately preceding a `(`.
     ///
-    /// Names rather than full expressions, because the rule is about *what is reached* and the
-    /// receiver is irrelevant — `timer.stop()` and `self.timer.stop()` are the same violation.
+    /// The parse moved to ``SwiftSourceScanner`` when `audio-capture`'s realtime lint needed the
+    /// same one. This forwards rather than duplicating, for the reason that type's own header
+    /// gives: a second copy is a second chance to diverge, and the divergence would be invisible —
+    /// both lints would still pass.
     static func callNames(inBody body: String) -> Set<String> {
-        var names: Set<String> = []
-        let characters = Array(body)
-        var index = 0
-        var current = ""
-
-        while index < characters.count {
-            let character = characters[index]
-            if character.isLetter || character.isNumber || character == "_" {
-                current.append(character)
-            } else {
-                if character == "(", !current.isEmpty { names.insert(current) }
-                current = ""
-            }
-            index += 1
-        }
-        return names
+        SwiftSourceScanner.callNames(inBody: body)
     }
 }
