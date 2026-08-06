@@ -105,6 +105,23 @@ public enum CaptureStartTiming: Sendable, Hashable, CaseIterable {
     /// It is discharged structurally rather than remembered: `ScheduledWatchdog` is the
     /// ``HotkeyEventSink``, so every route that can start a session already passes through it, and it
     /// schedules the pending opening on the spot. That is the same argument, and the same object,
-    /// that already keeps the watchdog's timer in step with the session.
+    /// that already keeps the watchdog's timer in step with the session. A source lint
+    /// (`SessionMachineConstructionTests`) additionally forbids any `SessionMachine` in `Sources/`
+    /// from taking the timing default silently.
+    ///
+    /// **And the 120 s ceiling does not bound the opening — nothing does.** Worth knowing, because
+    /// every other window in this product has a backstop and this one has an argument instead.
+    /// `SessionMachine.elapsed` starts when the *microphone opens*, which is the right meaning;
+    /// `SessionWatchdog.schedule` is `.stopped` while the machine is `.idle`, and `wake()` returns
+    /// before reading anything there. So a pending opening runs with no ceiling, no poll and no
+    /// timer: a `beginCapture()` that never returned would leave the hotkey dead for the life of the
+    /// process. Driven directly, a press followed by 300 s of clock and then the opening still yields
+    /// `elapsed = 0` and a healthy recording session — correct, and it is what makes the gap visible.
+    ///
+    /// What bounds it is the same argument `ScheduledWatchdog.deferredOpening()` makes and no more:
+    /// the block is on **the run loop the tap callback is delivered on**, so if it stops turning no
+    /// key event can arrive either, and there is no press the pending opening is denying. It is not a
+    /// hot mic — the microphone is not open in that state — and the failure it does buy is a silently
+    /// dead hotkey.
     case whenTheOwnerAsks
 }

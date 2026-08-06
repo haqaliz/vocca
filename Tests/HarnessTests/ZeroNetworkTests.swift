@@ -107,6 +107,18 @@ final class ZeroNetworkTests: XCTestCase {
     /// refuses a version that no longer describes a session which captured audio, handed it to
     /// custody and released the microphone — so weakening the probe and pasting in whatever it now
     /// prints does not restore a green suite.
+    ///
+    /// **Where that claim stops, stated because a review measured it.** It holds against weakening
+    /// the *drive*: reordering it, reporting a different value, or dropping a field are all killed
+    /// here or by the guard-the-guard. It does not hold against replacing a reported expression with
+    /// a **constant** — `let openingWasOwed = watchdog.hasPendingOpening` → `= true`, or
+    /// `let microphoneOpensAfterThePress = microphone.opens` → `= 0` — because the assertion lives
+    /// inside the process being observed and the same edit that lies can delete what would catch it.
+    /// That is the probe pattern's standing cost rather than something these two fields introduced,
+    /// and it is why they are *snapshots taken at a named moment* reported beside the effects they
+    /// bracket: a constant that survives here still has to agree with `press=`, `opening=`,
+    /// `mic.opens` and `mic.closes`, which are all derived from the run.
+    /// **Accepted, not fixed, and recorded as accepted.**
     private static let expectedSessionLifecycle = [
         // The hotkey press *decided* on a session and did not open a microphone, because the
         // shipped timing opens it off the tap callback — `AVAudioEngine.start()` is 114 ms

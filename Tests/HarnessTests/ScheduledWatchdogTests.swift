@@ -137,6 +137,14 @@ final class ScheduledWatchdogTests: XCTestCase {
                 ceiling — both of those are this timer, and only this timer.
                 """)
             XCTAssertEqual(
+                harness.runLoop.scheduled, 0,
+                """
+                \(configuration.activation): this harness's machine opens the microphone inline, so \
+                nothing may ever be handed to the run loop. The comment on `runLoop` says exactly \
+                that; without this line it says it and nothing checks it, which is the standard this \
+                file applied when it deleted an unused parameter for the same reason.
+                """)
+            XCTAssertEqual(
                 harness.timer.interval, WatchdogPolicy.pollInterval,
                 "\(configuration.activation): the cadence came from somewhere other than WatchdogPolicy.")
 

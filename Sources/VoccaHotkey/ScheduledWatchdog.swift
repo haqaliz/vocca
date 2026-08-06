@@ -164,9 +164,10 @@ public final class ScheduledWatchdog<Audio: CapturedAudio>: HotkeyEventSink {
     /// **The hop.** If the last event decided to start a session, open the microphone on a later
     /// turn of the run loop rather than on this one.
     ///
-    /// `AVAudioEngine.start()` was measured at a **114 ms median and a 119 ms p99** over 120 verified
-    /// sessions on an M4 Max (`Scripts/measure-engine-start.sh`; the table is on
-    /// ``CaptureStartTiming``). A tap callback that blocks for that long risks
+    /// `AVAudioEngine.start()` was measured at a **114 ms median / 119 ms p99 on the analog
+    /// headphone-jack input** and **42 ms / 53 ms on the built-in microphone array** of an M4 Max
+    /// (`Scripts/measure-engine-start.sh`; both rows, and why a figure quoted without its device is
+    /// the defect a review found here, are on ``CaptureStartTiming``). A tap callback that blocks for that long risks
     /// `kCGEventTapDisabledByTimeout` — the tap switched off mid-session, which is the hot mic —
     /// **and**, with no risk about it at all, holds the user's keystroke back from the focused
     /// application for an eighth of a second and stalls both of this package's timers while it does.

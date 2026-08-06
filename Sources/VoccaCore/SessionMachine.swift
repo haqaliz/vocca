@@ -152,7 +152,9 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// owner's ``completePendingOpening()`` under ``CaptureStartTiming/whenTheOwnerAsks``.
     ///
     /// Opening a microphone is real work on a real run loop — **`AVAudioEngine.start()` was measured
-    /// at a 114 ms median, 119 ms p99, over 120 verified sessions** (see ``CaptureStartTiming``) —
+    /// at a 114 ms median / 119 ms p99 on the analog headphone-jack input and 42 ms / 53 ms on the
+    /// built-in microphone array** (see ``CaptureStartTiming``, which carries both rows and why the
+    /// device has to be named beside the figure) —
     /// and a queued `CGEvent` delivered underneath it re-enters this machine at a
     /// moment `sessionState` describes wrongly: still `.idle`, so the rules would happily start a
     /// *second* session inside the first one's opening. There is no `.starting` state to say
@@ -219,6 +221,16 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// second call site or a `endCapture()` with no matching `beginCapture()`, which the seam
     /// forbids. It would also need an effect of its own: the widget has been told ``SessionEffect/opening``
     /// and would otherwise sit in that state forever. That is a design change, not a guard.
+    ///
+    /// **One consequence for whoever writes the composition root**, because it is not obvious from
+    /// any single doc comment: a teardown that ends an in-flight session — `TapHealthPolicy.disarm()`
+    /// is the sharpest case — now produces its ``SessionOutcome`` on a **later run-loop turn than the
+    /// call that caused it**. `disarm()` returns with the microphone shut and the tap detached; the
+    /// queued block then opens the microphone, applies the held stop, closes it, and delivers an
+    /// `.ended` carrying the user's audio. An owner that disarms and drops the whole graph in the
+    /// same turn loses that transcript — harmlessly today, because the deferral captures its owner
+    /// weakly and so the microphone simply never opens, but the ordering is real and it is the
+    /// owner's to respect.
     ///
     /// **What makes the cost acceptable meanwhile** is that it is *bounded and closed*: the open is
     /// followed immediately by the close, on the same turn, through the same funnel, so the

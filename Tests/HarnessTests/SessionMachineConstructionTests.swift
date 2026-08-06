@@ -51,7 +51,7 @@ import XCTest
 final class SessionMachineConstructionTests: XCTestCase {
 
     /// Where a construction was found, for a failure message that names the file and the line.
-    private struct Construction {
+    struct Construction {
         let file: String
         let line: Int
         let namesTheTiming: Bool
@@ -69,35 +69,51 @@ final class SessionMachineConstructionTests: XCTestCase {
     /// one thing a lint about a *named argument* must not be.
     private func constructions() throws -> [Construction] {
         let sources = try PackageRootLocator.find(from: #filePath).appendingPathComponent("Sources")
-        var found: [Construction] = []
-
-        for file in SwiftSourceScanner.swiftFiles(under: sources) {
+        return try SwiftSourceScanner.swiftFiles(under: sources).flatMap { file in
             // Comments are stripped first, so a construction discussed in prose is not a
             // construction — including the ones in this rule's own failure message.
-            let source = SwiftSourceScanner.stripComments(
-                from: try String(contentsOf: file, encoding: .utf8))
+            Self.classify(
+                SwiftSourceScanner.stripComments(
+                    from: try String(contentsOf: file, encoding: .utf8)),
+                file: file.lastPathComponent)
+        }
+    }
 
-            var searchFrom = source.startIndex
-            while let call = source.range(of: "SessionMachine(", range: searchFrom..<source.endIndex)
-            {
-                searchFrom = call.upperBound
+    /// **The verdict, separated from the file walk so that it can be put a question with a known
+    /// answer.**
+    ///
+    /// It was one function with the walk until a review hard-coded `namesTheTiming: true` and watched
+    /// all 416 tests pass. The rule above then approves every construction it finds, for ever, and
+    /// the durable half of this aspect's most expensive finding asserts nothing — while
+    /// ``testTheScanFindsTheConstructionItIsMeantToPolice``, written for exactly this class of rot,
+    /// goes on passing because it only ever checked that the scan found *something*. Finding a
+    /// construction and always approving it is the same rot from the other side.
+    ///
+    /// Split out and driven from literal fixtures below, so the classifier has to be able to answer
+    /// `false`.
+    static func classify(_ source: String, file: String) -> [Construction] {
+        var found: [Construction] = []
+        var searchFrom = source.startIndex
 
-                var depth = 1
-                var cursor = call.upperBound
-                while cursor < source.endIndex, depth > 0 {
-                    if source[cursor] == "(" { depth += 1 }
-                    if source[cursor] == ")" { depth -= 1 }
-                    if depth > 0 { cursor = source.index(after: cursor) }
-                }
+        while let call = source.range(of: "SessionMachine(", range: searchFrom..<source.endIndex) {
+            searchFrom = call.upperBound
 
-                let arguments = source[call.upperBound..<cursor]
-                found.append(
-                    Construction(
-                        file: file.lastPathComponent,
-                        line: source[source.startIndex..<call.lowerBound]
-                            .filter { $0 == "\n" }.count + 1,
-                        namesTheTiming: arguments.contains("captureStartTiming")))
+            // Balanced, so the argument list ends where the call ends. Searching the whole file
+            // instead is invisible today — there is one construction per file — and wrong the first
+            // time a file has two, one of them silent.
+            var depth = 1
+            var cursor = call.upperBound
+            while cursor < source.endIndex, depth > 0 {
+                if source[cursor] == "(" { depth += 1 }
+                if source[cursor] == ")" { depth -= 1 }
+                if depth > 0 { cursor = source.index(after: cursor) }
             }
+
+            found.append(
+                Construction(
+                    file: file,
+                    line: source[source.startIndex..<call.lowerBound].filter { $0 == "\n" }.count + 1,
+                    namesTheTiming: source[call.upperBound..<cursor].contains("captureStartTiming")))
         }
         return found
     }
@@ -140,5 +156,39 @@ final class SessionMachineConstructionTests: XCTestCase {
         XCTAssertTrue(
             found.contains { $0.file == "SessionLifecycleDrive.swift" },
             "The zero-network probe's drive is the construction this rule most exists for.")
+    }
+
+    /// **Guards the guard, from the other side: the classifier must be able to answer `false`.**
+    ///
+    /// The test above proves the scan *finds* things. It does not prove the verdict means anything —
+    /// and a review demonstrated the gap by hard-coding `namesTheTiming: true`, which left the whole
+    /// rule vacuous with 416 tests green. Two literal fixtures close it: one construction that names
+    /// the timing and one that does not, over the same classifier the rule uses.
+    ///
+    /// The second fixture is the one that matters. It also puts both constructions in **one source**,
+    /// which is what pins the argument list being delimited by balanced parentheses rather than by
+    /// searching the whole file — a weaker classifier that scans the file would call both of these
+    /// `true`, and today no real file has two constructions to catch it out.
+    func testTheClassifierCanTellANamedTimingFromASilentOne() {
+        let fixture = """
+            let named = SessionMachine(
+                configuration: configuration, ceiling: SessionCeiling.default, clock: clock,
+                audioSource: microphone, captureStartTiming: .whenTheOwnerAsks)
+            let silent = SessionMachine(
+                configuration: configuration, ceiling: SessionCeiling.default, clock: clock,
+                audioSource: microphone)
+            """
+
+        let found = SessionMachineConstructionTests.classify(fixture, file: "Fixture.swift")
+
+        XCTAssertEqual(found.count, 2, "both constructions must be found")
+        XCTAssertEqual(
+            found.map(\.namesTheTiming), [true, false],
+            """
+            The classifier cannot tell a construction that names `captureStartTiming:` from one that \
+            does not, so the rule above approves everything it finds and asserts nothing. That is \
+            the state a review reached by hard-coding this verdict, with the whole suite green.
+            """)
+        XCTAssertEqual(found.map(\.line), [1, 4], "and it must report where")
     }
 }

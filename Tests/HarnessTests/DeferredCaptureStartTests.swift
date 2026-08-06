@@ -276,6 +276,48 @@ final class DeferredCaptureStartTests: XCTestCase {
         XCTAssertFalse(harness.microphone.isOpen)
     }
 
+    /// **A modifier release inside the window, and the two activation modes genuinely diverge.**
+    ///
+    /// In hold-to-talk this is stop rule (c) — the chord is broken, so the session must end even
+    /// though the key itself is still down — and the stop is held and applied the instant the session
+    /// exists. In toggle there is no rule (c) at all: a toggle session runs with the chord released
+    /// for its whole life, so the same event must be *ignored* and the session must open normally.
+    ///
+    /// Neither arm was covered before. A review drove this through the full runtime and found both
+    /// correct, which is the reason it is written down rather than the reason it is not — an
+    /// uncovered divergence stays correct only until somebody edits the rules.
+    ///
+    /// The event itself passes through in both modes. A swallowed `flagsChanged` would strand the
+    /// focused application's idea of which modifiers are down.
+    func testAModifierReleaseDuringThePendingOpeningEndsOnlyAHoldToTalkSession() {
+        for configuration in [chord, toggleChord] {
+            let harness = MachineHarness(configuration: configuration)
+            harness.press()
+
+            let broken = harness.machine.observe(event(.flagsChanged, configuration.keyCode, []))
+            XCTAssertEqual(
+                broken.eventPropagation, .passThrough,
+                "\(configuration.activation): a swallowed modifier event strands the app's modifiers")
+
+            let completed = harness.machine.completePendingOpening()
+            switch configuration.activation {
+            case .holdToTalk:
+                guard case .ended(let outcome) = completed,
+                    case .completed(let reason, _, _) = outcome.content
+                else {
+                    return XCTFail("hold-to-talk: rule (c) must end the session it was held for")
+                }
+                XCTAssertEqual(reason, .modifierReleased)
+                XCTAssertFalse(harness.microphone.isOpen)
+            case .toggle:
+                XCTAssertEqual(
+                    completed, .started,
+                    "toggle: a toggle session runs with the chord released, so rule (c) does not exist")
+                XCTAssertTrue(harness.microphone.isOpen)
+            }
+        }
+    }
+
     /// A system trigger inside the window, which is the route
     /// `AVAudioEngineConfigurationChangeNotification` will take in Phase 4.
     func testASystemTriggerDuringThePendingOpeningEndsTheSession() {
@@ -454,25 +496,52 @@ final class DeferredCaptureStartTests: XCTestCase {
     /// happens rather than only *when*, this is what says so — and it is checked across the four
     /// gestures whose stop lands in different places.
     ///
-    /// **It is anchored, because a differential comparison alone proves only agreement.** Every
-    /// `deferred == immediate` clause below is satisfied by a mutation that breaks *both* timings
-    /// identically — which is not hypothetical: "the deferred timing silently behaves like
-    /// `.immediately`" is one of the mutations this suite is measured against, and a purely
-    /// differential test is exactly what it walks past. So each gesture also asserts absolutely that
-    /// one microphone was opened, and the two that retain audio assert that a buffer reached custody.
+    /// **The anchors discriminate between the timings, and the first version of them did not.**
+    ///
+    /// Every `deferred == immediate` clause below is satisfied by a mutation that breaks *both*
+    /// timings identically — in particular "the deferred timing silently behaves like
+    /// `.immediately`", which is the mutation a differential test most needs to catch. The first
+    /// attempt at anchoring this added `beginCount == 1`, `isOpen == false` and `state == .idle` at
+    /// the *end* of each gesture, and a review demonstrated that those are true of that mutant too:
+    /// all four gestures finish with one open and one close under either timing, so nothing measured
+    /// after the gesture can tell them apart.
+    ///
+    /// What can only be true of one of them is measured **between the press and the rest of the
+    /// gesture**: the deferred machine has opened nothing and owes an opening; the immediate machine
+    /// has already opened and owes nothing. That is asserted below, and it is what makes this test
+    /// kill the mutation its comment names rather than merely rule out a different one.
     func testBothTimingsReachTheSameOutcomeForTheSameGesture() {
+        // Each gesture is *everything after the press*, so the press's own effect can be asserted
+        // per timing before the rest runs.
         let gestures: [(String, retainsAudio: Bool, (MachineHarness) -> Void)] = [
-            ("press, complete, release", true, { $0.press(); _ = $0.machine.completePendingOpening(); $0.release() }),
-            ("press, release, complete", true, { $0.press(); $0.release(); _ = $0.machine.completePendingOpening() }),
-            ("press, complete, cancel", false, { $0.press(); _ = $0.machine.completePendingOpening(); _ = $0.machine.cancel() }),
-            ("press, cancel, complete", false, { $0.press(); _ = $0.machine.cancel(); _ = $0.machine.completePendingOpening() }),
+            ("press, complete, release", true, { _ = $0.machine.completePendingOpening(); $0.release() }),
+            ("press, release, complete", true, { $0.release(); _ = $0.machine.completePendingOpening() }),
+            ("press, complete, cancel", false, { _ = $0.machine.completePendingOpening(); _ = $0.machine.cancel() }),
+            ("press, cancel, complete", false, { _ = $0.machine.cancel(); _ = $0.machine.completePendingOpening() }),
         ]
 
-        for (name, retainsAudio, gesture) in gestures {
+        for (name, retainsAudio, rest) in gestures {
             let deferred = MachineHarness(timing: .whenTheOwnerAsks)
             let immediate = MachineHarness(timing: .immediately)
-            gesture(deferred)
-            gesture(immediate)
+
+            let deferredPress = deferred.press()
+            let immediatePress = immediate.press()
+
+            // The discriminating assertions. Nothing later in this test can make them.
+            XCTAssertEqual(
+                deferredPress.effect, .opening,
+                "\(name): the deferred press must only decide — this is what a timing that silently reverted to `.immediately` fails")
+            XCTAssertEqual(
+                deferred.microphone.beginCount, 0,
+                "\(name): the deferred press opened a microphone on the caller's thread")
+            XCTAssertTrue(deferred.machine.hasPendingOpening, "\(name)")
+
+            XCTAssertEqual(immediatePress.effect, .started, "\(name)")
+            XCTAssertEqual(immediate.microphone.beginCount, 1, "\(name)")
+            XCTAssertFalse(immediate.machine.hasPendingOpening, "\(name)")
+
+            rest(deferred)
+            rest(immediate)
 
             XCTAssertEqual(
                 deferred.microphone.handedOut, immediate.microphone.handedOut,
@@ -484,7 +553,8 @@ final class DeferredCaptureStartTests: XCTestCase {
             XCTAssertEqual(deferred.microphone.closesWithoutOpen, 0, name)
             XCTAssertEqual(deferred.machine.state, immediate.machine.state, name)
 
-            // The anchors. Absolute, not comparative.
+            // And absolute end-state anchors, which rule out a different failure: a mutation that
+            // breaks both timings' bookkeeping identically would satisfy every comparison above.
             for (label, harness) in [("deferred", deferred), ("immediate", immediate)] {
                 XCTAssertEqual(
                     harness.microphone.beginCount, 1,
