@@ -526,3 +526,36 @@ if [ "$executed" -lt "$MINIMUM_EXECUTED_TESTS" ]; then
 fi
 
 printf '%s\n' "swift test executed $executed tests (floor: $MINIMUM_EXECUTED_TESTS)."
+
+# THE MEASUREMENT HARNESS, COMPILED — because `swift test` cannot see it
+#
+# `Tools/TimerProbe/` is deliberately not a package target (it links AppKit and puts a real
+# `NSApplication` on the screen, which nothing in the suite may do), so `swift build` and
+# `swift test` never compile it. It is not decoration: it is what measured the run-loop-mode hazard
+# and App Nap — the two hazards CI structurally cannot reach — and `SMOKE_CHECKLIST.md` steps 8-11
+# send a human to run it before a release.
+#
+# This ran in CI only, as its own workflow step, and that is exactly how it broke: `hotkey-source`'s
+# final-review commit added `stopWithoutAssertingIsolation()` to `RepeatingTimer`, the probe's own
+# `DefaultModeTimer` conformer was not updated, and *every local signal stayed green* — the suite,
+# the floor, `swift build --build-tests` under strict concurrency, all of them. Master went red on
+# merge. The probe's own source predicted this in as many words ("it bit-rots silently the first
+# time `RepeatingTimer` ... changes shape") and the prediction was right, because the check that
+# would have caught it was not in the path anyone runs.
+#
+# So it runs here, in the one command the repository documents as *the* way to check the package,
+# and the workflow step it duplicated has been deleted rather than left as a step that can no longer
+# fail. The cost is a few seconds of incremental compile on a tree `swift test` has just built.
+#
+# It compiles and stops. Running a measurement needs a window server session and a human, which is
+# the whole reason those two hazards are smoke steps.
+set +e
+"$REPO_ROOT/Scripts/measure-timers.sh" --build-only
+harness_status=$?
+set -e
+
+if [ "$harness_status" -ne 0 ]; then
+    printf '%s\n' \
+        "::error::The timer measurement harness (Tools/TimerProbe) does not compile. It is not a package target, so nothing else in a local run or in CI compiles it — this check is the only one. It links the shipped VoccaHotkey, so a change to RepeatingTimer, WatchdogPolicy or TapHealthPolling breaks it here first. Fix the conformance rather than skipping the check: this harness is what measured the run-loop-mode hazard and App Nap, and SMOKE_CHECKLIST.md steps 8-11 tell a human to run it before every release." >&2
+    exit "$harness_status"
+fi

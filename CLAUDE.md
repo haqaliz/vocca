@@ -45,7 +45,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   `sign.sh`, `notarize.sh`, `test-with-floor.sh`, and **`measure-timers.sh`** — the phase 5
 >   measurement harness (`Tools/TimerProbe/`, deliberately not a package target), which links the
 >   shipped timer and measures the two hazards CI cannot reach: the run-loop mode during a window
->   drag, and App Nap on an `LSUIElement` app.
+>   drag, and App Nap on an `LSUIElement` app. **`test-with-floor.sh` compiles that harness too**,
+>   after the floor check — because `swift build` and `swift test` never see `Tools/`, and a check
+>   that lived only in CI is what let a `RepeatingTimer` change break the harness with every local
+>   signal green and master red on merge.
 > - `Tests/HarnessTests/`: 324 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
@@ -80,7 +83,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   `audio-capture` will need it a fourth time.
 > - `.github/workflows/ci.yml`: three jobs — headless suite under strict concurrency (any warning
 >   fails), plus a bundle contract per configuration (Debug and Release). Every `swift test` runs
->   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.
+>   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing —
+>   and that script is now the whole of the headless job's check, the measurement harness's compile
+>   included, so nothing CI checks is unreachable from a developer's machine.
 >
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no

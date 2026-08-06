@@ -219,6 +219,13 @@ final class DefaultModeTimer: RepeatingTimer {
         timer?.invalidate()
         timer = nil
     }
+
+    /// This mutant asserts no isolation in ``stop()``, so it may forward — the one-line case
+    /// `RepeatingTimer.stopWithoutAssertingIsolation()` describes. The mutation this class exists to
+    /// be is the run-loop mode on the line above `stop()`, and nothing else.
+    func stopWithoutAssertingIsolation() {
+        stop()
+    }
 }
 
 func report(_ ledgers: [FireLedger], windows: [String]) {

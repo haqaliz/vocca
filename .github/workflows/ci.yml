@@ -109,20 +109,15 @@ jobs:
       # Never a bare `swift test`. It exits 0 when it discovers nothing, which would make this
       # step — and both bundle jobs below — green while executing not one assertion. See the
       # header of Scripts/test-with-floor.sh for the measurement.
-      - name: Run the suite (with a test-count floor)
-        run: ./Scripts/test-with-floor.sh
-
-      # Tools/ is deliberately not a package target — everything under Sources/ is inside the
-      # zero-network coverage guard, which would require VoccaNetworkProbe to drive it, and driving
-      # a GUI measurement harness from the probe that asserts Vocca makes no network calls would be
-      # nonsense. The cost is that `swift build` never compiles it, so it would bit-rot silently the
-      # first time RepeatingTimer, WatchdogPolicy or TapHealthPolling changes shape — and the next
-      # person to reach for the two hazard measurements would find the harness does not build.
       #
-      # This compiles it and stops. It does not *run* a measurement: a hosted runner has no window
-      # server session, which is the whole reason these hazards need a human machine.
-      - name: Compile the timer measurement harness
-        run: ./Scripts/measure-timers.sh --build-only
+      # This step also compiles the timer measurement harness (Tools/TimerProbe), which is
+      # deliberately not a package target and so is compiled by nothing else. That used to be a
+      # separate step *here*, and only here — which is how it broke: a change to RepeatingTimer left
+      # the probe's conformer stale, every local signal stayed green, and master went red on merge.
+      # A check that lives only in CI is a check nobody can run before pushing, so it moved into the
+      # script. The step is gone rather than kept as a duplicate that can no longer fail.
+      - name: Run the suite (with a test-count floor) and compile the measurement harness
+        run: ./Scripts/test-with-floor.sh
 
   bundle:
     # Two jobs, one per configuration, because the entitlement rules genuinely differ between them:
