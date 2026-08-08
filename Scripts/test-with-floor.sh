@@ -48,7 +48,14 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 367 by the local-asr model-downloader Phase 3, which adds the H8 network-confinement lint: the
+# 368 by the local-asr spike's lint fix, which lets the licence header lint skip `.build`
+# directories: `Tools/ASRSpike` is the first Tools package with a Package.swift, so its FluidAudio
+# checkout (a third-party tree that carries no Vocca header) lives under the scanned `Tools/`
+# directory. The skip is a reviewed rule, not an afterthought — the test that justifies the raise
+# is `testABuildDirectoryIsSkippedButAHeaderlessFileIsStillCaught`, which pins the rule in both
+# directions: a headerless file under `.build` is ignored, a headerless file outside it is still
+# caught, and a properly headed file still passes.
+# It was 367 by the local-asr model-downloader Phase 3, which adds the H8 network-confinement lint: the
 # three tests in ModelDownloaderSeamTests. The one that justifies the raise is
 # `testExactlyOneFileInSourcesMayNameURLSession` — the zero-network claim's enforcement, in the
 # same shape as H7: a wrong code path that opens a socket anywhere in Sources/ fails this test,
@@ -542,7 +549,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=367
+MINIMUM_EXECUTED_TESTS=368
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
