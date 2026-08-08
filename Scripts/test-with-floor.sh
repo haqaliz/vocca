@@ -48,7 +48,25 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 340 by the local-asr asr-seam Phase 2, which adds the ASREngine seam: the six tests in
+# 357 by the local-asr model-downloader Phase 1, which adds the manifest and the verified-presence
+# store: the nine tests in ModelManifestTests and the eight in ModelStoreTests, written red and run
+# red before any of it existed. The ones that justify the raise are the store tests, because they
+# test the store's contract as *observable behaviour over the real seam* rather than as assertions
+# on an implementation: `testIsPresentFlipsTrueOnlyAfterEveryFileIsVerifiedAndCommitted` parks the
+# store inside the stub transport's async gate at both stages of a two-file manifest and reads the
+# store while it is suspended — the first verified file sits in a `.part` awaiting commit and
+# presence must still be false, which is the atomic-commit claim in the only form it can be
+# observed; `testTwoConcurrentDownloadsAreSingleFlight` submits two calls while the first is parked
+# in the gate, so a store without the one-flight guard starts a second download before the
+# assertion ever runs; and `testACommittedVersionDirectoryIsImmutableAgainstASecondDownload`
+# compares the committed directory byte-for-byte and mtime-for-mtime across a second call
+# (PRODUCT_SPEC.md:273). In ModelManifestTests, `testUnknownTopLevelJSONFieldsAreRejected` and
+# `testAnUnknownFieldInsideAFileEntryAreRejected` pin the unknown-field scan to the exact mechanism
+# that works on this SDK: a keyed container typed with a fixed CodingKeys enum drops unknown keys
+# before `allKeys` can see them (measured with a probe before the fix), so the scan goes through a
+# wildcard key type — without that, unknown fields silently decode as nothing and the trust anchor
+# is a registry that does not check.
+# It was 340 after local-asr asr-seam Phase 2, which adds the ASREngine seam: the six tests in
 # ASREngineSeamTests that pin the protocol ARCHITECTURE.md:219-229 specifies before any real engine
 # exists. The ones that justify the raise are `testAStubWithoutStreamStillSatisfiesTheProtocol` and
 # `testTheBatchDefaultBuffersThreeChunksIntoOneFinalTranscript` (streaming optional-with-default in
@@ -505,7 +523,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=340
+MINIMUM_EXECUTED_TESTS=357
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

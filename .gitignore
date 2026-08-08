@@ -22,7 +22,10 @@ Config/Signing.local.xcconfig
 # Local-first promise: this data stays on the box (see CLAUDE.md).
 .env
 .env.*
-models/
+# The model-cache directory is at the repo root only. Anchored to the root because on a
+# case-insensitive filesystem the bare pattern also matched Sources/VoccaASR/Models/ — the
+# ARCHITECTURE.md:90-93 home of the manifest and store code, which must be committable.
+/models/
 recordings/
 *.mlmodelc
 *.gguf
