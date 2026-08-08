@@ -48,7 +48,19 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 357 by the local-asr model-downloader Phase 1, which adds the manifest and the verified-presence
+# 364 by the local-asr model-downloader Phase 2, which adds the downloader: the seven tests in
+# ModelDownloaderTests that pin every download decision above the transport seam. The ones that
+# justify the raise are `testAFailedTransferResumesFromThePartialFileOnTheNextRun` and
+# `testCancellationPreservesThePartialFileAndTheNextRunResumes` (a dead or cancelled transfer must
+# leave the model re-downloadable from zero never — the .part is the resume anchor, and the second
+# run's recorded Range must start exactly at the partial size), `testAResumeRefusingTransportRestartsOnceAndCommits`
+# (a transport that ignores Range would silently assemble a misaligned file; the size check must
+# catch it and the committed bytes must equal the source exactly), and
+# `testCorruptBytesRestartFromZeroAndExhaustTheRetryLimit` (wrong bytes are discarded and fetched
+# from zero, never resumed — and the retry ledger [0, 0, 0] proves it). The store's own contract —
+# `ModelStoreError.checksumMismatch` surfaced from exhausted retries — is pinned by the mapping
+# test, so the Phase 1 contract and the Phase 2 vocabulary both hold.
+# It was 357 by the local-asr model-downloader Phase 1, which adds the manifest and the verified-presence
 # store: the nine tests in ModelManifestTests and the eight in ModelStoreTests, written red and run
 # red before any of it existed. The ones that justify the raise are the store tests, because they
 # test the store's contract as *observable behaviour over the real seam* rather than as assertions
@@ -523,7 +535,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=357
+MINIMUM_EXECUTED_TESTS=364
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import CryptoKit
 import Foundation
+import Synchronization
 
 /// Why a model download did not complete.
 ///
@@ -29,11 +29,12 @@ public enum ModelStoreError: Error, Equatable, Sendable {
 /// The presence truth for downloaded models: whether a version is on disk, and *verified*.
 ///
 /// `isPresent` means "present and verified", never "a directory exists" (`spec.md:44-45`). The
-/// commit is atomic: every file is downloaded to `<name>.part`, every checksum is checked, and
-/// only then are the `.part` files renamed to their final names and the verified marker written —
-/// **last**, so presence (the marker) and completeness (the files) can never be observed apart.
-/// A `.part` file anywhere in the version directory means a download is in flight or incomplete,
-/// and in-flight is never present.
+/// commit is atomic: every file is downloaded to `<name>.part` (by the injected
+/// ``ModelDownloader``, which owns resume, verification and retry), every checksum is checked
+/// *there*, and only then are the `.part` files renamed to their final names and the verified
+/// marker written — **last**, so presence (the marker) and completeness (the files) can never be
+/// observed apart. A `.part` file anywhere in the version directory means a download is in flight
+/// or incomplete, and in-flight is never present.
 ///
 /// The store is an **actor**: concurrent `downloadIfMissing` calls for the same version are
 /// single-flight — one download, and the second caller awaits the in-flight one rather than
@@ -51,13 +52,18 @@ public actor ModelStore {
     /// `FileManager`.
     public let rootURL: URL
 
+    /// The per-file download engine: resume, verify, retry. Injected so the downloader's own
+    /// contract can be pinned independently of the store's.
+    public let downloader: ModelDownloader
+
     /// The download currently in flight, if any — the one-flight guard. A second call that arrives
     /// while this is set awaits it and returns; it is cleared on success *and* on failure, so a
     /// failed download never poisons the next attempt.
     private var inFlightDownload: Task<Void, Error>?
 
-    public init(rootURL: URL) {
+    public init(rootURL: URL, downloader: ModelDownloader = ModelDownloader()) {
         self.rootURL = rootURL
+        self.downloader = downloader
     }
 
     /// The default root: `Application Support/Vocca/models`, computed from `FileManager` — never a
@@ -116,14 +122,22 @@ public actor ModelStore {
     /// would start a second download of the same version. With the guard it awaits the in-flight
     /// download and returns — the second call never touches the directory.
     ///
-    /// The download itself (resume, retry, cancellation, progress) is Phase 2's `ModelDownloader`;
-    /// this phase performs the minimal download-verify-commit cycle through the injected
-    /// `ModelTransport` seam, which is exactly what makes the store's contract testable today.
+    /// The per-file work (resume, verify, retry) is ``ModelDownloader``'s; this method owns the
+    /// loop, the byte-weighted aggregate progress, and the commit.
     ///
-    /// - Throws: ``ModelStoreError`` when verification fails; the transport's own error otherwise.
-    ///   Either way the store is left not present, with `.part` files for Phase 2's resume.
+    /// - Parameters:
+    ///   - onProgress: Called with the aggregate fraction of all bytes written so far, monotonic
+    ///     non-decreasing, exactly `1.0` once every byte of every file is on disk. The value is
+    ///     byte-weighted across the manifest's files.
+    ///
+    /// - Throws: ``ModelStoreError`` when verification fails (the downloader's exhausted-retry and
+    ///   mismatch errors map onto it — the store's contract, pinned in `ModelStoreTests`); the
+    ///   downloader's own error otherwise. Either way the store is left not present, with `.part`
+    ///   files for the next run's resume.
     public func downloadIfMissing(
-        manifest: ModelManifest, transport: any ModelTransport
+        manifest: ModelManifest,
+        transport: any ModelTransport,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
         if isPresent(engineID: manifest.engineID, version: manifest.version) {
             return
@@ -132,10 +146,20 @@ public actor ModelStore {
             try await inFlight.value
             return
         }
-        let task = Task { try await self.performDownload(manifest: manifest, transport: transport) }
+        let task = Task {
+            try await self.performDownload(
+                manifest: manifest, transport: transport, onProgress: onProgress)
+        }
         inFlightDownload = task
         defer { inFlightDownload = nil }
-        try await task.value
+        // The internal task is unstructured, so the caller's cancellation does not reach it by
+        // inheritance. This handler bridges that gap: cancelling the caller cancels the in-flight
+        // download, which surfaces as ModelDownloadError.interrupted with the .part preserved.
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     /// The download-verify-commit cycle, run once per `downloadIfMissing`.
@@ -143,21 +167,36 @@ public actor ModelStore {
     /// Commit ordering is the atomicity claim: every file is downloaded and verified first, then
     /// all `.part` files are renamed to their final names, then the marker is written — last.
     private func performDownload(
-        manifest: ModelManifest, transport: any ModelTransport
+        manifest: ModelManifest,
+        transport: any ModelTransport,
+        onProgress: (@Sendable (Double) -> Void)?
     ) async throws {
         let directory = baseURL(for: manifest.engineID, version: manifest.version)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
+        let totalBytes = manifest.files.reduce(0) { $0 + $1.byteCount }
+        // The per-file cumulative byte ledger, aggregated by max: a restarted file briefly
+        // reports a smaller cumulative, and the aggregate must stay monotonic. The lock exists
+        // because the progress callback fires on the transport's executor, not the actor's.
+        let ledger = Mutex<[String: Int]>([:])
         for file in manifest.files {
-            let partURL = directory.appendingPathComponent(file.name + ".part")
-            try await transport.download(
-                file: file.name,
-                fromRangeStart: 0,
-                to: partURL,
-                onBytesWritten: nil)
-            let digest = try Self.sha256Hex(ofFileAt: partURL)
-            guard digest == file.sha256.lowercased() else {
-                throw ModelStoreError.checksumMismatch(file: file.name)
+            do {
+                try await downloader.downloadFile(
+                    file,
+                    into: directory,
+                    using: transport
+                ) { written in
+                    guard let onProgress, totalBytes > 0 else { return }
+                    ledger.withLock { current in
+                        current[file.name] = max(current[file.name] ?? 0, written)
+                        let sum = current.values.reduce(0, +)
+                        onProgress(Double(sum) / Double(totalBytes))
+                    }
+                }
+            } catch ModelDownloadError.retryLimitExceeded(let failedFile) {
+                throw ModelStoreError.checksumMismatch(file: failedFile)
+            } catch ModelDownloadError.checksumMismatch(let failedFile) {
+                throw ModelStoreError.checksumMismatch(file: failedFile)
             }
         }
 
@@ -167,19 +206,5 @@ public actor ModelStore {
             try FileManager.default.moveItem(at: partURL, to: finalURL)
         }
         try Data().write(to: directory.appendingPathComponent(Self.markerFileName))
-    }
-
-    /// The SHA-256 of a file as 64 lowercase hex characters, read in chunks.
-    ///
-    /// The artifact is ~2 GB (`ROADMAP.md:14`), so the file is never buffered whole; the hasher is
-    /// fed 1 MiB at a time through CryptoKit's `HashFunction` incremental API.
-    private static func sha256Hex(ofFileAt url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
-            hasher.update(data: chunk)
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }
