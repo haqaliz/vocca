@@ -13,7 +13,7 @@ Every structural decision below traces to one of these. If a design choice doesn
 | # | Invariant | How the architecture enforces it |
 |---|-----------|----------------------------------|
 | **I1** | **A transcript is never lost** | `TranscriptCustody` (§10) owns every transcript from ASR completion to confirmed delivery. Nothing can drop it, including a crash. |
-| **I2** | **Zero network in the default config** | Network access is confined to two named types. A CI interposer asserts zero connections on the default path (§14). |
+| **I2** | **Zero network in the default config** | Network access is confined to two named types: **`ModelDownloader`** (the model store's download machinery, `VoccaASR/Models/`, which owns the only file permitted to name `URLSession` — asserted by a lint, H8) and the BYOK client (C6, unnamed here). A CI interposer asserts zero connections on the default path (§14). |
 | **I3** | **Latency is budgeted per span** | The dictation pipeline (§6) has an explicit per-stage budget; every stage reports its own timing. |
 | **I4** | **Every seam has ≥2 implementations** | §5 lists them. A seam with one implementation is an assertion, not a seam. |
 | **I5** | **Cleanup and context can never break dictation** | Both are architecturally *optional* stages that degrade to pass-through on any failure or timeout. |

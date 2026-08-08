@@ -246,6 +246,19 @@ once per machine without resetting state. Use a fresh user account or
     set the bit differently, and that case is not reachable from any test or from Apple's
     documentation.
 
+17. **The first real model download** (`model-downloader`, the one network path CI never executes
+    a byte of — the `DefaultModelTransport` is the adapter, and its URLSession code is exercised
+    only by a real transfer). This step doubles as the F1 spike's provisioning and generates the
+    manifest's checked-in content:
+    - Download the artifact once (`FluidInference/parakeet-tdt-0.6b-v3-coreml`) and record the
+      file list, sizes and SHA-256s into the pinned manifest JSON.
+    - Drive a full `ModelStore.downloadIfMissing` with the default transport and confirm progress
+      reaches 1.0, every file verifies, and `isPresent` flips true only at commit.
+    - **Kill the process mid-download**, re-run, and confirm it resumes from the `.part` size — a
+      Range request, not a restart — and that no file was re-downloaded from zero.
+    - Watch the progress surface with the network interface down at the *end*: an already-present
+      verified model must never touch the network (immutability, `PRODUCT_SPEC.md:273`).
+
 ### The tap adapter's conformance obligations — a code review, not a gesture
 
 *(Added 2026-08-05, `hotkey-source` phase 3.)* The tap-health policy is entirely testable and
