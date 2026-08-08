@@ -48,7 +48,14 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 364 by the local-asr model-downloader Phase 2, which adds the downloader: the seven tests in
+# 367 by the local-asr model-downloader Phase 3, which adds the H8 network-confinement lint: the
+# three tests in ModelDownloaderSeamTests. The one that justifies the raise is
+# `testExactlyOneFileInSourcesMayNameURLSession` — the zero-network claim's enforcement, in the
+# same shape as H7: a wrong code path that opens a socket anywhere in Sources/ fails this test,
+# not an audit. The negative control (`testTheLintDetectsAPlantedURLSession`) makes the detector
+# provably able to fail, and the doc-comment test pins that comments are stripped before the scan
+# (ModelTransport's own documentation names URLSession on purpose).
+# It was 364 by the local-asr model-downloader Phase 2, which adds the downloader: the seven tests in
 # ModelDownloaderTests that pin every download decision above the transport seam. The ones that
 # justify the raise are `testAFailedTransferResumesFromThePartialFileOnTheNextRun` and
 # `testCancellationPreservesThePartialFileAndTheNextRunResumes` (a dead or cancelled transfer must
@@ -535,7 +542,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=364
+MINIMUM_EXECUTED_TESTS=367
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
