@@ -48,7 +48,19 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 334 by the local-asr asr-seam Phase 1, which adds the ASR vocabulary: the ten tests in
+# 340 by the local-asr asr-seam Phase 2, which adds the ASREngine seam: the six tests in
+# ASREngineSeamTests that pin the protocol ARCHITECTURE.md:219-229 specifies before any real engine
+# exists. The ones that justify the raise are `testAStubWithoutStreamStillSatisfiesTheProtocol` and
+# `testTheBatchDefaultBuffersThreeChunksIntoOneFinalTranscript` (streaming optional-with-default in
+# its compile-time and runtime halves — the moment the batch default disappears, StubEngine stops
+# conforming and the file stops building, and the runtime half pins "exactly one final transcript"
+# so a caller never branches on supportsStreaming), and `testAttributionIsTheStubsOwnIdentityAndDiffersAcrossEngines`,
+# the C2 acceptance's identity clause and the C3 swap test's seed: a transcript credited to the
+# wrong engine is the "which model said this?" lie downstream code cannot detect once it has a
+# Transcript in hand. `testEmptyBufferTranscribesToAValidEmptyTranscript` pins the empty-buffer
+# policy (PRD M3) — silence is a transcript, never an error, because a 20 ms press is a legitimate
+# C1 answer.
+# It was 334 after local-asr asr-seam Phase 1, which adds the ASR vocabulary: the ten tests in
 # ASRVocabularyTests that pin the types ARCHITECTURE.md §4 names before any engine exists. The ones
 # that justify the raise are `testEngineIdentityIsHashableAndCodable` (the C8 directory key and the
 # C14 persistence contract are both forward contracts, so a collapse or a dropped field would fail
@@ -493,7 +505,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=334
+MINIMUM_EXECUTED_TESTS=340
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
