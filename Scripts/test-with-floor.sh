@@ -607,3 +607,26 @@ if [ "$harness_status" -ne 0 ]; then
         "::error::The timer measurement harness (Tools/TimerProbe) does not compile. It is not a package target, so nothing else in a local run or in CI compiles it — this check is the only one. It links the shipped VoccaHotkey, so a change to RepeatingTimer, WatchdogPolicy or TapHealthPolling breaks it here first. Fix the conformance rather than skipping the check: this harness is what measured the run-loop-mode hazard and App Nap, and SMOKE_CHECKLIST.md steps 8-11 tell a human to run it before every release." >&2
     exit "$harness_status"
 fi
+
+# THE ASR SPIKE PROBE, COMPILED — for the same reason, and because it is the first consumer
+# of the repository's first external dependency.
+#
+# `Tools/ASRSpike/` depends on FluidAudio and is deliberately not a package target: nothing in
+# `swift build` or `swift test` would ever compile it, and a FluidAudio API rename would surface
+# only at the moment the model is actually needed — months later, mid-implementation. The probe
+# is what measured the F1 spike's numbers (build, download, load, transcribe on a hosted
+# runner), and `SMOKE_CHECKLIST.md` step 17 and `spike_20260809.md` send a human to it.
+#
+# The cost is the one the spike was asked to measure: FluidAudio now compiles on every suite
+# run. That is a deliberate price for never discovering the dependency is broken at the moment
+# of need.
+set +e
+"$REPO_ROOT/Scripts/measure-asr-spike.sh" --build-only
+spike_status=$?
+set -e
+
+if [ "$spike_status" -ne 0 ]; then
+    printf '%s\n' \
+        "::error::The ASR spike probe (Tools/ASRSpike) does not compile. It is the repository's first FluidAudio consumer and is not a package target, so this check is the only thing that compiles it. A FluidAudio API change breaks it here first. Fix the probe rather than skipping the check: it is what the F1 spike and SMOKE_CHECKLIST.md step 17 run." >&2
+    exit "$spike_status"
+fi
