@@ -48,17 +48,16 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 317 by hotkey-source phase 6, which detects Secure Input. Of the ten tests it adds, the ones that
-# justify the raise are `testSecureInputIsReportedAsBlockedAndNothingIsDoneToTheTap` and
-# `testAPasswordFieldFocusedForTwoMinutesCostsNoTapWorkAndTwoLogLines` — a state that no test could
-# reach before, because `IsSecureEventInputEnabled` is set by other people's software and a test
-# cannot switch it on — and `testASessionSurvivingIntoSecureInputIsClosedByTheNextPollInBothModes`,
-# which is the hot mic behind it: a tap that is enabled and receiving nothing has no key-up, no
-# second press and no `flagsChanged` left to end a session with. Plus
-# `testASessionStartingAfterTheTransitionPollIsStillClosed`, which measures the fifth instance of
-# this project's recurring defect shape before it could ship: throttling the *ending* to the
-# transition the way the log line is throttled leaves a session that started one poll later running
-# to the 120 s ceiling, in both modes, with the whole suite green.
+# 334 by the local-asr asr-seam Phase 1, which adds the ASR vocabulary: the ten tests in
+# ASRVocabularyTests that pin the types ARCHITECTURE.md §4 names before any engine exists. The ones
+# that justify the raise are `testEngineIdentityIsHashableAndCodable` (the C8 directory key and the
+# C14 persistence contract are both forward contracts, so a collapse or a dropped field would fail
+# here years early), `testTheFormatPredicateRejectsEveryNearMiss` (the trapping init's rule made
+# testable on its own — a precondition cannot be caught in-process, so any predicate at all
+# satisfied the first version of such a check), and `testTranscriptRequiresAndCarriesItsEngine`,
+# which pins attribution (I1) at compile time rather than by assertion: the annotated `EngineIdentity`
+# binding stops compiling the day the field is weakened to optional, the same pin
+# SessionVocabularyTests applies to the custody payload.
 # It was 307 after hotkey-source phase 5 review round 1, whose Critical finding was that
 # `TapHealthTimer.disarm()`'s forward to the policy was held by NO test: reducing it to `timer.stop()`
 # alone passed the whole 306-test suite, and so did a `disarm()` that forwarded to `policy.arm()` — a
@@ -494,7 +493,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=324
+MINIMUM_EXECUTED_TESTS=334
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
