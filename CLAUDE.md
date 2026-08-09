@@ -2,8 +2,9 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status:** the **project skeleton for C1 exists**; the product does not. Implementation of C1
-> (audio capture + global hotkey) is under way and this is its scaffolding, not its behaviour.
+> **Status:** the **C1 skeleton and the C2 ASR half exist**; the product does not. C1 (audio
+> capture + global hotkey) is under way — session machine, hotkey source seam and the tap
+> adapter shipped; the audio capture aspect is in flight. C2 (local ASR) merged 2026-08-09.
 >
 > **What is built and enforced:**
 > - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
@@ -86,6 +87,43 @@ This file orients a coding agent working in this repository. Read it first.
 >   through `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing —
 >   and that script is now the whole of the headless job's check, the measurement harness's compile
 >   included, so nothing CI checks is unreachable from a developer's machine.
+>
+> **C2 (`local-asr`) merged 2026-08-09 — the ASR half of the dictation loop.** The
+> `ASREngine` seam now exists as code in `VoccaCore` (`transcribe`, batch-default `stream`,
+> `prepare`; attribution non-optional, the empty-buffer policy, `AudioBuffer.missingSampleCount`
+> as the I1 completeness link's carrier), with **Parakeet TDT 0.6B v3 via FluidAudio** as the
+> first implementation — the repository's first external dependency (`from: "0.12.4"`,
+> Apache-2.0). The model lifecycle is real: `ModelStore` (actor, single-flight, atomic
+> verified-marker commit, SDK-shaped `sdkDirectory` layout, recursive presence),
+> `ModelDownloader` (resume/verify/retry over an injected transport), `DefaultModelTransport`
+> as **the one file permitted to name `URLSession`** (H8 lint — the first of `ARCHITECTURE.md`'s
+> two named network types), and `ModelHub.offlineMode = true` at engine construction so the
+> SDK's own download path is structurally dead. The F1 spike is recorded (`docs/planning/local-asr/parakeet-engine/spike_20260809.md`):
+> **RTF 0.0122 on M4 Max (word-perfect), warm load 0.111 s, 470 MB artifact, 79 MiB peak RSS**,
+> and the layout finding that shaped the store (`load(from: D)` resolves to
+> `<D.parent>/<repo.folderName>/`). The fixture suite is real: `WER` scorer (table-tested),
+> parameterized harness proven with stubs, six fixtures + goldens (TTS stand-ins pending the
+> founder's recordings), a provisioning script, the real SHA-256 manifest, and an
+> **env-gated real-engine WER run that passed on the first real run** (15.4 s, all provisional
+> tolerances met). The minimal download window ships in `VoccaUI` over a Core-owned
+> `ModelDownloadSession` seam with a tested state reducer.
+>
+> **What C2 is NOT, and must not be claimed:**
+> - **The Parakeet adapter is executed by nothing in CI** (the tap-adapter precedent): the
+>   CoreML model cannot reach a hosted runner. Every decision is above the seam and tested;
+>   the real-engine numbers come from `ParakeetEngineWERTests` with `VOCCA_MODEL_DIR` set
+>   (it skips visibly otherwise), per `SMOKE_CHECKLIST.md` step 18.
+> - **The F1 runner verdict is pending**: whether the real-model suite can run in CI on a
+>   macos-15 runner is unanswered (`asr-spike.yml`, `workflow_dispatch`); the two wiring paths
+>   are recorded in `docs/planning/local-asr/fixture-suite/ci-wiring-decision_20260809.md`.
+> - **The C1→C2 completeness bridge is gated** on the `audio-capture` merge: the captured
+>   buffer's `refusedSampleCount` → `AudioBuffer.missingSampleCount` conversion is the last
+>   unshipped link; the contract is already carried end to end.
+> - **The provisional WER tolerances are provisional** (TTS stand-ins are unnaturally clean);
+>   the founder's real recordings (F2) set the numbers, in exactly one place.
+> - **There is still no audio, no injection and no widget** — the session machine's
+>   `SessionAudioSource` is still a stub; the ASR half of the loop exists and is measured, but
+>   nothing dictates yet.
 >
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no
