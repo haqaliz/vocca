@@ -48,7 +48,14 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 392 by the local-asr fixture-suite Phase 1, which adds the WER scorer: the seven table-driven
+# 397 by the local-asr fixture-suite Phases 2-3: the four harness tests in ASRFixtureHarnessTests
+# (the parameterized evaluate body proven end-to-end with stubs — the imperfect stub's WER must
+# equal the scorer's direct arithmetic, which is the plumbing proof that needs no model) and the
+# env-gated real-engine test in ParakeetEngineWERTests, which skips visibly without
+# VOCCA_MODEL_DIR and is the C2 acceptance's real-number half where it runs. The real run on
+# founder hardware passed all provisional tolerances on the first attempt (15.4 s for prepare +
+# six fixtures, word-perfect on the clean clips).
+# It was 392 by the local-asr fixture-suite Phase 1, which adds the WER scorer: the seven table-driven
 # tests in WERTests. The ones that justify the raise are `testOneSubstitutionScoresOneOverReferenceLength`
 # and `testDeletionsAndInsertionsScoreOneEach` (the score the P0 gate is judged on, pinned per
 # edit class), `testTheEmptyReferenceRule` (the degenerate case must be defined, not a crash),
@@ -578,7 +585,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=392
+MINIMUM_EXECUTED_TESTS=397
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

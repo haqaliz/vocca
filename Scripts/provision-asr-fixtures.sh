@@ -1,0 +1,102 @@
+#!/bin/bash
+# Copyright 2026 The Vocca Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Provisions a Vocca-shaped model install from an existing model directory, and generates the
+# SHA-256 manifest the fixture suite's env-gated test consumes. Run once per machine (or CI
+# cache); the output is verified by SMOKE_CHECKLIST.md steps 17-18 and by
+# ParakeetEngineWERTests with VOCCA_MODEL_DIR set.
+#
+# Usage:
+#   Scripts/provision-asr-fixtures.sh --source <model-dir> [--root <store-root>]
+#
+# --source: a directory holding the Parakeet TDT v3 int8 files: the Preprocessor, Encoder,
+#           Decoder and JointDecisionv3 .mlmodelc bundles, config.json and parakeet_vocab.json
+#           (e.g. FluidAudio's cache: ~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3).
+# --root:   the model store root; defaults to a scratch dir under /tmp. The install lands at
+#           <root>/<engineID>/<version>/<sdkDirectory>/ and prints the VOCCA_MODEL_DIR value
+#           (<root>/<engineID>/<version>).
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENGINE="parakeet-tdt-0.6b-v3"
+VERSION="1"
+SDK_DIR="$ENGINE"   # the SDK's repo folder name — the layout rule `load(from: D)` resolves to
+
+source_dir=""
+root_dir=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --source) source_dir="$2"; shift 2 ;;
+        --root) root_dir="$2"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+
+[ -n "$source_dir" ] || { echo "missing --source <model-dir>" >&2; exit 2; }
+[ -d "$source_dir" ] || { echo "--source is not a directory: $source_dir" >&2; exit 2; }
+
+REQUIRED=(
+    "Preprocessor.mlmodelc" "Encoder.mlmodelc" "Decoder.mlmodelc"
+    "JointDecisionv3.mlmodelc" "config.json" "parakeet_vocab.json"
+)
+for name in "${REQUIRED[@]}"; do
+    [ -e "$source_dir/$name" ] || { echo "missing required model file: $source_dir/$name" >&2; exit 1; }
+done
+
+if [ -z "$root_dir" ]; then
+    root_dir="$(mktemp -d /tmp/vocca-models.XXXXXX)"
+    echo "no --root given; using scratch store root $root_dir"
+fi
+
+version_dir="$root_dir/$ENGINE/$VERSION"
+install_dir="$version_dir/$SDK_DIR"
+mkdir -p "$install_dir"
+
+echo "installing to $install_dir ..."
+for name in "${REQUIRED[@]}"; do
+    if [ -d "$source_dir/$name" ]; then
+        cp -R "$source_dir/$name" "$install_dir/"
+    else
+        cp "$source_dir/$name" "$install_dir/"
+    fi
+done
+
+# The verified marker: the store's presence truth. Written last, after every file is on disk.
+touch "$version_dir/verified"
+
+# The SHA-256 manifest, generated from the bytes actually installed.
+python3 - "$install_dir" "$REPO_ROOT/Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json" "$ENGINE" "$VERSION" "$SDK_DIR" <<'PY'
+import hashlib, json, os, sys
+
+install_dir, out_path, engine, version, sdk_dir = sys.argv[1:6]
+files = []
+for root, dirs, names in os.walk(install_dir):
+    dirs.sort()
+    for name in sorted(names):
+        path = os.path.join(root, name)
+        rel = os.path.relpath(path, install_dir)
+        digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        files.append({"name": rel, "sha256": digest, "byteCount": os.path.getsize(path)})
+manifest = {"engineID": engine, "version": version, "sdkDirectory": sdk_dir, "files": files}
+os.makedirs(os.path.dirname(out_path), exist_ok=True)
+with open(out_path, "w") as f:
+    json.dump(manifest, f, indent=2)
+    f.write("\n")
+print(f"manifest: {out_path} ({len(files)} files)")
+PY
+
+echo "install complete. Set VOCCA_MODEL_DIR=$version_dir to run ParakeetEngineWERTests."
