@@ -48,7 +48,14 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 374 by the local-asr parakeet-engine Phase 1, which shapes the model store for the SDK's repo
+# 382 by the local-asr parakeet-engine Phase 2, which adds the engine's testable core: the eight
+# tests in ParakeetCoreTests. The ones that justify the raise are `testTheMapperProducesOneSegmentedTranscriptAttributedToTheEngine`
+# (attribution and duration-from-buffer pinned as pure rules — the adapter's transcription path
+# contains no other decisions), `testLoadStateRetriesAfterAFailure` (a failed load must not mark
+# loaded, or a skipped download would permanently dead-end prepare), and the timing tests (the PRD
+# S1 ledger, read by C7). Every test runs headless with no model and no SDK: the core is the
+# reachable side of the adapter, exactly as the H7 lesson demands.
+# It was 374 by the local-asr parakeet-engine Phase 1, which shapes the model store for the SDK's repo
 # layout (spike finding `spike_20260809.md` §4.1): the six tests across ModelManifestTests,
 # ModelStoreTests and ModelDownloaderTests that pin `sdkDirectory` + nested names. The ones that
 # justify the raise are `testNestedPartFileKeepsPresenceFalseEvenBesideTheMarker` (the "a .part
@@ -558,7 +565,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=374
+MINIMUM_EXECUTED_TESTS=382
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
