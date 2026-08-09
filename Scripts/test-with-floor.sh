@@ -48,7 +48,14 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 397 by the local-asr fixture-suite Phases 2-3: the four harness tests in ASRFixtureHarnessTests
+# 405 by the local-asr download-ui: the three session-adapter tests in ModelDownloadSessionTests
+# (the seam's happy path ends .committed with monotonic progress, a failure ends .failed with the
+# cause and no presence, and a skip ends .cancelled with the .part surviving — the resume
+# assertion proves the skip is a pause, not a discard) and the five reducer tests in
+# DownloadStateReducerTests (the window's whole decision table, headless: clamping, terminal
+# states, cancelled-reads-as-skipped). The window itself is glue executed by nothing in CI,
+# which is exactly why the reducer is this thorough.
+# It was 397 by the local-asr fixture-suite Phases 2-3: the four harness tests in ASRFixtureHarnessTests
 # (the parameterized evaluate body proven end-to-end with stubs — the imperfect stub's WER must
 # equal the scorer's direct arithmetic, which is the plumbing proof that needs no model) and the
 # env-gated real-engine test in ParakeetEngineWERTests, which skips visibly without
@@ -585,7 +592,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=397
+MINIMUM_EXECUTED_TESTS=405
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
