@@ -259,6 +259,21 @@ once per machine without resetting state. Use a fresh user account or
     - Watch the progress surface with the network interface down at the *end*: an already-present
       verified model must never touch the network (immutability, `PRODUCT_SPEC.md:273`).
 
+18. **The first real transcription** (`parakeet-engine` — the adapter is executed by nothing in
+    CI, ever; this step is its only execution). On founder hardware, airplane mode **on** (the
+    C2 acceptance's offline clause, `CAPABILITY_ROADMAP.md:60`, at the smoke level):
+    - Prepare the engine against the real store + default transport with the model present, and
+      transcribe `Tests/Fixtures/spike-clip.wav`; the transcript must match the golden text in
+      `Tests/Fixtures/FIXTURES.md` (this is the word-perfect check the spike measured at RTF
+      ~0.012 on M4 Max).
+    - `prepare()` twice must load once (warm load-once): the second call returns without a
+      second load, observed via timing or logs.
+    - `prepare()` with the model *absent* must throw `modelUnavailable` with an honest reason —
+      never a silent dead end — and a later `prepare` after the download succeeds (retry).
+    - With the network interface down the whole time: **zero network activity** — the offline
+      flag is enforced structurally, and the interposer covers the probe, so this confirms it
+      for the shipping path.
+
 ### The tap adapter's conformance obligations — a code review, not a gesture
 
 *(Added 2026-08-05, `hotkey-source` phase 3.)* The tap-health policy is entirely testable and

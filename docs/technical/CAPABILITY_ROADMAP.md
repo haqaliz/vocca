@@ -55,7 +55,11 @@ Beyond those, each capability either makes the loop *more reliable* (injection, 
 - The `ASREngine` protocol: `transcribe(AudioBuffer) async throws -> Transcript`, where `Transcript` carries text, per-segment timings, a confidence signal where the engine exposes one, and the engine identity that produced it.
 - **Parakeet TDT 0.6B v3 via [FluidAudio](https://github.com/FluidInference/FluidAudio)** as the first implementation — CoreML on the Apple Neural Engine. Chosen for RTF ~0.042 on M4 (~24× realtime), a ~2 GB unified-memory floor, 25 European languages with automatic detection, and ANE offload that keeps power draw low enough for all-day use.
 - Model download-on-first-run with a progress UI, integrity verification, and a resumable transfer. Models live in Application Support, not in the bundle, so the app download stays small.
-- Warm-model residency: the engine loads once and stays warm, so the first dictation after launch is not the slow one. (Measured properly in C7; established here.)
+- Warm-model residency: the engine loads **once, at first use**, and stays resident — the
+  first use is allowed to be slow. Launch preload ("first dictation after launch is not the
+  slow one") is **C7's** deliverable, measured against the 20%-of-steady-state metric there.
+  *(Amended by the `local-asr` capability: the earlier wording promised the C7 outcome with
+  only a load-once mechanism, which cannot deliver it.)*
 
 **Acceptance (test-first):** Fixed audio fixtures (clean speech, accented speech, background noise, a 60-second utterance, a 200 ms utterance) transcribe to expected text within a WER tolerance, **with the network interface down** — the offline assertion is part of the test, not a manual check. A test asserts the engine reports its identity in the `Transcript`, so downstream code can never silently attribute output to the wrong engine.
 
