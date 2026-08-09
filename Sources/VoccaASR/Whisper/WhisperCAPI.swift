@@ -125,8 +125,19 @@ public final class WhisperCAPI: WhisperContext {
     }
 
     /// Frees the C context. Runs wherever the last release happens, which is not this object's
-    /// choice — and it is a plain C call, so it needs no isolation.
+    /// choice — so it takes the shipped teardown route (the `DeinitIsolationTests` rule, in the
+    /// same shape as `MainRunLoopTimer`, `CGEventTapSource`, `ScheduledWatchdog` and
+    /// `TapHealthTimer`): the `deinit` calls the non-asserting ``tearDown()``, never an entry
+    /// point that could assert an isolation domain.
     deinit {
+        tearDown()
+    }
+
+    /// The non-asserting teardown, reached only from `deinit`.
+    ///
+    /// `whisper_free` is a plain C function that frees an opaque context — it has no isolation
+    /// concept to assert, and it is safe wherever the last release happens.
+    private func tearDown() {
         if let context {
             whisper_free(context)
         }
