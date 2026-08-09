@@ -1,277 +1,129 @@
-# C1 — Understanding note (Phase 2)
+# C4 — Understanding note
 
-Written before any PRD work. Sources: `docs/ROADMAP.md`, `docs/technical/CAPABILITY_ROADMAP.md`,
-`docs/technical/ARCHITECTURE.md`, `docs/product/PRODUCT_SPEC.md`, `CLAUDE.md`, `VISION.md`,
-plus a macOS platform dig verified against the **macOS 26.5 SDK headers** on this machine.
-
-Evidence labels below: **[SDK]** = quoted from a local Apple header and re-verified directly;
-**[COMMON]** = corroborated field reports; **[UNVERIFIED]** = could not confirm, treated as risk.
+Written after the Phase 2 dig over the saved card (`docs/planning/_card/issue.md`), the
+authoritative docs, and the shipped code on `master`. Sources: `docs/technical/ARCHITECTURE.md`,
+`docs/product/PRODUCT_SPEC.md`, `docs/ROADMAP.md`, `docs/technical/CAPABILITY_ROADMAP.md`,
+`docs/SMOKE_CHECKLIST.md`, the C1/C2 planning docs, and the `Sources/` + `Tests/HarnessTests/`
+code (worktree state = master @ 1ad6ee4 + the C4 card).
 
 ---
 
 ## 1. What the work is really asking
 
-Build the **front door**: hold `⌥Space`, audio is captured, release, capture ends — with a
-widget that visibly tells the truth about the microphone, and a session lifecycle that
-**cannot** leave the mic open when the user thinks it's closed.
+Build the second make-or-break UX battle: text that comes out of the ASR seam lands in the
+focused field of any app, or — if every rung fails — is held somewhere the user can copy it.
+The seam is `TextInjector` (`ARCHITECTURE.md:239-241`), the ladder has four rungs
+(`ARCHITECTURE.md:398-403`), and the load-bearing guarantee is I1: **transcript loss is
+exactly zero, and the widget failsafe terminates every path** (`ARCHITECTURE.md:193-199`).
 
-There is no ASR, no injection, no cleanup, no TTS. The deliverable is a loop that starts and
-stops correctly 100% of the time, and a project skeleton that can be signed and notarized.
-
-**The real risk is not "does it record".** It's *stuck recording* — a capture session that
-outlives its key-up. In a product whose pitch is "your audio never has to leave it"
-(`CLAUDE.md:18`), a hot mic the user didn't ask for is the worst available failure, and it is
-strictly a C1 failure because no later capability can detect or repair it.
-`PRODUCT_SPEC.md:11` states the invariant in UI terms: *"There is no state where Vocca is
-listening and doesn't look like it."*
-
-C1 also carries `ROADMAP.md:80`'s week-1 "Skeleton + permissions" milestone (code-signed,
-non-sandboxed, honest permission copy), which has no home anywhere in C1–C14. R9
-(`ROADMAP.md:308`) says notarize from week 1 rather than discovering it at ship time.
-
----
+The real risk is not "does paste work". It's R1 — AX reports success while inserting
+nothing (`ROADMAP.md:300`) — and the clipboard-manager race on restore
+(`ROADMAP.md:85`, `ARCHITECTURE.md:405-415`). The design answer is already locked:
+AX only on a verified allowlist with read-back verification (success without verification
+counts as failure, `ARCHITECTURE.md:400`), clipboard save→set→⌘V→settle→restore where the
+restore **never clobbers a manager that took ownership** (`:412-414`), and Secure Input
+short-circuits at the top of the decision function with an honest refusal
+(`:382-384`, `PRODUCT_SPEC.md:111`).
 
 ## 2. Affected areas
 
-Greenfield — **there is no code in this repository**. C1 creates:
-
 | Area | What lands |
 |---|---|
-| Build setup | Xcode app target + local SPM packages (see §3.5), entitlements, Info.plist, signing |
-| `VoccaCore` | Session state machine, `decide(event,state)` pure function, watchdog, custody-free for now |
-| `VoccaAudio` | `AudioCaptureSource` seam, ring buffer, `AVAudioSinkNode` graph, `AVAudioConverter` |
-| `VoccaHotkey` (new) | `HotkeyEventSource` seam, `CGEventTap` impl, optional Carbon fallback |
-| `VoccaUI` | `NSPanel` widget (IDLE/RECORDING), menu-bar indicator, permission/onboarding screens |
-| `Tests` | Table-driven decode tests, state-machine tests, ring-buffer TSan tests, converter tests |
-
-`ARCHITECTURE.md:51-90`'s directory layout has no `VoccaHotkey`; the tap currently has no
-named home. Proposing one.
-
----
+| `VoccaCore` | `TextInjector` seam, `TargetContext`, `InjectionRung`, `InjectionResult`, `VoccaError.injectionExhausted`; failsafe/custody seam consumed by `VoccaUI`; ladder decision function (pure, over injected rung handles + injected strategy order + injected clock). All import-free. |
+| `VoccaInject` (new adapter module) | One-file, no-decision adapters: AX insert + read-back (`Accessibility/`), pasteboard save/set/paste/restore (`Clipboard/`), keystroke synthesis (`Ladder/` or `Keystroke/`), Secure Input read. Module moves **leaf → adapter** (`ModuleBoundaryTests.swift:72-85`, `Package.swift`). |
+| `VoccaUI` | The FAILSAFE surface: persistent, non-focus-taking, selectable text, ⌘C, cause-specific reason, retry (`PRODUCT_SPEC.md:48-55, 99-117`). First real surface beyond the download window. |
+| Lints | **H7 amendment** (the keystroke rung must name `CGEvent`/`CGKeyCode`, which today only `VoccaHotkey/CGEventTapSource.swift` may do, tree-wide, ≤1 file, "nothing else ever joins it" — `HotkeySeamBoundaryTests.swift:81-98, 201-209`); new H9-style seam lints confining AX/ApplicationServices, NSPasteboard/AppKit, and the Carbon Secure Input read to one file each; zero-network probe must drive the new modules (`ZeroNetworkTests.swift:311-325`); deinit-isolation rule applies to the fourth object (`DeinitIsolationTests`). |
+| Docs | `ARCHITECTURE.md` (amendment record), `SMOKE_CHECKLIST.md` (real-app matrix, clipboard-manager, Secure Input failsafe steps), `CLAUDE.md` status. |
 
 ## 3. Findings that change the design
 
-These are corrections to authoritative docs, not preferences. Each is header-verified.
+### 3.1 The keystroke rung directly conflicts with H7 — the lint must be amended
+`CGEventTapSource.swift` is the one file permitted to name `CGEvent`/`CFMachPort`/
+`CGKeyCode`/`CFRunLoop`, the scan is tree-wide with a `≤ 1` count assertion
+(`HotkeySeamBoundaryTests.swift:201-209`). Rung 3's keystroke adapter must name at least
+`CGEvent` and `CGKeyCode`, and it cannot live in `VoccaHotkey` (module boundary; and
+`ARCHITECTURE.md:89-91` mandates the separation — "one reads the keyboard, one writes it").
+C4 must amend H7 to a per-seam permitted-file structure (the tap adapter keeps its rule;
+the keystroke adapter gains its own), with the lint pinned in both directions like every
+other seam lint. This is a deliberate, reviewed edit — the same discipline as the M16/M17
+amendments. **The card's caveats did not name this; it is the dig's biggest find.**
 
-### 3.1 `installTap` cannot satisfy the architecture's own realtime rule — use `AVAudioSinkNode`
+### 3.2 `TargetContext.axElement: AXElementRef?` (ARCHITECTURE.md:165) is unimplementable as written
+`VoccaCore` imports nothing (`CoreBoundaryTests.swift:98-116`) and `AXElementRef` requires
+ApplicationServices/CoreFoundation. The seam must either drop the AX element (resolved
+inside the adapter from the bundle ID) or carry an import-free opaque handle. The adapter
+module, not the Core seam, names the AX type.
 
-`ARCHITECTURE.md:253-257` mandates: *"AVAudioEngine tap. No allocation, no locks, no logging
-… Writes into a lock-free ring buffer and nothing else."*
+### 3.3 `VoccaInject` is a leaf in the enforced lints today
+`leafModules` includes it (`ModuleBoundaryTests.swift:72-74`), `Package.swift:72-76` has no
+dependencies. C4 performs the reviewed leaf→adapter move exactly as `VoccaHotkey` and
+`VoccaASR` did. An adapter imports `VoccaCore` **and nothing else among Vocca modules**
+(`:223`) — so the ladder cannot import `VoccaUI`; the failsafe is wired through Core-owned
+types, mirroring `ModelDownloadSession`.
 
-But **[SDK]** `AVAudioNode.h:86`: *"the requested size of the incoming buffers in sample
-frames. **Supported range is [100, 400] ms.**"* and `AVAudioNode.h:30`: *"CAUTION: This
-callback **may be invoked on a thread other than the main thread**"* — which is all Apple
-documents. It is not the realtime IO thread, and it imposes a **100 ms floor**.
+### 3.4 Secure Input: reuse the Core seam, add one more Carbon line
+C1 already shipped `SecureInputStateReader` in `VoccaCore` (faked in
+`DeinitIsolationTests.swift:85`) and `SystemSecureInputState` in `VoccaHotkey`
+(`SecureInput.swift:92-105`, one Carbon call, works without a grant). `VoccaInject` cannot
+import `VoccaHotkey`, so it gets its own one-file adapter behind the same Core seam, under
+a new one-file lint for `IsSecureEventInputEnabled`. Note the carrier gap: when Secure
+Input kills a session, the end reason is `.tapDisabled` (`TapHealthPolicyTests.swift:2005-2010`),
+not `.systemEvent(.secureInputEnabled)` — C4's decision of *why* the injector refuses must
+come from its own read at injection time, not from the session outcome.
 
-**[SDK]** `AVAudioSinkNode.h:64`: *"The block will be called **on the realtime thread**"*;
-`:38` *"restricted to be used in the input chain and does not support format conversion"*.
-Device-IO-sized buffers (~512 frames ≈ 10.7 ms at 48 kHz).
+### 3.5 The default rung order must be pinned at C4
+`strategyStore.orderedLadder(for:)` (`ARCHITECTURE.md:386-393`) is C8's per-app memory —
+at C4 the store is empty, so the PRD must pin the C4 default order (AX for allowlisted
+apps only, clipboard elsewhere, keystroke last, failsafe always) and the seam must accept
+an injected order so C8 slots in without a rewrite.
 
-→ **`AVAudioSinkNode` is the correct primitive.** `installTap` would spend 100 ms of a
-p50 ≤ 400 ms budget (`ROADMAP.md:171`) doing nothing. `ARCHITECTURE.md` §7 should be amended.
+### 3.6 The "app matrix" acceptance is not headlessly executable — seam split is the resolution
+Real-app AX insertion needs TCC + real apps; the matrix is a manual gate (P0 bar ≥90%,
+`ROADMAP.md:95`; `SMOKE_CHECKLIST.md` step 12 pattern). The load-bearing fault-injection
+suite (each rung forced to fail, including AX's silent success-with-no-insert) runs at the
+seam level over injected rung handles — the tap-adapter precedent. `SMOKE_CHECKLIST.md`
+gains the real-app steps.
 
-### 3.2 Warm-start and the orange mic dot are in direct conflict
+### 3.7 Rung 4 is `VoccaUI`'s first real surface, and the full widget does not exist yet
+`VoccaUI` ships only the download window today. `PRODUCT_SPEC.md:26-61` defines all six
+widget states but none are built. C4's rung 4 must land a minimal-but-real FAILSAFE
+surface (persistent, selectable text, ⌘C without focus, cause-specific reason, retry, never
+auto-dismisses — `PRODUCT_SPEC.md:99-117`). The full six-state widget is a separate unit;
+the roadmap's week-4 milestone ("Failsafe + telemetry-free instrumentation",
+`ROADMAP.md:86`) confirms failsafe is its own deliverable.
 
-**[SDK]** `AVAudioEngine.h:465-466`: *"if the engine has at any point previously had its
-inputNode enabled and permission to record was granted, then **any time the engine is
-running, the mic-in-use indicator will appear**."*
+### 3.8 The zero-network probe must drive the new modules
+Every module under `Sources/` must be driven by the probe's default-configuration path
+(`ZeroNetworkTests.swift:311-325`); the probe references `VoccaInjectPlaceholder`
+(`VoccaNetworkProbe.swift:22`). C4's plan updates the probe to run a full injection path
+with injected adapters (real AX is a manual step, but the ladder, the failsafe, and the
+pasteboard copy path are all probe-drivable and all local — no network is added).
 
-`ARCHITECTURE.md:236` wants the engine "already warm" for latency. Keeping it running would
-light macOS's orange mic indicator **permanently** — the single most damaging possible signal
-for a product whose promise is privacy, and a direct violation of `PRODUCT_SPEC.md:11`.
+### 3.9 Stale references to fix while here
+`CAPABILITY_ROADMAP.md:324` says the zero-network test is "(C6)" — it shipped at C1.
+`ARCHITECTURE.md` §10 (`TranscriptCustody`, :421-440) is design-only; C4 lands at least the
+Core-owned failsafe/custody seam. `ARCHITECTURE.md:311` was already corrected by C1's M33.
 
-→ **Privacy wins; start on demand.** Keep engine/sink/converter/ring buffer allocated for the
-app lifetime, `prepare()` after each stop, `start()`/`stop()` per press. Engine-start latency
-must be **measured, not assumed**. `ROADMAP.md:98` says latency is recorded but not gated at
-P0, so C1 can measure honestly and let C7 optimize.
+## 4. Ambiguities and open questions
 
-### 3.3 The hotkey needs **Accessibility**, not Input Monitoring — the spec has this wrong
+1. **Failsafe scope**: minimal FAILSAFE-only window (my lean — matches week-4 milestone and
+   keeps C4 the ladder capability) vs. the full six-state widget. Ask the user.
+2. **Crash-recovery journal** (`PRODUCT_SPEC.md:117`, `ARCHITECTURE.md:437`): include a
+   minimal bounded recovery journal in rung 4, or defer it to the widget unit? My lean:
+   include — it is what makes "never lost" survive a restart, and it is small and testable.
+3. **Loop wiring**: C4's seam is testable against canned strings and the composition root
+   does not exist; my lean is C4 does **not** wire session→ASR→inject (that is a
+   follow-on unit once `audio-capture` merges). Confirm with the user.
+4. **Accessibility-revoked-mid-session** (`PRODUCT_SPEC.md:114`): the reason enum carries
+   the case; the TCC observer wiring is deferred (it maps to the tap's domain per
+   `ARCHITECTURE.md:515`).
+5. **Allowlist bootstrap**: ship a small hand-curated seed allowlist (top ~10 apps,
+   `ARCHITECTURE.md:558`'s leaning); C8 learns the rest.
 
-**[SDK]** `CGEvent.h:274-279`: taps *"may only receive key up and down events if access for
-assistive devices is enabled … If the tap is not permitted to monitor these events when the
-tap is created, then the appropriate bits in the mask are cleared. **If that results in an
-empty mask, then NULL is returned.**"*
+## 5. Phase and constraints
 
-**[COMMON]** `.listenOnly` → Input Monitoring; `.defaultTap` (can swallow) → Accessibility,
-which supersedes Input Monitoring.
-
-We **must** use `.defaultTap`, because on US layouts `⌥Space` inserts U+00A0 NO-BREAK SPACE.
-Not swallowing it means invisible corruption **in the exact field being dictated into**.
-
-→ Therefore C1 requires **Accessibility**. But:
-- `PRODUCT_SPEC.md:153` says *"Input Monitoring — so ⌥Space works everywhere"*
-- `PRODUCT_SPEC.md:173` says *"Only Input Monitoring is genuinely fatal"*
-- `ARCHITECTURE.md:435` assigns Input Monitoring to "Global hotkey tap", and `:434` assigns
-  Accessibility to "AX injection + context", requested at "First dictation attempt"
-
-All three are misassigned. **Accessibility is the fatal permission, and it is needed at C1,
-not deferred to C4.** Silver lining: since C4 needs Accessibility anyway, the hotkey's
-permission cost is **zero incremental** — but the onboarding copy and the permission matrix
-must be rewritten.
-
-Two consequences: `tapCreate` returning `nil` **is** the permission check; and after a grant
-the tap must be **destroyed and re-created** (its mask was cleared at creation) —
-`CGEventTapEnable` will not resurrect it.
-
-### 3.4 Secure Input kills the hotkey, not just injection
-
-**[SDK]** `IsSecureEventInputEnabled()` in `CarbonEventsCore.h`. When any app enables secure
-input (password fields, 1Password, Terminal with Secure Keyboard Entry, lock screen), taps
-receive **no key events at all**.
-
-`ARCHITECTURE.md:311` treats Secure Input purely as injection rung 0. It also silently
-disables capture — in exactly the contexts users will test first. C1 needs its own detection
-and a distinct widget state, or the product looks broken.
-
-### 3.5 SPM alone cannot produce a signable app
-
-An SPM `.executable` builds a bare Mach-O, not a `.app`. TCC identity is bound to
-**bundle identifier + code signature**; a bare executable has no `CFBundleIdentifier`, cannot
-carry `NSMicrophoneUsageDescription`, and cannot durably hold Accessibility/Microphone grants.
-
-`ARCHITECTURE.md:45` says "Modules are Swift Package Manager targets in one repository" —
-true, but incomplete. → **Thin Xcode app target + local SPM packages.** `swift test` then runs
-everything above the seams on a plain CI runner; Xcode owns bundle/plist/entitlements/notarize.
-
-Also required: **`com.apple.security.device.audio-input`** is a *hardened-runtime* capability
-that applies **outside** the sandbox. With hardened runtime on and this missing, the mic is
-denied and **the prompt never appears** — silent failure. And there is **no** entitlement or
-`NS*UsageDescription` key for Accessibility/Input Monitoring, so **onboarding UI is the only
-explanation the user ever gets** for the two scariest permissions on macOS.
-
-### 3.6 The stuck-recording bug has a known shape — and a known wrong fix
-
-Releasing Option before Space produces a `flagsChanged`, not a `keyUp`. **[COMMON]**
-[Handy #840](https://github.com/cjpais/Handy/issues/840) is this exact regression in a
-shipping OSS dictation app: v0.1.4 read modifiers from each event's flags and was correct;
-v0.2.0 accumulated state on `flagsChanged` and permanently desynced after one missed event.
-
-→ **Derive modifier state from every event's flags; never accumulate.** Session must end on
-*any* of: Space `keyUp`; `flagsChanged` losing `.maskAlternate`; any event whose flags lost
-it; tap-disabled; 120 s ceiling; physical-key poll says released. Not a subset — all six.
-
-**[SDK]** `CGEventSource.h:123-133` — `CGEventSourceKeyState` / `CGEventSourceFlagsState` with
-`.combinedSessionState` read **current physical** key state independent of the tap. This is
-the correct API for the "verify the key is still down" poll (`ARCHITECTURE.md:294`).
-
-### 3.7 Tap health is not optional
-
-**[SDK]** `CGEventTypes.h:127-131` — `kCGEventTapDisabledByTimeout` / `ByUserInput` are
-delivered **out of band**. A tap-disable means the key-up will never arrive, so it must end
-the session. **[COMMON]** taps also die silently across sleep/wake
-([ghostty #11819](https://github.com/ghostty-org/ghostty/discussions/11819)) and across
-re-signing, where the symptom is *non-nil tap, `tapIsEnabled` true, callback never fires*
-([danielraffel](https://danielraffel.me/til/2026/02/19/cgevent-taps-and-code-signing-the-silent-disable-race/)).
-
-→ Health poll + re-enable + re-create, from C1. Plus a **stable local dev signing identity**
-(never ad-hoc), or TCC grants silently stop applying between debug builds.
-
----
-
-## 4. Testability — this determines the whole structure
-
-**Nothing that needs TCC can run in CI.** `CGEvent.tapCreate` returns `nil` without
-Accessibility **[SDK]**; synthesized events need `PostEvent`; there is no microphone; and
-**[SDK]** `AVAudioSinkNode.h:48` — the sink node is unsupported in **manual rendering mode**,
-so the realtime path cannot be exercised offline at all.
-
-C1's acceptance as written in `CAPABILITY_ROADMAP.md:42` ("100 synthetic key-down/key-up
-pairs") therefore **cannot** be a test of the real tap. It must be a test of the decision
-logic. Two narrow seams make that work:
-
-```swift
-protocol HotkeyEventSource: Sendable {      // real = CGEventTap; test = manual driver
-    var events: AsyncStream<RawKeyEvent> { get }   // RawKeyEvent is POD — no CGEvent escapes
-}
-protocol AudioCaptureSource: Sendable {     // real = AVAudioEngine+SinkNode; test = synthetic
-    func begin(into: AudioRingBuffer) throws
-}
-```
-
-**Rule:** `CGEvent`, `CFMachPort`, `AVAudioEngine`, `AVAudioSinkNode` appear in exactly two
-files, and neither contains a branch worth testing. Because the sink node can't run offline,
-**`AudioCaptureSource` must sit above the node**, or that code is untested forever.
-
-Headlessly testable, and it should be nearly all the logic: the `decide(_:state:)` pure
-function (every §3.6 case, table-driven); the session machine with an injected clock; the
-ring buffer under TSan; `AVAudioConverter` resampling against a synthetic sine.
-
----
-
-## 5. Scope: C1-as-briefed vs C1-as-specified
-
-`PRODUCT_SPEC.md` requires materially more widget/hotkey surface than
-`CAPABILITY_ROADMAP.md:31-46` describes. Every item below is a genuine spec requirement that
-the C1 text omits:
-
-| Requirement | Source | In C1 text? |
-|---|---|---|
-| IDLE→RECORDING within **one frame (16 ms)** | `:71` | No |
-| Waveform tracks **real input level** ("a fake waveform is a lie") | `:77-78` | No |
-| Elapsed timer after 3s; **110s warning** before the 120s ceiling | `:79-80` | No |
-| `Esc` cancels; `esc to cancel` hint after 2s | `:95` | No |
-| Widget draggable, bottom-center default, 30% idle opacity, fades after 10s | `:22,27-28` | No |
-| Menu-bar icon as a **second always-visible mic indicator** | `:257` | No |
-| Recording-start tick, **default ON**, defeatable | `:74` | No |
-| VoiceOver on every state incl. transition announcements; Reduce Motion → static meter | `:247,249` | No |
-| Hotkey **rebindable to arbitrary keys**, conflict detection | `:181,251` | No |
-| **Toggle alternative to hold-to-talk** | `:251` | **Contradicts** |
-
-The platform dig independently argues for rebinding regardless of accessibility: **[COMMON]**
-`⌥Space` is Alfred's default hotkey, and macOS 15.0/15.1 briefly blocked Carbon registration
-of Option-only chords ([FB15168205](https://github.com/feedback-assistant/reports/issues/552)).
-
----
-
-## 6. Contradictions requiring a decision
-
-1. **Hold-to-talk only vs. toggle alternative.** `CAPABILITY_ROADMAP.md:36` says hold-to-talk
-   **only**; `PRODUCT_SPEC.md:251` calls a toggle *"a real accessibility need, not a
-   preference"*. `CLAUDE.md` gives `PRODUCT_SPEC.md` authority on user-visible behavior.
-   Reading them together, "only" was excluding **VAD/endpointing**, not a toggle — but this
-   needs deciding, not assuming.
-2. **Permission assignment** — §3.3. Three documents are wrong against the SDK.
-3. **Warm start vs. the orange dot** — §3.2.
-4. **`installTap` vs `AVAudioSinkNode`** — §3.1.
-5. **Onboarding cannot complete.** `PRODUCT_SPEC.md:166-168` defines completion as speaking
-   into a live field and seeing text; steps 3–4 need the ASR model. The spec flags this
-   itself at `:276`. C1 ships a deliberately truncated first-run.
-6. **Target indicator `→ AppName`** (`PRODUCT_SPEC.md:63,73`) appears at t=0 in RECORDING.
-   Reachable without AX via `NSWorkspace.frontmostApplication`, but `TargetContext` is C4's.
-   Scope decision, not an impossibility.
-7. **Tooling assumes Python.** The `vocca-worktrees` / `vocca-begin-fast` skills reference
-   `pyproject.toml`, `uv sync`, `src/vocca/`, `uv run pytest`. `ARCHITECTURE.md:3` is
-   authoritative and locks Swift 6 + SPM. **Resolved: Swift.** Skills should be updated.
-
----
-
-## 7. Open questions for the interview
-
-1. Does C1 ship the **toggle mode** and **rebinding**, or only fixed `⌥Space` + a fast follow?
-2. Does C1 ship the **menu-bar indicator**, or is the floating widget alone sufficient?
-3. Is the **Carbon `RegisterEventHotKey` fallback** worth it? It needs no TCC grant, so it
-   gives a working hotkey during onboarding *before* Accessibility is granted — but it can't
-   see `flagsChanged`, so it can't implement the release-Option-first stop rule.
-4. Does the **target indicator** (`→ AppName`) land in C1 or wait for C4?
-5. Should the **zero-network CI test** be stood up at C1? `CLAUDE.md:108-110` calls it a
-   permanent release blocker for all configs; it's currently scheduled at C6. C1 is when the
-   test suite is created and there is no network code at all — the cheapest possible moment.
-   Related: `PRODUCT_SPEC.md:206` promises a real *"Vocca has made 0 network connections"*
-   counter.
-6. What is the **acceptance metric for engine-start latency**, given §3.2 forbids warm-start?
-7. Do we amend `ARCHITECTURE.md` and `PRODUCT_SPEC.md` as part of this PR, or file follow-ups?
-   §3.1–3.4 are corrections to documents marked authoritative; leaving them stale means the
-   next capability inherits wrong guidance.
-
----
-
-## 8. Guardrail check
-
-Clean. C1 is macOS-native by construction, has no network path, adds no cloud, and does not
-touch the local/hosted seam. Two tripwires to watch during implementation:
-
-- `ROADMAP.md:74` forbids *"settings UI beyond permissions and one hotkey"* — hotkey
-  rebinding is arguably within "one hotkey"; anything more is not.
-- The watchdog must stay a **dumb timer**. If it starts making speech-boundary decisions it
-  becomes VAD, which P0 explicitly defers to P3 (`ROADMAP.md:45`).
-- Apache-2.0 headers belong on the first source files (`CLAUDE.md`, `ROADMAP.md:49`).
+P0, week 3 (`ROADMAP.md:84`). Dependencies: C1 (the `audio-capture` merge is the
+precondition per the card; the ladder itself is independent of C2/C3 — `CAPABILITY_ROADMAP.md:110`
+and testable against canned strings). Retires R1 (High/Fatal) and R2 (High/Med)
+(`ROADMAP.md:300-301`). Guardrail check: local-only (pasteboard/AX/CGEvent are all local),
+macOS-only, dictation-first, no cloud, no crippling — clean on all six.
