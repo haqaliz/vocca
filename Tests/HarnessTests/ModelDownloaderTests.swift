@@ -361,4 +361,52 @@ final class ModelDownloaderTests: XCTestCase {
         let present = await store.isPresent(engineID: engineID, version: version)
         XCTAssertTrue(present)
     }
+
+    // MARK: - Nested paths (the SDK repo tree's shape)
+
+    /// Nested manifest names land in the intermediate directories they name, and a transfer that
+    /// dies mid-file resumes across them: the `.part` sits two levels deep, and the next run asks
+    /// for a Range starting at its size.
+    func testNestedNamesCreateIntermediateDirectoriesAndResumeAcrossThem() async throws {
+        let root = makeRoot()
+        let store = makeStore(root: root)
+        let mil = bytes("0123456789")
+        let manifest = makeManifest(files: [
+            ManifestFile(
+                name: "Encoder.mlmodelc/Deep/model.mil",
+                sha256: sha256Hex(mil), byteCount: mil.count),
+        ])
+        let failing = StubTransport(
+            files: ["Encoder.mlmodelc/Deep/model.mil": mil],
+            mode: .failsFirstAttempt(afterBytes: 7))
+
+        do {
+            try await store.downloadIfMissing(manifest: manifest, transport: failing)
+            XCTFail("a transfer that dies after 7 bytes must fail the run")
+        } catch {
+            guard case ModelDownloadError.transportFailed = error else {
+                XCTFail("a dead transfer must surface as .transportFailed, got \(error)")
+                return
+            }
+        }
+
+        let partURL = versionDirectory(under: root)
+            .appendingPathComponent("Encoder.mlmodelc/Deep/model.mil.part")
+        XCTAssertEqual(
+            partSize(partURL), 7,
+            "the nested partial must hold exactly the 7 bytes served, in its named directory")
+
+        let healthy = StubTransport(files: ["Encoder.mlmodelc/Deep/model.mil": mil])
+        try await store.downloadIfMissing(manifest: manifest, transport: healthy)
+
+        let ranges = await healthy.recordedRangeStarts
+        XCTAssertEqual(
+            ranges, [7],
+            "the resuming run must resume the nested file from the partial size, got \(ranges)")
+        let finalURL = versionDirectory(under: root)
+            .appendingPathComponent("Encoder.mlmodelc/Deep/model.mil")
+        XCTAssertEqual(try Data(contentsOf: finalURL), Data(mil))
+        let present = await store.isPresent(engineID: engineID, version: version)
+        XCTAssertTrue(present)
+    }
 }

@@ -68,6 +68,15 @@ public struct ModelDownloader: Sendable {
         onBytesWritten: (@Sendable (Int) -> Void)? = nil
     ) async throws {
         let partURL = directory.appendingPathComponent(file.name + ".part")
+        // Names may be nested (`"Encoder.mlmodelc/model.mil"` — the SDK repo tree's shape), so
+        // the intermediate directories must exist before the transport opens the file. The
+        // version root already exists (the store creates it); only the nested levels are new.
+        do {
+            try FileManager.default.createDirectory(
+                at: partURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        } catch {
+            throw ModelDownloadError.diskWriteFailed(file: file.name)
+        }
         let expectedDigest = file.sha256.lowercased()
         var rangeStart = Self.existingSize(of: partURL)
         var restarts = 0

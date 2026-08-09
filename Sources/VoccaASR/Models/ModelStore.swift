@@ -94,9 +94,12 @@ public actor ModelStore {
 
     /// Whether a model version is present **and verified**.
     ///
-    /// True only when the verified marker exists and no `.part` file exists anywhere in the
-    /// version directory. A directory that holds every file but no marker reads as absent — the
-    /// marker is the commit record, and files without it may be a half-verified download.
+    /// True only when the verified marker exists and no `.part` file exists **anywhere** in the
+    /// version directory — the scan is recursive, because an SDK-shaped manifest commits files
+    /// (and can leave `.part` files) several levels deep, and "a `.part` anywhere" must mean
+    /// what it says at any depth. A directory that holds every file but no marker reads as
+    /// absent — the marker is the commit record, and files without it may be a half-verified
+    /// download.
     public func isPresent(engineID: String, version: String) -> Bool {
         let directory = baseURL(for: engineID, version: version)
         let fileManager = FileManager.default
@@ -107,11 +110,24 @@ public actor ModelStore {
         else { return false }
 
         // `.part` files are the in-flight mark, and they win over a marker: an interrupted commit
-        // must never read as a ready model.
-        let entries =
-            (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))
-            ?? []
-        return !entries.contains { $0.lastPathComponent.hasSuffix(".part") }
+        // must never read as a ready model. Recursive: the SDK-shaped layout nests files.
+        return !Self.containsPartFile(under: directory)
+    }
+
+    /// Whether any file under `directory` — at any depth — carries the `.part` suffix.
+    private static func containsPartFile(under directory: URL) -> Bool {
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles])
+        else { return false }
+        for case let url as URL in enumerator {
+            if url.lastPathComponent.hasSuffix(".part") {
+                return true
+            }
+        }
+        return false
     }
 
     /// Downloads a model version if it is not already present and verified — and never otherwise.
@@ -165,7 +181,8 @@ public actor ModelStore {
     /// The download-verify-commit cycle, run once per `downloadIfMissing`.
     ///
     /// Commit ordering is the atomicity claim: every file is downloaded and verified first, then
-    /// all `.part` files are renamed to their final names, then the marker is written — last.
+    /// all `.part` files are renamed to their final names, then the marker is written — last, at
+    /// the version root, never inside an SDK directory.
     private func performDownload(
         manifest: ModelManifest,
         transport: any ModelTransport,
@@ -173,6 +190,15 @@ public actor ModelStore {
     ) async throws {
         let directory = baseURL(for: manifest.engineID, version: manifest.version)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // The SDK-shaped layout: the artifact's files live under one named subdirectory of the
+        // version dir (spike finding — `load(from: D)` resolves to `<D.parent>/<repo.folderName>`),
+        // while the marker stays at the version root. `nil` keeps the flat layout.
+        let filesRoot =
+            manifest.sdkDirectory.map {
+                directory.appendingPathComponent($0, isDirectory: true)
+            } ?? directory
+        try FileManager.default.createDirectory(at: filesRoot, withIntermediateDirectories: true)
 
         let totalBytes = manifest.files.reduce(0) { $0 + $1.byteCount }
         // The per-file cumulative byte ledger, aggregated by max: a restarted file briefly
@@ -183,7 +209,7 @@ public actor ModelStore {
             do {
                 try await downloader.downloadFile(
                     file,
-                    into: directory,
+                    into: filesRoot,
                     using: transport
                 ) { written in
                     guard let onProgress, totalBytes > 0 else { return }
@@ -201,8 +227,8 @@ public actor ModelStore {
         }
 
         for file in manifest.files {
-            let partURL = directory.appendingPathComponent(file.name + ".part")
-            let finalURL = directory.appendingPathComponent(file.name)
+            let partURL = filesRoot.appendingPathComponent(file.name + ".part")
+            let finalURL = filesRoot.appendingPathComponent(file.name)
             try FileManager.default.moveItem(at: partURL, to: finalURL)
         }
         try Data().write(to: directory.appendingPathComponent(Self.markerFileName))

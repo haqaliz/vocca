@@ -29,6 +29,12 @@ public enum ModelManifestError: Error, Equatable, Sendable {
     case duplicateFileName(String)
     /// A file's `sha256` is not 64 hex characters — the shape a real digest always has.
     case invalidDigest(file: String)
+    /// A file's name is not a safe relative path — empty, absolute, or traversing (`..`) —
+    /// which would write outside the version directory.
+    case invalidPath(file: String)
+    /// `sdkDirectory` is not a single safe path component — the SDK's layout rule is exactly
+    /// one directory deep.
+    case invalidSDKDirectory(String)
 }
 
 /// One file of a model artifact: its name inside the version directory, its SHA-256 digest, and
@@ -68,9 +74,22 @@ public struct ManifestFile: Codable, Sendable, Equatable, Hashable {
         guard Self.isHexDigest(sha256) else {
             throw ModelManifestError.invalidDigest(file: name)
         }
+        // Names may be nested (`"Encoder.mlmodelc/model.mil"` — the SDK repo tree's shape) but
+        // never absolute or traversing: the name becomes a filesystem path under the version
+        // directory, and a manifest is trusted data only as far as the loader checks it.
+        guard Self.isSafeRelativePath(name) else {
+            throw ModelManifestError.invalidPath(file: name)
+        }
         self.name = name
         self.sha256 = sha256
         self.byteCount = byteCount
+    }
+
+    /// A file name is a safe relative path: non-empty, no leading slash, and no `.` or `..`
+    /// component anywhere.
+    static func isSafeRelativePath(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix("/")
+            && name.split(separator: "/").allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 
     /// Throws ``ModelManifestError/unknownField(_:)`` if the decoded object carries a key this
@@ -116,12 +135,24 @@ public struct ModelManifest: Codable, Sendable, Equatable, Hashable {
     /// The pinned version this artifact is. A version directory is immutable once verified
     /// (`PRODUCT_SPEC.md:273`), so this value must be stable for the artifact's lifetime.
     public let version: String
+    /// The single directory under the version directory that the artifact's files are stored in,
+    /// when the consuming SDK requires it.
+    ///
+    /// The spike measured that FluidAudio's manual `load(from: D)` resolves the file home to
+    /// `<D.parent>/<repo.folderName>/` (`spike_20260809.md` §2) — so an SDK-shaped manifest
+    /// declares `sdkDirectory == <repo.folderName>`, the store commits the files under
+    /// `<version>/<sdkDirectory>/`, and the engine loads with `D = <version>/<sdkDirectory>`.
+    /// `nil` keeps the flat layout every existing manifest uses.
+    public let sdkDirectory: String?
     /// Every file the artifact contains, with the digest each must match.
     public let files: [ManifestFile]
 
-    public init(engineID: String, version: String, files: [ManifestFile]) {
+    public init(
+        engineID: String, version: String, sdkDirectory: String? = nil, files: [ManifestFile]
+    ) {
         self.engineID = engineID
         self.version = version
+        self.sdkDirectory = sdkDirectory
         self.files = files
     }
 
@@ -133,6 +164,14 @@ public struct ModelManifest: Codable, Sendable, Equatable, Hashable {
         }
         guard let version = try container.decodeIfPresent(String.self, forKey: .version) else {
             throw ModelManifestError.missingField("version")
+        }
+        if let sdkDirectory = try container.decodeIfPresent(String.self, forKey: .sdkDirectory) {
+            guard Self.isSafeSingleComponent(sdkDirectory) else {
+                throw ModelManifestError.invalidSDKDirectory(sdkDirectory)
+            }
+            self.sdkDirectory = sdkDirectory
+        } else {
+            self.sdkDirectory = nil
         }
         let files = try container.decode([ManifestFile].self, forKey: .files)
 
@@ -146,6 +185,11 @@ public struct ModelManifest: Codable, Sendable, Equatable, Hashable {
         self.engineID = engineID
         self.version = version
         self.files = files
+    }
+
+    /// The SDK's layout rule is exactly one directory deep: no slash, no `.`/`..`, non-empty.
+    static func isSafeSingleComponent(_ value: String) -> Bool {
+        !value.isEmpty && value != "." && value != ".." && !value.contains("/")
     }
 
     /// Throws ``ModelManifestError/unknownField(_:)`` if the decoded object carries a key this
@@ -172,7 +216,7 @@ public struct ModelManifest: Codable, Sendable, Equatable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case engineID, version, files
+        case engineID, version, sdkDirectory, files
     }
 }
 

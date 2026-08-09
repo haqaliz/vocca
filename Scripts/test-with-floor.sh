@@ -48,7 +48,16 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 368 by the local-asr spike's lint fix, which lets the licence header lint skip `.build`
+# 374 by the local-asr parakeet-engine Phase 1, which shapes the model store for the SDK's repo
+# layout (spike finding `spike_20260809.md` §4.1): the six tests across ModelManifestTests,
+# ModelStoreTests and ModelDownloaderTests that pin `sdkDirectory` + nested names. The ones that
+# justify the raise are `testNestedPartFileKeepsPresenceFalseEvenBesideTheMarker` (the "a .part
+# anywhere" promise must survive nesting — a non-recursive scan would have read a half-downloaded
+# SDK-shaped version as present) and `testAnSDKDirectoryManifestCommitsUnderTheDirectoryWithTheMarkerAtTheVersionRoot`
+# (the layout the engine's `load(from:)` call resolves to, pinned recursively). The traversal
+# rejection tests matter because a manifest name becomes a filesystem path: `../evil.bin` must
+# fail at decode, where the shape failures are caught, not at write time.
+# It was 368 by the local-asr spike's lint fix, which lets the licence header lint skip `.build`
 # directories: `Tools/ASRSpike` is the first Tools package with a Package.swift, so its FluidAudio
 # checkout (a third-party tree that carries no Vocca header) lives under the scanned `Tools/`
 # directory. The skip is a reviewed rule, not an afterthought — the test that justifies the raise
@@ -549,7 +558,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=368
+MINIMUM_EXECUTED_TESTS=374
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

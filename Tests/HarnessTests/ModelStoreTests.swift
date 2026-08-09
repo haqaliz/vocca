@@ -321,6 +321,76 @@ final class ModelStoreTests: XCTestCase {
         XCTAssertTrue(present)
     }
 
+    // MARK: - The SDK-shaped layout (spike finding, `spike_20260809.md` §4.1)
+
+    /// An `sdkDirectory` manifest commits its files under `<version>/<sdkDirectory>/`, nested
+    /// names included, with the marker at the version root — the layout the SDK's manual
+    /// `load(from:)` resolves to — and presence flips true only at the commit, as ever.
+    func testAnSDKDirectoryManifestCommitsUnderTheDirectoryWithTheMarkerAtTheVersionRoot() async throws {
+        let (store, root) = makeStore()
+        let weights: [UInt8] = Array("weights-bytes".utf8)
+        let mil: [UInt8] = Array("model-mil-bytes".utf8)
+        let manifest = ModelManifest(
+            engineID: engineID, version: version, sdkDirectory: "parakeet-tdt-0.6b-v3",
+            files: [
+                ManifestFile(name: "weights.bin", sha256: sha256Hex(weights), byteCount: weights.count),
+                ManifestFile(
+                    name: "Encoder.mlmodelc/model.mil", sha256: sha256Hex(mil), byteCount: mil.count),
+            ])
+        let stub = StubTransport(files: [
+            "weights.bin": weights, "Encoder.mlmodelc/model.mil": mil,
+        ])
+
+        try await store.downloadIfMissing(manifest: manifest, transport: stub)
+
+        let directory = versionDirectory(under: root)
+        let sdkDir = directory.appendingPathComponent("parakeet-tdt-0.6b-v3", isDirectory: true)
+        XCTAssertEqual(
+            try Data(contentsOf: sdkDir.appendingPathComponent("weights.bin")),
+            Data(weights))
+        XCTAssertEqual(
+            try Data(
+                contentsOf: sdkDir.appendingPathComponent("Encoder.mlmodelc/model.mil")),
+            Data(mil))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent(ModelStore.markerFileName).path),
+            "the marker must live at the version root, not inside the SDK directory")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: sdkDir.appendingPathComponent(ModelStore.markerFileName).path),
+            "the SDK directory must not carry the marker")
+        let present = await isPresent(store)
+        XCTAssertTrue(present)
+
+        // Immutable, recursively: a second download must not touch the tree.
+        let stub2 = StubTransport(files: [
+            "weights.bin": weights, "Encoder.mlmodelc/model.mil": mil,
+        ])
+        try await store.downloadIfMissing(manifest: manifest, transport: stub2)
+        XCTAssertEqual(
+            try recursiveSnapshot(sdkDir), try recursiveSnapshot(sdkDir),
+            "a committed SDK-shaped version must be untouched by a second download")
+    }
+
+    /// The "a `.part` anywhere means not present" promise, surviving nesting: a `.part` two levels
+    /// deep keeps presence false even beside a marker — the marker is the commit record, and a
+    /// nested in-flight file must read as in-flight.
+    func testANestedPartFileKeepsPresenceFalseEvenBesideTheMarker() async throws {
+        let (store, root) = makeStore()
+        let directory = versionDirectory(under: root)
+        let nested = directory.appendingPathComponent("Enc/Deep", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+
+        try Data([1, 2, 3]).write(to: nested.appendingPathComponent("model.mil.part"))
+        try Data().write(to: directory.appendingPathComponent(ModelStore.markerFileName))
+
+        let present = await isPresent(store)
+        XCTAssertFalse(
+            present,
+            "a nested .part must keep presence false: in-flight is never present, at any depth")
+    }
+
     // MARK: - Helpers
 
     /// One entry of a committed directory, enough to prove "untouched": name, bytes, modification
@@ -343,5 +413,29 @@ final class ModelStoreTests: XCTestCase {
                     data: try Data(contentsOf: url),
                     mtime: attributes[.modificationDate] as? Date ?? .distantPast)
             }
+    }
+
+    /// A recursive snapshot: name, bytes, and modification time for every file under `directory`,
+    /// sorted and flattened by relative path — the immutability claim for SDK-shaped (nested)
+    /// layouts.
+    private func recursiveSnapshot(_ directory: URL) throws -> [EntrySnapshot] {
+        let fileManager = FileManager.default
+        let base = directory.path.count + 1
+        guard let enumerator = fileManager.enumerator(
+            at: directory, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+        else { return [] }
+        var entries: [EntrySnapshot] = []
+        for case let url as URL in enumerator {
+            var isDirectory: ObjCBool = false
+            fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            if isDirectory.boolValue { continue }
+            let attributes = try fileManager.attributesOfItem(atPath: url.path)
+            entries.append(
+                EntrySnapshot(
+                    name: String(url.path.dropFirst(base)),
+                    data: try Data(contentsOf: url),
+                    mtime: attributes[.modificationDate] as? Date ?? .distantPast))
+        }
+        return entries.sorted { $0.name < $1.name }
     }
 }

@@ -162,4 +162,75 @@ final class ModelManifestTests: XCTestCase {
         _ = requireSendable(manifest)
         _ = requireSendable(ModelManifestError.missingField("engineID"))
     }
+
+    // MARK: - The SDK-shaped layout (spike finding, `spike_20260809.md` §4.1)
+
+    /// `sdkDirectory` decodes when present and defaults to `nil` when absent — the store layout
+    /// changes shape only for the manifests that opt in.
+    func testSDKDirectoryDecodesWhenPresentAndDefaultsToNilWhenAbsent() throws {
+        let withDirectory = Self.validJSON.replacingOccurrences(
+            of: "  \"version\": \"1.0.0\",\n",
+            with: "  \"version\": \"1.0.0\",\n  \"sdkDirectory\": \"parakeet-tdt-0.6b-v3\",\n")
+        let manifest = try load(withDirectory)
+        XCTAssertEqual(manifest.sdkDirectory, "parakeet-tdt-0.6b-v3")
+
+        let withoutDirectory = try load(Self.validJSON)
+        XCTAssertNil(
+            withoutDirectory.sdkDirectory,
+            "a manifest that does not declare an SDK directory must not get one")
+    }
+
+    /// An `sdkDirectory` must be a single path component: the SDK's layout rule
+    /// (`<parent>/<repo.folderName>/`) is exactly one directory deep, and anything with a slash
+    /// would change the store's layout silently.
+    func testAnSDKDirectoryWithAPathInsideItIsRejected() {
+        let withSlash = Self.validJSON.replacingOccurrences(
+            of: "  \"version\": \"1.0.0\",\n",
+            with: "  \"version\": \"1.0.0\",\n  \"sdkDirectory\": \"a/b\",\n")
+        XCTAssertThrowsError(try load(withSlash)) { error in
+            XCTAssertEqual(error as? ModelManifestError, .invalidSDKDirectory("a/b"))
+        }
+
+        let withDotDot = Self.validJSON.replacingOccurrences(
+            of: "  \"version\": \"1.0.0\",\n",
+            with: "  \"version\": \"1.0.0\",\n  \"sdkDirectory\": \"..\",\n")
+        XCTAssertThrowsError(try load(withDotDot)) { error in
+            XCTAssertEqual(error as? ModelManifestError, .invalidSDKDirectory(".."))
+        }
+
+        let withLeadingSlash = Self.validJSON.replacingOccurrences(
+            of: "  \"version\": \"1.0.0\",\n",
+            with: "  \"version\": \"1.0.0\",\n  \"sdkDirectory\": \"/abs\",\n")
+        XCTAssertThrowsError(try load(withLeadingSlash)) { error in
+            XCTAssertEqual(error as? ModelManifestError, .invalidSDKDirectory("/abs"))
+        }
+
+        let empty = Self.validJSON.replacingOccurrences(
+            of: "  \"version\": \"1.0.0\",\n",
+            with: "  \"version\": \"1.0.0\",\n  \"sdkDirectory\": \"\",\n")
+        XCTAssertThrowsError(try load(empty)) { error in
+            XCTAssertEqual(error as? ModelManifestError, .invalidSDKDirectory(""))
+        }
+    }
+
+    /// Nested file names (`"Encoder.mlmodelc/model.mil"`) are the SDK repo tree's shape and must
+    /// decode; traversal names must not — a manifest is trusted data, but the loader is where the
+    /// shape failures are caught, not the filesystem.
+    func testNestedFileNamesDecodeAndTraversalNamesAreRejected() throws {
+        let nested = Self.validJSON.replacingOccurrences(
+            of: "\"name\": \"weights.bin\"",
+            with: "\"name\": \"Encoder.mlmodelc/model.mil\"")
+        let manifest = try load(nested)
+        XCTAssertEqual(manifest.files[0].name, "Encoder.mlmodelc/model.mil")
+
+        for traversal in ["../evil.bin", "/abs.bin", "a/../b.bin", ".", ".."] {
+            let bad = Self.validJSON.replacingOccurrences(
+                of: "\"name\": \"weights.bin\"", with: "\"name\": \"\(traversal)\"")
+            XCTAssertThrowsError(try load(bad)) { error in
+                XCTAssertEqual(
+                    error as? ModelManifestError, .invalidPath(file: traversal),
+                    "\(traversal) must be rejected as a traversal name")
+            }
+        }
+    }
 }
