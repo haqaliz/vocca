@@ -38,9 +38,9 @@ import VoccaCore
 ///
 /// What is left here is four system calls and a switch that turns an ``EventPropagation`` into a C
 /// return value. If this file grows an `if` that decides something, the `if` is in the wrong half.
-/// `HotkeySeamBoundaryTests` names this file as the only one in `Sources/` permitted to speak
-/// CoreGraphics, and holds it to the stricter form of every other rule in that lint precisely because
-/// a second permitted file is how the untestable half grows without anyone deciding that it should.
+/// `InjectionSeamBoundaryTests` names this file as the one permitted in the **tap** seam, and holds
+/// it to the stricter form of every other rule in that lint precisely because a second permitted
+/// file — a second *seam* — is how the untestable half grows without anyone deciding that it should.
 ///
 /// ## The three tap parameters, and why each is the only option
 ///
@@ -356,8 +356,9 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
 /// **The physical keyboard, read directly — the answer for the key-up that never happened.**
 ///
 /// The shipped `PhysicalKeyStateReader`, and it is in *this* file rather than one of its own because
-/// `CGEventSourceKeyState` and `CGEventSourceFlagsState` match the H7 seam prefix and
-/// `HotkeySeamBoundaryTests.testAtMostOneFileMayNameEventTypes` permits exactly one file to name it.
+/// `CGEventSourceKeyState` and `CGEventSourceFlagsState` match the H7 seam prefix and the per-seam
+/// lint permits exactly one file per seam to name it (the keystroke seam's adapter, in `VoccaInject`,
+/// is the second permitted file for the family as a whole — this tap seam keeps its one).
 /// That is a cost, stated plainly: it puts two more system calls in the file CI can never execute.
 /// It is paid down the way everything else here is — there is no decision in either method. What the
 /// answers *mean* is `SessionWatchdog.theBindingIsStillHeld`'s, above the seam, where it is measured.

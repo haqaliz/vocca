@@ -55,8 +55,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
 >   invariant coverage, the hotkey flag translation with its `fn` rule, the `HotkeyEventSource` seam
->   with H6 pinned in **both** directions at the far end of it, the H7 seam lint — which now names
->   the tap adapter as the one file in `Sources/` permitted to speak CoreGraphics, and at most one —
+>   with H6 pinned in **both** directions at the far end of it, the H7 seam lint — per-seam since
+>   the injection-adapters amendment: the tap adapter is the one file permitted to speak CoreGraphics
+>   in the tap seam, and the keystroke adapter (`VoccaInject/Keystroke/KeystrokeSource.swift`) is the
+>   one in the keystroke seam, one file per seam, ever —
 >   the event-type classification and its mask, the tap callback's own body — lifted out of the
 >   adapter so that it has somewhere to run, with H6 pinned in both directions at the last point
 >   before the C ABI — the callback-safe split of a tap disablement, and the
@@ -155,8 +157,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   confirmation.
 > - **`SystemPhysicalKeyState` — `CGEventSourceKeyState` and `CGEventSourceFlagsState` — is executed
 >   by nothing**, for the same reason the tap adapter is not: it lives in `CGEventTapSource.swift`
->   because those identifiers match the H7 seam prefix and exactly one file may name it. What the
->   answers *mean* is above the seam, in `SessionWatchdog`, and is tested there.
+>   because those identifiers match the H7 seam prefix and one file per seam may name them — the tap
+>   seam's one file holds its physical-key reads, exactly as the keystroke seam's one file holds its
+>   synthesis. What the answers *mean* is above the seam, in `SessionWatchdog`, and is tested there.
 >
 > **`ARCHITECTURE.md` is authoritative on technical direction** (see "Tech direction" below).
 > Keep these docs in sync as things ship.

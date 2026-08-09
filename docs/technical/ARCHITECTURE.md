@@ -99,6 +99,7 @@ Sources/
     LLM/                     # Ollama, BYOK
   VoccaInject/
     Ladder/                  # the four-rung strategy
+    Keystroke/               # the one CGEvent-naming file in the module (H7 per-seam table)
     Accessibility/           # AX wrappers, Secure Input detection
     Clipboard/               # save/set/paste/restore protocol
     Memory/                  # InjectionStrategyStore
@@ -119,6 +120,19 @@ Tests/
   Fixtures/                  # audio, transcripts, golden outputs
   Harness/                   # app matrix driver, fault injection, benchmarks
 ```
+
+> **Amended (`injection-adapters`, 2026-08-09).** Acceptance H7 became a **per-seam** rule when the
+> injection ladder's keystroke rung needed a second `CGEvent`-naming file. The tap seam keeps its
+> rule untouched — one permitted file, `VoccaHotkey/CGEventTapSource.swift` — and the keystroke
+> seam gains one permitted file of its own, `VoccaInject/Keystroke/KeystrokeSource.swift`, the sole
+> CoreGraphics-naming file in its module. The seam lint's permitted-file list is now a table keyed
+> by seam (`InjectionSeamBoundaryTests`): one file per seam, ever, with the old tree-wide
+> "at most one file" assertion replaced by a per-seam count assertion (the successor of
+> `HotkeySeamBoundaryTests.testAtMostOneFileMayNameEventTypes`, not a weakening). Both permitted
+> files are pinned two-sided — each must actually name the family, and nothing else in `Sources/`
+> may — and the laundering-route rules (no typealias in a permitted file, no `@_exported` of a
+> non-Vocca module anywhere, no extension of a CoreGraphics type under a local protocol) now hold
+> against the table's union.
 
 ---
 
