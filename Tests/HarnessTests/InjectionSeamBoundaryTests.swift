@@ -61,6 +61,12 @@ private struct EventTypeSighting: Equatable, CustomStringConvertible {
 /// ``filesPermittedToNameEventTypesBySeam`` is the table. Every seam has exactly one entry, and
 /// nothing else ever joins a seam's entry.
 ///
+/// Phase B of `injection-adapters` adds the pasteboard family beside it: the clipboard rung's
+/// `NSPasteboard`-naming adapter gets the same rule in its own table,
+/// ``filesPermittedToNamePasteboardIdentifiersBySeam``, one file per seam — enforced from the
+/// first moment the file exists. The families share one directory walk (``sightings(under:permitting:identifiersIn:)``)
+/// and one doctrine: a decision that names the system is a decision CI cannot reach.
+///
 /// ## Where the rules live
 ///
 /// This file is the table's home: the per-seam count test (``testEachSeamPermitsExactlyOneFile``,
@@ -144,8 +150,17 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// begin with the root's own, so the subtraction produces a mangled relative path. The permitted
     /// list is keyed on that path, so the failure is a lint that names files nobody can find and
     /// silently stops matching its own allow-list.
+    ///
+    /// The identifier matcher is a parameter because the file hosts two families now — the
+    /// CoreGraphics event types (``eventTypeIdentifiers(inSource:)``) and the pasteboard's
+    /// `NSPasteboard` family (``pasteboardIdentifiers(inSource:)``) — and the walk must be one
+    /// implementation, not two copies that could drift apart in the direction that matters (the
+    /// subdirectory walk). The default keeps the earlier call sites unchanged.
     private static func sightings(
-        under root: URL, permitting permitted: Set<String>
+        under root: URL,
+        permitting permitted: Set<String>,
+        identifiersIn: @escaping (String) -> [String] = InjectionSeamBoundaryTests
+            .eventTypeIdentifiers
     ) throws -> [EventTypeSighting] {
         let rootPath = root.resolvingSymlinksInPath().path
         let files = SwiftSourceScanner.swiftFiles(under: root)
@@ -159,7 +174,7 @@ final class InjectionSeamBoundaryTests: XCTestCase {
                 .replacingOccurrences(of: rootPath + "/", with: "")
             guard !permitted.contains(relativePath) else { continue }
             let source = try String(contentsOf: file, encoding: .utf8)
-            for identifier in eventTypeIdentifiers(inSource: source) {
+            for identifier in identifiersIn(source) {
                 sightings.append(EventTypeSighting(file: relativePath, identifier: identifier))
             }
         }
@@ -266,6 +281,200 @@ final class InjectionSeamBoundaryTests: XCTestCase {
             \(permitted.sorted().joined(separator: ", ")), got \
             \(Set(allSightings.map(\.file)).sorted().joined(separator: ", ")). A file outside the \
             table with a sighting is a leak; a permitted file without one is a vacuous pin.
+            """)
+    }
+
+    // MARK: - The pasteboard family (Phase B of injection-adapters)
+
+    /// Files allowed to name an `NSPasteboard` identifier, relative to `Sources/`, keyed by seam.
+    ///
+    /// **One file per seam, and nothing else ever joins a seam's entry** — the H7 rule, stated
+    /// for the pasteboard family the clipboard rung needs. `SystemPasteboard` is the adapter:
+    /// snapshot / write / restore / read-back in raw `NSPasteboard` terms, with every decision
+    /// (should-I-restore, is-it-still-ours) above it in ``ClipboardRungStrategy`` — the H7
+    /// doctrine applied to a second system family, and enforced from the first moment the file
+    /// exists (`plan_20260809.md` §2, Phase B). The keystroke seam's `pressPaste()` is what keeps
+    /// the clipboard rung's own files clean of both families.
+    private static let filesPermittedToNamePasteboardIdentifiersBySeam: [String: Set<String>] = [
+        "pasteboard": ["VoccaInject/Clipboard/SystemPasteboard.swift"],
+    ]
+
+    /// The pasteboard table flattened — every permitted file in every seam. The tree-wide scan
+    /// is aimed at this set.
+    private static var filesPermittedToNamePasteboardIdentifiers: Set<String> {
+        Set(filesPermittedToNamePasteboardIdentifiersBySeam.values.flatMap { $0 })
+    }
+
+    /// The identifier prefixes that constitute the pasteboard family. `NSPasteboard` covers
+    /// `NSPasteboard.PasteboardType` and every other member of the family by construction;
+    /// `NSPasteboardItem` is the item form a snapshot reads — the two spellings a
+    /// `SystemPasteboard` implementation needs and the only two that matter.
+    private static let pasteboardIdentifierPrefixes = ["NSPasteboard", "NSPasteboardItem"]
+
+    /// Every occurrence of a pasteboard identifier in `source`, comments removed first.
+    ///
+    /// A pure function over a string, so it can be run against source that violates the rule —
+    /// which is the only way to know it would catch one. See
+    /// ``testThePasteboardLintDetectsAPlantedIdentifier``.
+    private static func pasteboardIdentifiers(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let pattern = "\\b(" + pasteboardIdentifierPrefixes.joined(separator: "|")
+            + ")[A-Za-z0-9_]*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// The tree-wide scan, aimed at the pasteboard table: no `NSPasteboard` identifier is named
+    /// outside the family's one permitted file.
+    ///
+    /// The clipboard rung's whole point is that its decisions run headless over an injected
+    /// seam; a second file naming the family is a decision that moved into the half CI cannot
+    /// reach — the same shape as the CoreGraphics scan above, for the family `SystemPasteboard`
+    /// is the one file for.
+    func testNoPasteboardIdentifierEscapesThePasteboardSeamTable() throws {
+        let root = try sourcesRoot()
+        for seam in Self.filesPermittedToNamePasteboardIdentifiersBySeam.keys.sorted() {
+            guard let files = Self.filesPermittedToNamePasteboardIdentifiersBySeam[seam] else {
+                continue
+            }
+            for relativePath in files {
+                let directory = root.appendingPathComponent(relativePath)
+                    .deletingLastPathComponent()
+                guard FileManager.default.fileExists(atPath: directory.path) else {
+                    throw InjectionSeamTestError.seamDirectoryMissing(expectedAt: directory.path)
+                }
+            }
+        }
+
+        let sightings = try Self.sightings(
+            under: root,
+            permitting: Self.filesPermittedToNamePasteboardIdentifiers,
+            identifiersIn: Self.pasteboardIdentifiers)
+
+        XCTAssertEqual(
+            sightings, [],
+            """
+            A pasteboard identifier is named outside its seam's permitted file: \
+            \(sightings.map(\.description).joined(separator: "; ")). Every decision about the \
+            pasteboard must live above the one-file adapter, where a headless suite can drive \
+            it; a second naming file is a decision that escaped CI forever.
+            """)
+    }
+
+    /// The "one file per seam" claim for the pasteboard family, enforced rather than asserted in
+    /// a comment — the sibling of ``testEachSeamPermitsExactlyOneFile``, for the family table.
+    func testEachPasteboardSeamPermitsExactlyOneFile() {
+        XCTAssertFalse(
+            Self.filesPermittedToNamePasteboardIdentifiersBySeam.isEmpty,
+            """
+            The pasteboard seam table must not be empty — an empty table passes "no file names \
+            the family" vacuously, and a seam with no file is a seam whose adapter has moved \
+            without the amendment noticing.
+            """)
+        for seam in Self.filesPermittedToNamePasteboardIdentifiersBySeam.keys.sorted() {
+            XCTAssertEqual(
+                Self.filesPermittedToNamePasteboardIdentifiersBySeam[seam]?.count, 1,
+                """
+                The pasteboard family permits one file per seam. The \(seam) seam permits \
+                \(Self.filesPermittedToNamePasteboardIdentifiersBySeam[seam]?.sorted().joined(separator: ", ") ?? "none"). \
+                A second entry means a pasteboard decision has moved below the seam, where no CI \
+                run can reach it.
+                """)
+        }
+    }
+
+    /// **Every permitted pasteboard file actually names its family** — the two-sided pin, in the
+    /// same shape as ``testEachPermittedFileActuallyNamesItsFamily``.
+    ///
+    /// Two independent claims, because either one failing alone still passes a one-sided check:
+    /// "no other file names the family" passes if the permitted file *also* lost its
+    /// implementation (the family used everywhere else — vacuous), and "the permitted file names
+    /// the family" passes if several do (the seam has sprung a leak). The exact-set half walks
+    /// the whole tree with `permitting: []`, so the set of sighting-bearing files must be
+    /// exactly the table's union.
+    func testEachPermittedPasteboardFileActuallyNamesItsFamily() throws {
+        let root = try sourcesRoot()
+        let permitted = Self.filesPermittedToNamePasteboardIdentifiers
+        XCTAssertFalse(
+            permitted.isEmpty,
+            "the permitted set must not be empty — an empty set passes 'no file names it' vacuously")
+
+        for relativePath in permitted.sorted() {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+            XCTAssertFalse(
+                Self.pasteboardIdentifiers(inSource: source).isEmpty,
+                """
+                \(relativePath) is permitted to name the pasteboard family, but names none. A \
+                permitted file that does not name its family means the family moved somewhere \
+                else and the lint cannot see it.
+                """)
+        }
+
+        let allSightings = try Self.sightings(
+            under: root, permitting: [], identifiersIn: Self.pasteboardIdentifiers)
+        XCTAssertEqual(
+            Set(allSightings.map(\.file)), permitted,
+            """
+            exactly the permitted set may name the pasteboard family: \
+            \(permitted.sorted().joined(separator: ", ")), got \
+            \(Set(allSightings.map(\.file)).sorted().joined(separator: ", ")). A file outside the \
+            table with a sighting is a leak; a permitted file without one is a vacuous pin.
+            """)
+    }
+
+    /// The pasteboard family's negative control: planted source is caught, including the
+    /// two spellings the prefix rule exists to cover.
+    func testThePasteboardLintDetectsAPlantedIdentifier() {
+        XCTAssertEqual(
+            Self.pasteboardIdentifiers(
+                inSource: "let pb = NSPasteboard.general"),
+            ["NSPasteboard"],
+            "The general pasteboard is the family's front door — the leak that matters most.")
+
+        XCTAssertEqual(
+            Self.pasteboardIdentifiers(
+                inSource: "let item: NSPasteboardItem = NSPasteboardItem()"),
+            ["NSPasteboardItem", "NSPasteboardItem"],
+            "The item form a snapshot reads is as much a part of the seam as the general board is.")
+
+        XCTAssertEqual(
+            Self.pasteboardIdentifiers(
+                inSource: "pb.setData(data, forType: NSPasteboard.PasteboardType.string)"),
+            ["NSPasteboard"],
+            """
+            The prefix rule must cover the whole family — PasteboardType and every other member — \
+            without anyone listing its members.
+            """)
+    }
+
+    /// Comments are stripped before the scan, and that is load-bearing rather than incidental:
+    /// the one-file adapter's documentation has to be able to name the family it translates
+    /// (`SystemPasteboard`'s does, at length, and should).
+    func testThePasteboardLintIgnoresIdentifiersInComments() {
+        XCTAssertEqual(
+            Self.pasteboardIdentifiers(
+                inSource: """
+                    /// The one file permitted to name NSPasteboard, deliberately not imported.
+                    let general = PasteboardSeam.shared
+                    """),
+            [],
+            "A doc comment naming the family must not trip the lint.")
+
+        XCTAssertEqual(
+            Self.pasteboardIdentifiers(
+                inSource: """
+                    /// The one file permitted to name NSPasteboard.
+                    let pb = NSPasteboard.general
+                    """),
+            ["NSPasteboard"],
+            """
+            ...but stripping comments must not make the lint blind to real code beside them. \
+            Without this, the previous assertion could be satisfied by a scan that gives up on \
+            any file containing a comment.
             """)
     }
 
