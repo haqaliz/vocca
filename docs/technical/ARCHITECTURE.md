@@ -37,8 +37,18 @@ Vocca.app  (single process, Swift 6, strict concurrency)
 ├── VoccaText      Swift    — cleanup, dictionary             actor (pure-ish)
 ├── VoccaInject    Swift    — AX / Pasteboard / CGEvent       actor (never main)
 ├── VoccaSpeech    Swift    — SpeechSynthesizer impls         actor
-└── VoccaBridge    C/C++    — whisper.cpp, Kokoro if needed   isolated
+└── VoccaBridge    C/C++    — reserved: second C-ABI consumer  isolated
 ```
+
+> **Amended (`second-asr-engine`, 2026-08-10).** This row used to read *"whisper.cpp, Kokoro if
+> needed"* — the assumption that a C-ABI consumer needs its own C/C++ module. C3 proved
+> otherwise: the whisper.cpp bridge ships **inside `VoccaASR`** as `VoccaASR/Whisper/WhisperCAPI.swift`,
+> one file per seam (the H7/H8b precedent — the one file permitted to name the `whisper_` /
+> `WHISPER_` / `import whisper` family, pinned two-sided by `WhisperSeamTests`). The bridge is
+> translated C with no decisions, so it needs no module boundary of its own; it only needs the
+> lint. `VoccaBridge` stays reserved for a *second* C-ABI consumer that genuinely needs its own
+> module boundary — Kokoro (C9) would be the first candidate, and the reserve is written, not
+> promised.
 
 **Why single-process Swift** (locked in planning): direct access to `AXUIElement`, `CGEvent`, and `NSPasteboard` without a bridge; FluidAudio's CoreML/ANE models drop in natively; and nothing sits between key-up and text-on-screen except our own code. A Tauri/Rust shell would buy cross-platform we explicitly deferred and cost us the ANE path — the fastest ASR route available on this hardware.
 
@@ -91,7 +101,10 @@ Sources/
                              #   they fail for entirely different reasons.
   VoccaASR/
     Parakeet/                # FluidAudio-backed
-    Whisper/                 # whisper.cpp-backed
+    Whisper/                 # whisper.cpp-backed; WhisperCAPI.swift is the bridge —
+                             #   the one file in Sources/ permitted to name the C ABI,
+                             #   seam-pinned two-sided (WhisperSeamTests). Amended
+                             #   `second-asr-engine`, 2026-08-10.
     Models/                  # ModelRegistry, download, verify
   VoccaText/
     Rules/                   # deterministic cleanup
@@ -108,7 +121,10 @@ Sources/
     System/                  # AVSpeechSynthesizer
   VoccaContext/              # P4 — ContextProvider
   VoccaActions/              # P4 — ActionProvider, MCP client
-  VoccaBridge/               # C interop shims
+  VoccaBridge/               # RESERVED — a second C-ABI consumer (Kokoro, C9) would
+                             #   claim it. C3's whisper bridge lives in VoccaASR/Whisper/
+                             #   instead (see the §2 amendment). Amended `second-asr-engine`,
+                             #   2026-08-10.
   VoccaNetworkProbe/         # TEST-ONLY. Links every module and exercises it under
                              #   the interposer for §14. Never shipped.
   CVoccaNetworkInterposer/   # TEST-ONLY. dyld interposer over connect(2), loaded
