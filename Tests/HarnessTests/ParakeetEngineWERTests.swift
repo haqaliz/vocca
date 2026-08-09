@@ -21,13 +21,20 @@ import XCTest
 /// The C2 acceptance's real-number half: the fixture suite against the actual Parakeet engine —
 /// env-gated, because the model cannot reach a hosted runner and the F1 verdict is pending.
 ///
+/// This is a **thin shell** over ``RealEngineWERRunner``: the engine-specific half (the env gate,
+/// the manifest, the store, the offline-flag assertion) lives here, and the measurement half — one
+/// body, parameterized over engine + tolerance table + special rules — lives in the runner, so the
+/// same six-fixture suite runs against whisper.cpp too (`plan_20260810.md` Phase 1).
+///
 /// Without `VOCCA_MODEL_DIR` (a store-shaped version directory — see
 /// `Scripts/provision-asr-fixtures.sh`), the test **skips visibly**; with it, it is the gate:
 /// the five fixtures within the provisional tolerances, the offline flag structural, and every
 /// transcript attributed to the Parakeet identity.
 ///
 /// The tolerances below are **provisional by decision** (the founding choice — set from the
-/// founder's first real run, never guessed). They live in exactly one place: here.
+/// founder's first real run, never guessed). They live in exactly one place: here — only
+/// `tolerances_20260810.md`'s re-baseline (measured + margin, founder-signed, F2 recordings)
+/// moves them.
 final class ParakeetEngineWERTests: XCTestCase {
 
     /// The provisional tolerances: per-fixture WER ceilings, plus the 200 ms clip's
@@ -73,25 +80,16 @@ final class ParakeetEngineWERTests: XCTestCase {
         try await engine.prepare()
 
         // The structural offline half of the acceptance: the SDK's own network path is disabled
-        // by the engine's construction — asserted, not assumed.
+        // by the engine's construction — asserted, not assumed. Engine-specific, so it stays
+        // here rather than in the runner.
         XCTAssertTrue(
             ModelHub.offlineMode,
             "the engine must set the SDK's offline flag at construction")
 
-        let fixtures = try ASRFixtureSuite.loadFixtures()
-        let results = try await ASRFixtureSuite.evaluate(engine, fixtures: fixtures)
-
-        XCTAssertEqual(results.count, fixtures.count)
-        for result in results {
-            XCTAssertEqual(
-                result.engine, ParakeetEngineIdentity.parakeet,
-                "\(result.name): every transcript must be attributed to the Parakeet engine")
-            let tolerance = provisionalTolerances[result.name]
-                ?? provisionalTolerances["clean"]!
-            XCTAssertLessThanOrEqual(
-                result.wer, tolerance,
-                "\(result.name): WER \(result.wer) exceeds the provisional tolerance \(tolerance) — "
-                    + "transcript: \(result.transcript)")
-        }
+        try await RealEngineWERRunner.run(
+            engine: engine,
+            expectedIdentity: ParakeetEngineIdentity.parakeet,
+            toleranceTable: provisionalTolerances,
+            specialRules: ["two-hundred-ms": .atMostOneSubstitution])
     }
 }
