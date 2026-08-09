@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/haqaliz/vocca/master/assets/vocca-icon.png" alt="Vocca" width="104" />
+</p>
+
 # Vocca
 
 **Speak; it appears, or it answers — instantly, on your machine, and yours to change.**
