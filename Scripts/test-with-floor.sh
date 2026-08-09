@@ -48,7 +48,13 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 385 by the local-asr parakeet-engine Phase 3, which adds the adapter behind the seam: the three
+# 392 by the local-asr fixture-suite Phase 1, which adds the WER scorer: the seven table-driven
+# tests in WERTests. The ones that justify the raise are `testOneSubstitutionScoresOneOverReferenceLength`
+# and `testDeletionsAndInsertionsScoreOneEach` (the score the P0 gate is judged on, pinned per
+# edit class), `testTheEmptyReferenceRule` (the degenerate case must be defined, not a crash),
+# and `testTheImperfectStubShapeScoresExactly` — the exact arithmetic the harness test asserts
+# end-to-end through a real engine seam.
+# It was 385 by the local-asr parakeet-engine Phase 3, which adds the adapter behind the seam: the three
 # tests in ParakeetSeamTests that pin the H8b SDK confinement. The one that justifies the raise is
 # `testExactlyOneFileInSourcesMayNameTheFluidAudioFamily` — the same shape as H7/H8, with the
 # egress half of the family (`ModelHub`) explicitly in the prefix list: naming it outside the
@@ -572,7 +578,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=385
+MINIMUM_EXECUTED_TESTS=392
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

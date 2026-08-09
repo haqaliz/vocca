@@ -1,0 +1,1 @@
+The quick brown fox jumps over the lazy dog. Today is a good day to test local speech recognition on this machine. Every word counts when the model is listening.
