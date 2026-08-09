@@ -153,7 +153,7 @@ This file orients a coding agent working in this repository. Read it first.
 >   distinct: `IsSecureEventInputEnabled()` *works* without any grant, so nothing stops it running —
 >   what cannot be written is a test worth having. The value is a fact about every other application
 >   on the machine, so asserting it is `false` fails on a developer with a password field focused and
->   asserting it is a `Bool` asserts nothing. `docs/SMOKE_CHECKLIST.md` steps 36–38 are its only
+>   asserting it is a `Bool` asserts nothing. `docs/SMOKE_CHECKLIST.md` steps 47–49 are its only
 >   confirmation.
 > - **`SystemPhysicalKeyState` — `CGEventSourceKeyState` and `CGEventSourceFlagsState` — is executed
 >   by nothing**, for the same reason the tap adapter is not: it lives in `CGEventTapSource.swift`
