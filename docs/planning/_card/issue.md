@@ -1,47 +1,39 @@
-# C4 — System-wide injection ladder
+# C3 — Second ASR engine (whisper.cpp)
 
-**Type:** feat · **Id/slug:** `injection-ladder` · **Branch:** `feat/injection-ladder/aliz`
-**Owner:** aliz · **Source:** inline brief (no GitHub issue exists)
-
----
+> Source: inline brief (no GitHub issue filed; slug id). Handed off from the
+> `vocca-next` session on 2026-08-09.
 
 ## Brief
 
-Build C4: the system-wide injection ladder — `TextInjector` with
-`inject(String, into: TargetContext) -> InjectionResult` — with the four rungs in order:
-AX `kAXSelectedTextAttribute` gated behind a verified allowlist (it lies), clipboard
-save→set→paste→restore with a settling delay tolerating clipboard managers, CGEvent
-keystroke synthesis last, and the widget failsafe ending every path. Secure Input
-(`IsSecureEventInputEnabled`) short-circuits straight to the failsafe with an honest
-message. Precondition: the `feat/audio-capture/aliz` branch merges first.
+Build C3: whisper.cpp large-v3-turbo as the second `ASREngine` implementation, per
+`CAPABILITY_ROADMAP.md:72-85` — a thin C bridge, Metal-accelerated, behind the existing
+seam, reusing the shipped `ModelDownloader`/`ModelStore` from C2 for the GGUF artifact.
 
-Write the acceptance tests first, exactly as `CAPABILITY_ROADMAP.md:106` names them: a
-UI-automation harness drives the P0 app matrix and asserts injected text appears verbatim;
-**the load-bearing test is the failure path** — a fault-injection harness forces each rung
-to fail in sequence, including AX's *silent* failure simulated as success-with-no-insert,
-and asserts that in every combination the transcript is recoverable from the widget.
-Transcript loss is asserted at exactly zero; there is no tolerance band on this test.
+Acceptance is test-first: the same fixture suite runs parameterized over both engines
+(`CAPABILITY_ROADMAP.md:81`; fixture-suite spec M12 already parameterizes), plus the
+runtime-swap test that asserts no caller above the seam changes and only `engineIdentity`
+differs.
 
-## Caveats the dig must not be surprised by
+Caveats to plan around: Swift 6 strict concurrency across the C ABI, no real-engine
+inference in CI (env-gated like `ParakeetEngineWERTests`), and the zero-network invariant —
+inference must make zero calls in the default path.
 
-- Real-app AX insertion cannot run on a hosted runner (needs an Accessibility grant and
-  real apps) — the same structural limit as the tap adapter and the real-engine WER run.
-  Every decision must live above the seam, tested over injected handles.
-- The clipboard-manager race is a named failure class: Raycast/Alfred/Paste/Maccy racing
-  the restore (`ROADMAP.md:85`).
-- The widget failsafe (rung 4) is the next real surface of the still-placeholder `VoccaUI`
-  beyond the download window.
-- The `feat/audio-capture/aliz` branch must merge first; its `SessionAudioSource` hand-over
-  feeds the loop, and the `refusedSampleCount → missingSampleCount` bridge is gated on it
-  per `CLAUDE.md`.
-- R1 and R2 (`ROADMAP.md:300-302`) are the risks this capability retires: AX silently
-  no-ops (High likelihood, Fatal impact) and Secure Input blocks everything.
+Note that the C1 audio-capture branch must merge before the P0 gate can clear, but C3
+itself depends only on C2.
 
-## Grounding
+## Context pulled from the repo (vocca-next run)
 
-- Capability definition: `docs/technical/CAPABILITY_ROADMAP.md` C4 (lines 89–110); seam
-  table line 305.
-- Phase: **P0** — core dictation loop (`docs/ROADMAP.md` weeks 1–4; week-3 milestone at
-  line 84; P0 app matrix at lines 89–91; success metrics at lines 93–98).
-- Risk register: R1 (`docs/ROADMAP.md:300`), R2 (`:302`), R9 (notarization scrutiny, `:308`).
-- Seam discipline: `docs/technical/CAPABILITY_ROADMAP.md:27`.
+- C2 (local ASR, Parakeet TDT 0.6B v3 via FluidAudio) is merged on `master` — `ASREngine`
+  seam in `VoccaCore`, one real implementation in `VoccaASR/Parakeet/`.
+- C4 (injection ladder) is merged on `master`; C1's audio capture is in flight on
+  `feat/audio-capture/aliz`.
+- The fixture suite is parameterized over `ASREngine` from day one
+  (`docs/planning/local-asr/fixture-suite/spec.md:34`), so C3 is a swap, not a rewrite.
+- `ROADMAP.md:304` (R5): whisper.cpp is the structural hedge against a thin Parakeet
+  ecosystem; roadmap week-2 milestone requires "both engines transcribe the same fixture;
+  swapping requires no caller change".
+- `PRODUCT_SPEC.md:193` names the engine picker row: "Whisper turbo — Slower, broader
+  language coverage. [ download ]"; per-engine model tiers are part of C3
+  (`CAPABILITY_ROADMAP.md:79`).
+- No C3 planning docs exist yet — `docs/planning/` has only `audio-capture-hotkey/`,
+  `injection-ladder/`, `local-asr/`, `_card/`.
