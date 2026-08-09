@@ -47,6 +47,16 @@ public struct AudioBuffer: Sendable, Hashable {
     /// Always ``interchangeSampleRate`` at seam boundaries; asserted by the initializer.
     public let sampleRate: Int
 
+    /// How many samples the capture ring refused before this buffer was handed over — the
+    /// completeness link (I1): `0` means the buffer holds everything that was captured, `N`
+    /// means the transcript produced from it is short by exactly N samples.
+    ///
+    /// The value travels with the audio so that short audio can never masquerade as complete:
+    /// the capture bridge (asr-seam Phase 3) populates it from the ring's `refusedSampleCount`,
+    /// and the engine carries it onto the ``Transcript``. The default of `0` is the honest
+    /// value for every buffer that is not known to be short.
+    public let missingSampleCount: Int
+
     /// Whether `(sampleRate, channelCount)` is exactly the interchange format.
     ///
     /// The testable half of the seam's claim. The initializer enforces this for the mono case the
@@ -61,7 +71,7 @@ public struct AudioBuffer: Sendable, Hashable {
         Double(samples.count) / Double(sampleRate)
     }
 
-    public init(samples: [Float], sampleRate: Int) {
+    public init(samples: [Float], sampleRate: Int, missingSampleCount: Int = 0) {
         precondition(
             Self.isValidFormat(sampleRate: sampleRate, channelCount: Self.interchangeChannelCount),
             """
@@ -69,7 +79,11 @@ public struct AudioBuffer: Sendable, Hashable {
             supplied. Engines convert internally, never the caller — a buffer in any other format \
             is a bug at the boundary, not a request to resample.
             """)
+        precondition(
+            missingSampleCount >= 0,
+            "a negative missing-sample count is a caller bug: the ring cannot have refused fewer than zero samples")
         self.samples = samples
         self.sampleRate = sampleRate
+        self.missingSampleCount = missingSampleCount
     }
 }

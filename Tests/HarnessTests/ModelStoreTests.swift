@@ -155,7 +155,7 @@ final class ModelStoreTests: XCTestCase {
         let task = Task { try await store.downloadIfMissing(manifest: manifest, transport: stub) }
 
         // Parked inside the first download: nothing has been written yet.
-        try await waitUntil { await stub.gatedDownloads == 1 }
+        await waitUntil { await stub.gatedDownloads == 1 }
         let countAtFirstPark = await stub.downloadCallCount
         XCTAssertEqual(countAtFirstPark, 1)
         let presentAtFirstPark = await isPresent(store)
@@ -163,7 +163,7 @@ final class ModelStoreTests: XCTestCase {
 
         // Let the first file land; the second download starts and parks.
         await stub.releaseGate()
-        try await waitUntil {
+        await waitUntil {
             let count = await stub.downloadCallCount
             let gated = await stub.gatedDownloads
             return count == 2 && gated == 1
@@ -288,7 +288,7 @@ final class ModelStoreTests: XCTestCase {
     /// submitted while the first is parked inside the transport, so a store that lacked the
     /// one-flight guard would start a second download before the assertion ever runs.
     func testTwoConcurrentDownloadsAreSingleFlight() async throws {
-        let (store, root) = makeStore()
+        let (store, _) = makeStore()
         let weights: [UInt8] = Array("weights-bytes".utf8)
         let manifest = makeManifest(files: [
             ManifestFile(name: "weights.bin", sha256: sha256Hex(weights), byteCount: weights.count),
@@ -299,7 +299,7 @@ final class ModelStoreTests: XCTestCase {
         async let first: Void = store.downloadIfMissing(manifest: manifest, transport: stub)
         async let second: Void = store.downloadIfMissing(manifest: manifest, transport: stub)
 
-        try await waitUntil {
+        await waitUntil {
             let count = await stub.downloadCallCount
             let gated = await stub.gatedDownloads
             return count == 1 && gated == 1

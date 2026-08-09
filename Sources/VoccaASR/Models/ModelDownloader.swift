@@ -88,7 +88,7 @@ public struct ModelDownloader: Sendable {
                     fromRangeStart: rangeStart,
                     to: partURL,
                     onBytesWritten: onBytesWritten)
-            } catch let error as CancellationError {
+            } catch is CancellationError {
                 throw ModelDownloadError.interrupted
             } catch {
                 throw ModelDownloadError.transportFailed(underlying: error)
