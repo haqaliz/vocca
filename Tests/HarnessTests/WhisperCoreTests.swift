@@ -230,4 +230,33 @@ final class WhisperCoreTests: XCTestCase {
             WhisperSegment(text: "hi", start: 0, end: 1, tokenProbability: 0.5))
         XCTAssertEqual(requireSendable(WhisperLoadState()), .unloaded)
     }
+
+    // MARK: - Timecode
+
+    /// The unit conversion the bridge must never do implicitly: the C API's segment timestamps
+    /// are **centiseconds** (verified against the pinned v1.9.2 header and source: the header
+    /// documents token and VAD times "in centiseconds", and the source builds segment times from
+    /// `seek = offset_ms/10` plus timestamp-token steps of `2` — so each raw unit is 10 ms), and
+    /// the mapper consumes seconds. The bridge calls this pure function; it does not divide.
+    func testCentisecondsConvertToSeconds() {
+        XCTAssertEqual(
+            WhisperTranscriptMapper.seconds(fromCentiseconds: 123), 1.23,
+            "123 centiseconds is 1.23 seconds — the decisecond×10 reading is wrong for this ABI")
+        XCTAssertEqual(WhisperTranscriptMapper.seconds(fromCentiseconds: 0), 0)
+        XCTAssertEqual(WhisperTranscriptMapper.seconds(fromCentiseconds: 5), 0.05)
+        XCTAssertEqual(WhisperTranscriptMapper.seconds(fromCentiseconds: 10_000), 100)
+        XCTAssertEqual(
+            WhisperTranscriptMapper.seconds(fromCentiseconds: 9_000_000_000_000_000), 90_000_000_000_000,
+            "a centisecond count near the int64 range converts exactly (well under 2^53)")
+    }
+
+    /// The negative policy, decided and pinned: a negative centisecond count (a whisper anomaly —
+    /// the C layer's own `std::max` guards usually prevent it, and when they do not, it is not a
+    /// caller bug) clamps to zero. A timestamp that cannot exist must not crash the process or
+    /// produce a negative range downstream; zero is the honest floor.
+    func testNegativeCentisecondsClampToZero() {
+        XCTAssertEqual(WhisperTranscriptMapper.seconds(fromCentiseconds: -1), 0)
+        XCTAssertEqual(WhisperTranscriptMapper.seconds(fromCentiseconds: -123), 0)
+        XCTAssertEqual(WhisperTranscriptMapper.seconds(fromCentiseconds: Int64.min), 0)
+    }
 }

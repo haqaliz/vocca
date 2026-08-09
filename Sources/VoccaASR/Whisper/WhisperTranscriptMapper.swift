@@ -26,6 +26,19 @@ import VoccaCore
 /// feeds through the buffer).
 public enum WhisperTranscriptMapper {
 
+    /// The C API's segment timestamps are **centiseconds** — each raw unit is 10 ms, verified
+    /// against the pinned v1.9.2 header (token and VAD times documented "in centiseconds") and
+    /// source (`seek = offset_ms/10`, segment times built from it) — and the transcript's ranges
+    /// are seconds. The bridge never divides: it calls this pure conversion, so the unit knowledge
+    /// lives here, in the headless core, where CI can reach it (`WhisperCoreTests`).
+    ///
+    /// The negative policy is decided and pinned: a negative count (a whisper anomaly — the C
+    /// layer's own `std::max` guards usually prevent it — not a caller bug) clamps to zero, because
+    /// a timestamp that cannot exist must never crash the process or surface as a negative range.
+    public static func seconds(fromCentiseconds centiseconds: Int64) -> Double {
+        Double(max(0, centiseconds)) / 100.0
+    }
+
     /// Builds the `Transcript` for one batch transcription.
     ///
     /// - Parameters:
