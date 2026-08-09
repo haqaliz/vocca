@@ -73,6 +73,10 @@ private struct EventTypeSighting: Equatable, CustomStringConvertible {
 /// CoreGraphics family's table holds a tap seam and a keystroke seam.
 /// The families share one directory walk (``sightings(under:permitting:identifiersIn:)``)
 /// and one doctrine: a decision that names the system is a decision CI cannot reach.
+/// Phase A of `failsafe-surface` adds the `FileManager` family — with a scope the other
+/// families do not need: `FileManager` is already named in three `VoccaASR` files, so the
+/// journal family's claim is *per-seam within its module* (`VoccaInject`), not tree-wide
+/// (``filesPermittedToNameFileManagerIdentifiersBySeam``).
 ///
 /// ## Where the rules live
 ///
@@ -158,12 +162,13 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// list is keyed on that path, so the failure is a lint that names files nobody can find and
     /// silently stops matching its own allow-list.
     ///
-    /// The identifier matcher is a parameter because the file hosts four families now — the
+    /// The identifier matcher is a parameter because the file hosts five families now — the
     /// CoreGraphics event types (``eventTypeIdentifiers(inSource:)``), the pasteboard's
     /// `NSPasteboard` family (``pasteboardIdentifiers(inSource:)``), the Accessibility family
-    /// (``accessibilityIdentifiers(inSource:)``) and the Secure Input read
-    /// (``secureInputIdentifiers(inSource:)``) — and the walk must be one
-    /// implementation, not four copies that could drift apart in the direction that matters (the
+    /// (``accessibilityIdentifiers(inSource:)``), the Secure Input read
+    /// (``secureInputIdentifiers(inSource:)``) and the journal's `FileManager` family
+    /// (``fileManagerIdentifiers(inSource:)``) — and the walk must be one
+    /// implementation, not five copies that could drift apart in the direction that matters (the
     /// subdirectory walk). The default keeps the earlier call sites unchanged.
     private static func sightings(
         under root: URL,
@@ -874,6 +879,200 @@ final class InjectionSeamBoundaryTests: XCTestCase {
                     func isSecureInputActive() async -> Bool { IsSecureEventInputEnabled() }
                     """),
             ["IsSecureEventInputEnabled"],
+            """
+            ...but stripping comments must not make the lint blind to real code beside them. \
+            Without this, the previous assertion could be satisfied by a scan that gives up on \
+            any file containing a comment.
+            """)
+    }
+
+    // MARK: - The FileManager family (Phase A of failsafe-surface)
+
+    /// Files allowed to name `FileManager`, relative to the **`VoccaInject` module root**,
+    /// keyed by seam.
+    ///
+    /// **One file per seam, and nothing else ever joins a seam's entry** — the H7 rule, stated
+    /// for the journal seam the recovery journal's adapter needs. `FileSystemJournalStore` is
+    /// the adapter: Application Support path resolution, directory creation, and the atomic
+    /// temp-write-then-rename commit, in raw `FileManager` terms, with every decision (bounded
+    /// eviction, purge-on-resolve, load-on-launch) above it in ``RecoveryJournal`` over the
+    /// injected ``JournalStore`` seam (`plan_20260809.md` §2, Phase A).
+    ///
+    /// **The family is scoped to `VoccaInject`, and that is a correction to the plan, not a
+    /// weakening of it.** `FileManager` is already named in three `VoccaASR` files
+    /// (`ModelStore.swift`, `ModelDownloader.swift`, `DefaultModelTransport.swift`), so a
+    /// tree-wide "exactly one file names `FileManager`" claim is impossible. The claim this
+    /// family enforces is the one that matters: within the module that owns the journal, exactly
+    /// the seam's one file names the file system, and the journal's logic — the decisions —
+    /// names none of it. The scan root is the module (`Sources/VoccaInject`), the table is
+    /// keyed on module-relative paths, and the family asserts one file for the JOURNAL seam,
+    /// not one file for the whole tree.
+    private static let filesPermittedToNameFileManagerIdentifiersBySeam: [String: Set<String>] = [
+        "journal": ["Journal/FileSystemJournalStore.swift"],
+    ]
+
+    /// The FileManager table flattened — every permitted file in every seam. The module-wide
+    /// scan is aimed at this set.
+    private static var filesPermittedToNameFileManagerIdentifiers: Set<String> {
+        Set(filesPermittedToNameFileManagerIdentifiersBySeam.values.flatMap { $0 })
+    }
+
+    /// The identifier prefixes that constitute the FileManager family: the one type, whole.
+    /// There is nothing else to list, which is why the prefix rule costs nothing here — it is
+    /// the same shape as the other families', applied to a family with one member.
+    private static let fileManagerIdentifierPrefixes = ["FileManager"]
+
+    /// Every occurrence of a FileManager identifier in `source`, comments removed first.
+    ///
+    /// A pure function over a string, so it can be run against source that violates the rule —
+    /// which is the only way to know it would catch one. See
+    /// ``testTheFileManagerLintDetectsAPlantedIdentifier``.
+    private static func fileManagerIdentifiers(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let pattern = "\\b(" + fileManagerIdentifierPrefixes.joined(separator: "|")
+            + ")[A-Za-z0-9_]*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// The module-wide scan, aimed at the FileManager table: within `VoccaInject`, no
+    /// `FileManager` identifier is named outside the journal seam's one permitted file.
+    ///
+    /// The journal's whole point is that its decisions run headless over an injected seam; a
+    /// second file naming the family in the same module is a decision that moved into the half
+    /// CI cannot reach — the same shape as the other scans above, for the family
+    /// `FileSystemJournalStore` is the one file for. The scan root is the module, not the tree,
+    /// because the family's claim is per-seam within its module (see the table's note).
+    func testNoFileManagerIdentifierEscapesTheJournalSeamTable() throws {
+        let root = try sourcesRoot().appendingPathComponent("VoccaInject")
+        for seam in Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted() {
+            guard let files = Self.filesPermittedToNameFileManagerIdentifiersBySeam[seam] else {
+                continue
+            }
+            for relativePath in files {
+                let directory = root.appendingPathComponent(relativePath)
+                    .deletingLastPathComponent()
+                guard FileManager.default.fileExists(atPath: directory.path) else {
+                    throw InjectionSeamTestError.seamDirectoryMissing(expectedAt: directory.path)
+                }
+            }
+        }
+
+        let sightings = try Self.sightings(
+            under: root,
+            permitting: Self.filesPermittedToNameFileManagerIdentifiers,
+            identifiersIn: Self.fileManagerIdentifiers)
+
+        XCTAssertEqual(
+            sightings, [],
+            """
+            FileManager is named outside the journal seam's permitted file: \
+            \(sightings.map(\.description).joined(separator: "; ")). Every decision about the \
+            journal must live above the one-file adapter, where a headless suite can drive it; \
+            a second naming file in VoccaInject is a decision that escaped CI forever.
+            """)
+    }
+
+    /// The "one file per seam" claim for the FileManager family, enforced rather than asserted
+    /// in a comment — the sibling of ``testEachSeamPermitsExactlyOneFile``, for the family table.
+    func testEachJournalSeamPermitsExactlyOneFile() {
+        XCTAssertFalse(
+            Self.filesPermittedToNameFileManagerIdentifiersBySeam.isEmpty,
+            """
+            The FileManager seam table must not be empty — an empty table passes "no file names \
+            the family" vacuously, and a seam with no file is a seam whose adapter has moved \
+            without the amendment noticing.
+            """)
+        for seam in Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted() {
+            XCTAssertEqual(
+                Self.filesPermittedToNameFileManagerIdentifiersBySeam[seam]?.count, 1,
+                """
+                The FileManager family permits one file per seam. The \(seam) seam permits \
+                \(Self.filesPermittedToNameFileManagerIdentifiersBySeam[seam]?.sorted().joined(separator: ", ") ?? "none"). \
+                A second entry means a journal decision has moved below the seam, where no CI \
+                run can reach it.
+                """)
+        }
+    }
+
+    /// **Every permitted FileManager file actually names its family** — the two-sided pin, in
+    /// the same shape as ``testEachPermittedFileActuallyNamesItsFamily``.
+    ///
+    /// Two independent claims, because either one failing alone still passes a one-sided check:
+    /// "no other file names the family" passes if the permitted file *also* lost its
+    /// implementation (the family used everywhere else — vacuous), and "the permitted file names
+    /// the family" passes if several do (the seam has sprung a leak). The exact-set half walks
+    /// the module with `permitting: []`, so the set of sighting-bearing files must be exactly
+    /// the table's union.
+    func testEachPermittedJournalFileActuallyNamesItsFamily() throws {
+        let root = try sourcesRoot().appendingPathComponent("VoccaInject")
+        let permitted = Self.filesPermittedToNameFileManagerIdentifiers
+        XCTAssertFalse(
+            permitted.isEmpty,
+            "the permitted set must not be empty — an empty set passes 'no file names it' vacuously")
+
+        for relativePath in permitted.sorted() {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+            XCTAssertFalse(
+                Self.fileManagerIdentifiers(inSource: source).isEmpty,
+                """
+                \(relativePath) is permitted to name FileManager, but names none. A permitted \
+                file that does not name its family means the family moved somewhere else and the \
+                lint cannot see it.
+                """)
+        }
+
+        let allSightings = try Self.sightings(
+            under: root, permitting: [], identifiersIn: Self.fileManagerIdentifiers)
+        XCTAssertEqual(
+            Set(allSightings.map(\.file)), permitted,
+            """
+            exactly the permitted set may name FileManager within VoccaInject: \
+            \(permitted.sorted().joined(separator: ", ")), got \
+            \(Set(allSightings.map(\.file)).sorted().joined(separator: ", ")). A file outside the \
+            table with a sighting is a leak; a permitted file without one is a vacuous pin.
+            """)
+    }
+
+    /// The FileManager family's negative control: planted source is caught.
+    func testTheFileManagerLintDetectsAPlantedIdentifier() {
+        XCTAssertEqual(
+            Self.fileManagerIdentifiers(
+                inSource: "let manager = FileManager.default"),
+            ["FileManager"],
+            "The default manager is the family's front door — the leak that matters most.")
+
+        XCTAssertEqual(
+            Self.fileManagerIdentifiers(
+                inSource: "func create(_ manager: FileManager) throws {}"),
+            ["FileManager"],
+            "A signature phrased in the type needs the file system to read, exactly like an event type.")
+    }
+
+    /// Comments are stripped before the scan, and that is load-bearing rather than incidental:
+    /// the one-file adapter's documentation has to be able to name the family it translates
+    /// (`FileSystemJournalStore`'s does, at length, and should).
+    func testTheFileManagerLintIgnoresIdentifiersInComments() {
+        XCTAssertEqual(
+            Self.fileManagerIdentifiers(
+                inSource: """
+                    /// The one file permitted to name FileManager, deliberately.
+                    let store = FileSystemJournalStore()
+                    """),
+            [],
+            "A doc comment naming the family must not trip the lint.")
+
+        XCTAssertEqual(
+            Self.fileManagerIdentifiers(
+                inSource: """
+                    /// The one file permitted to name FileManager.
+                    let manager = FileManager.default
+                    """),
+            ["FileManager"],
             """
             ...but stripping comments must not make the lint blind to real code beside them. \
             Without this, the previous assertion could be satisfied by a scan that gives up on \

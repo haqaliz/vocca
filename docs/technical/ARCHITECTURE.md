@@ -451,6 +451,21 @@ actor TranscriptCustody {
 - Every transcript is journaled to disk (`~/Library/Application Support/Vocca/recovery/`) until resolved, so a crash mid-injection is recoverable on next launch. Journal entries are deleted on resolve, and the directory is bounded and purged on a retention policy — a privacy tool must not accumulate a shadow archive of everything you ever said.
 - The unresolved-token check is a test assertion, not just a runtime one: the fault-injection harness (§14) forces every rung to fail and asserts custody always resolves.
 
+> **Amended (`failsafe-surface`, 2026-08-09).** The recovery half of custody shipped:
+> `VoccaInject/Journal/` implements the journaling bullet above, behind the core's
+> `TranscriptHolder` seam — the ladder hands a `HeldTranscript` to `hold`, which is **durable
+> before it returns** (PRD R6: the write is part of the failsafe hand-off, not after it, so a
+> crash between ladder exhaustion and the journal write cannot lose a transcript — asserted by
+> test, not documented). The decisions live in `RecoveryJournal` — bounded eviction (oldest
+> first, at a capacity the composition root sets), purge-on-resolve, load-on-launch — over an
+> injected `JournalStore` seam, and `FileSystemJournalStore` is the one file in `VoccaInject`
+> permitted to name `FileManager` (the journal seam's entry in the H7 per-seam table; the
+> family is scoped to the module because `VoccaASR` already names `FileManager` in three files).
+> Each write is an atomic temp-write-then-rename, and the journal is exercised headlessly over
+> fakes *and* against a real temp directory — `FileManager` works in CI, so this adapter is
+> tested, not merely linted. The `TranscriptCustody` actor above remains the future ownership
+> shape; the journal is its recovery half's first implementation.
+
 ---
 
 ## 11. Cleanup pipeline
