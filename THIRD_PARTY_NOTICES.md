@@ -37,8 +37,16 @@ distribution obligation: a dependency is not added without one.
 - **What it is and why it ships:** whisper.cpp's tensor-computation backend — all of the
   engine's inference math runs on it, on CPU or Metal, with nothing leaving the machine.
 
----
+## whisper GGUF weights (large-v3-turbo, turbo and q5_0 tiers)
 
-Model weights are **not** covered by this file: the GGUF weights license verification is
-M10's second half and lands with the `model-lifecycle` aspect, which will record the
-verdict and the primary source here.
+- **License:** MIT (pending founder sign-off)
+- **Upstream:** https://huggingface.co/ggerganov/whisper.cpp — OpenAI's Whisper models
+  converted to ggml format for use with whisper.cpp; the repo's metadata declares
+  `License: mit`.
+- **Ships as:** the two GGUF weight files named by
+  `Sources/VoccaASR/Models/Manifests/whisper-large-v3-turbo.json` and
+  `whisper-large-v3-turbo-q5_0.json` — downloaded by the store at runtime, never
+  vendored into the repository.
+- **What it is and why it ships:** the neural-network weights the whisper.cpp engine
+  runs on — the default large-v3-turbo tier and the constrained q5_0 tier.
+- **Verification record:** `docs/planning/second-asr-engine/model-lifecycle/license_20260810.md`
