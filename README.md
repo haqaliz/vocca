@@ -54,7 +54,7 @@ That combination is the open lane, and it's what Vocca is for.
 |-------|--------|-----|
 | Shell + core | Native SwiftUI, single Swift 6 process | Direct AX/CGEvent/Pasteboard access, no IPC on the latency path |
 | ASR (default) | [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) via [FluidAudio](https://github.com/FluidInference/FluidAudio) | CoreML on the Neural Engine; ~24× realtime on M4; low power |
-| ASR (second) | whisper.cpp large-v3-turbo | Shipped, not promised — proves the seam and hedges ecosystem risk |
+| ASR (second) | [whisper.cpp large-v3-turbo](https://github.com/ggml-org/whisper.cpp) | **Shipped** — a real second implementation behind `ASREngine`: proves the seam and hedges ecosystem risk. Real-engine WER not yet measured (founder run, [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) step 19) |
 | TTS | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Small, fast time-to-first-audio, Apache-2.0 |
 | VAD / turn-taking | Silero VAD + Parakeet EOU 120M | Frame-level VAD alone doesn't do turn-taking |
 | Cleanup | Rules → Ollama → BYOK | Rules by default: ~0 MB, <5 ms, no network |
@@ -168,4 +168,4 @@ If you do open a PR now, the bar it has to clear is CI: `swift test` (with the t
 
 ## License
 
-Apache-2.0. The patent grant matters for a tool doing system-level input injection, and it's the friendlier choice for the open-core structure described in the roadmap.
+Apache-2.0. The patent grant matters for a tool doing system-level input injection, and it's the friendlier choice for the open-core structure described in the roadmap. Dependencies and model artifacts (with the weight-license record) are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

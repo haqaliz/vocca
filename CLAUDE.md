@@ -2,10 +2,12 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status:** the **C1 skeleton, the C2 ASR half and the C4 injection ladder exist**; the product
+> **Status:** the **C1 skeleton, the C2 ASR half, the C3 second ASR engine and the C4 injection
+> ladder exist**; the product
 > does not. C1 (audio
 > capture + global hotkey) is under way — session machine, hotkey source seam and the tap
-> adapter shipped; the audio capture aspect is in flight. C2 (local ASR) merged 2026-08-09; C4 (the
+> adapter shipped; the audio capture aspect is in flight. C2 (local ASR) merged 2026-08-09; C3
+> (second-asr-engine) landed 2026-08-11; C4 (the
 > injection ladder and its failsafe surface) landed 2026-08-09.
 >
 > **What is built and enforced:**
@@ -53,7 +55,7 @@ This file orients a coding agent working in this repository. Read it first.
 >   after the floor check — because `swift build` and `swift test` never see `Tools/`, and a check
 >   that lived only in CI is what let a `RepeatingTimer` change break the harness with every local
 >   signal green and master red on merge.
-> - `Tests/HarnessTests/`: 542 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 623 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
 >   watchdog, and two complete ladder runs through the real injector), module-boundary lint,
 >   licence-header lint, package-manifest coverage guard, the
@@ -130,6 +132,46 @@ This file orients a coding agent working in this repository. Read it first.
 > - **The provisional WER tolerances are provisional** (TTS stand-ins are unnaturally clean);
 >   the founder's real recordings (F2) set the numbers, in exactly one place.
 >
+> **C3 (`second-asr-engine`) landed 2026-08-11 — the whisper.cpp half of the ASR story, behind the
+> same seam.** The `ASREngine` seam now has a second implementation, `WhisperCppEngine` in
+> `VoccaASR/Whisper/` — a whisper.cpp-backed actor over the **`WhisperCpp` binary target** (the
+> repository's first binary dependency: the official v1.9.2 XCFramework, fetched by SPM at resolve
+> time, never at runtime), with `WhisperCAPI.swift` the bridge — the one file permitted to name the
+> `whisper_` / `WHISPER_` / `import whisper` family, seam-pinned two-sided by `WhisperSeamTests`
+> (the H7/H8b precedent; `VoccaBridge` stays reserved for a second C-ABI consumer, per the
+> `ARCHITECTURE.md` §2 amendment). The engine is an actor with its own parameters, load state and
+> segment mapping, and every transcript carries `WhisperCppEngineIdentity` — attribution is
+> non-optional, exactly as Parakeet's is. The model lifecycle is reused, not duplicated: two GGUF
+> manifests (turbo and q5_0 tiers) with verified digests ship in `VoccaASR/Models/Manifests/`, and
+> a suite test round-trips a manifest through the existing `ModelStore` over a stub transport. The
+> real-engine WER run was extracted into a shared parameterized runner: `WhisperCppEngineWERTests`
+> is env-gated by `VOCCA_MODEL_DIR` exactly like Parakeet's (it skips visibly otherwise), and the
+> runtime swap is pinned — a session resolves its engine once, at start, and only the identity
+> differs at the boundary. The Speech-tab picker ships in `VoccaUI`: `EnginePickerStateReducer`
+> (the never-auto-switch rule) and `EnginePickerCopy` tested headless, with `EnginePickerView`
+> thin glue over them.
+>
+> **What C3 is NOT, and must not be claimed:**
+> - **The whisper real-engine WER run has not happened.** `WhisperCppEngineWERTests` skips without
+>   `VOCCA_MODEL_DIR`; the founder runs it on hardware with the provisioned artifacts, per
+>   `SMOKE_CHECKLIST.md` step 19. The provisional tolerances are **seeded from Parakeet's table,
+>   not measured** on whisper's output — `tolerances_20260810.md` is the one place the mechanism is
+>   explained, and nothing passes or fails a release gate on the numbers until they are
+>   re-baselined from a real run.
+> - **The picker panel is executed by nothing in CI** (the window-server precedent): the reducer
+>   and the copy are the tested half; `SMOKE_CHECKLIST.md` step 20 is the panel's first execution.
+> - **The weights-license record is DRAFT** pending the founder's sign-off
+>   (`docs/planning/second-asr-engine/model-lifecycle/license_20260810.md`): whisper.cpp and ggml
+>   are MIT-verified from primary sources, but the converted GGUF weights' own provenance is the
+>   founder's open item, and `THIRD_PARTY_NOTICES.md`'s weights entry stays marked pending until
+>   the record is signed.
+> - **The F1 runner verdict is still pending for both engines** — whether the real-model suite can
+>   run on a macos-15 hosted runner is unanswered, and C3's entry in
+>   `docs/planning/local-asr/fixture-suite/ci-wiring-decision_20260809.md` records the same
+>   env-gated decision for whisper rather than re-deciding it.
+> - **There is still no audio and no loop** — nothing connects session → ASR → injection, and the
+>   picker's engine switch cannot be exercised against a live session until C1's capture exists.
+>
 > **C4 (`injection-ladder`) landed 2026-08-09 — the injection half of the dictation loop.** The
 > `TextInjector` seam exists as code in `VoccaCore` (`inject`, `resolve`, `failsafe` over
 > `TargetContext`, the rung and result vocabulary, and `HeldTranscript` carried through the
@@ -150,12 +192,12 @@ This file orients a coding agent working in this repository. Read it first.
 > whose decision table runs headless, including the never-auto-dismiss rule: no time-based
 > transition exists in it at all. The zero-network probe now drives the ladder too — two complete
 > runs through the real injector, replacing the `VoccaInject` placeholder — and the suite floor is
-> 542 tests.
+> 623 tests.
 >
 > **What C4 is NOT, and must not be claimed:**
 > - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
 >   Accessibility or Automation grant, no real pasteboard session, no window server on a hosted
->   runner. Every decision is above the seam and tested; `SMOKE_CHECKLIST.md` steps 19–32 are the
+>   runner. Every decision is above the seam and tested; `SMOKE_CHECKLIST.md` steps 22–35 are the
 >   adapters' and the panel's only execution.
 > - **There is still no audio and no loop** — `audio-capture` is unmerged and `SessionAudioSource`
 >   is still a stub; nothing yet connects session → ASR → injection; the full six-state widget is
@@ -188,7 +230,7 @@ This file orients a coding agent working in this repository. Read it first.
 >   distinct: `IsSecureEventInputEnabled()` *works* without any grant, so nothing stops it running —
 >   what cannot be written is a test worth having. The value is a fact about every other application
 >   on the machine, so asserting it is `false` fails on a developer with a password field focused and
->   asserting it is a `Bool` asserts nothing. `docs/SMOKE_CHECKLIST.md` steps 52–54 are its only
+>   asserting it is a `Bool` asserts nothing. `docs/SMOKE_CHECKLIST.md` steps 55–57 are its only
 >   confirmation.
 > - **`SystemPhysicalKeyState` — `CGEventSourceKeyState` and `CGEventSourceFlagsState` — is executed
 >   by nothing**, for the same reason the tap adapter is not: it lives in `CGEventTapSource.swift`
