@@ -3,6 +3,12 @@
 > `docs/planning/second-asr-engine/prd.md` — Phase 3/4 output, 2026-08-09.
 > Source: `docs/planning/_card/issue.md` (inline brief from `vocca-next`) +
 > `docs/planning/second-asr-engine/understanding.md` (Phase 2 dig).
+>
+> **Status: SHIPPED 2026-08-10** — implemented per the six aspect plans
+> (`bridge-integration`, `whisper-engine`, `model-lifecycle`, `fixture-harness`,
+> `engine-picker`, `ci-wiring`), merged to `master`. Open founder steps recorded in
+> `docs/SMOKE_CHECKLIST.md` steps 19–21: the first real whisper WER run and the
+> weights-license record sign-off.
 
 ## Problem Statement
 
