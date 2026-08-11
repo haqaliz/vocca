@@ -228,13 +228,27 @@ struct VoccaNetworkProbe {
         let session = exerciseSessionLifecycle()
         print("PROBE-SESSION\t\(session.report)")
 
+        // `VoccaInject`'s real work, run rather than referenced. The module holds the injection
+        // ladder now — a decision function, rung strategies, a strategy order and a failsafe
+        // handoff — and the coverage list below is at module granularity by construction. So two
+        // complete ladder runs are driven here through the real `LadderInjector` (one delivery,
+        // one falls through to the failsafe), through probe-supplied rung and handoff fakes that
+        // need no Accessibility grant, no pasteboard and no `CGEvent`. See `InjectionDrive.swift`.
+        //
+        // Reported as an effect for the same reason `SessionState`'s witness is:
+        // `VoccaInjectPlaceholder.self` used to sit in the list below and satisfied the coverage
+        // guard whether or not a line of `VoccaInject` ever executed. The witness that replaces it
+        // is minted *by* this call, so the entry cannot outlive the call it stands for.
+        let injection = exerciseInjectionLifecycle()
+        print("PROBE-INJECTION\t\(injection.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             VoccaAudioPlaceholder.self,
             VoccaHotkeyPlaceholder.self,
             VoccaASRPlaceholder.self,
             VoccaTextPlaceholder.self,
-            VoccaInjectPlaceholder.self,
+            injection.moduleWitness,
             VoccaSpeechPlaceholder.self,
             VoccaUIPlaceholder.self,
             AppBootstrap.self,

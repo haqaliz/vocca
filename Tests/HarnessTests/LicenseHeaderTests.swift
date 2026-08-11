@@ -129,8 +129,21 @@ final class LicenseHeaderTests: XCTestCase {
             return []
         }
         var results: [URL] = []
-        for case let url as URL in enumerator where extensions.contains(url.pathExtension) {
-            results.append(url)
+        for case let url as URL in enumerator {
+            if url.hasDirectoryPath, url.lastPathComponent == ".build" {
+                // SPM build output (including third-party checkouts) lives under a package's
+                // `.build/` directory — `Tools/ASRSpike` is the first Tools package with a
+                // Package.swift, and its FluidAudio checkout is not our source and carries no
+                // Vocca header. The lint's claim is about *our* files; a `.build` directory
+                // is build output by convention, and skipping it is a reviewed rule, not an
+                // afterthought: `testABuildDirectoryIsSkippedButAHeaderlessFileIsStillCaught`
+                // proves the rule in both directions.
+                enumerator.skipDescendants()
+                continue
+            }
+            if extensions.contains(url.pathExtension) {
+                results.append(url)
+            }
         }
         return results
     }
@@ -210,5 +223,51 @@ final class LicenseHeaderTests: XCTestCase {
             offending.isEmpty,
             "The following files are missing the required Apache-2.0 license header: \(offending.sorted().joined(separator: ", "))"
         )
+    }
+
+    /// The `.build` skip, pinned in both directions: a headerless file in a `.build` directory is
+    /// not our source and must be ignored, while a headerless file *outside* `.build` — the thing
+    /// the lint exists to catch — must still be found. A skip that cannot be shown to skip, or that
+    /// skips everything, is decoration; this test makes the rule observable in both directions.
+    func testABuildDirectoryIsSkippedButAHeaderlessFileIsStillCaught() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-license-lint-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let header = Self.expectedHeader(marker: "//")
+        let buildDir = root.appendingPathComponent(".build", isDirectory: true)
+        try FileManager.default.createDirectory(at: buildDir, withIntermediateDirectories: true)
+        let nested = buildDir.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        // A headerless file inside `.build` (a third-party checkout's shape) — must be skipped.
+        try Data("import Foundation\n".utf8).write(
+            to: nested.appendingPathComponent("Checkout.swift"))
+
+        let skipped = sourceFiles(under: root, extensions: ["swift"])
+        XCTAssertTrue(
+            skipped.isEmpty,
+            "a headerless file under .build must be skipped: got \(skipped.map(\.path))")
+
+        // A headerless file outside `.build` — must be caught by the same scan.
+        try Data("import Foundation\n".utf8).write(
+            to: root.appendingPathComponent("Leak.swift"))
+        let caught = sourceFiles(under: root, extensions: ["swift"])
+        XCTAssertEqual(
+            caught.map(\.lastPathComponent), ["Leak.swift"],
+            "the skip must not swallow files outside .build: got \(caught.map(\.lastPathComponent))")
+
+        // And a properly headed file outside `.build` passes the header check itself.
+        try Data((header + "\n\nimport Foundation\n").utf8).write(
+            to: root.appendingPathComponent("Clean.swift"))
+        let found = sourceFiles(under: root, extensions: ["swift"])
+        XCTAssertEqual(
+            found.map(\.lastPathComponent).sorted(), ["Clean.swift", "Leak.swift"])
+        for file in found where file.lastPathComponent == "Clean.swift" {
+            let content = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertTrue(
+                content.hasPrefix(header),
+                "a properly headed file must still pass the header check")
+        }
     }
 }

@@ -48,6 +48,14 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
+# Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
+# 717 by the merge of the C1 audio-capture branch into master: the C2/C3/C4 suite (623 on master)
+# plus the capture suite the branch built on the same base (418 at its tip, 324 at the fork).
+# The two ledgers below were written on their own branches and keep their own numbers — the first
+# block's counts are the C1 branch's pre-merge totals, not project totals.
+#
+# The C1 audio-capture chain, newest first (branch totals, pre-merge):
+# It was 388 by audio-capture phase 2 review round 2, which added four. The instructive one:
 # 388 by audio-capture phase 2 review round 2, which added four. The instructive one:
 # `convert(_:)` throws too, is called once per poll rather than once per session, and did **not**
 # get the exception-safety treatment round 1 gave `finish(_:)` — so a test in the suite asserted a
@@ -164,6 +172,117 @@ set -euo pipefail
 # this project's recurring defect shape before it could ship: throttling the *ending* to the
 # transition the way the log line is throttled leaves a session that started one poll later running
 # to the 120 s ceiling, in both modes, with the whole suite green.
+
+# The C2/C3/C4 chain, newest first (master totals):
+# It was 405 by the local-asr download-ui: 405 by the local-asr download-ui: the three session-adapter tests in ModelDownloadSessionTests
+# (the seam's happy path ends .committed with monotonic progress, a failure ends .failed with the
+# cause and no presence, and a skip ends .cancelled with the .part surviving — the resume
+# assertion proves the skip is a pause, not a discard) and the five reducer tests in
+# DownloadStateReducerTests (the window's whole decision table, headless: clamping, terminal
+# states, cancelled-reads-as-skipped). The window itself is glue executed by nothing in CI,
+# which is exactly why the reducer is this thorough.
+# It was 397 by the local-asr fixture-suite Phases 2-3: the four harness tests in ASRFixtureHarnessTests
+# (the parameterized evaluate body proven end-to-end with stubs — the imperfect stub's WER must
+# equal the scorer's direct arithmetic, which is the plumbing proof that needs no model) and the
+# env-gated real-engine test in ParakeetEngineWERTests, which skips visibly without
+# VOCCA_MODEL_DIR and is the C2 acceptance's real-number half where it runs. The real run on
+# founder hardware passed all provisional tolerances on the first attempt (15.4 s for prepare +
+# six fixtures, word-perfect on the clean clips).
+# It was 392 by the local-asr fixture-suite Phase 1, which adds the WER scorer: the seven table-driven
+# tests in WERTests. The ones that justify the raise are `testOneSubstitutionScoresOneOverReferenceLength`
+# and `testDeletionsAndInsertionsScoreOneEach` (the score the P0 gate is judged on, pinned per
+# edit class), `testTheEmptyReferenceRule` (the degenerate case must be defined, not a crash),
+# and `testTheImperfectStubShapeScoresExactly` — the exact arithmetic the harness test asserts
+# end-to-end through a real engine seam.
+# It was 385 by the local-asr parakeet-engine Phase 3, which adds the adapter behind the seam: the three
+# tests in ParakeetSeamTests that pin the H8b SDK confinement. The one that justifies the raise is
+# `testExactlyOneFileInSourcesMayNameTheFluidAudioFamily` — the same shape as H7/H8, with the
+# egress half of the family (`ModelHub`) explicitly in the prefix list: naming it outside the
+# adapter would be the network decision escaping the one file that must hold it. The negative
+# control proves the detector can fail, and the comment-strip test keeps the adapter's own
+# documentation legal.
+# It was 382 by the local-asr parakeet-engine Phase 2, which adds the engine's testable core: the eight
+# tests in ParakeetCoreTests. The ones that justify the raise are `testTheMapperProducesOneSegmentedTranscriptAttributedToTheEngine`
+# (attribution and duration-from-buffer pinned as pure rules — the adapter's transcription path
+# contains no other decisions), `testLoadStateRetriesAfterAFailure` (a failed load must not mark
+# loaded, or a skipped download would permanently dead-end prepare), and the timing tests (the PRD
+# S1 ledger, read by C7). Every test runs headless with no model and no SDK: the core is the
+# reachable side of the adapter, exactly as the H7 lesson demands.
+# It was 374 by the local-asr parakeet-engine Phase 1, which shapes the model store for the SDK's repo
+# layout (spike finding `spike_20260809.md` §4.1): the six tests across ModelManifestTests,
+# ModelStoreTests and ModelDownloaderTests that pin `sdkDirectory` + nested names. The ones that
+# justify the raise are `testNestedPartFileKeepsPresenceFalseEvenBesideTheMarker` (the "a .part
+# anywhere" promise must survive nesting — a non-recursive scan would have read a half-downloaded
+# SDK-shaped version as present) and `testAnSDKDirectoryManifestCommitsUnderTheDirectoryWithTheMarkerAtTheVersionRoot`
+# (the layout the engine's `load(from:)` call resolves to, pinned recursively). The traversal
+# rejection tests matter because a manifest name becomes a filesystem path: `../evil.bin` must
+# fail at decode, where the shape failures are caught, not at write time.
+# It was 368 by the local-asr spike's lint fix, which lets the licence header lint skip `.build`
+# directories: `Tools/ASRSpike` is the first Tools package with a Package.swift, so its FluidAudio
+# checkout (a third-party tree that carries no Vocca header) lives under the scanned `Tools/`
+# directory. The skip is a reviewed rule, not an afterthought — the test that justifies the raise
+# is `testABuildDirectoryIsSkippedButAHeaderlessFileIsStillCaught`, which pins the rule in both
+# directions: a headerless file under `.build` is ignored, a headerless file outside it is still
+# caught, and a properly headed file still passes.
+# It was 367 by the local-asr model-downloader Phase 3, which adds the H8 network-confinement lint: the
+# three tests in ModelDownloaderSeamTests. The one that justifies the raise is
+# `testExactlyOneFileInSourcesMayNameURLSession` — the zero-network claim's enforcement, in the
+# same shape as H7: a wrong code path that opens a socket anywhere in Sources/ fails this test,
+# not an audit. The negative control (`testTheLintDetectsAPlantedURLSession`) makes the detector
+# provably able to fail, and the doc-comment test pins that comments are stripped before the scan
+# (ModelTransport's own documentation names URLSession on purpose).
+# It was 364 by the local-asr model-downloader Phase 2, which adds the downloader: the seven tests in
+# ModelDownloaderTests that pin every download decision above the transport seam. The ones that
+# justify the raise are `testAFailedTransferResumesFromThePartialFileOnTheNextRun` and
+# `testCancellationPreservesThePartialFileAndTheNextRunResumes` (a dead or cancelled transfer must
+# leave the model re-downloadable from zero never — the .part is the resume anchor, and the second
+# run's recorded Range must start exactly at the partial size), `testAResumeRefusingTransportRestartsOnceAndCommits`
+# (a transport that ignores Range would silently assemble a misaligned file; the size check must
+# catch it and the committed bytes must equal the source exactly), and
+# `testCorruptBytesRestartFromZeroAndExhaustTheRetryLimit` (wrong bytes are discarded and fetched
+# from zero, never resumed — and the retry ledger [0, 0, 0] proves it). The store's own contract —
+# `ModelStoreError.checksumMismatch` surfaced from exhausted retries — is pinned by the mapping
+# test, so the Phase 1 contract and the Phase 2 vocabulary both hold.
+# It was 357 by the local-asr model-downloader Phase 1, which adds the manifest and the verified-presence
+# store: the nine tests in ModelManifestTests and the eight in ModelStoreTests, written red and run
+# red before any of it existed. The ones that justify the raise are the store tests, because they
+# test the store's contract as *observable behaviour over the real seam* rather than as assertions
+# on an implementation: `testIsPresentFlipsTrueOnlyAfterEveryFileIsVerifiedAndCommitted` parks the
+# store inside the stub transport's async gate at both stages of a two-file manifest and reads the
+# store while it is suspended — the first verified file sits in a `.part` awaiting commit and
+# presence must still be false, which is the atomic-commit claim in the only form it can be
+# observed; `testTwoConcurrentDownloadsAreSingleFlight` submits two calls while the first is parked
+# in the gate, so a store without the one-flight guard starts a second download before the
+# assertion ever runs; and `testACommittedVersionDirectoryIsImmutableAgainstASecondDownload`
+# compares the committed directory byte-for-byte and mtime-for-mtime across a second call
+# (PRODUCT_SPEC.md:273). In ModelManifestTests, `testUnknownTopLevelJSONFieldsAreRejected` and
+# `testAnUnknownFieldInsideAFileEntryAreRejected` pin the unknown-field scan to the exact mechanism
+# that works on this SDK: a keyed container typed with a fixed CodingKeys enum drops unknown keys
+# before `allKeys` can see them (measured with a probe before the fix), so the scan goes through a
+# wildcard key type — without that, unknown fields silently decode as nothing and the trust anchor
+# is a registry that does not check.
+# It was 340 after local-asr asr-seam Phase 2, which adds the ASREngine seam: the six tests in
+# ASREngineSeamTests that pin the protocol ARCHITECTURE.md:219-229 specifies before any real engine
+# exists. The ones that justify the raise are `testAStubWithoutStreamStillSatisfiesTheProtocol` and
+# `testTheBatchDefaultBuffersThreeChunksIntoOneFinalTranscript` (streaming optional-with-default in
+# its compile-time and runtime halves — the moment the batch default disappears, StubEngine stops
+# conforming and the file stops building, and the runtime half pins "exactly one final transcript"
+# so a caller never branches on supportsStreaming), and `testAttributionIsTheStubsOwnIdentityAndDiffersAcrossEngines`,
+# the C2 acceptance's identity clause and the C3 swap test's seed: a transcript credited to the
+# wrong engine is the "which model said this?" lie downstream code cannot detect once it has a
+# Transcript in hand. `testEmptyBufferTranscribesToAValidEmptyTranscript` pins the empty-buffer
+# policy (PRD M3) — silence is a transcript, never an error, because a 20 ms press is a legitimate
+# C1 answer.
+# It was 334 after local-asr asr-seam Phase 1, which adds the ASR vocabulary: the ten tests in
+# ASRVocabularyTests that pin the types ARCHITECTURE.md §4 names before any engine exists. The ones
+# that justify the raise are `testEngineIdentityIsHashableAndCodable` (the C8 directory key and the
+# C14 persistence contract are both forward contracts, so a collapse or a dropped field would fail
+# here years early), `testTheFormatPredicateRejectsEveryNearMiss` (the trapping init's rule made
+# testable on its own — a precondition cannot be caught in-process, so any predicate at all
+# satisfied the first version of such a check), and `testTranscriptRequiresAndCarriesItsEngine`,
+# which pins attribution (I1) at compile time rather than by assertion: the annotated `EngineIdentity`
+# binding stops compiling the day the field is weakened to optional, the same pin
+# SessionVocabularyTests applies to the custody payload.
 # It was 307 after hotkey-source phase 5 review round 1, whose Critical finding was that
 # `TapHealthTimer.disarm()`'s forward to the policy was held by NO test: reducing it to `timer.stop()`
 # alone passed the whole 306-test suite, and so did a `disarm()` that forwarded to `policy.arm()` — a
@@ -599,7 +718,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=418
+MINIMUM_EXECUTED_TESTS=717
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -666,23 +785,93 @@ if [ "$harness_status" -ne 0 ]; then
 fi
 
 # THE ENGINE-START HARNESS, COMPILED — for the same reason and by the same rule
+
 #
+
 # `Tools/EngineStartProbe/` opens the microphone, which nothing in `swift test` may do, so it is not
+
 # a package target either and nothing else compiles it. It is what answered `prd.md:280` — the
+
 # engine-start cost the PRD had required since C1 was planned and nobody had taken — and the number
+
 # it produced is what decided that the capture start happens off the tap callback
+
 # (`CaptureStartTiming`). A harness that stops compiling is a number that cannot be re-taken, and the
+
 # doc comments quoting it become unfalsifiable claims.
+
 #
+
 # It does not link the package: at the time it was written there was no adapter to link, because the
+
 # engine graph is the phase after this one. When there is, this is where it should be measured.
+
 set +e
+
 "$REPO_ROOT/Scripts/measure-engine-start.sh" --build-only
+
 engine_harness_status=$?
+
 set -e
 
+
+
 if [ "$engine_harness_status" -ne 0 ]; then
+
     printf '%s\n' \
+
         "::error::The engine-start measurement harness (Tools/EngineStartProbe) does not compile. It is not a package target, so this check is the only one. It is the instrument behind every engine-start number quoted in CaptureStartTiming, HotkeyEventSink.receive(_:) and SessionAudioSource.beginCapture() — if it cannot be run, those numbers cannot be re-taken and become claims nobody can check. Fix it rather than skipping it." >&2
+
     exit "$engine_harness_status"
+
 fi
+
+
+
+
+
+# THE ASR SPIKE PROBE, COMPILED — for the same reason, and because it is the first consumer
+
+# of the repository's first external dependency.
+
+#
+
+# `Tools/ASRSpike/` depends on FluidAudio and is deliberately not a package target: nothing in
+
+# `swift build` or `swift test` would ever compile it, and a FluidAudio API rename would surface
+
+# only at the moment the model is actually needed — months later, mid-implementation. The probe
+
+# is what measured the F1 spike's numbers (build, download, load, transcribe on a hosted
+
+# runner), and `SMOKE_CHECKLIST.md` step 17 and `spike_20260809.md` send a human to it.
+
+#
+
+# The cost is the one the spike was asked to measure: FluidAudio now compiles on every suite
+
+# run. That is a deliberate price for never discovering the dependency is broken at the moment
+
+# of need.
+
+set +e
+
+"$REPO_ROOT/Scripts/measure-asr-spike.sh" --build-only
+
+spike_status=$?
+
+set -e
+
+
+
+if [ "$spike_status" -ne 0 ]; then
+
+    printf '%s\n' \
+
+        "::error::The ASR spike probe (Tools/ASRSpike) does not compile. It is the repository's first FluidAudio consumer and is not a package target, so this check is the only thing that compiles it. A FluidAudio API change breaks it here first. Fix the probe rather than skipping the check: it is what the F1 spike and SMOKE_CHECKLIST.md step 17 run." >&2
+
+    exit "$spike_status"
+
+fi
+
+

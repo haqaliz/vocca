@@ -1,73 +1,39 @@
-# Card: C1 — Audio capture + global hotkey
+# C3 — Second ASR engine (whisper.cpp)
 
-- **Type:** feat
-- **Id / slug:** `audio-capture-hotkey`
-- **Branch:** `feat/audio-capture-hotkey/aliz`
-- **Source:** inline brief (no GitHub issue — repo has Issues enabled but zero issues filed)
-- **Capability:** C1 in `docs/technical/CAPABILITY_ROADMAP.md`
-- **Phase:** P0 (core dictation loop), week 1
-
----
+> Source: inline brief (no GitHub issue filed; slug id). Handed off from the
+> `vocca-next` session on 2026-08-09.
 
 ## Brief
 
-C1 from `docs/technical/CAPABILITY_ROADMAP.md`: audio capture + global hotkey, the first
-brick. Nothing has shipped yet, so this also bootstraps the SPM layout from
-`ARCHITECTURE.md` §3 with Swift 6 strict concurrency on from commit one. Build the `⌥Space`
-CGEvent tap (hold-to-talk, key-down starts / key-up ends), `AVAudioEngine` capture at 16 kHz
-mono into a ring buffer per `ARCHITECTURE.md` §7 (realtime thread writes samples and nothing
-else), the `AudioCapture` seam, the `SessionActor` lifecycle with the watchdog from §8, and
-the floating SwiftUI widget's IDLE → RECORDING → TRANSCRIBING states per `PRODUCT_SPEC.md` §2.
+Build C3: whisper.cpp large-v3-turbo as the second `ASREngine` implementation, per
+`CAPABILITY_ROADMAP.md:72-85` — a thin C bridge, Metal-accelerated, behind the existing
+seam, reusing the shipped `ModelDownloader`/`ModelStore` from C2 for the GGUF artifact.
 
-Fold in `ROADMAP.md`'s other week-1 milestone — Developer ID signing, hardened runtime,
-notarization, non-sandboxed entitlements — because it has no home in C1–C14 and R9 says not
-to discover it at ship time.
+Acceptance is test-first: the same fixture suite runs parameterized over both engines
+(`CAPABILITY_ROADMAP.md:81`; fixture-suite spec M12 already parameterizes), plus the
+runtime-swap test that asserts no caller above the seam changes and only `engineIdentity`
+differs.
 
-### Caveat to design around from the start
+Caveats to plan around: Swift 6 strict concurrency across the C ABI, no real-engine
+inference in CI (env-gated like `ParakeetEngineWERTests`), and the zero-network invariant —
+inference must make zero calls in the default path.
 
-The acceptance test as written (100 synthetic key-down/key-up pairs; a killed key-up
-asserting watchdog closure; buffer contents asserted against known-length fixtures for
-sample-rate/channel regressions) **cannot run headless** — CGEvent taps need Input Monitoring
-and Accessibility grants CI lacks, and macOS disables taps unprompted
-(`tapDisabledByTimeout` / `tapDisabledByUserInput`). Put the state machine behind a
-`HotkeyMonitor` protocol so the 100-cycle and watchdog tests run against a fake, and keep the
-real tap a thin adapter with its own re-arm handling.
+Note that the C1 audio-capture branch must merge before the P0 gate can clear, but C3
+itself depends only on C2.
 
-Tests first, per the repo's test-first rule.
+## Context pulled from the repo (vocca-next run)
 
-Also cover:
-- Input Monitoring denial as an honest hard block (`PRODUCT_SPEC.md:173` — it is the one
-  genuinely fatal permission).
-- A toggle alternative to hold-to-talk — `PRODUCT_SPEC.md:251` calls it a real accessibility
-  need, not a preference, and the C1 text ("hold-to-talk only") does not mention it.
-
----
-
-## Acceptance, as written in CAPABILITY_ROADMAP.md (C1)
-
-> A scripted harness fires 100 synthetic key-down/key-up pairs at varying durations (80 ms to
-> 60 s) and asserts exactly 100 sessions started, 100 ended, zero overlapping, zero orphaned.
-> A separate test kills the key-up mid-session and asserts the watchdog closes capture within
-> its timeout. Buffer contents are asserted against known-length fixtures, so a sample-rate or
-> channel-count regression fails loudly.
-
-**Pluggable seam:** `AudioCapture` — yields `AudioBuffer` chunks and a session lifecycle.
-**Dependencies:** none. This is the first brick.
-
----
-
-## Related issues / PRs
-
-None. The repository has no issues and no prior PRs; `master` carries two commits (planning
-docs, then `.gitignore`).
-
----
-
-## Known contradiction in the tooling (flagged, resolved)
-
-The `vocca-worktrees` and `vocca-begin-fast` skill files assume a **Python/uv** core
-(`pyproject.toml`, `uv sync`, `src/vocca/`, `uv run pytest`). `docs/technical/ARCHITECTURE.md`
-declares itself authoritative on technical direction (line 3) and locks a **single-process
-Swift 6 app with SPM targets** (§2, §3). The skills predate that lock and are not in the
-precedence list. **Resolution: Swift 6 + SPM.** The `uv` steps are not applicable; the skill
-files should be updated separately.
+- C2 (local ASR, Parakeet TDT 0.6B v3 via FluidAudio) is merged on `master` — `ASREngine`
+  seam in `VoccaCore`, one real implementation in `VoccaASR/Parakeet/`.
+- C4 (injection ladder) is merged on `master`; C1's audio capture is in flight on
+  `feat/audio-capture/aliz`.
+- The fixture suite is parameterized over `ASREngine` from day one
+  (`docs/planning/local-asr/fixture-suite/spec.md:34`), so C3 is a swap, not a rewrite.
+- `ROADMAP.md:304` (R5): whisper.cpp is the structural hedge against a thin Parakeet
+  ecosystem; roadmap week-2 milestone requires "both engines transcribe the same fixture;
+  swapping requires no caller change".
+- `PRODUCT_SPEC.md:193` names the engine picker row: "Whisper turbo — Slower, broader
+  language coverage. [ download ]"; per-engine model tiers are part of C3
+  (`CAPABILITY_ROADMAP.md:79`).
+- No C3 planning docs exist yet — `docs/planning/` has only `audio-capture-hotkey/`,
+  `injection-ladder/`, `local-asr/`, `_card/`.

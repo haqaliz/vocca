@@ -13,7 +13,7 @@ Every structural decision below traces to one of these. If a design choice doesn
 | # | Invariant | How the architecture enforces it |
 |---|-----------|----------------------------------|
 | **I1** | **A transcript is never lost** | `TranscriptCustody` (§10) owns every transcript from ASR completion to confirmed delivery. Nothing can drop it, including a crash. |
-| **I2** | **Zero network in the default config** | Network access is confined to two named types. A CI interposer asserts zero connections on the default path (§14). |
+| **I2** | **Zero network in the default config** | Network access is confined to two named types: **`ModelDownloader`** (the model store's download machinery, `VoccaASR/Models/`, which owns the only file permitted to name `URLSession` — asserted by a lint, H8) and the BYOK client (C6, unnamed here). A CI interposer asserts zero connections on the default path (§14). |
 | **I3** | **Latency is budgeted per span** | The dictation pipeline (§6) has an explicit per-stage budget; every stage reports its own timing. |
 | **I4** | **Every seam has ≥2 implementations** | §5 lists them. A seam with one implementation is an assertion, not a seam. |
 | **I5** | **Cleanup and context can never break dictation** | Both are architecturally *optional* stages that degrade to pass-through on any failure or timeout. |
@@ -37,8 +37,18 @@ Vocca.app  (single process, Swift 6, strict concurrency)
 ├── VoccaText      Swift    — cleanup, dictionary             actor (pure-ish)
 ├── VoccaInject    Swift    — AX / Pasteboard / CGEvent       actor (never main)
 ├── VoccaSpeech    Swift    — SpeechSynthesizer impls         actor
-└── VoccaBridge    C/C++    — whisper.cpp, Kokoro if needed   isolated
+└── VoccaBridge    C/C++    — reserved: second C-ABI consumer  isolated
 ```
+
+> **Amended (`second-asr-engine`, 2026-08-10).** This row used to read *"whisper.cpp, Kokoro if
+> needed"* — the assumption that a C-ABI consumer needs its own C/C++ module. C3 proved
+> otherwise: the whisper.cpp bridge ships **inside `VoccaASR`** as `VoccaASR/Whisper/WhisperCAPI.swift`,
+> one file per seam (the H7/H8b precedent — the one file permitted to name the `whisper_` /
+> `WHISPER_` / `import whisper` family, pinned two-sided by `WhisperSeamTests`). The bridge is
+> translated C with no decisions, so it needs no module boundary of its own; it only needs the
+> lint. `VoccaBridge` stays reserved for a *second* C-ABI consumer that genuinely needs its own
+> module boundary — Kokoro (C9) would be the first candidate, and the reserve is written, not
+> promised.
 
 **Why single-process Swift** (locked in planning): direct access to `AXUIElement`, `CGEvent`, and `NSPasteboard` without a bridge; FluidAudio's CoreML/ANE models drop in natively; and nothing sits between key-up and text-on-screen except our own code. A Tauri/Rust shell would buy cross-platform we explicitly deferred and cost us the ANE path — the fastest ASR route available on this hardware.
 
@@ -49,6 +59,8 @@ Modules are **Swift Package Manager targets** in one repository. The dependency 
 **`VoccaCore` imports nothing** — not Foundation, not a system framework, and not a sibling module. It owns the seams (`HotkeyEventSource`, `SessionAudioSource`, `ASREngine`, `SpeechSynthesizer`, …) and the plain-data vocabulary they are phrased in (`RawKeyEvent`, `ModifierSet`, `SessionOutcome`, …). **Adapters depend on the core** to implement those seams, and each imports `VoccaCore` and no other Vocca module. This is what makes each capability testable in isolation: every branch worth testing is expressed in types a `swift test` run can construct on a machine with no permissions, no microphone and no network, and the untestable half is reduced to translation with no decisions in it.
 
 > **Amended (`hotkey-source`, 2026-08-05).** This paragraph previously declared the arrow the other way — `VoccaCore → {leaves}`, with "leaf modules never import `VoccaCore`". That was never consistent with the enforced rule that `VoccaCore` imports nothing at all (`CoreBoundaryTests`, an empty allow-list), and so it was never realised: the core could not depend on a leaf without an import the other lint forbids. It went unnoticed because every leaf was a placeholder. `VoccaHotkey` is the first module to implement a core-owned seam — its flag translation returns a `ModifierSet` — which forced the resolution. The direction above is the one that survives: `VoccaCore` importing an adapter is the actual architectural error, because it is what would drag `CGEvent` and `AVAudioEngine` into the one module that must have neither. **The empty allow-list is the property being protected, and it is unchanged.** A module that has not yet implemented a seam stays a leaf and may still import nothing; `VoccaAudio` moves when `SessionAudioSource` gets a real implementation.
+>
+> **Amended (`local-asr`, 2026-08-09).** `VoccaASR` joined as the second adapter, implementing the `ASREngine` seam (Parakeet via FluidAudio) and the model store. Its move is the reviewed edit `ModuleBoundaryTests` demands — and it carries the same confinement discipline as `VoccaHotkey`'s, one file further out: the SDK itself is confined to exactly one `Sources/` file by the H8b lint (`ParakeetSeamTests`), so the dependency can never leak a decision (or an egress path — `ModelHub` is in the linted family) into a module CI can test.
 
 **But SwiftPM alone cannot produce a shippable app, and that is a structural fact, not a packaging detail.** An SPM `.executable` builds a bare Mach-O, not a bundle — and macOS TCC keys every grant to a **bundle identifier plus a code signature**. A bare executable therefore cannot carry `NSMicrophoneUsageDescription` (so the microphone prompt has nothing to say), and cannot durably hold a Microphone or Accessibility grant across rebuilds. So the repository also carries a **thin Xcode app target** (`App/`, `Vocca.xcodeproj`) that owns *only* bundle assembly, `Info.plist`, entitlements, and signing. Every line of real code stays in the local SPM packages — which is what keeps modules testable headlessly and keeps them inside the zero-network coverage guard (§14), since the guard walks package targets.
 
@@ -89,7 +101,10 @@ Sources/
                              #   they fail for entirely different reasons.
   VoccaASR/
     Parakeet/                # FluidAudio-backed
-    Whisper/                 # whisper.cpp-backed
+    Whisper/                 # whisper.cpp-backed; WhisperCAPI.swift is the bridge —
+                             #   the one file in Sources/ permitted to name the C ABI,
+                             #   seam-pinned two-sided (WhisperSeamTests). Amended
+                             #   `second-asr-engine`, 2026-08-10.
     Models/                  # ModelRegistry, download, verify
   VoccaText/
     Rules/                   # deterministic cleanup
@@ -97,6 +112,7 @@ Sources/
     LLM/                     # Ollama, BYOK
   VoccaInject/
     Ladder/                  # the four-rung strategy
+    Keystroke/               # the one CGEvent-naming file in the module (H7 per-seam table)
     Accessibility/           # AX wrappers, Secure Input detection
     Clipboard/               # save/set/paste/restore protocol
     Memory/                  # InjectionStrategyStore
@@ -105,7 +121,10 @@ Sources/
     System/                  # AVSpeechSynthesizer
   VoccaContext/              # P4 — ContextProvider
   VoccaActions/              # P4 — ActionProvider, MCP client
-  VoccaBridge/               # C interop shims
+  VoccaBridge/               # RESERVED — a second C-ABI consumer (Kokoro, C9) would
+                             #   claim it. C3's whisper bridge lives in VoccaASR/Whisper/
+                             #   instead (see the §2 amendment). Amended `second-asr-engine`,
+                             #   2026-08-10.
   VoccaNetworkProbe/         # TEST-ONLY. Links every module and exercises it under
                              #   the interposer for §14. Never shipped.
   CVoccaNetworkInterposer/   # TEST-ONLY. dyld interposer over connect(2), loaded
@@ -117,6 +136,19 @@ Tests/
   Fixtures/                  # audio, transcripts, golden outputs
   Harness/                   # app matrix driver, fault injection, benchmarks
 ```
+
+> **Amended (`injection-adapters`, 2026-08-09).** Acceptance H7 became a **per-seam** rule when the
+> injection ladder's keystroke rung needed a second `CGEvent`-naming file. The tap seam keeps its
+> rule untouched — one permitted file, `VoccaHotkey/CGEventTapSource.swift` — and the keystroke
+> seam gains one permitted file of its own, `VoccaInject/Keystroke/KeystrokeSource.swift`, the sole
+> CoreGraphics-naming file in its module. The seam lint's permitted-file list is now a table keyed
+> by seam (`InjectionSeamBoundaryTests`): one file per seam, ever, with the old tree-wide
+> "at most one file" assertion replaced by a per-seam count assertion (the successor of
+> `HotkeySeamBoundaryTests.testAtMostOneFileMayNameEventTypes`, not a weakening). Both permitted
+> files are pinned two-sided — each must actually name the family, and nothing else in `Sources/`
+> may — and the laundering-route rules (no typealias in a permitted file, no `@_exported` of a
+> non-Vocca module anywhere, no extension of a CoreGraphics type under a local protocol) now hold
+> against the table's union.
 
 ---
 
@@ -434,6 +466,21 @@ actor TranscriptCustody {
 - Custody begins at ASR completion, **before** cleanup. Cleanup failure therefore cannot lose text; the raw string is already held.
 - Every transcript is journaled to disk (`~/Library/Application Support/Vocca/recovery/`) until resolved, so a crash mid-injection is recoverable on next launch. Journal entries are deleted on resolve, and the directory is bounded and purged on a retention policy — a privacy tool must not accumulate a shadow archive of everything you ever said.
 - The unresolved-token check is a test assertion, not just a runtime one: the fault-injection harness (§14) forces every rung to fail and asserts custody always resolves.
+
+> **Amended (`failsafe-surface`, 2026-08-09).** The recovery half of custody shipped:
+> `VoccaInject/Journal/` implements the journaling bullet above, behind the core's
+> `TranscriptHolder` seam — the ladder hands a `HeldTranscript` to `hold`, which is **durable
+> before it returns** (PRD R6: the write is part of the failsafe hand-off, not after it, so a
+> crash between ladder exhaustion and the journal write cannot lose a transcript — asserted by
+> test, not documented). The decisions live in `RecoveryJournal` — bounded eviction (oldest
+> first, at a capacity the composition root sets), purge-on-resolve, load-on-launch — over an
+> injected `JournalStore` seam, and `FileSystemJournalStore` is the one file in `VoccaInject`
+> permitted to name `FileManager` (the journal seam's entry in the H7 per-seam table; the
+> family is scoped to the module because `VoccaASR` already names `FileManager` in three files).
+> Each write is an atomic temp-write-then-rename, and the journal is exercised headlessly over
+> fakes *and* against a real temp directory — `FileManager` works in CI, so this adapter is
+> tested, not merely linted. The `TranscriptCustody` actor above remains the future ownership
+> shape; the journal is its recovery half's first implementation.
 
 ---
 

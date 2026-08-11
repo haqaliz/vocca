@@ -101,7 +101,15 @@ jobs:
         run: |
           set -euo pipefail
           swift build --build-tests -Xswiftc -strict-concurrency=complete 2>&1 | tee "$RUNNER_TEMP/build.log"
-          if grep -n "warning:" "$RUNNER_TEMP/build.log"; then
+          # One deliberate exclusion: SwiftPM's "found N file(s) which are unhandled" message,
+          # emitted once per fresh resolve for the FluidAudio dependency (it ships markdown files
+          # inside its Sources directories; its manifest is not ours to fix). The check's intent
+          # is that *our* build is strict-concurrency clean — every warning this project can fix
+          # still fails here, because every other warning carries a path we own. The pattern is
+          # narrow on purpose: any other dependency warning (including a future strict-concurrency
+          # one from FluidAudio) still fails the job.
+          if grep -n "warning:" "$RUNNER_TEMP/build.log" \
+            | grep -vE "warning: '[a-z0-9-]+': found [0-9]+ file\(s\) which are unhandled"; then
             echo "::error::Strict-concurrency warnings above. This project is Swift 6 strict-concurrency clean and stays that way: a data race on the audio path is the hardest class of bug to reproduce and the easiest to ship."
             exit 1
           fi

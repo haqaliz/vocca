@@ -1,0 +1,49 @@
+# Copyright 2026 The Vocca Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# TEMPORARY — the F1 spike's runner half. Removed once the verdict is recorded in
+# docs/planning/local-asr/parakeet-engine/spike_20260809.md.
+#
+# The spike's question is whether the C2 acceptance's real-model suite can run on a hosted
+# runner: FluidAudio build time, model download time, load time, transcription time — all
+# against the headless job's 20-minute budget. Run manually via workflow_dispatch on the
+# branch; the numbers land in the decision record.
+
+name: ASR spike
+
+on:
+  workflow_dispatch:
+
+jobs:
+  spike:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the spike probe (timed)
+        run: |
+          time swift build --package-path Tools/ASRSpike -Xswiftc -strict-concurrency=complete
+
+      - name: Run the spike probe — SDK download path (timed)
+        run: |
+          time swift run --package-path Tools/ASRSpike ASRSpike \
+            --mode sdk-download \
+            --audio Tests/Fixtures/spike-clip.wav
+
+      - name: Report runner facts
+        run: |
+          sysctl -n machdep.cpu.brand_string || true
+          sysctl -n hw.memsize
+          sw_vers

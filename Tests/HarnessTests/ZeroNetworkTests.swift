@@ -175,6 +175,50 @@ final class ZeroNetworkTests: XCTestCase {
         "schedule=stopped",
     ].joined(separator: " ")
 
+    /// **The injection-lifecycle post-condition**: what the probe must report after driving the
+    /// ladder — two complete runs through the real ``LadderInjector`` — and what
+    /// ``testDefaultConfigurationMakesZeroNetworkConnections`` asserts wholesale.
+    ///
+    /// Asserted as an *effect* for the same reason the session post-condition is. `VoccaInject`
+    /// appearing in the coverage list below proves only that a type from it was named; while it
+    /// was a placeholder there was nothing more to prove, and there now is: a decision function,
+    /// rung strategies, a strategy order and a failsafe handoff. Every field below is a fact the
+    /// probe can only produce by running that code. In order: the first run injected into an
+    /// ordinary focused (unallowlisted) application and stopped at the clipboard rung with the
+    /// trace and no read-back; the second run's rungs all failed, the decision fell through to
+    /// the failsafe, and the shared handoff ledger records exactly one held transcript — and
+    /// none on the run that delivered — with the reason and the capture instant from the injected
+    /// clock.
+    ///
+    /// This is deliberately **not** a golden string to be regenerated when it fails.
+    /// ``testTheAssertedInjectionPostConditionStillDescribesADeliveryAndAHandoff`` reads it back
+    /// and refuses a version that no longer describes a ladder that delivered once, held once,
+    /// never lost a transcript, and moved its clock — so weakening the probe and pasting in
+    /// whatever it now prints does not restore a green suite.
+    private static let expectedInjectionLifecycle = [
+        // Run 1: an ordinary focused, unallowlisted application — the default order the shipped
+        // ladder actually runs, clipboard first. The clipboard rung delivers; the trace stops
+        // there; there is no read-back (verified is clipboard's raw truth, false).
+        "success.rung=clipboardPaste",
+        "success.attempted=clipboardPaste",
+        "success.verified=false",
+        // One boundary crossing, at the probe's own 10 ms step.
+        "success.elapsed=10ms",
+        // Run 2: the same target, every rung forced to fail. The decision falls through to the
+        // widget, and the full trace is carried for C8's strategy memory.
+        "failsafe.rung=widgetFailsafe",
+        "failsafe.attempted=clipboardPaste,keystrokeSynthesis",
+        "failsafe.verified=false",
+        // Two boundary crossings this time, and the full 100 ms budget is nowhere near spent.
+        "failsafe.elapsed=20ms",
+        // The shared handoff ledger: the run that delivered held nothing, the run that fell
+        // through held exactly one — with reason .exhausted at the monotonic instant the
+        // decision last read the clock.
+        "handoff.holds=1",
+        "handoff.reason=exhausted",
+        "handoff.capturedAt=30ms",
+    ].joined(separator: " ")
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -329,6 +373,34 @@ final class ZeroNetworkTests: XCTestCase {
             \(observation.diagnosticSummary)
             """)
 
+        // The injection-lifecycle post-condition. The third effect-not-reference check: `VoccaInject`
+        // stopped being a placeholder and became the ladder — the decision function, the rung
+        // strategies, the strategy order and the failsafe handoff — and the coverage guard below is
+        // at module granularity by construction, so it can say the module was reached, never that its
+        // work ran. Before this line, `VoccaInjectPlaceholder.self` in the probe's list satisfied the
+        // guard whether or not a single line of `VoccaInject` executed.
+        //
+        // Deleting the drive from the probe removes this line from its output entirely, so the
+        // comparison fails against `nil` rather than quietly covering less.
+        XCTAssertEqual(
+            observation.reportedInjectionLifecycle, Self.expectedInjectionLifecycle,
+            """
+            The probe did not report driving the ladder through VoccaInject's real decision \
+            function and LadderInjector.
+              expected: \(Self.expectedInjectionLifecycle)
+              observed: \(observation.reportedInjectionLifecycle ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseInjectionLifecycle() was not called on the \
+            default-configuration path — in which case VoccaInject's actual behaviour is outside \
+            this invariant, and only its name is inside it — or the ladder no longer behaves as \
+            written. Both matter, and the second more: the fields cover the two halves of I1 on \
+            the injection path — a run that delivered (and held nothing) and a run that fell \
+            through to the failsafe (and held exactly one transcript, so none was lost).
+            Do not fix this by deleting the call, and do not fix it by pasting in whatever the \
+            probe now prints — see \
+            testTheAssertedInjectionPostConditionStillDescribesADeliveryAndAHandoff.
+            \(observation.diagnosticSummary)
+            """)
+
         // The coverage cross-check. Without it the assertions above stay green while covering an
         // ever-smaller fraction of the product, which is the most likely way this gate rots.
         let manifest = try PackageManifest.load(
@@ -466,6 +538,118 @@ final class ZeroNetworkTests: XCTestCase {
         // And it came to rest: no session, no timer.
         XCTAssertEqual(try value("state"), "idle")
         XCTAssertEqual(try value("schedule"), "stopped")
+    }
+
+    // MARK: - Test D: the injection post-condition is still worth asserting
+
+    /// **Guards the guard.** ``expectedInjectionLifecycle`` must keep describing a ladder that
+    /// delivered once, held once, and moved its clock — the same protection
+    /// ``testTheAssertedSessionPostConditionStillDescribesACompleteSession`` gives the session
+    /// constant, for the same reason: a constant that appears in a failing diff gets regenerated,
+    /// and regenerating `expectedInjectionLifecycle` to whatever the probe now prints is the
+    /// realistic way this gate rots.
+    ///
+    /// So this test reads the constant back and refuses that edit, asserting *properties* rather
+    /// than the literal:
+    ///
+    /// - the run named "success" delivered through a real rung, never the widget — otherwise the
+    ///   "one successful path" claim is being witnessed by a run that actually failed over;
+    /// - the run named "failsafe" ended in the widget, with the full attempted trace intact;
+    /// - exactly one transcript reached the handoff — so the run that delivered held nothing and
+    ///   the run that exhausted held its transcript, which is the zero-loss claim in the only
+    ///   form a two-run drive can witness it;
+    /// - the held transcript's reason is exhaustion, and the clock moved on every run.
+    ///
+    /// Like its session sibling it costs no probe run: the constant is what is under test, not the
+    /// process.
+    func testTheAssertedInjectionPostConditionStillDescribesADeliveryAndAHandoff() throws {
+        let fields = try Self.parseFields(of: Self.expectedInjectionLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        func milliseconds(_ value: String) -> Int {
+            Int(value.replacingOccurrences(of: "ms", with: "")) ?? 0
+        }
+
+        // The "success" run really delivered: it stopped on a shipping rung, not the widget, and
+        // the trace records that rung as attempted. A `success.rung=widgetFailsafe` here would
+        // mean the drive's one claimed delivery never happened — the constant is witnessing the
+        // exact failure it says it prevented.
+        XCTAssertNotEqual(
+            try value("success.rung"), "widgetFailsafe",
+            "The asserted injection post-condition's success run never delivered — it ended in the "
+            + "widget, so the drive's one successful path is not being asserted at all.")
+        let successAttempted = try value("success.attempted").split(separator: ",")
+        XCTAssertFalse(
+            successAttempted.isEmpty,
+            "The asserted injection post-condition's success run attempted no rung.")
+        XCTAssertTrue(
+            successAttempted.contains(Substring(try value("success.rung"))),
+            "The asserted injection post-condition's success run did not record the rung it claims "
+            + "won in its attempted trace.")
+
+        // The failsafe run ended in the widget — `.widgetFailsafe` is a *successful* outcome under
+        // I1, and this is the half that says a delivered run and a held run are told apart.
+        XCTAssertEqual(
+            try value("failsafe.rung"), "widgetFailsafe",
+            "The asserted injection post-condition's failsafe run does not end in the widget "
+            + "failsafe, so nothing is witnessed about the fall-through path.")
+        XCTAssertEqual(
+            try value("failsafe.attempted"), "clipboardPaste,keystrokeSynthesis",
+            "The asserted injection post-condition no longer carries the full attempted trace — "
+            + "that trace is C8's strategy-memory input and must survive the round trip.")
+
+        // Exactly one transcript was held. One is the whole point: the run that delivered held
+        // nothing, and the run that exhausted held its transcript — both halves, on one ledger. A
+        // `handoff.holds=0` would be a silent transcript loss wearing a green suite, and a value
+        // above one would mean the drive lost a transcript somewhere it does not claim to.
+        XCTAssertEqual(
+            try value("handoff.holds"), "1",
+            "The asserted injection post-condition does not hold exactly one transcript: the run "
+            + "that exhausted must hold its transcript and the run that delivered must hold "
+            + "nothing, which is the zero-loss claim in the only form a two-run drive can witness "
+            + "it.")
+
+        // Why it was held, and when: the exhaustion reason, at a non-zero monotonic instant.
+        XCTAssertEqual(
+            try value("handoff.reason"), "exhausted",
+            "The asserted injection post-condition no longer reports the held transcript's reason "
+            + "as exhaustion.")
+        XCTAssertGreaterThan(
+            milliseconds(try value("handoff.capturedAt")), 0,
+            "The asserted injection post-condition holds its transcript at a clock that never "
+            + "moved, so the drive would pass with time standing still.")
+
+        // Both runs charged their clock, and the failed run charged more of it than the delivered
+        // one — otherwise the runs are indistinguishable on the one field time contributes, and a
+        // drive where the clock never advances passes.
+        XCTAssertGreaterThan(
+            milliseconds(try value("success.elapsed")), 0,
+            "The asserted injection post-condition accumulates no time on the delivered run.")
+        XCTAssertGreaterThan(
+            milliseconds(try value("failsafe.elapsed")), 0,
+            "The asserted injection post-condition accumulates no time on the failsafe run.")
+        XCTAssertGreaterThan(
+            milliseconds(try value("failsafe.elapsed")),
+            milliseconds(try value("success.elapsed")),
+            "The asserted injection post-condition's failsafe run does not outlast its delivered "
+            + "run, so the per-rung clock accumulation is not being asserted.")
+
+        // Clipboard truth is unverified, and the failsafe result carries no read-back either. A
+        // verified success on either would be a fabricated claim the rungs never made.
+        XCTAssertEqual(
+            try value("success.verified"), "false",
+            "The asserted injection post-condition reports a verified clipboard delivery; the "
+            + "clipboard rung has no read-back.")
+        XCTAssertEqual(
+            try value("failsafe.verified"), "false",
+            "The asserted injection post-condition reports a verified failsafe outcome.")
     }
 
     /// Splits a `key=value key=value` post-condition, refusing anything that is not one.

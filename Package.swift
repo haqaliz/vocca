@@ -28,7 +28,12 @@ let package = Package(
             name: "_VoccaNetworkInterposerTestFixture", type: .dynamic,
             targets: ["CVoccaNetworkInterposer"]),
     ],
-    dependencies: [],
+    dependencies: [
+        // The first external dependency in the repository: Parakeet TDT v3 via FluidAudio
+        // (Apache-2.0 — the repo's own licence). Pinned to the range the spike measured
+        // (`spike_20260809.md`); confined to one file by the H8b seam lint.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
+    ],
     targets: [
         .target(
             name: "VoccaCore",
@@ -48,19 +53,41 @@ let package = Package(
             dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // An adapter, not a leaf: it implements a seam VoccaCore owns (the ASREngine), so it
+        // depends on VoccaCore and VoccaCore does not depend on it. FluidAudio is the SDK the
+        // Parakeet implementation speaks — confined to one file by the H8b lint. WhisperCpp
+        // is the second engine's C surface, pinned by URL + checksum (see
+        // `docs/planning/second-asr-engine/bridge-integration/spike_20260810.md`).
         .target(
             name: "VoccaASR",
-            dependencies: [],
+            dependencies: [
+                "VoccaCore",
+                .product(name: "FluidAudio", package: "FluidAudio"),
+                "WhisperCpp",
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The whisper.cpp v1.9.2 XCFramework (MIT, https://github.com/ggml-org/whisper.cpp):
+        // the C surface of the second ASR engine. A remote binary target — no source, no
+        // `.package` entry needed; SwiftPM fetches the zip and verifies the checksum below,
+        // which was computed from the downloaded artifact on 2026-08-10, never copied.
+        // macos-arm64_x86_64 slice carries both architectures; the module name is `whisper`.
+        .binaryTarget(
+            name: "WhisperCpp",
+            url: "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-v1.9.2-xcframework.zip",
+            checksum: "af74fed13ea7f2d5ca2a39d9f58ec177713fafd7cab63aef4e27b79f3ceca80b"
         ),
         .target(
             name: "VoccaText",
             dependencies: [],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // An adapter, not a leaf: it implements a seam VoccaCore owns (the TextInjector), so it
+        // depends on VoccaCore and VoccaCore does not depend on it. See ModuleBoundaryTests' rule
+        // 3 for why the arrow points this way and what still constrains it.
         .target(
             name: "VoccaInject",
-            dependencies: [],
+            dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(

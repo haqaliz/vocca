@@ -70,7 +70,7 @@ private enum ModuleBoundaryTestError: Error, CustomStringConvertible {
 /// that currently holds for free.
 final class ModuleBoundaryTests: XCTestCase {
     private static let leafModules: Set<String> = [
-        "VoccaAudio", "VoccaASR", "VoccaText", "VoccaInject", "VoccaSpeech",
+        "VoccaAudio", "VoccaText", "VoccaSpeech",
     ]
 
     /// Modules that implement a seam `VoccaCore` owns, and may therefore import it.
@@ -78,7 +78,16 @@ final class ModuleBoundaryTests: XCTestCase {
     /// Membership is a deliberate, reviewed edit — moving a module here is how a leaf stops being
     /// bound by rule 1, so it must be visible in a diff rather than inferred from what a module
     /// happens to import today.
-    private static let adapterModules: Set<String> = ["VoccaHotkey"]
+    ///
+    /// `VoccaASR` joined in the local-asr capability: it implements the `ASREngine` seam (the
+    /// Parakeet adapter) and its model store. The move is what lets it import `VoccaCore` — the
+    /// engine's types live there — while the H8b lint keeps the SDK confined to one file.
+    ///
+    /// `VoccaInject` joined in the injection-ladder capability: it implements the `TextInjector`
+    /// seam (the ladder decision and rung strategies). The move is what lets it import `VoccaCore` —
+    /// the seam's types live there — while the H9-style seam lints keep the system APIs confined
+    /// to one file each.
+    private static let adapterModules: Set<String> = ["VoccaHotkey", "VoccaASR", "VoccaInject"]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.
     private static let compositionRoot = "VoccaBootstrap"

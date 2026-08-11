@@ -246,6 +246,25 @@ struct NetworkObservation {
         return nil
     }
 
+    /// The injection post-condition the probe observed after driving one ladder run through the
+    /// real `LadderInjector`, or `nil` if the probe never reported one.
+    ///
+    /// The third effect-not-reference post-condition, and it exists for the same reason as the
+    /// other two. `VoccaInject` appearing in ``reportedModules`` proves only that a type from it
+    /// was mentioned — while the module was a placeholder that was all there was to prove, and it
+    /// no longer is: the module now holds a ladder with a decision function, rung strategies and
+    /// a failsafe. This payload is a line of `key=value` fields the probe can only produce by
+    /// running that ladder: the outcome each of its two runs returned, the trace each attempted,
+    /// the failsafe handoff ledger, and the elapsed time the injected clock accumulated.
+    /// Deleting the drive takes the whole line with it and the assertion fails on `nil`.
+    var reportedInjectionLifecycle: String? {
+        for line in probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-INJECTION\t") {
+            return String(line.dropFirst("PROBE-INJECTION\t".count))
+        }
+        return nil
+    }
+
     var events: [ObservedNetworkEvent] {
         rawLog.split(separator: "\n").compactMap { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)

@@ -2,8 +2,13 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status:** the **project skeleton for C1 exists**; the product does not. Implementation of C1
-> (audio capture + global hotkey) is under way and this is its scaffolding, not its behaviour.
+> **Status:** the **C1 skeleton, the C2 ASR half, the C3 second ASR engine and the C4 injection
+> ladder exist**; the product
+> does not. C1 (audio
+> capture + global hotkey) is under way — session machine, hotkey source seam and the tap
+> adapter shipped; the audio capture aspect is in flight. C2 (local ASR) merged 2026-08-09; C3
+> (second-asr-engine) landed 2026-08-11; C4 (the
+> injection ladder and its failsafe surface) landed 2026-08-09.
 >
 > **What is built and enforced:**
 > - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
@@ -30,9 +35,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   rather than assumed (see below). It is the first adapter,
 >   so it is the first
 >   module to depend on `VoccaCore` (see `ARCHITECTURE.md` §2 — the graph points inward to the core,
->   amended in that commit). The other seven modules remain placeholders. **There is still no audio,
->   no ASR and no injection** — the session machine reacts to synthetic key events and an injected
->   clock, and `SessionAudioSource` is still a stub. The C1 acceptance (100 cycles, 100 started,
+>   amended in that commit). `VoccaASR`, `VoccaInject` and `VoccaUI` have since shipped behind their
+>   seams (recorded below); `VoccaAudio`, `VoccaText` and `VoccaSpeech` remain placeholders, and
+>   **there is still no audio and no loop wiring** — the session machine reacts to synthetic key events
+>   and an injected clock, and `SessionAudioSource` is still a stub. The C1 acceptance (100 cycles, 100 started,
 >   100 ended, 0 overlapping, 0 orphaned) runs over the `HotkeyEventSource` seam with a fake source
 >   in the tap's place. **The tap adapter itself is written and is executed by nothing**: `tapCreate`
 >   returns `nil` without an Accessibility grant, so not one line of `CGEventTapSource.swift` runs in
@@ -49,13 +55,18 @@ This file orients a coding agent working in this repository. Read it first.
 >   after the floor check — because `swift build` and `swift test` never see `Tools/`, and a check
 >   that lived only in CI is what let a `RepeatingTimer` change break the harness with every local
 >   signal green and master red on merge.
-> - `Tests/HarnessTests/`: 324 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 623 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
->   watchdog), module-boundary lint, licence-header lint, package-manifest coverage guard, the
+>   watchdog, and two complete ladder runs through the real injector), module-boundary lint,
+>   licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
 >   invariant coverage, the hotkey flag translation with its `fn` rule, the `HotkeyEventSource` seam
->   with H6 pinned in **both** directions at the far end of it, the H7 seam lint — which now names
->   the tap adapter as the one file in `Sources/` permitted to speak CoreGraphics, and at most one —
+>   with H6 pinned in **both** directions at the far end of it, the H7 seam lint — per-seam since
+>   the injection-adapters amendment: the tap adapter is the one file permitted to speak CoreGraphics
+>   in the tap seam, and the keystroke adapter (`VoccaInject/Keystroke/KeystrokeSource.swift`) is the
+>   one in the keystroke seam, one file per seam, ever — the pasteboard, AX, Carbon and `FileManager`
+>   families joined the same rule in the adapters and failsafe-surface amendments, one file each
+>   (`SystemPasteboard`, `AXSource`, `SecureInputRead`, `FileSystemJournalStore`) —
 >   the event-type classification and its mask, the tap callback's own body — lifted out of the
 >   adapter so that it has somewhere to run, with H6 pinned in both directions at the last point
 >   before the C ABI — the callback-safe split of a tap disablement, and the
@@ -87,6 +98,112 @@ This file orients a coding agent working in this repository. Read it first.
 >   and that script is now the whole of the headless job's check, the measurement harness's compile
 >   included, so nothing CI checks is unreachable from a developer's machine.
 >
+> **C2 (`local-asr`) merged 2026-08-09 — the ASR half of the dictation loop.** The
+> `ASREngine` seam now exists as code in `VoccaCore` (`transcribe`, batch-default `stream`,
+> `prepare`; attribution non-optional, the empty-buffer policy, `AudioBuffer.missingSampleCount`
+> as the I1 completeness link's carrier), with **Parakeet TDT 0.6B v3 via FluidAudio** as the
+> first implementation — the repository's first external dependency (`from: "0.12.4"`,
+> Apache-2.0). The model lifecycle is real: `ModelStore` (actor, single-flight, atomic
+> verified-marker commit, SDK-shaped `sdkDirectory` layout, recursive presence),
+> `ModelDownloader` (resume/verify/retry over an injected transport), `DefaultModelTransport`
+> as **the one file permitted to name `URLSession`** (H8 lint — the first of `ARCHITECTURE.md`'s
+> two named network types), and `ModelHub.offlineMode = true` at engine construction so the
+> SDK's own download path is structurally dead. The F1 spike is recorded (`docs/planning/local-asr/parakeet-engine/spike_20260809.md`):
+> **RTF 0.0122 on M4 Max (word-perfect), warm load 0.111 s, 470 MB artifact, 79 MiB peak RSS**,
+> and the layout finding that shaped the store (`load(from: D)` resolves to
+> `<D.parent>/<repo.folderName>/`). The fixture suite is real: `WER` scorer (table-tested),
+> parameterized harness proven with stubs, six fixtures + goldens (TTS stand-ins pending the
+> founder's recordings), a provisioning script, the real SHA-256 manifest, and an
+> **env-gated real-engine WER run that passed on the first real run** (15.4 s, all provisional
+> tolerances met). The minimal download window ships in `VoccaUI` over a Core-owned
+> `ModelDownloadSession` seam with a tested state reducer.
+>
+> **What C2 is NOT, and must not be claimed:**
+> - **The Parakeet adapter is executed by nothing in CI** (the tap-adapter precedent): the
+>   CoreML model cannot reach a hosted runner. Every decision is above the seam and tested;
+>   the real-engine numbers come from `ParakeetEngineWERTests` with `VOCCA_MODEL_DIR` set
+>   (it skips visibly otherwise), per `SMOKE_CHECKLIST.md` step 18.
+> - **The F1 runner verdict is pending**: whether the real-model suite can run in CI on a
+>   macos-15 runner is unanswered (`asr-spike.yml`, `workflow_dispatch`); the two wiring paths
+>   are recorded in `docs/planning/local-asr/fixture-suite/ci-wiring-decision_20260809.md`.
+> - **The C1→C2 completeness bridge is gated** on the `audio-capture` merge: the captured
+>   buffer's `refusedSampleCount` → `AudioBuffer.missingSampleCount` conversion is the last
+>   unshipped link; the contract is already carried end to end.
+> - **The provisional WER tolerances are provisional** (TTS stand-ins are unnaturally clean);
+>   the founder's real recordings (F2) set the numbers, in exactly one place.
+>
+> **C3 (`second-asr-engine`) landed 2026-08-11 — the whisper.cpp half of the ASR story, behind the
+> same seam.** The `ASREngine` seam now has a second implementation, `WhisperCppEngine` in
+> `VoccaASR/Whisper/` — a whisper.cpp-backed actor over the **`WhisperCpp` binary target** (the
+> repository's first binary dependency: the official v1.9.2 XCFramework, fetched by SPM at resolve
+> time, never at runtime), with `WhisperCAPI.swift` the bridge — the one file permitted to name the
+> `whisper_` / `WHISPER_` / `import whisper` family, seam-pinned two-sided by `WhisperSeamTests`
+> (the H7/H8b precedent; `VoccaBridge` stays reserved for a second C-ABI consumer, per the
+> `ARCHITECTURE.md` §2 amendment). The engine is an actor with its own parameters, load state and
+> segment mapping, and every transcript carries `WhisperCppEngineIdentity` — attribution is
+> non-optional, exactly as Parakeet's is. The model lifecycle is reused, not duplicated: two GGUF
+> manifests (turbo and q5_0 tiers) with verified digests ship in `VoccaASR/Models/Manifests/`, and
+> a suite test round-trips a manifest through the existing `ModelStore` over a stub transport. The
+> real-engine WER run was extracted into a shared parameterized runner: `WhisperCppEngineWERTests`
+> is env-gated by `VOCCA_MODEL_DIR` exactly like Parakeet's (it skips visibly otherwise), and the
+> runtime swap is pinned — a session resolves its engine once, at start, and only the identity
+> differs at the boundary. The Speech-tab picker ships in `VoccaUI`: `EnginePickerStateReducer`
+> (the never-auto-switch rule) and `EnginePickerCopy` tested headless, with `EnginePickerView`
+> thin glue over them.
+>
+> **What C3 is NOT, and must not be claimed:**
+> - **The whisper real-engine WER run has not happened.** `WhisperCppEngineWERTests` skips without
+>   `VOCCA_MODEL_DIR`; the founder runs it on hardware with the provisioned artifacts, per
+>   `SMOKE_CHECKLIST.md` step 19. The provisional tolerances are **seeded from Parakeet's table,
+>   not measured** on whisper's output — `tolerances_20260810.md` is the one place the mechanism is
+>   explained, and nothing passes or fails a release gate on the numbers until they are
+>   re-baselined from a real run.
+> - **The picker panel is executed by nothing in CI** (the window-server precedent): the reducer
+>   and the copy are the tested half; `SMOKE_CHECKLIST.md` step 20 is the panel's first execution.
+> - **The weights-license record is DRAFT** pending the founder's sign-off
+>   (`docs/planning/second-asr-engine/model-lifecycle/license_20260810.md`): whisper.cpp and ggml
+>   are MIT-verified from primary sources, but the converted GGUF weights' own provenance is the
+>   founder's open item, and `THIRD_PARTY_NOTICES.md`'s weights entry stays marked pending until
+>   the record is signed.
+> - **The F1 runner verdict is still pending for both engines** — whether the real-model suite can
+>   run on a macos-15 hosted runner is unanswered, and C3's entry in
+>   `docs/planning/local-asr/fixture-suite/ci-wiring-decision_20260809.md` records the same
+>   env-gated decision for whisper rather than re-deciding it.
+> - **There is still no audio and no loop** — nothing connects session → ASR → injection, and the
+>   picker's engine switch cannot be exercised against a live session until C1's capture exists.
+>
+> **C4 (`injection-ladder`) landed 2026-08-09 — the injection half of the dictation loop.** The
+> `TextInjector` seam exists as code in `VoccaCore` (`inject`, `resolve`, `failsafe` over
+> `TargetContext`, the rung and result vocabulary, and `HeldTranscript` carried through the
+> single-slot `TranscriptHolder` seam — held, and durable before `hold` returns), with **the ladder
+> decision and `LadderInjector` in `VoccaInject/Ladder/`**: the allowlist gate over the seeded
+> three-app list, the per-app rung order (accessibility → clipboard-paste → keystroke), the
+> never-clobber clipboard restore, and the read-back-verified AX rung — every decision over
+> injected seams. The adapters are translation with no decisions in them, each the one file in its
+> H7 seam: `KeystrokeSource` (the keystroke seam's one CGEvent file), `SystemPasteboard` (save/set/
+> paste/restore, invisible to a clipboard manager), `AXSource` (allowlist-gated, read-back-verified),
+> and `SystemSecureInputRead` (one Carbon line, read fresh at resolution time — the injection half
+> of the Secure Input story). The recovery journal (`VoccaInject/Journal/`) makes the failsafe's
+> durability real: a `hold` does not return until the transcript is on disk
+> (`~/Library/Application Support/Vocca/recovery/`, atomic temp+rename), bounded, purged on resolve,
+> with `FileSystemJournalStore` the one file permitted to name `FileManager`. The FAILSAFE window
+> ships in `VoccaUI` — a non-activating `NSPanel` that never takes focus, ⌘C / ⏎ / ✕ key
+> equivalents over an injected copy seam, cause-specific reason copy, and a tested state reducer
+> whose decision table runs headless, including the never-auto-dismiss rule: no time-based
+> transition exists in it at all. The zero-network probe now drives the ladder too — two complete
+> runs through the real injector, replacing the `VoccaInject` placeholder — and the suite floor is
+> 623 tests.
+>
+> **What C4 is NOT, and must not be claimed:**
+> - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
+>   Accessibility or Automation grant, no real pasteboard session, no window server on a hosted
+>   runner. Every decision is above the seam and tested; `SMOKE_CHECKLIST.md` steps 22–35 are the
+>   adapters' and the panel's only execution.
+> - **There is still no audio and no loop** — `audio-capture` is unmerged and `SessionAudioSource`
+>   is still a stub; nothing yet connects session → ASR → injection; the full six-state widget is
+>   still out of scope (only the FAILSAFE surface ships); and C8 (strategy memory), C7 (latency
+>   instrumentation) and C5 (cleanup) remain unbuilt.
+>
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no
 >   Apple Developer ID and no `notarytool` credential. Only its credential-detect-and-skip path
@@ -113,12 +230,13 @@ This file orients a coding agent working in this repository. Read it first.
 >   distinct: `IsSecureEventInputEnabled()` *works* without any grant, so nothing stops it running —
 >   what cannot be written is a test worth having. The value is a fact about every other application
 >   on the machine, so asserting it is `false` fails on a developer with a password field focused and
->   asserting it is a `Bool` asserts nothing. `docs/SMOKE_CHECKLIST.md` steps 36–38 are its only
+>   asserting it is a `Bool` asserts nothing. `docs/SMOKE_CHECKLIST.md` steps 55–57 are its only
 >   confirmation.
 > - **`SystemPhysicalKeyState` — `CGEventSourceKeyState` and `CGEventSourceFlagsState` — is executed
 >   by nothing**, for the same reason the tap adapter is not: it lives in `CGEventTapSource.swift`
->   because those identifiers match the H7 seam prefix and exactly one file may name it. What the
->   answers *mean* is above the seam, in `SessionWatchdog`, and is tested there.
+>   because those identifiers match the H7 seam prefix and one file per seam may name them — the tap
+>   seam's one file holds its physical-key reads, exactly as the keystroke seam's one file holds its
+>   synthesis. What the answers *mean* is above the seam, in `SessionWatchdog`, and is tested there.
 >
 > **`ARCHITECTURE.md` is authoritative on technical direction** (see "Tech direction" below).
 > Keep these docs in sync as things ship.
