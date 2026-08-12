@@ -87,3 +87,13 @@ public struct AudioBuffer: Sendable, Hashable {
         self.missingSampleCount = missingSampleCount
     }
 }
+
+/// The session machine's buffer, once the capture bridge exists to fill it.
+///
+/// ``CapturedAudio`` was written while "the buffer type belongs to `VoccaAudio`" — the ASR seam
+/// landed first, so the one buffer that must cross every seam lives here instead. This conformance
+/// is what lets `SessionMachine<AudioBuffer>` hold the real capture path: a session's hand-over is
+/// the ASR seam's own type, completeness link included, which is the C1→C2 bridge the asr seam
+/// recorded as gated on the capture merge (`missingSampleCount` populated from the ring's
+/// `refusedSampleCount`).
+extension AudioBuffer: CapturedAudio {}

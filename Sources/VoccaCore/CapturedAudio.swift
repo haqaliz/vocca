@@ -15,8 +15,12 @@
 /// What a session captured, as this module needs to know it: **not at all**.
 ///
 /// Deliberately empty. `VoccaCore` imports nothing and must never learn what a sample rate is —
-/// the buffer type belongs to `VoccaAudio`, and this marker is how ``SessionOutcome`` states "a
-/// real buffer goes here" without the dependency.
+/// the constraint that once meant "the buffer type belongs to `VoccaAudio`" now means the buffer
+/// type belongs *here*: the ASR seam shipped ``AudioBuffer`` in this module (it is what
+/// ``ASREngine/transcribe(_:)`` takes), and its conformance below is what makes a session's
+/// hand-over that same type. The marker is how ``SessionOutcome`` states "a real buffer goes
+/// here" without the dependency — and how it keeps `Optional` and `Void` from satisfying the
+/// obligation to produce one.
 ///
 /// ## Why a marker beats an unconstrained generic
 ///

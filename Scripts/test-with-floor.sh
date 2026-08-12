@@ -55,6 +55,22 @@ set -euo pipefail
 # block's counts are the C1 branch's pre-merge totals, not project totals.
 #
 # The C1 audio-capture chain, newest first (branch totals, pre-merge):
+# It was 426 by audio-capture phase 5, which added eight (434 at the branch tip — the floor line
+# moves 725 → 733 in this commit). MicrophoneSourceTests drives the SessionAudioSource conformance
+# over a fake graph and a real ring (and a real converter), which is what Phase 5's plan names as
+# its RED, verbatim: a ring that refused samples hands over audio marked incomplete **and the
+# number it carries equals the ring's refusedSampleCount** — at 16 kHz mono, and verbatim at
+# 48 kHz stereo in the ring's own raw units; a ring that refused nothing hands over audio marked
+# complete; and the cross-session negative case, which is why the conformance reads a per-session
+# baseline at beginCapture (the ring's refusal counter is cumulative since creation, so a naive
+# pass-through marks every later session incomplete after the first overrun). The remaining five:
+# an empty press (a real session that captured nothing, complete), an engine that refuses to
+# start (.unavailable, and no teardown is owed for an open that never happened), A8 at the seam
+# boundary (one second at 48 kHz stereo arrives as exactly 16 000 mono frames — the count reads
+# the rate off the data), the release-before-return obligation read off the fake graph's stop
+# ledger, and a full session through the real machine — which is what makes the machine hold
+# VoccaCore's own AudioBuffer and closes the C1→C2 completeness bridge (the outcome's audio
+# carries missingSampleCount equal to the session's refusals).
 # It was 418 by audio-capture phase 4, which added eight (426 at the branch tip, 725 on the merged
 # tree — the floor line moves 717 → 725 in this commit). AudioBufferListInterleavingTests drives
 # the channel policy with hand-built AudioBufferLists and reads the ring back: the deinterleaved
@@ -730,7 +746,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=725
+MINIMUM_EXECUTED_TESTS=733
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

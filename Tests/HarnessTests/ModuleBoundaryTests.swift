@@ -65,12 +65,12 @@ private enum ModuleBoundaryTestError: Error, CustomStringConvertible {
 /// ``testTheAdapterRuleDetectsAnAdapterImportingALeafModule``, which proves it against a mutation
 /// rather than asserting it.
 ///
-/// `VoccaAudio` will need the same move when `SessionAudioSource` gets a real implementation. It
-/// is deliberately still a leaf today: it imports nothing, so moving it now would loosen a rule
-/// that currently holds for free.
+/// `VoccaAudio` made the same move in the audio-capture capability, when `SessionAudioSource`
+/// got its real implementation (`MicrophoneSource`). It was deliberately still a leaf until then:
+/// it imported nothing, and moving it would have loosened a rule that held for free.
 final class ModuleBoundaryTests: XCTestCase {
     private static let leafModules: Set<String> = [
-        "VoccaAudio", "VoccaText", "VoccaSpeech",
+        "VoccaText", "VoccaSpeech",
     ]
 
     /// Modules that implement a seam `VoccaCore` owns, and may therefore import it.
@@ -87,7 +87,18 @@ final class ModuleBoundaryTests: XCTestCase {
     /// seam (the ladder decision and rung strategies). The move is what lets it import `VoccaCore` —
     /// the seam's types live there — while the H9-style seam lints keep the system APIs confined
     /// to one file each.
-    private static let adapterModules: Set<String> = ["VoccaHotkey", "VoccaASR", "VoccaInject"]
+    ///
+    /// `VoccaAudio` joined in the audio-capture capability: it implements the `SessionAudioSource`
+    /// seam (the `MicrophoneSource` conformance). The move is what lets it import `VoccaCore` — the
+    /// hand-over is the ASR seam's `AudioBuffer`, whose completeness link (`missingSampleCount`) is
+    /// the C1→C2 bridge the capture conformance fills from the ring's `refusedSampleCount`. It was
+    /// deliberately still a leaf while it imported nothing ("moving it now would loosen a rule that
+    /// currently holds for free"); the import is the reason to move, not the move's cost. The
+    /// AVFoundation expected-importer lint in `AudioFormatConverterTests` keeps the framework
+    /// confined to the two graph/conversion files regardless.
+    private static let adapterModules: Set<String> = [
+        "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio",
+    ]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.
     private static let compositionRoot = "VoccaBootstrap"
@@ -256,13 +267,13 @@ final class ModuleBoundaryTests: XCTestCase {
     /// matter: another leaf, and the composition root.
     func testTheAdapterRuleDetectsAnAdapterImportingALeafModule() {
         let voccaModules: Set<String> = [
-            "VoccaCore", "VoccaHotkey", "VoccaAudio", "VoccaUI", "VoccaBootstrap",
+            "VoccaCore", "VoccaHotkey", "VoccaText", "VoccaUI", "VoccaBootstrap",
         ]
 
         XCTAssertEqual(
             Self.adapterImportViolations(
-                imports: ["VoccaCore", "VoccaAudio"], amongVoccaModules: voccaModules),
-            ["VoccaAudio"],
+                imports: ["VoccaCore", "VoccaText"], amongVoccaModules: voccaModules),
+            ["VoccaText"],
             "An adapter importing a leaf module must be reported, exactly as rule 2 reported it.")
 
         XCTAssertEqual(
