@@ -396,10 +396,11 @@ final class ZeroNetworkTests: XCTestCase {
         //
         // The distinction is load-bearing and was demonstrated, not assumed: deleting the
         // configure(_:) call from the probe while keeping `AppBootstrap.self` in its placeholder
-        // list left this suite 2/2 green. Module granularity is enough for the eight placeholder
-        // modules, which have no work yet; VoccaBootstrap is the one module where the work *is* the
-        // deliverable, because it is the app's real start-up path and the only code in this package
-        // that runs before the run loop.
+        // list left this suite 2/2 green. Module granularity is enough for the four remaining
+        // placeholder modules (VoccaHotkey's flag translation, VoccaText, VoccaSpeech and
+        // VoccaUI's non-panel surface), which have no work the probe reaches yet — VoccaBootstrap
+        // was the first module where the work *is* the deliverable, because it is the app's real
+        // start-up path and the only code in this package that runs before the run loop.
         XCTAssertEqual(
             observation.reportedActivationPolicy, "accessory",
             """
