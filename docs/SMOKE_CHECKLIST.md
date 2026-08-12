@@ -995,17 +995,18 @@ launch-time background `prepare` (`AppBootstrap.main` → `startEnginePreparatio
 the background, and a press before it completes is step 66's gesture, not this section's — and
 **the Accessibility and microphone grants must be live** (steps 5-10).
 
-And three halves of the plan are **not yet wired in the shipping app**, which is why two of the
+And one half of the plan is **not yet wired in the shipping app**, which is why one of the
 steps below cannot pass yet:
 
-- the live pill's window is not constructed by the composition root — the states are
-  store-folded and CI-pinned, but nothing renders them (`WidgetPanel.swift:38-45` documents the
-  seam: "the composition root does not (yet) hold this window");
-- the **Esc** key's route to the machine's `cancel()` is not wired — the pill cannot become key
-  (`WidgetPanel.swift:33-34`, no key equivalents at all) and the tap passes every non-binding
-  key through to the focused application (`TapEventDispatch.swift:34`);
 - the **toggle mode** selection control belongs to the settings surface, which does not ship yet
   (`PRODUCT_SPEC.md:291`); `setActiveMode` is a wiring seam (`AppBootstrap.swift:700-719`).
+
+The two halves that this section previously listed as unshipped are now wired and their steps
+performable: the live pill's window is constructed by the composition root (`LiveWidget`,
+`AppBootstrap.swift` — lazily, on the store's first non-IDLE fold, so `configure` creates no
+window) and the **Esc** key's route to the machine's `cancel()` is closed end to end
+(`SessionKeyPolicy` in `VoccaHotkey`; the root's cancel router in `AppBootstrap.swift`) — see
+step 64, which was the blocked step.
 
 62. **First dictation — Notes and TextEdit; a 10-second utterance lands verbatim.** PRD metric 1.
 
@@ -1025,11 +1026,12 @@ steps below cannot pass yet:
     (`:84`), tracking real input level, never a canned animation (`:87-88`) — with `esc to
     cancel` after 2 s (`:129`) and the elapsed timer after 3 s (`:89`); TRANSCRIBING freezes the
     waveform with the `○○○` progress (`:93-95`); DELIVERED shows `✓ → Notes` before the ~600 ms
-    collapse to IDLE (`:50`, `:98`). The sequence itself is store-folded and CI-pinned; **the
-    pill's window is not wired yet** (`WidgetPanel.swift:38-45`), so on this build the
-    human-confirmable half of this step is the verbatim landing, the mic behavior, and the
-    absence of the failsafe — the visible sequence is recorded as awaiting the panel's
-    construction.
+    collapse to IDLE (`:50`, `:98`). The sequence is store-folded and CI-pinned, and the pill's
+    window is wired: `LiveWidget` constructs it on the store's first non-IDLE fold, it
+    self-drives show/hide from the store, and it never takes focus (`PRODUCT_SPEC.md:22`;
+    `WidgetPanel.canBecomeKey` is `false`). The waveform tracks the real input level through
+    `MicrophoneLevelSource` over the capture graph — a flat line while speaking is an input-level
+    defect, not a display preference.
 
     *Failure:* the field does not hold the transcript verbatim; the failsafe appears with a
     reason instead of a delivery; or the mic indicator stays lit after the release. A transcribe
@@ -1059,24 +1061,30 @@ steps below cannot pass yet:
 
 64. **Esc during RECORDING and during TRANSCRIBING.** PRD metric 1.
 
-    *Not yet performable on this build — record as **not performed**, not as a pass.* The
-    machine's discard path is shipped and CI-driven: `cancel()` ends the session as
-    `.userCancelled` — the only `EndReason` permitted to discard (`SessionMachine.swift:440-445`,
-    `EndReason.swift:120-122`) — and the pipeline discards it with no transcribe, no inject, no
-    holder touch (`DictationPipeline.swift:137-141`). What is not shipped is the route from the
-    physical Esc key to that call: the live pill cannot become key (`WidgetPanel.swift:33-34`),
-    and the tap passes every non-binding key through (`TapEventDispatch.swift:34`,
-    `SessionRules.swift:115-128`). So on this build an Esc during RECORDING types into the
-    focused app and the session runs on; and an Esc during TRANSCRIBING cannot abort the
-    in-flight transcribe — the session has already ended, the machine answers `.unchanged`
-    (`SessionMachine.swift:628-633`), and the router's pipeline task is not cancellation-aware
-    (`AppBootstrap.swift:921-932`) — so the text still lands. The plan's claim ("`Esc` during
-    `OPENING`, `RECORDING` or `TRANSCRIBING` aborts and discards", `PRODUCT_SPEC.md:129`) is
-    pending the Esc-routing unit. When it ships, the gesture is: press `⌥Space`, speak, press Esc
-    — and expect the widget back at IDLE with nothing in the field and no failsafe, with
-    `PRODUCT_SPEC.md:129`'s cost honoured (an Esc during OPENING opens and closes the mic,
-    briefly lighting the indicator — the `stopDeferredByTheOpening` record,
-    `SessionMachine.swift:240`).
+    *Gesture:* press `⌥Space`, speak, and press Esc **during RECORDING** (the live waveform is
+    drawing). In a second cycle, release the key and press Esc **during TRANSCRIBING** (the
+    waveform is frozen behind the `○○○` progress, `PRODUCT_SPEC.md:93-95`). Do both over an empty
+    Notes field, and watch the field and the mic indicator (step 58's discipline).
+
+    *Pass:* the session is **discarded and nothing lands in the field**: the widget returns to
+    IDLE immediately, no injector call and no failsafe, and the mic indicator goes out with the
+    discard. The route is CI-pinned end to end — the tap's Escape is classified by
+    `SessionKeyPolicy` (a fresh key-down; `Sources/VoccaHotkey/SessionKeyPolicy.swift`), the
+    root's cancel router ends a recording session as `.userCancelled` — the only `EndReason`
+    permitted to discard (`SessionMachine.swift:440-445`) — and cancels an in-flight transcription
+    through the router's task handle, and a cancelled transcription never injects
+    (`DictationPipeline.swift:155-186` — the pipeline checks its own cancellation at every
+    decision boundary). The key is **swallowed** during the gesture — the focused application
+    never sees it — so the app's own Esc behaviour (dismissing a popover, say) must not be
+    expected to fire. `PRODUCT_SPEC.md:129`'s cost is honoured: an Esc during
+    OPENING — the instant between the press and the microphone opening — opens and closes the
+    mic, briefly lighting the indicator (the `stopDeferredByTheOpening` record,
+    `SessionMachine.swift:240`); that variant is a third gesture: press `⌥Space` and Esc
+    back-to-back, and the indicator's flash is the expected behaviour, not a failure.
+
+    *Failure:* text lands in the field; the failsafe appears with a held transcript or a reason
+    notice; the mic indicator stays lit after the Esc (the discard did not close the microphone);
+    or a second dictation cannot start immediately after (a stuck session).
 
 65. **Short press (~80 ms) — returns to IDLE, no injector call.** PRD metric 1.
 
