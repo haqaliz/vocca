@@ -68,6 +68,23 @@ actor ProbeEngine: ASREngine {
     /// drive's report reads this, so a pipeline that skipped transcription is caught by the count.
     private(set) var transcribeCalls = 0
 
+    /// How many samples the last transcribed buffer carried — the drive's "frames handed over"
+    /// fact, read off the engine's ledger rather than off the drive's own write, so that the
+    /// number is the buffer that actually reached the seam. Read after the cycle settles; set on
+    /// every `transcribe`.
+    private(set) var lastBufferFrames = 0
+
+    /// The completeness echo of the last transcribed buffer — `Transcript.missingSampleCount`,
+    /// which this stub fills from the buffer's own `missingSampleCount`, the link's documented
+    /// journey. The drive's `transcript.missing=` field is read here: the number that reached the
+    /// engine, echoed back, never a value the drive wrote down.
+    private(set) var lastTranscriptMissing = 0
+
+    /// The attribution the last transcript carried — this stub's own `identity.id`, recorded at
+    /// the moment of the transcript's construction so the drive's `engine=` field is an
+    /// observation of the attribution rather than a spelling of the identity.
+    private(set) var lastTranscriptEngine = "none"
+
     init() {}
 
     func prepare() async throws {
@@ -76,6 +93,9 @@ actor ProbeEngine: ASREngine {
 
     func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
         transcribeCalls += 1
+        lastBufferFrames = buffer.samples.count
+        lastTranscriptMissing = buffer.missingSampleCount
+        lastTranscriptEngine = identity.id
         return Transcript(
             text: Self.text(for: buffer.samples),
             segments: [],

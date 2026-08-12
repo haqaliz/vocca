@@ -866,8 +866,16 @@ set -euo pipefail
 # CapturedAudio constraint.) It was 36 after the package-root-helper consolidation (task 1), and 33
 # before that.
 #
+# It was 822 when the dictation-loop branch forked, and the probe-full-cycle aspect raised it to
+# 823: one new test — `testTheAssertedCyclePostConditionStillDescribesACompleteDictationCycle`,
+# the guard-the-guard that reads the full-cycle post-condition back and refuses a version that no
+# longer describes a cycle which started, captured, transcribed with the stub's attribution,
+# delivered through a real rung, and never touched the failsafe, the handoff or the download
+# session. The extended `testDefaultConfigurationMakesZeroNetworkConnections` assertion is the
+# same test, grown.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=822
+MINIMUM_EXECUTED_TESTS=823
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

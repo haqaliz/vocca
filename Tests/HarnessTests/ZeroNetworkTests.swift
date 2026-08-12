@@ -219,6 +219,74 @@ final class ZeroNetworkTests: XCTestCase {
         "handoff.capturedAt=30ms",
     ].joined(separator: " ")
 
+    /// **The full-cycle post-condition**: what the probe must report after driving one complete
+    /// dictation cycle through the composed root — press → opening → microphone opens (the fake
+    /// graph hands over its scripted frames) → release → `.ended` → the stub engine transcribes →
+    /// the ladder delivers → the surfaces record — and what
+    /// ``testDefaultConfigurationMakesZeroNetworkConnections`` asserts wholesale.
+    ///
+    /// Asserted as an *effect* for the same reason the other three post-conditions are.
+    /// `VoccaAudio` and `VoccaASR` appearing in the coverage list below proves only that a type
+    /// from each was named — which is exactly what their placeholder entries used to satisfy, and
+    /// why the coverage guard could not tell a module that was *reached* from a module whose work
+    /// was *run*. Every field below is a fact the probe can only produce by running the composed
+    /// loop: the press was swallowed and the machine was recording immediately after it; the
+    /// graph's ledger shows one open and one close; the hand-over carried the three scripted
+    /// frames complete; the stub engine transcribed them exactly once into `"1 2 3"` (reported
+    /// space-free, because the report grammar is space-separated `key=value` fields) with the
+    /// completeness echo of `0`, attributed to the stub, not to a shipped engine; the shipped
+    /// Parakeet manifest loaded; the same text reached the injector and the ladder stopped at the
+    /// clipboard rung; and every surface that must stay quiet on the happy path — the failsafe
+    /// panel, the handoff ledger, the download session and the toggle wiring's microphone —
+    /// recorded nothing.
+    ///
+    /// This is deliberately **not** a golden string to be regenerated when it fails.
+    /// ``testTheAssertedCyclePostConditionStillDescribesACompleteDictationCycle`` reads it back
+    /// and refuses a version that no longer describes a cycle which started, captured, transcribed
+    /// with the stub's attribution, delivered through a real rung, and never touched the failsafe,
+    /// the handoff or the download session — so weakening the probe and pasting in whatever it now
+    /// prints does not restore a green suite.
+    private static let expectedCycleLifecycle = [
+        // The press was swallowed — the focused application never saw the hotkey — and the
+        // machine was recording the moment it returned: the owner's deferral had already opened
+        // the microphone by then (the drive's deferral is synchronous).
+        "press=swallow",
+        "recording=1",
+        // The graph ledger: opened once, closed once. "The session ended" is not "the microphone
+        // was released", and these are the two halves.
+        "mic.opens=1",
+        "mic.stops=1",
+        // The three scripted frames reached the engine, complete: the ring refused nothing, so
+        // the hand-over's completeness link is the honest 0.
+        "frames=3",
+        "transcript=1-2-3",
+        "transcript.missing=0",
+        // The transcript's attribution is the stub's, not a shipped engine's — a composition that
+        // quietly built the real engine would report the real id here, and would also be the
+        // process that just downloaded a model. The stub transcribed exactly once.
+        "engine=probe-stub-engine",
+        "engine.transcribes=1",
+        // The shipped manifest — real `VoccaASR` code, no model bytes — names the Parakeet
+        // artifact the stub stands in for.
+        "manifest.engine=parakeet-tdt-0.6b-v3",
+        // The same text the engine produced reached the injector, and the ladder stopped at the
+        // clipboard rung with the trace to match — a delivery, not a fall-through.
+        "injected=1-2-3",
+        "rung=clipboardPaste",
+        "attempted=clipboardPaste",
+        // The happy path's quiet surfaces: the failsafe panel presented nothing, the handoff held
+        // nothing, and no download session started.
+        "failsafe=0",
+        "holds=0",
+        "download.starts=0",
+        // The widget projection folded the delivery — the composed loop's surface, real
+        // `VoccaUI` code — and the machine came to rest. The toggle wiring's microphone never
+        // opened: only the active configuration may hold the input.
+        "widget=delivered",
+        "toggle.opens=0",
+        "state=idle",
+    ].joined(separator: " ")
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -398,6 +466,36 @@ final class ZeroNetworkTests: XCTestCase {
             Do not fix this by deleting the call, and do not fix it by pasting in whatever the \
             probe now prints — see \
             testTheAssertedInjectionPostConditionStillDescribesADeliveryAndAHandoff.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The full-cycle post-condition. The fourth effect-not-reference check, and the one that
+        // closes the loop the invariant exists for: `VoccaAudio` and `VoccaASR` stopped being
+        // placeholders and became the capture path and the engines, and the coverage guard below
+        // is at module granularity by construction — it can say a module was reached, never that
+        // its work ran. Before this line, `VoccaAudioPlaceholder.self` and
+        // `VoccaASRPlaceholder.self` in the probe's list satisfied the guard whether or not a
+        // single line of either module executed.
+        //
+        // Deleting the drive from the probe removes this line from its output entirely, so the
+        // comparison fails against `nil` rather than quietly covering less.
+        XCTAssertEqual(
+            observation.reportedCycleLifecycle, Self.expectedCycleLifecycle,
+            """
+            The probe did not report driving a complete dictation cycle through the composed root.
+              expected: \(Self.expectedCycleLifecycle)
+              observed: \(observation.reportedCycleLifecycle ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseDictationCycle() was not called on the \
+            default-configuration path — in which case VoccaAudio's and VoccaASR's actual \
+            behaviour is outside this invariant, and only their names are inside it — or the \
+            composed loop no longer behaves as written. Both matter, and the second more: the \
+            fields cover the capture path (the graph ledger and the completeness link), the \
+            transcription (the stub's attribution and its one call), the injection (the clipboard \
+            rung with the trace), and every surface that must stay quiet on the happy path (no \
+            failsafe, no hold, no download, the toggle's microphone never opened).
+            Do not fix this by deleting the call, and do not fix it by pasting in whatever the \
+            probe now prints — see \
+            testTheAssertedCyclePostConditionStillDescribesACompleteDictationCycle.
             \(observation.diagnosticSummary)
             """)
 
@@ -650,6 +748,116 @@ final class ZeroNetworkTests: XCTestCase {
         XCTAssertEqual(
             try value("failsafe.verified"), "false",
             "The asserted injection post-condition reports a verified failsafe outcome.")
+    }
+
+    // MARK: - Test E: the full-cycle post-condition is still worth asserting
+
+    /// **Guards the guard.** ``expectedCycleLifecycle`` must keep describing a complete dictation
+    /// cycle — started, captured, transcribed with the stub's attribution, delivered through a
+    /// real rung, and quiet on every surface that must stay quiet — the same protection the other
+    /// three guard-the-guard tests give their constants, for the same reason: a constant that
+    /// appears in a failing diff gets regenerated, and regenerating `expectedCycleLifecycle` to
+    /// whatever the probe now prints is the realistic way this gate rots.
+    ///
+    /// It costs no probe run: the constant is what is under test, not the process.
+    func testTheAssertedCyclePostConditionStillDescribesACompleteDictationCycle() throws {
+        let fields = try Self.parseFields(of: Self.expectedCycleLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        // The session began and ended: the press was swallowed, the machine was recording right
+        // after it, and it came to rest at the end. `state` not idle would mean the constant is
+        // witnessing a session that never ended.
+        XCTAssertEqual(
+            try value("press"), "swallow",
+            "The asserted full-cycle post-condition no longer swallows the hotkey press.")
+        XCTAssertEqual(
+            try value("recording"), "1",
+            "The asserted full-cycle post-condition never starts a session.")
+        XCTAssertEqual(
+            try value("state"), "idle",
+            "The asserted full-cycle post-condition leaves the machine in a session.")
+
+        // The microphone opened exactly once and closed exactly once, and audio travelled.
+        XCTAssertEqual(
+            try value("mic.opens"), "1",
+            "The asserted full-cycle post-condition never opens the microphone.")
+        XCTAssertEqual(
+            try value("mic.stops"), "1",
+            "The asserted full-cycle post-condition does not close the microphone exactly once.")
+        XCTAssertGreaterThan(
+            Int(try value("frames")) ?? 0, 0,
+            "The asserted full-cycle post-condition carries no frames into the engine.")
+
+        // The transcript is the stub's, it is complete, and the engine was asked exactly once —
+        // a second call would be a pipeline that re-transcribed, and a non-stub attribution would
+        // be a composition that built the real engine (and downloaded a model to do it).
+        XCTAssertEqual(
+            try value("transcript.missing"), "0",
+            "The asserted full-cycle post-condition's transcript is marked incomplete.")
+        XCTAssertEqual(
+            try value("transcript"), "1-2-3",
+            "The asserted full-cycle post-condition's transcript is not the stub's canonical "
+            + "`1 2 3` (reported space-free as `1-2-3`).")
+        XCTAssertEqual(
+            try value("engine"), "probe-stub-engine",
+            """
+            The asserted full-cycle post-condition's transcript is attributed to something other \
+            than the probe's stub engine. The whole point of the substitution is that the real \
+            engine's construction — and its model download — is structurally unreachable from the \
+            probe's composition.
+            """)
+        XCTAssertEqual(
+            try value("engine.transcribes"), "1",
+            "The asserted full-cycle post-condition does not transcribe exactly once.")
+        XCTAssertEqual(
+            try value("manifest.engine"), "parakeet-tdt-0.6b-v3",
+            "The asserted full-cycle post-condition no longer names the shipped Parakeet manifest.")
+
+        // The same text reached the injector and was delivered through a real rung, with the
+        // trace to match — `widgetFailsafe` here would mean the drive's one claimed delivery
+        // never happened, exactly as in the injection post-condition's guard.
+        XCTAssertEqual(
+            try value("injected"), "1-2-3",
+            "The asserted full-cycle post-condition's transcript never reached the injector.")
+        let rung = try value("rung")
+        XCTAssertNotEqual(
+            rung, "widgetFailsafe",
+            "The asserted full-cycle post-condition's cycle never delivered — it ended in the "
+            + "widget failsafe, so the happy path is not being asserted at all.")
+        XCTAssertTrue(
+            try value("attempted").split(separator: ",").contains(Substring(rung)),
+            "The asserted full-cycle post-condition did not record the rung it claims won in its "
+            + "attempted trace.")
+
+        // The happy path's quiet surfaces: nothing presented, nothing held, nothing downloaded,
+        // and the inactive configuration never opened its microphone. Each is a separate way the
+        // constant could stop describing the happy path while still looking like one.
+        XCTAssertEqual(
+            try value("failsafe"), "0",
+            "The asserted full-cycle post-condition tolerates a failsafe presentation on the "
+            + "happy path.")
+        XCTAssertEqual(
+            try value("holds"), "0",
+            "The asserted full-cycle post-condition tolerates a held transcript on the happy path.")
+        XCTAssertEqual(
+            try value("download.starts"), "0",
+            "The asserted full-cycle post-condition tolerates a model download starting during "
+            + "the probe run.")
+        XCTAssertEqual(
+            try value("toggle.opens"), "0",
+            "The asserted full-cycle post-condition tolerates the inactive configuration opening "
+            + "its microphone.")
+        XCTAssertEqual(
+            try value("widget"), "delivered",
+            "The asserted full-cycle post-condition no longer ends with the widget showing the "
+            + "delivery.")
     }
 
     /// Splits a `key=value key=value` post-condition, refusing anything that is not one.

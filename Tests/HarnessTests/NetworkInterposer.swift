@@ -265,6 +265,26 @@ struct NetworkObservation {
         return nil
     }
 
+    /// The full-cycle post-condition the probe observed after driving one complete dictation
+    /// cycle through the composed root, or `nil` if the probe never reported one.
+    ///
+    /// The fourth effect-not-reference post-condition, and it exists for the same reason as the
+    /// other three. `VoccaAudio` and `VoccaASR` appearing in ``reportedModules`` proves only that a
+    /// type from each was named — which is exactly what their placeholder entries used to satisfy.
+    /// This payload is a line of `key=value` fields the probe can only produce by running the
+    /// loop: the session's press and opening, the microphone ledger, the frames the fake graph
+    /// handed over, the stub engine's transcript with its completeness echo, the ladder's rung,
+    /// and the surfaces (panel, handoff, widget, download session) that must all stay quiet on
+    /// the happy path. Deleting the drive takes the whole line with it and the assertion fails on
+    /// `nil`.
+    var reportedCycleLifecycle: String? {
+        for line in probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-CYCLE\t") {
+            return String(line.dropFirst("PROBE-CYCLE\t".count))
+        }
+        return nil
+    }
+
     var events: [ObservedNetworkEvent] {
         rawLog.split(separator: "\n").compactMap { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)

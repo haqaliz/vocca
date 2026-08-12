@@ -67,10 +67,17 @@ public enum ShippedModelManifest {
         case .whisperTurboQ5:
             fileName = "whisper-large-v3-turbo-q5_0"
         }
+        // `Models/Manifests` is declared in `Package.swift` as `.copy("Models/Manifests")`, and
+        // SwiftPM's copy tool preserves only the directory's **base name** inside the resource
+        // bundle — the copied layout is `Manifests/` at the bundle root, not `Models/Manifests/`
+        // (measured from `debug.yaml`'s copy-tool mapping). Asking for the full source path here
+        // could never match a build, which is why this loader was executed by nothing until the
+        // zero-network probe made it the `VoccaASR` witness — and why the subdirectory is the
+        // bundle's, not the source tree's.
         guard
             let url = Bundle.module.url(
                 forResource: fileName, withExtension: "json",
-                subdirectory: "Models/Manifests")
+                subdirectory: "Manifests")
         else {
             throw ShippedModelManifestError.missingBundleResource(
                 tier: tier, fileName: fileName)

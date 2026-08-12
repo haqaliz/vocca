@@ -176,11 +176,13 @@ struct VoccaNetworkProbe {
     ///
     /// **This function is the scope of the zero-network guarantee — keep it honest.** The
     /// assertion in `testDefaultConfigurationMakesZeroNetworkConnections` only covers code that
-    /// actually runs here. Two of the modules have real work today and it is run: `VoccaBootstrap`'s
-    /// start-up path, and `VoccaCore`'s session lifecycle. The other seven are still placeholders,
-    /// so all this can do for them is link each one and force it to load. As their capabilities land
-    /// (audio capture, ASR model loading, TTS, injection, the default text-cleanup pipeline), their
-    /// default-configuration start-up work must be invoked from here too.
+    /// actually runs here. Four of the modules have real work today and it is run: `VoccaBootstrap`'s
+    /// start-up path, `VoccaCore`'s session lifecycle, `VoccaInject`'s ladder, and — since
+    /// `probe-full-cycle` — `VoccaAudio`'s capture path and `VoccaASR`'s manifest loader through
+    /// the composed dictation cycle. The other four are still placeholders, so all this can do for
+    /// them is link each one and force it to load. As their capabilities land (audio capture is
+    /// driven; hotkey flag translation, text cleanup, TTS and the widget surface still are not),
+    /// their default-configuration start-up work must be invoked from here too.
     ///
     /// That instruction is enforced rather than merely written down: the returned module list is
     /// checked against the package manifest and the `Sources/` listing, so adding any module
@@ -189,11 +191,10 @@ struct VoccaNetworkProbe {
     /// growing the body below as capabilities land is still a judgement call this test can
     /// prompt but cannot make.
     private static func exerciseDefaultConfiguration() -> [String] {
-        // The app's real start-up path, and the only module here that does anything yet rather
-        // than merely being loaded. It is called for that reason: `AppBootstrap.configure(_:)` is
-        // literally what runs when a user launches Vocca, so egress introduced there — an update
-        // check, a crash reporter, a telemetry ping — is caught by the invariant instead of
-        // shipping in the one file nothing was watching.
+        // The app's real start-up path, and the module that does the most here. It is called for
+        // that reason: `AppBootstrap.configure(_:)` is literally what runs when a user launches
+        // Vocca, so egress introduced there — an update check, a crash reporter, a telemetry ping —
+        // is caught by the invariant instead of shipping in the one file nothing was watching.
         //
         // `configure` and not `main`: `main` ends in `NSApplication.run()`, which never returns.
         // The seam stops short of the run loop precisely so this call can exist.
@@ -202,16 +203,26 @@ struct VoccaNetworkProbe {
         // already on the main thread, and a hop would return before the work ran, putting it
         // outside the observation window.
         //
+        // The returned root is **held** for the rest of this function rather than discarded: it
+        // is the app's real composition — the object graph a real launch keeps alive — and the
+        // full-cycle drive composes *its own* root over probe fakes, so the two compositions live
+        // side by side without a second `configure` call ever happening. `withExtendedLifetime`
+        // is what expresses the holding; the drive below does not reach into the real root's
+        // internals, because the real adapters (the microphone, the AX reads, the journal, the
+        // window) are exactly the parts CI cannot execute.
+        //
         // The observed policy is reported so the suite can require the *effect* of this call, not
         // its presence. Reporting `AppBootstrap` in the module list below is satisfied by the
         // metatype reference alone: deleting this block and keeping `AppBootstrap.self` left
         // ZeroNetworkTests 2/2 green, which made the one module here that has real work the one
         // module whose work nothing checked. Module granularity is enough for the eight
         // placeholders; for this one it was not.
-        let observedPolicy = MainActor.assumeIsolated { () -> NSApplication.ActivationPolicy in
+        let observedPolicy: NSApplication.ActivationPolicy = MainActor.assumeIsolated {
             let application = NSApplication.shared
-            AppBootstrap.configure(application)
-            return application.activationPolicy()
+            let root = AppBootstrap.configure(application)
+            return withExtendedLifetime(root) {
+                application.activationPolicy()
+            }
         }
         print("PROBE-BOOTSTRAP\tactivationPolicy=\(name(of: observedPolicy))")
 
@@ -242,11 +253,21 @@ struct VoccaNetworkProbe {
         let injection = exerciseInjectionLifecycle()
         print("PROBE-INJECTION\t\(injection.report)")
 
+        // `VoccaAudio`'s and `VoccaASR`'s real work, run rather than referenced — the same shape
+        // as the two drives above, one level up the composition. `VoccaAudioPlaceholder.self` and
+        // `VoccaASRPlaceholder.self` used to sit in the list below and satisfied the coverage
+        // guard whether or not a line of either module ever executed; the witnesses the cycle
+        // drive mints are produced *by* its calls — the real `MicrophoneSource` it captured
+        // through, and the shipped manifest it loaded — so the entries cannot outlive the calls
+        // they stand for. See `DictationCycleDrive.swift`.
+        let cycle = exerciseDictationCycle()
+        print("PROBE-CYCLE\t\(cycle.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
-            VoccaAudioPlaceholder.self,
+            cycle.audioModuleWitness,
             VoccaHotkeyPlaceholder.self,
-            VoccaASRPlaceholder.self,
+            cycle.asrModuleWitness,
             VoccaTextPlaceholder.self,
             injection.moduleWitness,
             VoccaSpeechPlaceholder.self,

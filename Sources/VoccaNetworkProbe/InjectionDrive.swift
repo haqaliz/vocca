@@ -103,6 +103,22 @@ actor ProbeInjectionHandoff: FailsafeHandoff {
     }
 }
 
+extension ProbeInjectionHandoff: TranscriptHolder {
+    /// The shipped composition hands the **same** custody object to the ladder (as its
+    /// `FailsafeHandoff`) and to the pipeline (as its `TranscriptHolder`) — the journal-backed
+    /// holder the `DictationCycleDrive` mirrors. So the probe's ledger speaks both protocols, and
+    /// the drive's "held nothing on the happy path" is read off the same `held` the ladder writes
+    /// to. `current()` answers the first held transcript and `release()` clears the ledger —
+    /// single-slot semantics, like the shipped holder.
+    func current() async -> HeldTranscript? {
+        held.first
+    }
+
+    func release() async {
+        held = []
+    }
+}
+
 // MARK: - The drive
 
 extension VoccaNetworkProbe {
