@@ -202,6 +202,16 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 757 before widget-live-states Task 1, which adds the widget projection and the
+# live-level seam in VoccaCore — eleven tests in WidgetProjectionTests, raising the floor to
+# 768. The ones that justify the raise are `testEveryMachineEffectMapsToExactlyOneResult` and
+# `testRecordingNeverComesFromANonRecordingSignal` (the aspect's load-bearing pair: `.recording`
+# must appear in the closed effect table exactly once, from `SessionEffect.started` — the
+# machine's own recording signal, produced in exactly one place, `SessionMachine.openTheMicrophone()`
+# at `SessionMachine.swift:596-603` — so a waveform can never be claimed over a dead mic), and
+# `testTheLevelSourceSeamIsSendable` (the `LiveLevelSource` seam pinned at compile time by
+# capturing the existential in a `@Sendable` closure — the read the widget's refresh makes, so a
+# conformance that stops being Sendable stops building the test).
 # It was 757 by the dictation-loop loop-wiring Task 3, which added two in
 # TargetResolutionSurfaceTests: the composition root's construction surface for target
 # resolution, pinned from OUTSIDE the module — the file imports VoccaInject without @testable,
@@ -793,7 +803,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=757
+MINIMUM_EXECUTED_TESTS=768
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
