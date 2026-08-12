@@ -202,6 +202,15 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 798 by the dictation-loop loop-wiring Task 5, which added ten: four in
+# WidgetStateStoreTests (the store fold over the closed event set — the recording timer's fires
+# advance the display at the injected clock's cadence with the 2 s / 3 s surfaces appearing at
+# exactly `WidgetTiming`'s constants, the DELIVERED collapse landing at exactly the 600 ms
+# deadline, and the out-of-state timer no-ops) and six in DictationLoopTests (the toggle
+# configuration through the root: press → runs → `.toggledOff`, the ceiling through the toggle
+# timer, the `.tapDisabled` route, the mode switch moving the tap's route with the default
+# hold-to-talk, the display-name resolution feeding the DELIVERED confirmation, and the widget
+# clock collapsing the confirmation and stopping). The floor moves 798 → 808.
 # It was 791 by the dictation-loop loop-wiring Task 4, which added seven in DictationLoopTests:
 # the composed-loop acceptance driven through the real composition root (DictationLoopRoot) over
 # fakes — the R8-1 100-cycle run (100 started, 100 ended, 0 overlapping, 0 orphaned, 100
@@ -827,7 +836,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=798
+MINIMUM_EXECUTED_TESTS=808
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

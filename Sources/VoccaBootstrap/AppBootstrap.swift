@@ -198,8 +198,21 @@ public enum AppBootstrap {
         // fallback source. The configuration-change callback ends the session through the root's
         // system-trigger route; the root does not exist yet, so it is reached through a weak box
         // filled below.
+        //
+        // Two graphs, not one: the hold-to-talk and toggle machines each own their microphone, so
+        // the two can never disagree about who holds the input — the same argument the machine
+        // makes for its own audio source, applied one level up. Only the active machine ever
+        // opens its graph.
         let rootBox = WeakBox<DictationLoopRoot>()
         let graph = try? AudioCaptureGraph(
+            ringCapacity: Self.ringCapacity,
+            onConfigurationChange: { [weak rootBox] in
+                Task { @MainActor in
+                    guard let root = rootBox?.value else { return }
+                    root.observe(.audioConfigurationChanged)
+                }
+            })
+        let toggleGraph = try? AudioCaptureGraph(
             ringCapacity: Self.ringCapacity,
             onConfigurationChange: { [weak rootBox] in
                 Task { @MainActor in
@@ -219,6 +232,12 @@ public enum AppBootstrap {
                 capture-unavailable until the capture graph exists.
                 """)
             microphone = RefusingAudioSource()
+        }
+        let toggleMicrophone: any SessionAudioSource<AudioBuffer>
+        if let toggleGraph, let source = try? MicrophoneSource(graph: toggleGraph) {
+            toggleMicrophone = source
+        } else {
+            toggleMicrophone = RefusingAudioSource()
         }
 
         // MARK: The root
@@ -250,7 +269,13 @@ public enum AppBootstrap {
                 return DictationPipeline(
                     engine: engine, injector: custody.ladder, holder: custody.holder)
             },
-            downloadSession: downloadSession)
+            downloadSession: downloadSession,
+            toggleConfiguration: HotkeyConfiguration(
+                keyCode: Self.shippedHotkeyKeyCode, modifiers: [.option], activation: .toggle),
+            toggleSource: toggleMicrophone,
+            toggleTimer: MainRunLoopTimer(),
+            runningAppName: SystemRunningAppName(),
+            widgetClock: MainRunLoopTimer())
         rootBox.value = root
         return root
     }
@@ -371,6 +396,44 @@ public protocol FailsafePresenting: AnyObject {
 
 extension FailsafePanel: FailsafePresenting {}
 
+// MARK: - The dictation modes
+
+/// The two configurations of the same machine the root wires — the active one receives the tap's
+/// events, the other is constructed and owned (R6; the mode-selection control is the settings
+/// surface's, out of scope here).
+public enum DictationMode: Sendable, Hashable {
+    /// ⌥Space hold-to-talk: the user's finger is the endpointer.
+    case holdToTalk
+    /// ⌥Space toggle: bounded by the ceiling, `.tapDisabled` and the system triggers instead.
+    case toggle
+}
+
+// MARK: - The display-name seam
+
+/// The target application's display name, as the widget's "→ Slack" indicator needs it.
+///
+/// Resolved from a bundle identifier through `NSRunningApplication.localizedName` at ship; the
+/// seam exists so the composed-loop tests can dictate the answer. Read at key-down for the
+/// OPENING state and again at key-up for DELIVERED — both times from the same `TargetContext`,
+/// per S1's "resolve at key-down, inject into that same context at key-up".
+public protocol RunningAppNameReading: AnyObject {
+    /// The focused application's localized name for `bundleID`, or `nil` when no running
+    /// application carries it.
+    func displayName(bundleID: String) -> String?
+}
+
+/// The shipped ``RunningAppNameReading``: `NSRunningApplication`'s own answer, in the one place
+/// the composition root reads the running-app table.
+public final class SystemRunningAppName: RunningAppNameReading {
+
+    public init() {}
+
+    public func displayName(bundleID: String) -> String? {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .first?.localizedName
+    }
+}
+
 // MARK: - The session wiring
 
 /// One configured session wiring: the machine, its watchdog, the sink the tap delivers into, and
@@ -466,6 +529,11 @@ public final class DictationLoopRoot {
     public let configuration: HotkeyConfiguration
     /// The hold-to-talk wiring: machine, watchdog, sink, timer.
     public let holdToTalk: Wiring
+    /// The toggle wiring: the same composition, `activation: .toggle`, constructed and owned.
+    /// It receives the tap's events only while it is the active mode.
+    public let toggle: Wiring
+    /// Which configuration currently receives the tap's events.
+    public private(set) var activeMode: DictationMode = .holdToTalk
     /// The watchdog's timer, exposed so a test can turn it.
     public let watchdogTimer: any RepeatingTimer
     /// The ~1 s tap-health poll's timer.
@@ -483,11 +551,26 @@ public final class DictationLoopRoot {
     public let panel: any FailsafePresenting
     /// The download window's surface — the same store/manifest/transport the engine uses.
     public let downloadSession: (any ModelDownloadSession)?
+    /// The live widget's observable state — the root folds every effect through the projection.
+    public let widgetStore: WidgetStateStore
+    /// The widget clock: the timer whose fires drive ``WidgetStateStore/timerFired(_:)`` while
+    /// the widget is in a time-driven state.
+    public let widgetClock: any RepeatingTimer
+    /// The display-name reader behind the widget's "→ Slack" indicator.
+    public let runningAppName: RunningAppNameReading
+
+    /// The cadence the widget clock fires at — the display's refresh rate for the elapsed timer
+    /// and the DELIVERED collapse's resolution. One hundred milliseconds: ~10 updates per second,
+    /// which is a smooth-enough stopwatch against the 3 s surface threshold and a collapse
+    /// deadline of 600 ms. Named here because it is the root's clock, not the reducer's.
+    public static let widgetClockCadence: Duration = .milliseconds(100)
 
     private let clock: any MonotonicClock
     private let readiness: EngineReadiness
     private let gate: EngineReadinessGate
+    private let toggleGate: EngineReadinessGate
     private let router: EffectRouter
+    private let modeRouting: ModeRoutingSink
     /// The one object whose deallocation frees a `CFMachPort` — held for exactly that reason.
     private let disablementObserver: CallbackSafeTapDisablement
     /// The pipeline's construction, run once the engine is prepared (`nil` when the pipeline was
@@ -499,6 +582,11 @@ public final class DictationLoopRoot {
     /// - Parameters:
     ///   - audioSource: The microphone. The root wraps it in the readiness gate, so the machine
     ///     never opens the mic while the engine is unprepared.
+    ///   - toggleSource: The toggle configuration's own microphone — the same gate, a separate
+    ///     graph, so the two machines can never disagree about who owns the input.
+    ///   - toggleTimer: The toggle wiring's watchdog timer.
+    ///   - runningAppName: The display-name reader behind the widget's target indicator.
+    ///   - widgetClock: The timer whose fires drive the widget store's time-based folds.
     ///   - pipeline: The pipeline, when it can be built before the root — the test shape, where
     ///     the engine is a stub and the injector/holder are ledgers. Mutually exclusive with
     ///     `pipelineAssembly`.
@@ -522,7 +610,12 @@ public final class DictationLoopRoot {
         panel: any FailsafePresenting,
         pipeline: DictationPipeline? = nil,
         pipelineAssembly: (@MainActor () async throws -> DictationPipeline)? = nil,
-        downloadSession: (any ModelDownloadSession)? = nil
+        downloadSession: (any ModelDownloadSession)? = nil,
+        toggleConfiguration: HotkeyConfiguration,
+        toggleSource: any SessionAudioSource<AudioBuffer>,
+        toggleTimer: any RepeatingTimer,
+        runningAppName: RunningAppNameReading,
+        widgetClock: any RepeatingTimer
     ) {
         precondition(
             pipeline == nil || pipelineAssembly == nil,
@@ -540,27 +633,48 @@ public final class DictationLoopRoot {
         self.downloadSession = downloadSession
         self.pipelineAssembly = pipelineAssembly
         self.readiness = readiness
+        self.widgetClock = widgetClock
+        self.runningAppName = runningAppName
 
         let gate = EngineReadinessGate(inner: audioSource, readiness: readiness)
         self.gate = gate
+        let toggleGate = EngineReadinessGate(inner: toggleSource, readiness: readiness)
+        self.toggleGate = toggleGate
+
+        let widgetStore = WidgetStateStore(clock: clock, ceiling: ceiling)
+        self.widgetStore = widgetStore
 
         let router = EffectRouter(
             panel: panel, targetResolution: targetResolution, readiness: readiness,
-            pipeline: pipeline)
+            pipeline: pipeline, runningAppName: runningAppName, widgetStore: widgetStore,
+            widgetClock: widgetClock)
         self.router = router
 
-        let wiring = Wiring(
+        let deliver: (SessionEffect<AudioBuffer>) -> Void = { [weak router] in
+            router?.deliver($0)
+        }
+        let holdToTalk = Wiring(
             configuration: configuration, ceiling: ceiling, clock: clock,
             source: gate, keyState: keyState, timer: watchdogTimer, deferOpening: deferOpening,
-            deliverEffect: { [weak router] in router?.deliver($0) })
-        self.holdToTalk = wiring
+            deliverEffect: deliver)
+        self.holdToTalk = holdToTalk
+        let toggle = Wiring(
+            configuration: toggleConfiguration, ceiling: ceiling, clock: clock,
+            source: toggleGate, keyState: keyState, timer: toggleTimer, deferOpening: deferOpening,
+            deliverEffect: deliver)
+        self.toggle = toggle
+
+        // The tap delivers into whichever configuration is active; the inactive one receives
+        // nothing, so its machine can never open the microphone.
+        let modeRouting = ModeRoutingSink(active: holdToTalk.scheduledWatchdog)
+        self.modeRouting = modeRouting
 
         // The tap-health graph: policy → source, observer → policy, and the timer retains the
         // observer so the weak edge back to the source never goes dangling. See
         // `TapHealthTimer`'s documentation — the observer is the root of the graph and this
         // object is the root's hand on it.
         let policy = TapHealthPolicy(
-            source: tap, sink: wiring.scheduledWatchdog, clock: clock,
+            source: tap, sink: modeRouting, clock: clock,
             secureInput: secureInput,
             note: { note in
                 Self.logTapHealthNote(note)
@@ -579,6 +693,37 @@ public final class DictationLoopRoot {
         // answer is `.permissionMissing` — logged, and the loop stays idle until the grant (the
         // ~1 s poll and the grant notification are the recovery, already wired above).
         Self.logTapHealth(tapHealth.arm())
+    }
+
+    // MARK: - The modes
+
+    /// Switches which configuration receives the tap's events.
+    ///
+    /// The mode-selection control belongs to the settings surface (out of scope); this is the
+    /// wiring seam the tests drive. A switch is refused while either machine has a session in
+    /// flight — moving the tap's route mid-session would orphan the microphone — and logged.
+    public func setActiveMode(_ mode: DictationMode) {
+        guard mode != activeMode else { return }
+        guard holdToTalk.machine.state == .idle, toggle.machine.state == .idle else {
+            logger.error(
+                "refusing to switch mode while a session is in flight — end it first")
+            return
+        }
+        activeMode = mode
+        switch mode {
+        case .holdToTalk:
+            modeRouting.active = holdToTalk.scheduledWatchdog
+        case .toggle:
+            modeRouting.active = toggle.scheduledWatchdog
+        }
+    }
+
+    /// The wiring the current mode drives.
+    private var activeWiring: Wiring {
+        switch activeMode {
+        case .holdToTalk: return holdToTalk
+        case .toggle: return toggle
+        }
     }
 
     // MARK: - The launch path
@@ -631,9 +776,10 @@ public final class DictationLoopRoot {
     /// The user abandoned the session — Escape.
     @discardableResult
     public func cancel() -> SessionEffect<AudioBuffer> {
-        let effect = holdToTalk.watchdog.cancel()
+        let active = activeWiring
+        let effect = active.watchdog.cancel()
         router.deliver(effect)
-        holdToTalk.scheduledWatchdog.reconsider()
+        active.scheduledWatchdog.reconsider()
         return effect
     }
 
@@ -642,9 +788,10 @@ public final class DictationLoopRoot {
     /// notifications; the capture graph's callback is wired in `configure`.
     @discardableResult
     public func observe(_ trigger: SystemTrigger) -> SessionEffect<AudioBuffer> {
-        let effect = holdToTalk.watchdog.observe(trigger)
+        let active = activeWiring
+        let effect = active.watchdog.observe(trigger)
         router.deliver(effect)
-        holdToTalk.scheduledWatchdog.reconsider()
+        active.scheduledWatchdog.reconsider()
         return effect
     }
 
@@ -680,14 +827,27 @@ public final class DictationLoopRoot {
 ///
 /// The router owns the loop's hand-off points, all above the machine:
 ///
+/// - **Every effect feeds the widget projection** — ``WidgetProjection/project(effect:targetAppName:)``
+///   folded into the ``WidgetStateStore``, so the live widget and the dictation half read the same
+///   stream.
 /// - **`.opening`** — the key-down: the target is resolved **now**, for S1's "resolve at key-down,
 ///   inject into that same context at key-up". The resolution is async (the AX read), so it is
-///   spawned as a task the `.ended` route awaits.
+///   spawned as a task the `.ended` route awaits; the OPENING name fills in when the resolution
+///   lands, guarded so a later fold never regresses a session that has already started.
 /// - **`.ended`** — the key-up: the session's outcome is routed through the pipeline **into the
-///   context resolved at key-down**, and the surface is presented on the panel.
+///   context resolved at key-down**, and the surface is presented on the panel. The pipeline's
+///   two finishes become the projection's two events: a delivered transcript shows the DELIVERED
+///   confirmation with the target's name; anything else returns the widget to IDLE.
 /// - **`.captureUnavailable`** — the machine's refusal: when the readiness gate is what refused,
-///   the honest cause is `.modelUnavailable` (PRD R5); a genuine microphone failure is the widget's
-///   notice, not the failsafe's.
+///   the honest cause is `.modelUnavailable` (PRD R5); a genuine microphone failure is the
+///   widget's notice.
+///
+/// ## The widget clock
+///
+/// The router also drives the store's time-based folds: while the widget is in a time-driven
+/// state (RECORDING or DELIVERED), the injected ``RepeatingTimer`` fires both ``WidgetTimer``
+/// events each turn — each a no-op outside its own state, per the reducer's contract — and stops
+/// when the state leaves them (the DELIVERED collapse ends the clock by itself).
 ///
 /// ## The one guard this class exists to justify
 ///
@@ -699,15 +859,18 @@ public final class DictationLoopRoot {
 /// ## Isolation
 ///
 /// `@MainActor`, like the sink that feeds it: everything the router touches (the panel, the
-/// resolver, the pipeline's holder) lives in the session domain, and the `Task`s it spawns inherit
-/// it.
+/// resolver, the store, the pipeline's holder) lives in the session domain, and the `Task`s it
+/// spawns inherit it.
 @MainActor
 private final class EffectRouter {
     private let panel: any FailsafePresenting
     private let targetResolution: TargetResolution
     private let readiness: EngineReadiness
+    private let runningAppName: RunningAppNameReading
+    private let widgetStore: WidgetStateStore
+    private let widgetClock: any RepeatingTimer
     private var pipelineTask: Task<DictationPipeline, Never>?
-    private var pendingResolution: Task<TargetContext, Never>?
+    private var pendingResolution: Task<(target: TargetContext, name: String), Never>?
 
     /// The context an `.ended` without any key-down resolves to — unreachable under
     /// `whenTheOwnerAsks` (every session begins with `.opening`), and the "nothing focused" shape
@@ -719,11 +882,17 @@ private final class EffectRouter {
         panel: any FailsafePresenting,
         targetResolution: TargetResolution,
         readiness: EngineReadiness,
-        pipeline: DictationPipeline?
+        pipeline: DictationPipeline?,
+        runningAppName: RunningAppNameReading,
+        widgetStore: WidgetStateStore,
+        widgetClock: any RepeatingTimer
     ) {
         self.panel = panel
         self.targetResolution = targetResolution
         self.readiness = readiness
+        self.runningAppName = runningAppName
+        self.widgetStore = widgetStore
+        self.widgetClock = widgetClock
         self.pipelineTask = pipeline.map { pipeline in Task { pipeline } }
     }
 
@@ -731,19 +900,27 @@ private final class EffectRouter {
     func install(pipeline: DictationPipeline) {
         pipelineTask = Task { pipeline }
     }
+
     /// One effect from a wiring's sink.
     func deliver(_ effect: SessionEffect<AudioBuffer>) {
         switch effect {
         case .opening:
             // S1's key-down half: resolve the focused application now, so the transcript is
-            // injected into the same context the user was looking at when they pressed.
-            pendingResolution = Task { await targetResolution.resolve() }
+            // injected into the same context the user was looking at when they pressed. The
+            // OPENING state is folded immediately with a placeholder name — the widget must react
+            // within a frame, and the name is display-only — and the resolution's guarded re-fold
+            // fills it in.
+            pendingResolution = Task { await resolveTarget() }
+            foldEffect(effect, appName: "")
         case .ended(let outcome):
             let resolution = pendingResolution
             pendingResolution = nil
+            // The effect fold: `.ended(.cancelled)` → IDLE, `.ended(.completed)` → TRANSCRIBING
+            // (the waveform freeze — `WidgetProjection`'s own table).
+            foldEffect(effect, appName: "")
             Task { [weak self] in
                 guard let self else { return }
-                let target = await resolution?.value ?? Self.nothingFocused
+                let (target, name) = await resolution?.value ?? (Self.nothingFocused, "")
                 guard let pipeline = await self.pipelineTask?.value else {
                     self.logger.error(
                         "an ended session found no pipeline — surfacing the transcript as a reason rather than dropping it")
@@ -751,31 +928,141 @@ private final class EffectRouter {
                     return
                 }
                 let surface = await pipeline.route(.ended(outcome), target: target)
-                await self.present(surface)
+                await self.present(surface, outcome: outcome, target: target, name: name)
             }
         case .captureUnavailable:
-            if !readiness.isReady {
+            if readiness.isReady {
+                // A genuine microphone failure: the widget's notice.
+                foldEffect(effect, appName: "")
+            } else {
+                // The readiness gate refused — the honest cause is the model not being ready
+                // (PRD R5's .modelUnavailable), shown by the panel.
                 panel.presentReasonOnly(.modelUnavailable)
             }
         case .unchanged, .started:
-            // Nothing for the dictation half — the widget projection reads these (Task 5).
-            break
+            foldEffect(effect, appName: "")
         }
     }
 
-    /// The panel half of a pipeline surface.
-    private func present(_ surface: PipelineSurface) async {
+    // MARK: - The widget fold
+
+    /// Fold one machine effect through the projection.
+    private func foldEffect(_ effect: SessionEffect<AudioBuffer>, appName: String) {
+        widgetStore.fold(WidgetProjection.project(effect: effect, targetAppName: appName))
+        settleWidgetClock()
+    }
+
+    /// Fold one pipeline-phase event through the projection.
+    private func foldPipelineEvent(_ event: WidgetProjectionEvent) {
+        widgetStore.fold(WidgetProjection.project(event: event))
+        settleWidgetClock()
+    }
+
+    /// Make the widget clock match the store's state: time-driven states run it, everything else
+    /// stops it.
+    private func settleWidgetClock() {
+        switch widgetStore.state.state {
+        case .recording, .delivered:
+            guard widgetClock.interval == nil else { return }
+            widgetClock.start(every: DictationLoopRoot.widgetClockCadence) { [weak self] in
+                self?.widgetClockFire()
+            }
+        case .idle, .opening, .transcribing:
+            widgetClock.stop()
+        }
+    }
+
+    /// One turn of the widget clock: fire both timers — each a no-op outside its own state, per
+    /// the reducer's contract — and stop when the state has left the time-driven ones (the
+    /// DELIVERED collapse ends the clock by itself).
+    private func widgetClockFire() {
+        widgetStore.timerFired(.recording)
+        widgetStore.timerFired(.deliveredCollapse)
+        switch widgetStore.state.state {
+        case .recording, .delivered:
+            break
+        case .idle, .opening, .transcribing:
+            widgetClock.stop()
+        }
+    }
+
+    // MARK: - The key-down resolution
+
+    /// The S1 key-down resolution: the focused context, and the display name the widget shows.
+    /// The name is re-folded into OPENING when the resolution lands — guarded, so a session that
+    /// has already started is never regressed back to OPENING by a slow name.
+    private func resolveTarget() async -> (target: TargetContext, name: String) {
+        let target = await targetResolution.resolve()
+        let name = displayName(for: target)
+        if case .opening = widgetStore.state.state {
+            widgetStore.fold(.state(.opening(targetAppName: name)))
+        }
+        return (target, name)
+    }
+
+    /// The display name for a resolved context: the running application's localized name, then
+    /// the window title, then nothing — the widget's "→ Slack" indicator.
+    private func displayName(for target: TargetContext) -> String {
+        target.bundleID.flatMap { runningAppName.displayName(bundleID: $0) }
+            ?? target.windowTitle ?? ""
+    }
+
+    // MARK: - The pipeline surface
+
+    /// The panel and projection halves of a pipeline surface.
+    private func present(
+        _ surface: PipelineSurface,
+        outcome: SessionOutcome<AudioBuffer>,
+        target: TargetContext,
+        name: String
+    ) async {
         switch surface {
         case .idle:
-            break
+            switch outcome.content {
+            case .cancelled:
+                // The effect fold already landed IDLE — the discard is the user's instruction.
+                break
+            case .completed(_, let audio, _):
+                // The two finishes, split on the empty-buffer policy (empty audio is the empty
+                // text, decided before transcribe): a non-empty completed session that ended
+                // IDLE delivered its text; an empty one has nothing to confirm.
+                if audio.samples.isEmpty {
+                    foldPipelineEvent(.finishedWithoutDelivery)
+                } else {
+                    foldPipelineEvent(.textDelivered(targetAppName: displayName(for: target)))
+                }
+            }
         case .transcriptHeld:
             await panel.presentHeldTranscript()
+            foldPipelineEvent(.finishedWithoutDelivery)
         case .reasonOnly(let reason):
             panel.presentReasonOnly(reason)
+            foldPipelineEvent(.finishedWithoutDelivery)
         }
     }
 
     private let logger = Logger(subsystem: "dev.vocca.Vocca", category: "loop")
+}
+
+/// The tap's sink, fanned out to whichever configuration is active.
+///
+/// The tap delivers into one wiring at a time; the inactive machine receives nothing, so its
+/// microphone can never open (`DictationLoopRoot/setActiveMode(_:)` is the only writer).
+///
+/// Not annotated `@MainActor`, for the same reason the readiness gate is not: it conforms to the
+/// nonisolated ``HotkeyEventSink`` seam, and the annotation would make the conformance illegal.
+/// The confinement is a fact about how the sink is *used* — `receive` runs on the tap callback's
+/// main actor and `active` is written only by `setActiveMode`, also on the main actor.
+final class ModeRoutingSink: HotkeyEventSink {
+    var active: any HotkeyEventSink
+
+    init(active: any HotkeyEventSink) {
+        self.active = active
+    }
+
+    func receive(_ event: RawKeyEvent) -> EventPropagation {
+        active.receive(event)
+    }
 }
 
 // MARK: - The readiness gate

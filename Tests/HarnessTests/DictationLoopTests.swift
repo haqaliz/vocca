@@ -51,6 +51,10 @@ final class DictationLoopTests: XCTestCase {
     private static let configuration = HotkeyConfiguration(
         keyCode: 49, modifiers: [.option], activation: .holdToTalk)
 
+    /// The same binding in toggle mode — the R6 second configuration, same key and chord.
+    private static let toggleConfiguration = HotkeyConfiguration(
+        keyCode: 49, modifiers: [.option], activation: .toggle)
+
     /// One delivered transcript's text, verbatim from `StubEngine`'s transcription of `[1, 2, 3]`.
     private static let deliveredText = "1 2 3"
 
@@ -67,14 +71,18 @@ final class DictationLoopTests: XCTestCase {
         let keyboard: Keyboard
         let keyState: TruthfulKeyState
         let source: RecordingAudioSource
+        let toggleSource: RecordingAudioSource
         let timer: FakeTimer
+        let toggleTimer: FakeTimer
         let healthTimer: FakeTimer
+        let widgetClock: FakeTimer
         let tap: FakeHotkeyEventSource
         let resolver: DictationEngineResolver
         let injector: LedgerInjector
         let holder: LedgerHolder
         let focusedApp: FakeFocusedApp
         let secureInput: FakeSecureInput
+        let appName: FakeRunningAppName
         let panel: RecordingPanel
         let root: DictationLoopRoot
 
@@ -89,12 +97,16 @@ final class DictationLoopTests: XCTestCase {
             let keyboard = Keyboard()
             let source = RecordingAudioSource()
             source.nextSamples = samples
+            let toggleSource = RecordingAudioSource()
             let timer = FakeTimer()
+            let toggleTimer = FakeTimer()
             let healthTimer = FakeTimer()
+            let widgetClock = FakeTimer()
             let tap = FakeHotkeyEventSource()
             let focusedApp = FakeFocusedApp(
                 identity: FocusedAppIdentity(bundleID: "com.apple.Notes", windowTitle: "The Draft"))
             let secureInput = FakeSecureInput()
+            let appName = FakeRunningAppName()
             let holder = LedgerHolder(held: held)
             let injector = LedgerInjector(result: injectorResult)
             let targetResolution = TargetResolution(
@@ -116,20 +128,29 @@ final class DictationLoopTests: XCTestCase {
                 resolver: resolver,
                 targetResolution: targetResolution,
                 panel: panel,
-                pipeline: pipeline)
+                pipeline: pipeline,
+                toggleConfiguration: DictationLoopTests.toggleConfiguration,
+                toggleSource: toggleSource,
+                toggleTimer: toggleTimer,
+                runningAppName: appName,
+                widgetClock: widgetClock)
 
             self.clock = clock
             self.keyboard = keyboard
             self.keyState = TruthfulKeyState(keyboard)
             self.source = source
+            self.toggleSource = toggleSource
             self.timer = timer
+            self.toggleTimer = toggleTimer
             self.healthTimer = healthTimer
+            self.widgetClock = widgetClock
             self.tap = tap
             self.resolver = resolver
             self.injector = injector
             self.holder = holder
             self.focusedApp = focusedApp
             self.secureInput = secureInput
+            self.appName = appName
             self.panel = panel
             self.root = root
 
@@ -385,6 +406,194 @@ final class DictationLoopTests: XCTestCase {
             "the health poll runs at the shipped one-second cadence")
         XCTAssertTrue(harness.healthTimer.isRunning)
     }
+
+    // MARK: - The toggle configuration (R6)
+
+    /// The active mode defaults to hold-to-talk, and the tap's route follows the switch: a press
+    /// through the tap starts the hold-to-talk machine's microphone and leaves the toggle
+    /// machine's untouched; after the switch, the same press does the opposite.
+    func testTheActiveModeDefaultsToHoldToTalkAndTheSinkFollowsTheSwitch() async {
+        let harness = Harness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+
+        XCTAssertEqual(harness.root.activeMode, .holdToTalk)
+
+        // Through the tap: the mode-routing sink forwards to the hold-to-talk wiring.
+        harness.keyboard.hold(Self.configuration)
+        _ = harness.tap.deliver(event(.keyDown, Self.configuration.keyCode, [.option]))
+        _ = harness.tap.deliver(event(.keyUp, Self.configuration.keyCode, [.option]))
+        harness.keyboard.release(Self.configuration.keyCode)
+        await harness.drain(
+            until: { await harness.injector.calls.count == 1 },
+            "the hold-to-talk session must deliver")
+        XCTAssertEqual(harness.source.beginCount, 1, "the hold-to-talk microphone opened")
+        XCTAssertEqual(
+            harness.toggleSource.beginCount, 0,
+            "the toggle machine is wired but not active — its microphone never opened")
+
+        harness.root.setActiveMode(.toggle)
+        XCTAssertEqual(harness.root.activeMode, .toggle)
+
+        harness.keyboard.hold(Self.toggleConfiguration)
+        _ = harness.tap.deliver(event(.keyDown, Self.toggleConfiguration.keyCode, [.option]))
+        _ = harness.tap.deliver(event(.keyUp, Self.toggleConfiguration.keyCode, [.option]))
+        _ = harness.tap.deliver(event(.keyDown, Self.toggleConfiguration.keyCode, [.option]))
+        _ = harness.tap.deliver(event(.keyUp, Self.toggleConfiguration.keyCode, [.option]))
+        harness.keyboard.release(Self.toggleConfiguration.keyCode)
+        await harness.drain(
+            until: { await harness.injector.calls.count == 2 },
+            "the toggle session must deliver")
+        XCTAssertEqual(
+            harness.toggleSource.beginCount, 1,
+            "after the switch the toggle machine's microphone opened")
+        XCTAssertEqual(harness.source.beginCount, 1, "the hold-to-talk microphone stayed shut")
+    }
+
+    /// The toggle configuration's composed cycle: press → runs (the key-up does **not** end it,
+    /// which is the mode's defining difference) → press again → ended via `.toggledOff`, and the
+    /// transcript is delivered like any other.
+    func testTheToggleConfigurationRunsAComposedCycleEndingViaToggledOff() async {
+        let harness = Harness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+        harness.root.setActiveMode(.toggle)
+
+        harness.keyboard.hold(Self.toggleConfiguration)
+        // Press 1: start.
+        _ = harness.tap.deliver(event(.keyDown, Self.toggleConfiguration.keyCode, [.option]))
+        XCTAssertEqual(harness.toggleSource.beginCount, 1, "the session is running")
+        // The key-up must not end a toggle session.
+        _ = harness.tap.deliver(event(.keyUp, Self.toggleConfiguration.keyCode, [.option]))
+        XCTAssertEqual(
+            harness.toggleSource.endCount, 0,
+            "the key-up is not a stop in toggle mode — the session is still running")
+        // Press 2: `.toggledOff`.
+        _ = harness.tap.deliver(event(.keyDown, Self.toggleConfiguration.keyCode, [.option]))
+        _ = harness.tap.deliver(event(.keyUp, Self.toggleConfiguration.keyCode, [.option]))
+        harness.keyboard.release(Self.toggleConfiguration.keyCode)
+
+        await harness.drain(
+            until: { await harness.injector.calls.count == 1 },
+            "the toggled-off session's transcript must be delivered")
+        XCTAssertEqual(harness.toggleSource.beginCount, 1)
+        XCTAssertEqual(harness.toggleSource.endCount, 1)
+        XCTAssertEqual(harness.toggleSource.overlappingBegins, 0)
+        XCTAssertEqual(harness.toggleSource.closesWithoutOpen, 0)
+        let calls = await harness.injector.calls
+        XCTAssertEqual(calls.map(\.text), [Self.deliveredText])
+    }
+
+    /// The toggle configuration's unconditional backstop: the ceiling ends a toggle session whose
+    /// stopping press never comes, through the watchdog's own timer.
+    func testTheToggleConfigurationEndsAtTheCeiling() async {
+        let harness = Harness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+        harness.root.setActiveMode(.toggle)
+
+        harness.keyboard.hold(Self.toggleConfiguration)
+        _ = harness.tap.deliver(event(.keyDown, Self.toggleConfiguration.keyCode, [.option]))
+        _ = harness.tap.deliver(event(.keyUp, Self.toggleConfiguration.keyCode, [.option]))
+        XCTAssertEqual(harness.toggleSource.beginCount, 1, "the toggle session is running")
+
+        harness.clock.now = SessionCeiling.default
+        harness.toggleTimer.tick()
+
+        await harness.drain(
+            until: { await harness.injector.calls.count == 1 },
+            "the ceiling-ended session's transcript must be delivered")
+        XCTAssertEqual(harness.toggleSource.endCount, 1, "the ceiling closed the microphone")
+    }
+
+    /// The tap's death ends a toggle session too — the `.tapDisabled` route, which in toggle mode
+    /// is the only stop a dead tap can still deliver (`SessionRules.swift:357-359`).
+    func testTheToggleConfigurationEndsViaATapDisablement() async {
+        let harness = Harness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+        harness.root.setActiveMode(.toggle)
+
+        harness.keyboard.hold(Self.toggleConfiguration)
+        _ = harness.tap.deliver(event(.keyDown, Self.toggleConfiguration.keyCode, [.option]))
+        _ = harness.tap.deliver(event(.keyUp, Self.toggleConfiguration.keyCode, [.option]))
+        XCTAssertEqual(harness.toggleSource.beginCount, 1, "the toggle session is running")
+
+        _ = harness.tap.deliver(
+            RawKeyEvent(
+                kind: .tapDisabled, keyCode: 0, modifiers: [], isAutorepeat: false,
+                timestamp: .zero))
+
+        await harness.drain(
+            until: { await harness.injector.calls.count == 1 },
+            "the tap-disabled session's transcript must be delivered")
+        XCTAssertEqual(harness.toggleSource.endCount, 1, "the disablement closed the microphone")
+    }
+
+    // MARK: - The widget projection seam (R4/S1)
+
+    /// The display-name resolution feeds the projection: the root resolves the focused
+    /// application's name through the injected reader, and the DELIVERED confirmation carries it
+    /// ("→ Notes"), so the widget says where the text went.
+    func testTheDisplayNameResolutionFeedsTheProjectionAndTheDeliveredConfirmation() async {
+        let harness = Harness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+        harness.appName.names["com.apple.Notes"] = "Notes"
+
+        harness.oneCycle()
+        await harness.drain(
+            until: {
+                if case .delivered(let name) = harness.root.widgetStore.state.state {
+                    return name == "Notes"
+                }
+                return false
+            },
+            "the delivered confirmation must carry the resolved display name")
+
+        if case .delivered(let name) = harness.root.widgetStore.state.state {
+            XCTAssertEqual(name, "Notes")
+        } else {
+            XCTFail("the widget must be showing DELIVERED, got \(harness.root.widgetStore.state.state)")
+        }
+    }
+
+    /// The widget clock drives the store's timers at the root's cadence: a DELIVERED
+    /// confirmation collapses to IDLE once the injected clock passes the 600 ms deadline, and the
+    /// clock stops — a live timer over an idle widget is the battery shape this repository
+    /// forbids.
+    func testTheRootsWidgetClockCollapsesTheDeliveredConfirmationAndStops() async {
+        let harness = Harness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+
+        harness.oneCycle()
+        await harness.drain(
+            until: {
+                if case .delivered = harness.root.widgetStore.state.state { return true }
+                return false
+            },
+            "the delivered confirmation must appear before the collapse can be measured")
+        XCTAssertTrue(harness.widgetClock.isRunning, "the widget clock runs while DELIVERED")
+
+        harness.clock.now = harness.clock.now + .seconds(1)
+        harness.widgetClock.tick()
+
+        XCTAssertEqual(harness.root.widgetStore.state.state, .idle, "the confirmation collapsed")
+        XCTAssertFalse(harness.widgetClock.isRunning, "the widget clock stopped at IDLE")
+    }
 }
 
 // MARK: - The microphone, with an AudioBuffer payload
@@ -455,6 +664,17 @@ final class FakeSecureInput: SecureInputReading, @unchecked Sendable {
 
     func isSecureInputActive() async -> Bool {
         active
+    }
+}
+
+/// The display-name reader, as a table the test sets — "com.apple.Notes" → "Notes", the shape
+/// `NSRunningApplication.localizedName` answers. Class-bound for the reason the seam is: the
+/// router holds it across its folds.
+final class FakeRunningAppName: RunningAppNameReading {
+    var names: [String: String] = [:]
+
+    func displayName(bundleID: String) -> String? {
+        names[bundleID]
     }
 }
 
