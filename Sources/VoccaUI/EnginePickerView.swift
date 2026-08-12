@@ -199,13 +199,13 @@ public struct EnginePickerView: View {
         activeSessions[engine] = session
         onAction(.downloadStarted(engine))
         Task {
-            for await event in await session.events {
+            for await event in session.events {
                 switch event {
                 case .progress(let fraction):
                     onAction(.downloadProgress(engine, fraction))
                 case .committed:
                     onAction(.downloadCommitted(engine))
-                case .failed(let reason):
+                case .failed:
                     onAction(.downloadFailed(engine))
                 case .cancelled:
                     onAction(.downloadCancelled(engine))
