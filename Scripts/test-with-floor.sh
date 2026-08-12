@@ -202,6 +202,20 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 808 by the dictation-loop widget-live-states Task 3, which added seven in
+# WidgetCopyTests: the live widget's copy — every user-visible string rendered from the reducer's
+# structured state, pinned to the spec with no AppKit anywhere near it (the views themselves are
+# window-server glue executed by nothing in CI, so this file is the tested half). The ones that
+# justify the raise are the target-indicator pair (`testTheOpeningLabelNamesTheTarget` and
+# `testTheDeliveredLabelConfirmsTheTarget` — the PRODUCT_SPEC.md:70 "→ Slack" label must never
+# dangle: the router folds OPENING with an empty name before the resolution lands, so an unresolved
+# name renders nothing rather than "→ "), `testTheElapsedTimerFormatsAsMinutesAndSeconds` (the
+# display ticks once per second, `0:04`-style, off the reducer's whole-second reading),
+# `testTheEscapeHintIsTheSpecsCancelInstruction` (`esc to cancel`, `:129` verbatim — the obvious
+# way out of a dictation the user has thought better of), and
+# `testTheCeilingWarningCopyIsPresentAndDoesNotNameANumber` (the threshold is derived from the
+# *configured* ceiling, so the copy must never hard-code the shipped 120 s). The floor moves
+# 808 → 815.
 # It was 798 by the dictation-loop loop-wiring Task 5, which added ten: four in
 # WidgetStateStoreTests (the store fold over the closed event set — the recording timer's fires
 # advance the display at the injected clock's cadence with the 2 s / 3 s surfaces appearing at
@@ -836,7 +850,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=808
+MINIMUM_EXECUTED_TESTS=815
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
