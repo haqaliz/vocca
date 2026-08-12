@@ -202,6 +202,17 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 757 by the dictation-loop loop-wiring Task 3, which added two in
+# TargetResolutionSurfaceTests: the composition root's construction surface for target
+# resolution, pinned from OUTSIDE the module — the file imports VoccaInject without @testable,
+# so the recipe `TargetResolution(focusedApp: AXSource(), secureInput: SystemSecureInputRead())`
+# fails to compile the moment either adapter drops back to internal, and the is-checks pin that
+# the type-erased values the resolver receives are the shipped adapters. The semantics half runs
+# the same recipe over the seam fakes (per-file private actors, the AccessibilityRungTests norm)
+# and proves one resolution yields bundleID, windowTitle and isSecureInput — the three facts
+# the ladder's decision reads. Access-level changes only: AXSource and SystemSecureInputRead
+# became public with public inits and public protocol witnesses; zero decisions moved and the
+# H7-style seam tables are untouched (same one file per family).
 # It was 751 by the dictation-loop loop-wiring Task 2, which added six in
 # DictationEngineResolverTests: the engine lifecycle — the builder runs exactly once across
 # repeated prepares with the resolver's own selection, and the readiness gate answers the *same*
