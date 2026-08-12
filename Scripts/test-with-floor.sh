@@ -202,6 +202,23 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 815 by the dictation-loop widget-live-states Task 4, which added seven in
+# MicrophoneLevelTests: the real `LiveLevelSource` conformance driven through the REAL interleaver
+# (the callback body ships the peak accounting; the fake seam's `levelPeak` forwards the
+# interleaver's atomic, and frames are fed as hand-built AudioBufferLists — the
+# AudioBufferListInterleavingTests shape). The ones that justify the raise are
+# `testThePublishedLevelTracksTheNewestCallbackNotALifetimeMaximum` (the level must fall when the
+# voice falls — a lifetime maximum would hold yesterday's shout over today's whisper),
+# `testTheLevelIsZeroWhileTheGraphIsStopped` (the seam's "decaying to 0 when stopped" half: a
+# session that ends must not leave a ghost level for the waveform to draw) and
+# `testEachSessionPublishesItsOwnPeakAndStoppingReturnsToSilence` (which is what grew the graph's
+# stop() into engine-stop-plus-level-reset — the fresh-session-starts-silent contract, pinned
+# through the fake that mirrors `AudioCaptureGraph.stop()`). The accounting itself is table-tested
+# directly (`testThePeakAccountingTracksTheGreatestAmplitudeIgnoringSign` and the silence/range
+# rows), and the realtime body it ships in is linted by RealtimeSafetyTests as a reviewed
+# declaration (`MicrophoneLevelSource.swift: peak`, with `UnsafeBufferPointer` and `reduce` added
+# to the permit list — a two-word non-owning view and the allocation-free standard fold). The
+# floor moves 815 → 822.
 # It was 808 by the dictation-loop widget-live-states Task 3, which added seven in
 # WidgetCopyTests: the live widget's copy — every user-visible string rendered from the reducer's
 # structured state, pinned to the spec with no AppKit anywhere near it (the views themselves are
@@ -850,7 +867,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=815
+MINIMUM_EXECUTED_TESTS=822
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

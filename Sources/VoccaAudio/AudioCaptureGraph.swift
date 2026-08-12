@@ -135,6 +135,12 @@ public final class AudioCaptureGraph {
     /// that knows, and a second flag beside it is the shape this package prohibits module-wide.
     public var isRunning: Bool { engine.isRunning }
 
+    /// The newest published input level, 0...1, read off the interleaver's atomic — the widget's
+    /// level source reads it through ``CaptureGraphSeam``. Pure forwarding: the peak accounting is
+    /// ``AudioBufferListInterleaver``'s realtime body, which the tests execute (`widget-live-states`
+    /// Task 4); this file contributes no decision and no arithmetic.
+    public var levelPeak: Float { interleaver.levelPeak }
+
     /// - Parameters:
     ///   - ringCapacity: samples the ring holds. A power of two; see ``AudioRingBuffer``.
     ///   - onConfigurationChange: called when the device graph is invalidated underneath a running
@@ -239,7 +245,13 @@ public final class AudioCaptureGraph {
     /// `AVAudioEngine.stop()` is synchronous and tears down the I/O. Phase 3 measured it at 7.7 ms
     /// median. **No `prepare()` follows it** — see this type's header for the measurement that
     /// removed it.
+    ///
+    /// The level is cleared after the stop, so a fresh session's first reading is silence — the
+    /// "decaying to 0 when the graph is stopped" half of the level contract. No callback can be in
+    /// flight past `engine.stop()`'s teardown, and the clear itself is a plain atomic store
+    /// (`AudioBufferListInterleaver/resetPublishedLevel()`).
     public func stop() {
         engine.stop()
+        interleaver.resetPublishedLevel()
     }
 }

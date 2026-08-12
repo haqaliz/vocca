@@ -260,6 +260,10 @@ final class MicrophoneSourceTests: XCTestCase {
         private(set) var startAttempts = 0
         private(set) var stopCalls = 0
         private(set) var isRunning = false
+        /// The level surface the seam now carries (`MicrophoneLevelSource` reads it): a fixed 0 in
+        /// this ledger — the peak accounting itself is `MicrophoneLevelTests`'s file, driven
+        /// through the real interleaver.
+        var levelPeak: Float = 0
         var nextStart: Result<Void, Error> = .success(())
 
         init(ring: AudioRingBuffer, captureFormat: CapturedAudioFormat) {
