@@ -261,7 +261,7 @@ private final class WatchdogHarness {
     private func record(_ effect: Effect) {
         switch effect {
         case .ended(let outcome): outcomes.append(outcome)
-        case .unchanged, .started, .captureUnavailable: break
+        case .unchanged, .started, .captureUnavailable, .opening: break
         }
     }
 
@@ -601,7 +601,7 @@ final class SessionWatchdogTests: XCTestCase {
             if jumpsAt.contains(wake) { harness.clock.now -= jump }
             switch harness.step() {
             case .ended(let outcome): ended = outcome
-            case .unchanged, .started, .captureUnavailable: break
+            case .unchanged, .started, .captureUnavailable, .opening: break
             }
         }
         XCTAssertNotNil(
@@ -640,7 +640,7 @@ final class SessionWatchdogTests: XCTestCase {
             if wake == 100 { harness.clock.now -= jump }
             switch harness.step() {
             case .ended(let outcome): ended = outcome
-            case .unchanged, .started, .captureUnavailable: break
+            case .unchanged, .started, .captureUnavailable, .opening: break
             }
         }
         XCTAssertNotNil(ended, "The session outlived the bound.")
@@ -1243,7 +1243,7 @@ final class SessionWatchdogTests: XCTestCase {
             wake += 1
             switch toggled.step() {
             case .ended(let outcome): ended = outcome
-            case .unchanged, .started, .captureUnavailable: break
+            case .unchanged, .started, .captureUnavailable, .opening: break
             }
         }
         XCTAssertNotNil(

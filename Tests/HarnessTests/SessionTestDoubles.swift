@@ -233,7 +233,7 @@ func endedOutcome(
     switch effect {
     case .ended(let outcome):
         return outcome
-    case .unchanged, .started, .captureUnavailable:
+    case .unchanged, .started, .captureUnavailable, .opening:
         XCTFail("Expected a session to end, got \(effect). \(message)", file: file, line: line)
         throw XCTSkip("no outcome")
     }

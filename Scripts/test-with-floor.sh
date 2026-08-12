@@ -48,7 +48,161 @@
 set -euo pipefail
 
 # Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
-# 405 by the local-asr download-ui: the three session-adapter tests in ModelDownloadSessionTests
+# Deliberate, reviewed constant — not derived from the current run (see below for why). Raised to
+# 717 by the merge of the C1 audio-capture branch into master: the C2/C3/C4 suite (623 on master)
+# plus the capture suite the branch built on the same base (418 at its tip, 324 at the fork).
+# The two ledgers below were written on their own branches and keep their own numbers — the first
+# block's counts are the C1 branch's pre-merge totals, not project totals.
+#
+# The C1 audio-capture chain, newest first (branch totals, pre-merge):
+# It was 426 by audio-capture phase 5, which added eight (434 at the branch tip — the floor line
+# moves 725 → 733 in this commit). MicrophoneSourceTests drives the SessionAudioSource conformance
+# over a fake graph and a real ring (and a real converter), which is what Phase 5's plan names as
+# its RED, verbatim: a ring that refused samples hands over audio marked incomplete **and the
+# number it carries equals the ring's refusedSampleCount** — at 16 kHz mono, and verbatim at
+# 48 kHz stereo in the ring's own raw units; a ring that refused nothing hands over audio marked
+# complete; and the cross-session negative case, which is why the conformance reads a per-session
+# baseline at beginCapture (the ring's refusal counter is cumulative since creation, so a naive
+# pass-through marks every later session incomplete after the first overrun). The remaining five:
+# an empty press (a real session that captured nothing, complete), an engine that refuses to
+# start (.unavailable, and no teardown is owed for an open that never happened), A8 at the seam
+# boundary (one second at 48 kHz stereo arrives as exactly 16 000 mono frames — the count reads
+# the rate off the data), the release-before-return obligation read off the fake graph's stop
+# ledger, and a full session through the real machine — which is what makes the machine hold
+# VoccaCore's own AudioBuffer and closes the C1→C2 completeness bridge (the outcome's audio
+# carries missingSampleCount equal to the session's refusals).
+# It was 418 by audio-capture phase 4, which added eight (426 at the branch tip, 725 on the merged
+# tree — the floor line moves 717 → 725 in this commit). AudioBufferListInterleavingTests drives
+# the channel policy with hand-built AudioBufferLists and reads the ring back: the deinterleaved
+# two-buffer layout and the interleaved one-buffer layout (the two shapes CoreAudio produces), the
+# null-mData skip with the accounting staying exact (a skipped buffer must not shorten the ring's
+# count, and a refusal still counts the whole block), the oversized callback counted whole or not
+# written at all, zero frames as a success, the declared channel count matching the samples at 1
+# and 2 channels — the plan's "the one thing no test will catch", which this file exists to catch —
+# and the clamp on a channel beyond the declared count. The sink block moved with them:
+# `AudioBufferListInterleaver.receive` is now the AVAudioSinkNode block (the measured
+# graph → node → block → graph leak is why), so the realtime declarations are receive + interleave
+# and AudioCaptureGraph carries none.
+# It was 388 by audio-capture phase 2 review round 2, which added four. The instructive one:
+# 388 by audio-capture phase 2 review round 2, which added four. The instructive one:
+# `convert(_:)` throws too, is called once per poll rather than once per session, and did **not**
+# get the exception-safety treatment round 1 gave `finish(_:)` — so a test in the suite asserted a
+# standard the code met in one place and not the other, which is this project's recurring shape.
+# The rule now runs at every throwing entry point through one `discardStreamState()`.
+# The second pins the premise the whole reset rests on and that nothing asserted: every sample handed
+# in is either converted or counted — `output × channels + discarded == fed`, the analogue of the
+# ring's `received + refused == sent`. Discarding a remainder is only defensible while it is smaller
+# than a frame; unasserted, that bound was one edit away from trading contamination for silent
+# truncation. The other two are an empty press (a real session that captures nothing) and
+# `isHoldingAudio`, which is now computed from what is held rather than from whether convert ran —
+# it reported a hazard for a pass-through that retains nothing, and each of its two terms was
+# separately deletable with the suite green.
+#
+# It was 384 after audio-capture phase 2 review round 1, which added three — all of them one defect:
+# **audio from one session reaching another session's transcript.** finish() cleaned up only after
+# its flush succeeded, so a throw left the resampler's filter state and a partial frame in place for
+# the next session to emit; and a session that ended any of the five ways that are not a normal
+# key-up never called finish() at all, with no other way to reset. Both are silent — nothing
+# downstream can tell contaminated audio from long audio. The cleanup is now in a `defer`, and
+# beginSession() anchors the reset at the one point in a session's life that cannot be skipped.
+# The third test drives the drain's iteration ceiling, which pins that the two drain constants
+# multiply out to 524 s of 16 kHz audio against the product's 120 s ceiling — a claim the previous
+# comment made without ever crossing it.
+#
+# It was 381 after audio-capture phase 2, which added eighteen: the format conversion to the 16 kHz
+# mono interchange format (A2, A8), the downmix, the streaming and session-reuse behaviour, and a
+# lint bounding which files in Sources/ may name AVFoundation.
+#
+# Raised to 363 by audio-capture phase 1 review round 2, which added two and closed a blocker.
+#
+# THE BLOCKER, because it is the one worth reading twice: a `// @realtime` marker above a **closure**
+# resolved to the next `func` below it. Measured — a marker over a closure containing
+# `[Float](repeating:count:)` and `print(...)`, sited above `write`'s own marker, passed the entire
+# 361-test suite: both markers produced the same qualified name, `Set` collapsed them to one element,
+# the set-equality assertion that is the compensating control was satisfied, all four passes ran over
+# `write`'s body twice, and the allocating closure was read by nothing. **That is the exact shape
+# `AVAudioSinkNode` requires and the shape phase 4 writes next**, so acceptance A3 — "the realtime
+# block allocates nothing, asserted by a source lint" — would have been blind to the only realtime
+# block that matters, in a file CI never executes. A marker must now sit directly above a `func`,
+# with only attributes and declaration modifiers between; anything else is a hard error. The plan
+# tells phase 4 to pass a named function to the sink node, and why `[` must not be deleted to get
+# past the second rule.
+#
+# The other test is claim 2 of the @unchecked Sendable comment, checked instead of counted: no
+# read-modify-write spelling anywhere in AudioRingBuffer.swift, and exactly three stores to atomics.
+# It was enforced only on the realtime body, so an RMW on a cursor in the *consumer* survived the
+# whole suite — behaviourally identical under one writer, and a falsification of a claim asserted as
+# checkable, which is what the warrant for the codebase's only @unchecked Sendable cannot afford. The
+# same edit also fixes a comment that told the reader to count `.store(` and gave the answer three;
+# the grep says four, because the sentence counted itself.
+#
+# Two more mutations died without needing a new test: `room` — extracted the round before and left
+# unlinted, where an allocation and a `print` passed everything — is now marked `// @realtime` and in
+# `expectedRealtimeDeclarations`; and pass 4 now splits on `;`, closing its own bypass in the round
+# after it was added (`let probe = count; Self.sidecar.total = probe` clears every earlier pass and
+# cleared pass 4 because the *line* began with `let`).
+#
+# It was 361 after audio-capture phase 1 review round 1, which added seven. Four of them are a fourth pass in
+# RealtimeSafetyTests and its controls: three planted constructs — a subscript on a stored array, a
+# compound assignment on a captured object's property, and `scratch[0] = samples[0]` — survived all
+# three existing passes, and the last of those is what a sink-node block is most likely to reach for
+# in phase 4. The lint now also refuses `[` outright, and its header no longer reads as though the
+# passes between them see everything: a permitted call *name* on a different receiver is outside
+# what any text lint can reach, and that is now stated rather than implied.
+#
+# The other three close mutations that survived review's battery. `isValidCapacity` makes the
+# power-of-two rule a testable function, because a `precondition` cannot be caught in-process and so
+# both capacity checks were satisfiable by any predicate at all. A source lint pins that
+# `AudioRingBuffer.deinit` calls `deallocate()`, because deleting it leaks ~23 MB per session with
+# every runtime test green. And `room(capacity:write:read:)` exists so that the producer's occupancy
+# arithmetic can be called with *inverted* cursors: the trapping `Int(write &- read)` it replaced is
+# a `Fatal error` inside a CoreAudio callback — a dead microphone mid-sentence — and reverting to it
+# is invisible to every test that goes through the API, because the trap only fires once the SPSC
+# discipline is already violated. That is exactly the discipline `@unchecked Sendable` leaves
+# unenforced, so it is not a state "the API cannot reach" in any sense that helps.
+#
+# It was 354 after audio-capture phase 1, the SPSC ring buffer the realtime thread writes into.
+#
+# The two that justify the raise on their own are AudioRingBufferTests'
+# `testASingleProducerAndSingleConsumerNeverLoseReorderOrDuplicateASample` and
+# `testUnderContentionEveryProducedSampleIsEitherReceivedOrCounted`. They drive two *real* threads
+# through thousands of blocks of varying size — a hand-driven interleaving asks the hardware to
+# reorder nothing — and the second pins the overrun accounting exactly: received + refused == sent,
+# because the refusal counter is the only record a consumer has that the audio it holds is short.
+# Scripts/test-under-tsan.sh runs both under ThreadSanitizer; read its header for what that does and
+# does not prove.
+#
+# One of the twenty is there because a mutation battery of eighteen found it held by nothing:
+# advancing the read cursor by the *requested* count rather than by what was taken drives the read
+# cursor past the write cursor, `write &- read` underflows to an occupancy of about eighteen
+# quintillion samples, and the ring then reports itself permanently full while the session records
+# silence. The return value is identical either way and `drain()` never over-asks, so the original
+# test could not see it. Of the eighteen, seventeen die; the survivor is weakening a memory
+# ordering, which nothing automated in this repository can catch — see the note in
+# AudioRingBuffer.swift, which says so rather than implying otherwise.
+#
+# RealtimeSafetyTests is acceptance A3, and it was three passes at that raise (a fourth arrived the
+# round after) because each is blind to what the others see: an allow-list over call names cannot see
+# `Task { … }` (no parentheses, so no call token), and neither identifier pass can see
+# `[Float](repeating:count:)` or a string interpolation. Most of its tests are positive controls that
+# watch each pass reject the shape it exists to reject, because nothing in CI ever executes the
+# realtime block — `AVAudioSinkNode` is unsupported in manual rendering mode — so the lint is the
+# only check there is.
+#
+# It was 317 after hotkey-source phase 6, which detects Secure Input. Of the ten tests it adds, the ones that
+# justify the raise are `testSecureInputIsReportedAsBlockedAndNothingIsDoneToTheTap` and
+# `testAPasswordFieldFocusedForTwoMinutesCostsNoTapWorkAndTwoLogLines` — a state that no test could
+# reach before, because `IsSecureEventInputEnabled` is set by other people's software and a test
+# cannot switch it on — and `testASessionSurvivingIntoSecureInputIsClosedByTheNextPollInBothModes`,
+# which is the hot mic behind it: a tap that is enabled and receiving nothing has no key-up, no
+# second press and no `flagsChanged` left to end a session with. Plus
+# `testASessionStartingAfterTheTransitionPollIsStillClosed`, which measures the fifth instance of
+# this project's recurring defect shape before it could ship: throttling the *ending* to the
+# transition the way the log line is throttled leaves a session that started one poll later running
+# to the 120 s ceiling, in both modes, with the whole suite green.
+
+# The C2/C3/C4 chain, newest first (master totals):
+# It was 405 by the local-asr download-ui: 405 by the local-asr download-ui: the three session-adapter tests in ModelDownloadSessionTests
 # (the seam's happy path ends .committed with monotonic progress, a failure ends .failed with the
 # cause and no presence, and a skip ends .cancelled with the .part surviving — the resume
 # assertion proves the skip is a pause, not a discard) and the five reducer tests in
@@ -592,7 +746,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=623
+MINIMUM_EXECUTED_TESTS=733
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -658,25 +812,94 @@ if [ "$harness_status" -ne 0 ]; then
     exit "$harness_status"
 fi
 
-# THE ASR SPIKE PROBE, COMPILED — for the same reason, and because it is the first consumer
-# of the repository's first external dependency.
+# THE ENGINE-START HARNESS, COMPILED — for the same reason and by the same rule
+
 #
-# `Tools/ASRSpike/` depends on FluidAudio and is deliberately not a package target: nothing in
-# `swift build` or `swift test` would ever compile it, and a FluidAudio API rename would surface
-# only at the moment the model is actually needed — months later, mid-implementation. The probe
-# is what measured the F1 spike's numbers (build, download, load, transcribe on a hosted
-# runner), and `SMOKE_CHECKLIST.md` step 17 and `spike_20260809.md` send a human to it.
+
+# `Tools/EngineStartProbe/` opens the microphone, which nothing in `swift test` may do, so it is not
+
+# a package target either and nothing else compiles it. It is what answered `prd.md:280` — the
+
+# engine-start cost the PRD had required since C1 was planned and nobody had taken — and the number
+
+# it produced is what decided that the capture start happens off the tap callback
+
+# (`CaptureStartTiming`). A harness that stops compiling is a number that cannot be re-taken, and the
+
+# doc comments quoting it become unfalsifiable claims.
+
 #
-# The cost is the one the spike was asked to measure: FluidAudio now compiles on every suite
-# run. That is a deliberate price for never discovering the dependency is broken at the moment
-# of need.
+
+# It does not link the package: at the time it was written there was no adapter to link, because the
+
+# engine graph is the phase after this one. When there is, this is where it should be measured.
+
 set +e
-"$REPO_ROOT/Scripts/measure-asr-spike.sh" --build-only
-spike_status=$?
+
+"$REPO_ROOT/Scripts/measure-engine-start.sh" --build-only
+
+engine_harness_status=$?
+
 set -e
 
-if [ "$spike_status" -ne 0 ]; then
+
+
+if [ "$engine_harness_status" -ne 0 ]; then
+
     printf '%s\n' \
-        "::error::The ASR spike probe (Tools/ASRSpike) does not compile. It is the repository's first FluidAudio consumer and is not a package target, so this check is the only thing that compiles it. A FluidAudio API change breaks it here first. Fix the probe rather than skipping the check: it is what the F1 spike and SMOKE_CHECKLIST.md step 17 run." >&2
-    exit "$spike_status"
+
+        "::error::The engine-start measurement harness (Tools/EngineStartProbe) does not compile. It is not a package target, so this check is the only one. It is the instrument behind every engine-start number quoted in CaptureStartTiming, HotkeyEventSink.receive(_:) and SessionAudioSource.beginCapture() — if it cannot be run, those numbers cannot be re-taken and become claims nobody can check. Fix it rather than skipping it." >&2
+
+    exit "$engine_harness_status"
+
 fi
+
+
+
+
+
+# THE ASR SPIKE PROBE, COMPILED — for the same reason, and because it is the first consumer
+
+# of the repository's first external dependency.
+
+#
+
+# `Tools/ASRSpike/` depends on FluidAudio and is deliberately not a package target: nothing in
+
+# `swift build` or `swift test` would ever compile it, and a FluidAudio API rename would surface
+
+# only at the moment the model is actually needed — months later, mid-implementation. The probe
+
+# is what measured the F1 spike's numbers (build, download, load, transcribe on a hosted
+
+# runner), and `SMOKE_CHECKLIST.md` step 17 and `spike_20260809.md` send a human to it.
+
+#
+
+# The cost is the one the spike was asked to measure: FluidAudio now compiles on every suite
+
+# run. That is a deliberate price for never discovering the dependency is broken at the moment
+
+# of need.
+
+set +e
+
+"$REPO_ROOT/Scripts/measure-asr-spike.sh" --build-only
+
+spike_status=$?
+
+set -e
+
+
+
+if [ "$spike_status" -ne 0 ]; then
+
+    printf '%s\n' \
+
+        "::error::The ASR spike probe (Tools/ASRSpike) does not compile. It is the repository's first FluidAudio consumer and is not a package target, so this check is the only thing that compiles it. A FluidAudio API change breaks it here first. Fix the probe rather than skipping the check: it is what the F1 spike and SMOKE_CHECKLIST.md step 17 run." >&2
+
+    exit "$spike_status"
+
+fi
+
+

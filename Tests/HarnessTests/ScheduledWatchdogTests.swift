@@ -47,6 +47,16 @@ private final class ClockHarness {
     let effects = EffectLog()
     let timer = FakeTimer()
     let tap = FakeHotkeyEventSource()
+
+    /// Present so the pipeline is the shipped one, and **never fired**: this harness pins the
+    /// timer's behaviour, so its machine opens the microphone inline and never owes an opening.
+    ///
+    /// It carried a `captureStartTiming` parameter for one commit and no test ever passed
+    /// `.whenTheOwnerAsks` to it. An unused test seam is a claim of coverage that does not exist, so
+    /// the parameter is gone; the deferred timing is covered by `DeferredCaptureStartTests` at this
+    /// level and by `TapHealthTimerTests` through the whole runtime.
+    let runLoop = DeferralQueue()
+
     let keyState: TruthfulKeyState
     let machine: SessionMachine<RecordingSource.Buffer>
     let watchdog: SessionWatchdog<RecordingSource.Buffer>
@@ -59,9 +69,11 @@ private final class ClockHarness {
         self.keyState = keyState
         self.machine = SessionMachine(
             configuration: configuration, ceiling: SessionCeiling.default, clock: clock,
-            audioSource: microphone)
+            audioSource: microphone, captureStartTiming: .immediately)
         self.watchdog = SessionWatchdog(machine: machine, keyState: keyState)
-        self.scheduled = ScheduledWatchdog(watchdog: watchdog, timer: timer) { [effects] effect in
+        self.scheduled = ScheduledWatchdog(
+            watchdog: watchdog, timer: timer, deferOpening: runLoop.schedule
+        ) { [effects] effect in
             effects.record(effect)
         }
     }
@@ -123,6 +135,14 @@ final class ScheduledWatchdogTests: XCTestCase {
                 \(configuration.activation): the session started and no timer did. Nothing is now \
                 polling the physical key and nothing is advancing the machine towards its 120 s \
                 ceiling — both of those are this timer, and only this timer.
+                """)
+            XCTAssertEqual(
+                harness.runLoop.scheduled, 0,
+                """
+                \(configuration.activation): this harness's machine opens the microphone inline, so \
+                nothing may ever be handed to the run loop. The comment on `runLoop` says exactly \
+                that; without this line it says it and nothing checks it, which is the standard this \
+                file applied when it deleted an unused parameter for the same reason.
                 """)
             XCTAssertEqual(
                 harness.timer.interval, WatchdogPolicy.pollInterval,
@@ -390,7 +410,8 @@ final class ScheduledWatchdogTests: XCTestCase {
                 audioSource: RecordingSource())
             let watchdog = SessionWatchdog(
                 machine: machine, keyState: TruthfulKeyState(keyboard))
-            let scheduled = ScheduledWatchdog(watchdog: watchdog, timer: timer) { _ in }
+            let scheduled = ScheduledWatchdog(
+                watchdog: watchdog, timer: timer, deferOpening: { _ in }) { _ in }
             released = scheduled
 
             keyboard.hold(chord)

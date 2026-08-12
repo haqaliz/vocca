@@ -634,6 +634,7 @@ final class SessionMachineTests: XCTestCase {
         func label(for effect: Effect) -> String {
             switch effect {
             case .unchanged: return "unchanged"
+            case .opening: return "opening"
             case .started: return "started"
             case .captureUnavailable: return "captureUnavailable"
             case .ended: return "ended"
@@ -1372,7 +1373,7 @@ final class SessionMachineTests: XCTestCase {
             func record(_ effect: Effect, _ step: Int) {
                 switch effect {
                 case .ended(let outcome): outcomes.append(outcome)
-                case .unchanged, .started, .captureUnavailable: break
+                case .unchanged, .started, .captureUnavailable, .opening: break
                 }
                 XCTAssertTrue(
                     harness.micAgreesWithState,

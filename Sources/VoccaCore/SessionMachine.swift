@@ -85,6 +85,11 @@ public final class SessionMachine<Audio: CapturedAudio> {
     private let clock: any MonotonicClock
     private let source: any SessionAudioSource<Audio>
 
+    /// Whether this machine opens the microphone itself or leaves it for its owner.
+    ///
+    /// See ``CaptureStartTiming`` — it carries the measurement that decided this, and the argument.
+    public let captureStartTiming: CaptureStartTiming
+
     private var sessionState: SessionState = .idle
 
     /// Forward time accumulated since this session started, as of the last ``tick()``.
@@ -142,10 +147,15 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// every event that changes it is one this machine itself decided to pass through.
     private var applicationHoldsTheHotkeyKey = false
 
-    /// Set only while the machine is inside `beginCapture()`.
+    /// Set for as long as an opening is in flight: inside `beginCapture()` under
+    /// ``CaptureStartTiming/immediately``, and from the deciding key event right through to the
+    /// owner's ``completePendingOpening()`` under ``CaptureStartTiming/whenTheOwnerAsks``.
     ///
-    /// Opening a microphone is real work on a real run loop — `AVAudioEngine.start()` takes
-    /// milliseconds — and a queued `CGEvent` delivered underneath it re-enters this machine at a
+    /// Opening a microphone is real work on a real run loop — **`AVAudioEngine.start()` was measured
+    /// at a 114 ms median / 119 ms p99 on the analog headphone-jack input and 42 ms / 53 ms on the
+    /// built-in microphone array** (see ``CaptureStartTiming``, which carries both rows and why the
+    /// device has to be named beside the figure) —
+    /// and a queued `CGEvent` delivered underneath it re-enters this machine at a
     /// moment `sessionState` describes wrongly: still `.idle`, so the rules would happily start a
     /// *second* session inside the first one's opening. There is no `.starting` state to say
     /// otherwise, and inventing one would add a fourth case to every exhaustive switch in the module
@@ -184,22 +194,105 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// **First one wins.** If a key-up and a tap death both land there, the key-up is the user's own
     /// gesture and the more specific fact — the same precedence the stop rules already use, for the
     /// same reason: the log is the only evidence anyone gets.
+    ///
+    /// ## The microphone is opened before the held stop is applied, and at 114 ms that is now visible
+    ///
+    /// **Accepted, with the cost stated, because a reader will otherwise assume the opposite.** The
+    /// stop is held here and applied by ``openTheMicrophone()`` only *after* `beginCapture()` has
+    /// returned. So for every reason, the sequence is open-then-close — and macOS's orange indicator
+    /// is lit for the ~114 ms in between. `prd.md` M23 calls a lit indicator *"the most damaging
+    /// possible signal for this product"*, and it is the whole reason the engine may not be
+    /// pre-warmed, so this is not a small thing to inherit silently.
+    ///
+    /// | stop held here | what it costs |
+    /// |---|---|
+    /// | key-up — a tap shorter than the opening | **correct and wanted**: the session exists, the audio it caught is kept |
+    /// | `.userCancelled` (Escape) | the microphone opens, closes, and the audio is discarded by definition. Opened for nothing |
+    /// | `.tapDisabled` | the tap is already dead and no key event can reach Vocca, yet the microphone opens |
+    /// | `.systemEvent(.willSleep)` | the microphone opens as the machine goes to sleep |
+    ///
+    /// Under ``CaptureStartTiming/immediately`` this window was a few instructions and none of it was
+    /// reachable. It is reachable on every press now.
+    ///
+    /// **Why it is accepted rather than fixed.** The fix would be an abandon path: clear the flags
+    /// and never call `beginCapture()`. It costs more than it looks. ``endSession(reason:)`` requires
+    /// `.recording`, and ``SessionOutcome/make(reason:audio:)`` is called in exactly one place in
+    /// this module — a rule `CoreBoundaryTests` enforces — so an abandoning path needs either a
+    /// second call site or a `endCapture()` with no matching `beginCapture()`, which the seam
+    /// forbids. It would also need an effect of its own: the widget has been told ``SessionEffect/opening``
+    /// and would otherwise sit in that state forever. That is a design change, not a guard.
+    ///
+    /// **One consequence for whoever writes the composition root**, because it is not obvious from
+    /// any single doc comment: a teardown that ends an in-flight session — `TapHealthPolicy.disarm()`
+    /// is the sharpest case — now produces its ``SessionOutcome`` on a **later run-loop turn than the
+    /// call that caused it**. `disarm()` returns with the microphone shut and the tap detached; the
+    /// queued block then opens the microphone, applies the held stop, closes it, and delivers an
+    /// `.ended` carrying the user's audio. An owner that disarms and drops the whole graph in the
+    /// same turn loses that transcript — harmlessly today, because the deferral captures its owner
+    /// weakly and so the microphone simply never opens, but the ordering is real and it is the
+    /// owner's to respect.
+    ///
+    /// **What makes the cost acceptable meanwhile** is that it is *bounded and closed*: the open is
+    /// followed immediately by the close, on the same turn, through the same funnel, so the
+    /// indicator flashes for ~114 ms and is never left lit. A hot mic would not be acceptable; a
+    /// bounded flash on a gesture the user abandoned is. If a later phase decides the flash is too
+    /// much, the abandon path above is the shape it takes.
     private var stopDeferredByTheOpening: EndReason?
+
+    /// **A start that has been decided but not performed, and that nobody but the owner will
+    /// perform.**
+    ///
+    /// Set only under ``CaptureStartTiming/whenTheOwnerAsks``, and therefore never true at all in
+    /// every test written before the measurement. It is a second flag beside
+    /// ``isOpeningTheMicrophone`` rather than a reading of it, because the two answer different
+    /// questions and the difference is a re-entrancy bug:
+    ///
+    /// - `isOpeningTheMicrophone` — *an opening is in flight; refuse starts, hold stops.* It stays
+    ///   true for the whole of `beginCapture()`, which is the ~114 ms this whole decision is about.
+    /// - `openingAwaitsTheOwner` — *and nobody has begun it yet.* Cleared as the **first** statement
+    ///   of ``completePendingOpening()``, before `beginCapture()` is called.
+    ///
+    /// Deriving the second from the first would make ``hasPendingOpening`` answer `true` throughout
+    /// `beginCapture()`, and a key event delivered by a run loop that `beginCapture()` pumped would
+    /// then schedule a *second* opening for a session that is already opening. Clearing it first is
+    /// what makes that unrepresentable rather than unlikely.
+    private var openingAwaitsTheOwner = false
+
+    /// **Whether the owner owes this machine a ``completePendingOpening()``.**
+    ///
+    /// Asked, never remembered — the owner reads it after every event rather than tracking whether
+    /// the last one started a session. That is the prohibition the whole module is written under and
+    /// the defect it names: [Handy #840](https://github.com/cjpais/Handy/issues/840) desynchronised
+    /// permanently after one missed event because it accumulated a total instead of deriving one.
+    ///
+    /// Always `false` under ``CaptureStartTiming/immediately``, so an owner may ask unconditionally.
+    public var hasPendingOpening: Bool { openingAwaitsTheOwner }
 
     /// Where the session is: `idle` while nothing is captured, `recording` while the microphone is
     /// open, `ending` only from inside the handoff itself.
     public var state: SessionState { sessionState }
 
+    /// - Parameters:
+    ///   - captureStartTiming: whether this machine opens the microphone itself. Defaulted to
+    ///     ``CaptureStartTiming/immediately`` — which is **not** what ships over a `CGEvent` tap —
+    ///     because that is what the machine did before the engine start was measured, and every
+    ///     acceptance test in `session-lifecycle` is written against it. Keeping it the default is
+    ///     what makes ``CaptureStartTiming/whenTheOwnerAsks`` provably additive: the 388 tests that
+    ///     pinned this machine's behaviour still exercise the identical code path, so a regression on
+    ///     the old path cannot hide behind the new one. The shipping owner passes the other case
+    ///     explicitly, and `ScheduledWatchdog` is what makes that owner impossible to get wrong.
     public init(
         configuration: HotkeyConfiguration,
         ceiling: Duration,
         clock: any MonotonicClock,
-        audioSource: any SessionAudioSource<Audio>
+        audioSource: any SessionAudioSource<Audio>,
+        captureStartTiming: CaptureStartTiming = .immediately
     ) {
         self.configuration = configuration
         self.ceiling = ceiling
         self.clock = clock
         self.source = audioSource
+        self.captureStartTiming = captureStartTiming
     }
 
     // MARK: - Inputs
@@ -214,9 +307,33 @@ public final class SessionMachine<Audio: CapturedAudio> {
     /// key-up the focused application is waiting for is delivered even when the rules would eat it.
     public func observe(_ event: RawKeyEvent) -> SessionResponse<Audio> {
         guard !isOpeningTheMicrophone else {
-            // Re-entered from inside the microphone opening. No session may *start* here — that is
-            // the second-microphone bug — but a stop must not be dropped, so the event is asked
-            // what it would mean to the session that is a few instructions from existing.
+            // Arrived during the microphone opening. No session may *start* here — that is the
+            // second-microphone bug — but a stop must not be dropped, so the event is asked what it
+            // would mean to the session that is about to exist.
+            //
+            // **This branch used to be the rare one and is now the ordinary one**, and the change is
+            // the measurement rather than anything in this file: under
+            // ``CaptureStartTiming/whenTheOwnerAsks`` the window is ~114 ms plus a run-loop turn
+            // instead of a few instructions, so a held hotkey delivers one to four autorepeats
+            // through here on *every* press, and anything else the user types lands here too.
+            //
+            // It is correct at that width, and the reason is worth stating because it is not
+            // obvious: the base disposition below is forced to `.passThrough` and then narrowed by
+            // the claim, so the only events this branch can swallow are the ones whose key code
+            // Vocca has already claimed — the hotkey's own repeats and its key-up. Every other
+            // keystroke made during the opening reaches the focused application untouched, which is
+            // inherited constraint 4. What `decide` would additionally have swallowed at
+            // `.recording` is exactly that claimed set, so nothing is lost by not consulting it.
+            //
+            // **What this branch skips, and why that is still safe at the new width.** It returns
+            // before `releaseStaleClaim(before:)`, so the stale-claim safety valve is disabled for
+            // the whole opening — an eighth of a second now rather than a few instructions. It is
+            // safe because a claim cannot *be* stale here: it was taken by the key-down that began
+            // this very opening, so the only key code the valve could release is the one the user
+            // is holding, where swallowing is exactly right. The valve exists for a claim that
+            // outlived a session — a tap that died, a focus lost — and no session has existed yet.
+            // Named rather than left implicit, because the window it is disabled for grew by four
+            // orders of magnitude and nothing else in this file would have told the next reader.
             //
             // `decide` never returns `.start` from `.recording`, so asking it that way cannot open
             // anything; the only thing it can produce is the stop that would otherwise be lost.
@@ -401,13 +518,63 @@ public final class SessionMachine<Audio: CapturedAudio> {
     // MARK: - Transitions
 
     private func beginSession(claiming keyCode: UInt16) -> SessionEffect<Audio> {
-        // Claimed before the microphone is asked to open, not after: opening one is milliseconds of
-        // real work, and an autorepeat delivered underneath it must already be Vocca's.
+        // Claimed before the microphone is asked to open, not after: opening one is **~114 ms** of
+        // real work, and an autorepeat delivered underneath it must already be Vocca's. That number
+        // is measured (``CaptureStartTiming``) rather than assumed, and it is what turned this from
+        // a narrow race into the ordinary case: at a 30–90 ms autorepeat, a held key produces one to
+        // four repeats *inside* every single opening.
         claimedKeyCode = keyCode
 
         // `decide` returns `.start` only from `.idle`, which is what makes the double-start bug
         // unreachable rather than merely unlikely — but the microphone still has to agree.
         isOpeningTheMicrophone = true
+
+        switch captureStartTiming {
+        case .immediately:
+            return openTheMicrophone()
+
+        case .whenTheOwnerAsks:
+            // Everything above this line is the decision, and the decision is all the tap callback
+            // may pay for. The 114 ms is the owner's to spend on a later turn of the run loop.
+            //
+            // Note what is *not* deferred and must never be: the key claim, the state that refuses a
+            // second start, and — by way of ``stopIfRecording(_:)`` — the recording of a stop that
+            // arrives in the window. A stop is *held*, not dropped, and applied the instant the
+            // session exists. Ending a session is never deferred by anything here.
+            openingAwaitsTheOwner = true
+            return .opening
+        }
+    }
+
+    /// **The owner's half of a deferred start: open the microphone, now, off the tap callback.**
+    ///
+    /// Called only under ``CaptureStartTiming/whenTheOwnerAsks``, and only when
+    /// ``hasPendingOpening`` said so. Everything it does is what ``beginSession(claiming:)`` used to
+    /// do inline; nothing about the transition, the deferred stop or the funnel changed with it.
+    ///
+    /// **Idempotent, and the guard is not defensive padding.** A run loop pumped from inside
+    /// `beginCapture()` can deliver a key event, which reaches the owner, which asks again. The
+    /// answer must be "there is nothing pending" — see ``openingAwaitsTheOwner`` for why the flag is
+    /// cleared before the ~114 ms call rather than after it. A second opening for a session that is
+    /// already opening would be a second microphone, which is the exact bug
+    /// ``isOpeningTheMicrophone`` was invented to prevent, arrived at from the other side.
+    ///
+    /// Returns the effect the deciding key event could not: ``SessionEffect/started``,
+    /// ``SessionEffect/captureUnavailable``, or ``SessionEffect/ended(_:)`` when the user let go
+    /// inside the window — which at 114 ms is an ordinary tap of the hotkey, not an edge case. **The
+    /// owner must deliver it wherever it delivers every other effect**; it is the only route by
+    /// which a session started this way is ever announced, and `.ended` carries a `SessionOutcome`.
+    public func completePendingOpening() -> SessionEffect<Audio> {
+        guard openingAwaitsTheOwner else { return .unchanged }
+        openingAwaitsTheOwner = false
+        return openTheMicrophone()
+    }
+
+    /// Ask the source for the microphone and settle everything that depends on the answer.
+    ///
+    /// The body ``beginSession(claiming:)`` had before the start was measured, lifted out unchanged
+    /// so that both timings run *the same* transition rather than two that must be kept in step.
+    private func openTheMicrophone() -> SessionEffect<Audio> {
         let opening = source.beginCapture()
         isOpeningTheMicrophone = false
 

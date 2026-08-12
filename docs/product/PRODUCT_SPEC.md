@@ -30,6 +30,13 @@ IDLE            ·  a thin dormant pill, ~30% opacity
                    │    ●     │
                    └──────────┘
 
+OPENING         ·  expanded, target app named, NO waveform yet
+                   ┌────────────────────────────┐
+                   │  ◌  → Slack                │
+                   └────────────────────────────┘
+                   entered on key-down, within one frame.
+                   Lasts as long as the microphone takes to open.
+
 RECORDING       ·  expanded, live waveform, unmistakable accent color
                    ┌────────────────────────────┐
                    │  ▁▃▅█▆▃▁▂▅█▇▄▂  0:04       │
@@ -68,10 +75,13 @@ CONVERSING      ·  visually distinct from RECORDING — see §5
 
 ```
 t=0      ⌥Space down
-         · widget expands IDLE → RECORDING within one frame (16 ms)
-         · waveform begins immediately — this is the "it heard me" signal
+         · widget expands IDLE → OPENING within one frame (16 ms)
          · target app name appears
          · optional soft tick sound (default ON, defeatable)
+
+t≈42…122ms  the microphone opens
+         · OPENING → RECORDING
+         · waveform begins HERE — this is the "it heard me" signal
 
 t=0…n    user speaks
          · waveform tracks input level, not a canned animation.
@@ -92,7 +102,31 @@ t=n+Δ    text lands in the app
          · FAILSAFE, persistent, text selectable, reason stated
 ```
 
-**Cancel:** `Esc` during `RECORDING` or `TRANSCRIBING` aborts and discards. This must be discoverable — the widget shows `esc to cancel` after 2 seconds of recording. The user needs an obvious way out of a dictation they've thought better of.
+### Why there is an `OPENING` state, and what it costs the user
+
+**Amended after C1 `audio-capture` measured the engine start.** This section previously said the
+widget goes `IDLE → RECORDING` in one frame and that *"waveform begins immediately"*. Both are
+unachievable and the measurement is why: `AVAudioEngine.start()` takes **42 ms** on a Mac's built-in
+microphone array and **114 ms** on the analog headphone-jack input, plus ~8 ms before the first
+realtime callback. There is no audio to draw for the first 50–122 ms after the press, so a waveform
+shown then would be a canned animation — which this section already forbids, in the next paragraph,
+for exactly the right reason.
+
+`Scripts/measure-engine-start.sh` is the instrument; `CaptureStartTiming` in `VoccaCore` carries the
+full table and the argument. The machine reports this state as `SessionEffect.opening`.
+
+**The two honest options, and why this one.** The alternative is to enter `RECORDING` optimistically
+on key-down and let the waveform lag. That keeps the 16 ms promise and breaks the more important
+one — principle 1, *the widget always tells the truth about the microphone* — by showing a recording
+indicator over a microphone that is not yet open. A distinct state keeps both: the widget still
+reacts within one frame, and it does not claim to be recording until it is.
+
+**What it does not fix.** The user who starts talking on the press still loses their opening
+syllable; no widget state changes that. Reducing the number is C7's, and `prd.md:280` asked for this
+measurement so that C7 would optimise against data. Until then, `OPENING` is what makes the loss
+*visible* rather than silent — the user sees that Vocca has not started listening yet.
+
+**Cancel:** `Esc` during `OPENING`, `RECORDING` or `TRANSCRIBING` aborts and discards. In `OPENING` the cancellation is held and applied the instant the session exists, so the press is never lost — but note that the microphone is still opened and then immediately closed, which briefly lights the system indicator. That cost is recorded on `SessionMachine.stopDeferredByTheOpening`. This must be discoverable — the widget shows `esc to cancel` after 2 seconds of recording. The user needs an obvious way out of a dictation they've thought better of.
 
 ---
 

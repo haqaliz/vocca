@@ -878,14 +878,96 @@ login window.
     `recreated` line). An implementation that declined to create a tap while blocked leaves Vocca deaf
     *after* the block passes, with nothing left to notice that it has.
 
+### The microphone — `audio-capture`
+
+*(Added 2026-08-12, `audio-capture` phase 6.)* The two acceptances this section records are
+marked manual-only in `spec.md`'s table (A6, A7), and the second carries the word "required":
+the engine's start cost is the number `prd.md:280` demanded be measured before C7 optimises
+against it. Nothing CI runs can produce either — there is no microphone on a hosted runner (§2),
+and a test that opened one would light the indicator M23 exists to keep dark.
+
+58. **The orange dot is dark between sessions — and goes out when it is asked to.** The aspect's
+    A6, and this aspect's equivalent of the step `hotkey-source` found most valuable: **watch the
+    orange dot, and time it.** It carries both privacy constraints on the engine — constraint 2
+    (starts on demand, never kept warm; `AVAudioEngine.h:465-466` lights the indicator for as long
+    as a running engine has input enabled) and constraint 3 (`endCapture()` must not return until
+    the input device is released). The two failures look different, and the gesture must see both.
+
+    *Gesture:* record the screen (`⌘⇧5`, 60 fps) — step 41's discipline, because counting frames is
+    the only clock sharp enough for the criterion below. First **light the dot**: start a hold-to-talk
+    capture and speak, so the indicator has demonstrated it can light — a dark dot is evidence only
+    against a dot known to work (rule 1 of the preamble). Then count down aloud — "three, two, one" —
+    and release the hotkey on the beat; the recording's audio marks the release frame. Count the
+    frames from there to the dot going out. Then leave Vocca armed and idle for a full minute, and
+    watch the dot throughout it.
+
+    *Pass, both halves:*
+    - the dot goes out **within 250 ms of the release — 15 frames at 60 fps**; and
+    - the dot stays **dark at every moment of the armed-idle minute** — not a glance at the end: a
+      dot that lights at second 45 and goes out at 55 is the exact failure, and one glance misses it.
+
+    *What the criteria are guarding, so they are not loosened:* a dot still lit while idle is
+    constraint 2 failing — the engine kept warm, the "worst possible signal for this product"
+    (`prd.md` M23) — and it has no half-lit form, so the continuous minute is the check and there is
+    no bound to loosen. A dot slow to go out after release is constraint 3 failing silently:
+    `endCapture()` returned, the machine went `.idle`, the widget showed idle — and the device was
+    released on a later run-loop turn, or not at all. That failure has no bounded form either: the
+    engine keeps running with input enabled and the dot stays lit until the next session start or a
+    quit, so "went out eventually" is not a pass. Healthy, release-to-dark is one watchdog tick at
+    most (~150 ms, the physical-key poll's bound) plus the ~8 ms of `stop()` itself; 250 ms (15
+    frames) passes that with room to spare and fails a stop deferred by even one tick (~310 ms).
+    Step 41's 500 ms criterion was right for *its* failure, which has a bounded degraded form (~1 s
+    health poll); this one does not, so the criterion sits tighter. Why the countdown: the release
+    instant has no on-screen mark, and a stopwatch is not precise enough for 250 ms — step 41's
+    reason, unchanged.
+
+    *If the machine has no input device at all* (no built-in array — e.g. a Mac mini — and nothing
+    in the jack): this step cannot be performed. Record it as **not performed**. It is not a pass.
+
+59. **Engine-start latency, measured on this machine and recorded.** The aspect's A7 — manual but
+    required, and the one acceptance whose deliverable is a record rather than a verdict. The
+    instrument is `Scripts/measure-engine-start.sh`; the `warm` mode builds the graph once and
+    `start()`s/`stop()`s per press, 120 iterations at a 1 s gap — the shape M23 mandates, and the
+    gap that makes it a measurement of the user's pattern rather than of a tight loop.
+
+    *Gesture:*
+    - `./Scripts/measure-engine-start.sh devices` first — **name the device or the number means
+      nothing**: the two built-in rows differ by 2.7× on one machine, and the reference machine's
+      slowest input was its default only because something was plugged into the jack.
+    - `./Scripts/measure-engine-start.sh warm` on the machine's default input device; record the
+      device name, n, median and worst. If a Bluetooth HFP headset is reachable, also run
+      `./Scripts/measure-engine-start.sh warm --device "<name>"` and record that row.
+
+    *Pass, all three:*
+    - the run **exits 0**, every row's four checks verified: mic access authorized, `isRunning`
+      true, a non-zero input format, and the realtime sink block actually delivering frames. An
+      unverified row voids the record: an engine with an enabled input node and *nothing attached*
+      starts happily, reports `isRunning == true`, takes the same ~110 ms and captures nothing —
+      timing `start()` and stopping there is how a measurement becomes a fiction;
+    - the record **names the device** and states what this machine's default input is. A row reading
+      "the built-in input" is not a record — it is the reference table's own mistake, once;
+    - the numbers are **this machine's, taken now**. The reference table — **114 ms median / 127 ms
+      worst on the analog headphone-jack input, 42 ms median / 53 ms worst on the built-in microphone
+      array, 120 and 60 verified sessions**, M4 Max, `plan_20260806.md` §"Result, written after Phase
+      3" — is another machine's record, quoted so a wildly divergent same-class median (more than
+      ~2×) gets investigated rather than recorded in silence. A release record that reproduces the
+      reference table verbatim is a failed step.
+
+    *HFP is unmeasured, and stays unmeasured until a row exists.* No HFP-capable device was reachable
+    when the reference numbers were taken; HFP is the configuration most likely to be *worse* than
+    any of the measured inputs (16 kHz input — the converter's pass-through case, `spec.md` §"Out of
+    scope"); and the one command for whoever has the hardware is written above. If no headset is
+    reachable on this machine, the record says **"HFP: unmeasured"** — never "fine". A release that
+    ships with HFP unmeasured ships with that sentence in the record, not with an assumption.
+
 ### If notarizing
 
-58. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
+60. `Scripts/notarize.sh` has **never run end to end** — there is no Developer ID configured. The
     first real release must treat notarization as unproven and budget time for it, including for
     the possibility that a rejected entitlement or a missing hardened-runtime flag only shows up
     there.
 
-59. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
+61. It submits `.build/xcode-release/Build/Products/Release/Vocca.app` by default — the same bundle
     steps 1–4 built, signed and inspected. That is only true if step 2 was run with the Release path
     given explicitly; a bare `./Scripts/sign.sh` signs Debug and this step then submits an
     unmodified Release build.

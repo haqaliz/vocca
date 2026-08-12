@@ -40,9 +40,14 @@ let package = Package(
             dependencies: [],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // An adapter, not a leaf: it implements a seam VoccaCore owns (the SessionAudioSource,
+        // via the MicrophoneSource conformance), so it depends on VoccaCore and VoccaCore does
+        // not depend on it. The move happened with the capture conformance, whose hand-over is
+        // the ASR seam's own AudioBuffer. See ModuleBoundaryTests' rule 3 for why the arrow
+        // points this way and what still constrains it.
         .target(
             name: "VoccaAudio",
-            dependencies: [],
+            dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // An adapter, not a leaf: it implements a seam VoccaCore owns, so it depends on VoccaCore

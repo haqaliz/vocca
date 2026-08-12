@@ -63,7 +63,7 @@ public struct DownloadProgressView: View {
     /// Consumes the session's events, reducing them onto ``state``. Runs until the stream
     /// terminates (after `.committed`, `.failed` or `.cancelled`).
     public func begin() async {
-        for await event in await session.events {
+        for await event in session.events {
             state = DownloadStateReducer.reduce(state, event: event)
         }
     }

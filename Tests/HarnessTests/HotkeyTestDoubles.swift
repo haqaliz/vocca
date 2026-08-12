@@ -378,7 +378,7 @@ final class EffectLog {
         effects.compactMap { effect in
             switch effect {
             case .ended(let outcome): return outcome
-            case .unchanged, .started, .captureUnavailable: return nil
+            case .unchanged, .started, .captureUnavailable, .opening: return nil
             }
         }
     }
@@ -398,7 +398,7 @@ final class EffectLog {
         effects.filter { effect in
             switch effect {
             case .started: return true
-            case .unchanged, .captureUnavailable, .ended: return false
+            case .unchanged, .captureUnavailable, .opening, .ended: return false
             }
         }.count
     }
@@ -537,4 +537,38 @@ final class FakeSecureInputState: SecureInputStateReader {
         reads += 1
         return isActive
     }
+}
+
+/// The run loop, as a queue a test turns by hand.
+///
+/// **The whole point of a deferral is that one half happens now and the other does not**, and a real
+/// run loop would make that a race to observe rather than a fact to assert. Here "later" is a call
+/// to ``drain()``, so a test can stand between the two halves and look.
+///
+/// Shared by the two places in this package that put work on a later turn, and shared deliberately:
+/// `CallbackSafeTapDisablement` defers a tap recovery, and `ScheduledWatchdog` defers the ~114 ms
+/// microphone open. Two private copies of this class is how the second one would quietly acquire
+/// different semantics from the first.
+final class DeferralQueue {
+    private(set) var scheduled = 0
+    private var pending: [() -> Void] = []
+
+    /// The `RunLoopDeferral`. Enqueues; it must never call.
+    func schedule(_ work: @escaping () -> Void) {
+        scheduled += 1
+        pending.append(work)
+    }
+
+    /// One turn of the run loop.
+    ///
+    /// Drains what was pending on entry, so work scheduled *by* the drained work lands on the next
+    /// turn rather than in this one — which is what a run loop does, and which is what makes a test
+    /// able to see a re-scheduled opening as a separate turn.
+    func drain() {
+        let due = pending
+        pending = []
+        for work in due { work() }
+    }
+
+    var hasPendingWork: Bool { !pending.isEmpty }
 }

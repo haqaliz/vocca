@@ -37,31 +37,6 @@ private func event(_ kind: RawKeyEvent.Kind, _ keyCode: UInt16, _ modifiers: Mod
         kind: kind, keyCode: keyCode, modifiers: modifiers, isAutorepeat: false, timestamp: .zero)
 }
 
-/// The run loop, as a queue a test turns by hand.
-///
-/// **The whole point of the split is that one half happens now and the other does not**, and a real
-/// run loop would make that a race to observe rather than a fact to assert. Here "later" is a call
-/// to ``drain()``, so a test can stand between the two halves and look.
-private final class DeferralQueue {
-    private(set) var scheduled = 0
-    private var pending: [() -> Void] = []
-
-    /// The ``RunLoopDeferral``. Enqueues; it must never call.
-    func schedule(_ work: @escaping () -> Void) {
-        scheduled += 1
-        pending.append(work)
-    }
-
-    /// One turn of the run loop.
-    func drain() {
-        let due = pending
-        pending = []
-        for work in due { work() }
-    }
-
-    var hasPendingWork: Bool { !pending.isEmpty }
-}
-
 private final class NoteLog {
     private(set) var notes: [TapHealthNote] = []
     func record(_ note: TapHealthNote) { notes.append(note) }

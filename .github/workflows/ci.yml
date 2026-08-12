@@ -127,6 +127,37 @@ jobs:
       - name: Run the suite (with a test-count floor) and compile the measurement harness
         run: ./Scripts/test-with-floor.sh
 
+  # AudioRingBuffer is the only `@unchecked Sendable` in the package: the one place where the
+  # compiler checks nothing and a comment carries the invariant instead. Its two concurrency tests
+  # drive two real threads, and this job runs them with the instrumentation that can see an
+  # unsynchronised access.
+  #
+  # Read the header of Scripts/test-under-tsan.sh before reading this job as more than it is. It
+  # proves there is no *missing* synchronisation; it does not prove the memory orderings are strong
+  # enough, and that limit was measured rather than assumed.
+  race:
+    name: ThreadSanitizer (ring buffer)
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Select Xcode ${{ env.XCODE_MAJOR }}.x
+        run: |
+          set -euo pipefail
+          candidate="$(ls -d /Applications/Xcode_"$XCODE_MAJOR"*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$candidate" ]; then
+            echo "::error::No Xcode $XCODE_MAJOR.x is installed on this runner. Found: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')"
+            exit 1
+          fi
+          sudo xcode-select -s "$candidate/Contents/Developer"
+          swift --version
+
+      - name: Run the concurrency tests under ThreadSanitizer
+        run: ./Scripts/test-under-tsan.sh
+
   bundle:
     # Two jobs, one per configuration, because the entitlement rules genuinely differ between them:
     # Debug is allowed com.apple.security.get-task-allow so a debugger can attach, and Release must

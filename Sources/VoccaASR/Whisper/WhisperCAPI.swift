@@ -99,7 +99,7 @@ public final class WhisperCAPI: WhisperContext {
         params.single_segment = false
         // The C default is "en"; nil means auto-detect in this product's vocabulary, so nil is
         // translated to the explicit "auto" sentinel. The buffer outlives the call below.
-        var languageBuffer: [CChar] = Array(parameters.language?.utf8CString ?? "auto".utf8CString)
+        let languageBuffer: [CChar] = Array(parameters.language?.utf8CString ?? "auto".utf8CString)
         params.language = languageBuffer.withUnsafeBufferPointer { $0.baseAddress }
 
         let status = samples.withUnsafeBufferPointer { buffer in

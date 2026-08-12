@@ -57,7 +57,7 @@ final class ModelDownloadSessionTests: XCTestCase {
     /// captures only the (Sendable) session, never the test case.
     private static func collect(_ session: StoreModelDownloadSession) async -> [ModelDownloadEvent] {
         var events: [ModelDownloadEvent] = []
-        for await event in await session.events {
+        for await event in session.events {
             events.append(event)
         }
         return events
@@ -130,7 +130,7 @@ final class ModelDownloadSessionTests: XCTestCase {
             if (try? FileManager.default.attributesOfItem(atPath: partURL.path)) != nil { break }
             try await Task.sleep(for: .milliseconds(1))
         }
-        await session.cancel()
+        session.cancel()
         let events = await eventsTask
 
         XCTAssertEqual(

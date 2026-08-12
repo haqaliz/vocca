@@ -264,6 +264,27 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
         machine.observe(event)
     }
 
+    /// **Whether the owner owes the machine an opening**, forwarded from
+    /// ``SessionMachine/hasPendingOpening``.
+    ///
+    /// Forwarded rather than left to be read off the machine for the same reason ``observe(_:)`` is
+    /// the route in: a completed opening is what moves the machine into `.recording`, so it changes
+    /// ``schedule`` — and an owner reaching past this object for it would be arming a timer for a
+    /// session it started through something else. Under ``CaptureStartTiming/whenTheOwnerAsks`` a
+    /// key event no longer starts the session by itself, so this is now the *only* route by which a
+    /// session begins, and it must not be a second door.
+    public var hasPendingOpening: Bool { machine.hasPendingOpening }
+
+    /// Open the microphone the last key event decided on, off the tap callback.
+    ///
+    /// Forwards ``SessionMachine/completePendingOpening()``, and everything that method's
+    /// documentation says about the returned effect applies here: it can be `.ended`, it carries the
+    /// user's audio when it is, and a caller that drops it drops a transcript. The schedule must be
+    /// re-read afterwards — `ScheduledWatchdog` is what discharges that structurally.
+    public func completePendingOpening() -> SessionEffect<Audio> {
+        machine.completePendingOpening()
+    }
+
     /// One turn of the owner's timer: **look at the key, then look at the clock** — in hold-to-talk.
     /// In toggle mode there is no key to look at, and the branch below says why at length.
     ///
@@ -307,8 +328,8 @@ public final class SessionWatchdog<Audio: CapturedAudio> {
             switch polled {
             case .ended:
                 return polled
-            case .unchanged, .started, .captureUnavailable:
-                // A poll cannot open a microphone, so the last two are unreachable — and are
+            case .unchanged, .started, .captureUnavailable, .opening:
+                // A poll cannot open a microphone, so the last three are unreachable — and are
                 // grouped with `.unchanged` rather than trapped, because the safe reading of an
                 // answer this method did not expect is "a session may still be running", and the
                 // ceiling is the thing that bounds that. Skipping the tick would be the one choice

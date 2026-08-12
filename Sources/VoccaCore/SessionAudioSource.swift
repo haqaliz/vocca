@@ -66,6 +66,24 @@ public protocol SessionAudioSource<Buffer>: AnyObject {
     associatedtype Buffer: CapturedAudio
 
     /// Open the microphone. Called at most once per session, and never while already open.
+    ///
+    /// ## It is allowed to be slow, and it is measured
+    ///
+    /// **`AVAudioEngine.start()`: 114 ms median / 127 ms worst on the analog headphone-jack input,
+    /// 42 ms median / 53 ms worst on the built-in microphone array** — 120 and 60 verified sessions
+    /// on an M4 Max. `Scripts/measure-engine-start.sh`; both rows and why the device must be named
+    /// are on ``CaptureStartTiming``. A conformance is not expected to beat that and must not cut
+    /// corners to try: it may not return before the microphone is open, because the machine takes the
+    /// return as the open and goes `.recording` on it.
+    ///
+    /// **It is not called from the tap callback**, and that is what makes the cost affordable.
+    /// ``CaptureStartTiming/whenTheOwnerAsks`` is the shipped timing, so this runs on a later turn of
+    /// the run loop with the callback already returned. See ``HotkeyEventSink/receive(_:)``.
+    ///
+    /// Everything a caller may do *during* this call is settled and tested: a second start is
+    /// refused, and a stop — a key-up, an Escape, a tap death — is held and applied the instant the
+    /// session exists. At 114 ms those are not edge cases. A hotkey tapped for less than that ends
+    /// its session on the same run-loop turn it starts it, with whatever audio the opening caught.
     func beginCapture() -> CaptureStart
 
     /// Close the microphone and hand over what was captured.
