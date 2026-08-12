@@ -573,6 +573,11 @@ public final class DictationLoopRoot {
     private let modeRouting: ModeRoutingSink
     /// The one object whose deallocation frees a `CFMachPort` — held for exactly that reason.
     private let disablementObserver: CallbackSafeTapDisablement
+    /// The weak hand the tap's sink reaches the root's cancel router through. The graph is
+    /// circular by construction — the root owns the sink and the sink routes the session's
+    /// cancel key back to the root — so the box is filled as the last step of this initializer,
+    /// the ``configure`` `WeakBox` pattern for exactly this shape.
+    private let cancelRouterBox = WeakBox<DictationLoopRoot>()
     /// The pipeline's construction, run once the engine is prepared (`nil` when the pipeline was
     /// injected — the test shape).
     private let pipelineAssembly: (@MainActor () async throws -> DictationPipeline)?
@@ -665,8 +670,17 @@ public final class DictationLoopRoot {
         self.toggle = toggle
 
         // The tap delivers into whichever configuration is active; the inactive one receives
-        // nothing, so its machine can never open the microphone.
-        let modeRouting = ModeRoutingSink(active: holdToTalk.scheduledWatchdog)
+        // nothing, so its machine can never open the microphone. The session's cancel key —
+        // Escape — is intercepted before the fan-out and routed to the root's cancel router,
+        // which knows what is in flight and what to cancel (PRODUCT_SPEC.md:129). The router is
+        // reached through a weak box filled at the end of this initializer: the graph is circular
+        // by construction (the root owns the sink, the sink routes back to the root), and the
+        // box is the pattern `configure` uses for exactly this shape.
+        let modeRouting = ModeRoutingSink(
+            active: holdToTalk.scheduledWatchdog,
+            sessionCancelKey: { [weak cancelRouterBox] event in
+                cancelRouterBox?.value?.handleSessionCancelKey(event) ?? .passThrough
+            })
         self.modeRouting = modeRouting
 
         // The tap-health graph: policy → source, observer → policy, and the timer retains the
@@ -693,6 +707,11 @@ public final class DictationLoopRoot {
         // answer is `.permissionMissing` — logged, and the loop stays idle until the grant (the
         // ~1 s poll and the grant notification are the recovery, already wired above).
         Self.logTapHealth(tapHealth.arm())
+
+        // The last step: the tap's sink can now reach this object's cancel router. The box is
+        // deliberately filled last, so no path that could fire before the initializer finished —
+        // none exists, but the ordering is the point — would find a half-built root.
+        cancelRouterBox.value = self
     }
 
     // MARK: - The modes
@@ -783,6 +802,38 @@ public final class DictationLoopRoot {
         return effect
     }
 
+    /// **The tap's Escape key-down, routed** (`PRODUCT_SPEC.md:129` — "Esc during `OPENING`,
+    /// `RECORDING` or `TRANSCRIBING` aborts and discards").
+    ///
+    /// The sink intercepts the session's cancel key before the machine's rule path — which would
+    /// pass a non-binding key straight through — and calls here. Two halves of the loop can be
+    /// in flight, and this answers each:
+    ///
+    /// - **A session** (the machine is opening or recording): ``cancel()`` — the machine's own
+    ///   discard path, `.userCancelled`, the one `EndReason` permitted to throw the audio away.
+    ///   An Escape inside the opening window is held by the machine's deferred-stop funnel and
+    ///   applied the instant the session exists (`SessionMachine.swift:619-626`).
+    /// - **A transcription** (the session ended, the pipeline is in the engine's hands):
+    ///   ``EffectRouter/cancelTranscription()`` — the in-flight route task is cancelled, and a
+    ///   cancelled transcription never injects (`DictationPipeline` checks its own cancellation
+    ///   at every decision boundary).
+    ///
+    /// Nothing in flight: the Escape is the user's own key and passes through untouched. The
+    /// disposition is ``SessionKeyPolicy``'s own answer, in both directions.
+    private func handleSessionCancelKey(_ event: RawKeyEvent) -> EventPropagation {
+        let wiring = activeWiring
+        let sessionInFlight =
+            wiring.machine.hasPendingOpening || wiring.machine.state == .recording
+        let transcriptionInFlight = router.hasTranscriptionInFlight
+        if sessionInFlight {
+            cancel()
+        } else if transcriptionInFlight {
+            router.cancelTranscription()
+        }
+        return SessionKeyPolicy.propagation(
+            for: event, sessionInFlight: sessionInFlight || transcriptionInFlight)
+    }
+
     /// A system event that makes continuing impossible or wrong — `NSWorkspace`'s sleep/resign
     /// notifications and the capture graph's configuration change. Wired by the owner of the
     /// notifications; the capture graph's callback is wired in `configure`.
@@ -871,6 +922,28 @@ private final class EffectRouter {
     private let widgetClock: any RepeatingTimer
     private var pipelineTask: Task<DictationPipeline, Never>?
     private var pendingResolution: Task<(target: TargetContext, name: String), Never>?
+    /// **The in-flight transcription**: the task that runs an ended session's audio through the
+    /// pipeline. Esc during TRANSCRIBING cancels it (`PRODUCT_SPEC.md:129`); the handle is what
+    /// makes the in-flight transcribe cancellable at all.
+    private var transcriptionTask: Task<Void, Never>?
+
+    /// Whether a transcription is in flight — the router's half of "something is in flight" for
+    /// the session's cancel key, read *before* any cancellation clears it.
+    var hasTranscriptionInFlight: Bool { transcriptionTask != nil }
+
+    /// **Esc during TRANSCRIBING**: cancel the in-flight transcription and return the widget to
+    /// IDLE.
+    ///
+    /// The cancelled task's own body returns before it presents anything (see `.ended`'s guard),
+    /// so without this fold the pill would sit in TRANSCRIBING forever — the waveform frozen over
+    /// a discard the user asked for. The pipeline itself honours the cancellation at every
+    /// decision boundary (`DictationPipeline`), so a cancelled transcription never injects.
+    func cancelTranscription() {
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        widgetStore.fold(WidgetProjection.project(event: .finishedWithoutDelivery))
+        settleWidgetClock()
+    }
 
     /// The context an `.ended` without any key-down resolves to — unreachable under
     /// `whenTheOwnerAsks` (every session begins with `.opening`), and the "nothing focused" shape
@@ -918,8 +991,9 @@ private final class EffectRouter {
             // The effect fold: `.ended(.cancelled)` → IDLE, `.ended(.completed)` → TRANSCRIBING
             // (the waveform freeze — `WidgetProjection`'s own table).
             foldEffect(effect, appName: "")
-            Task { [weak self] in
+            let task = Task { [weak self] in
                 guard let self else { return }
+                defer { self.transcriptionTask = nil }
                 let (target, name) = await resolution?.value ?? (Self.nothingFocused, "")
                 guard let pipeline = await self.pipelineTask?.value else {
                     self.logger.error(
@@ -928,8 +1002,16 @@ private final class EffectRouter {
                     return
                 }
                 let surface = await pipeline.route(.ended(outcome), target: target)
+                guard !Task.isCancelled else {
+                    // Esc during TRANSCRIBING: the cancel router already folded IDLE and a
+                    // cancelled transcription must never present — least of all as DELIVERED.
+                    return
+                }
                 await self.present(surface, outcome: outcome, target: target, name: name)
             }
+            // Held so that the cancel key can reach it: the handle *is* the cancellable
+            // transcription (`cancelTranscription`), and it is cleared by the task's own defer.
+            transcriptionTask = task
         case .captureUnavailable:
             if readiness.isReady {
                 // A genuine microphone failure: the widget's notice.
@@ -1044,26 +1126,53 @@ private final class EffectRouter {
     private let logger = Logger(subsystem: "dev.vocca.Vocca", category: "loop")
 }
 
-/// The tap's sink, fanned out to whichever configuration is active.
-///
-/// The tap delivers into one wiring at a time; the inactive machine receives nothing, so its
-/// microphone can never open (`DictationLoopRoot/setActiveMode(_:)` is the only writer).
-///
-/// Not annotated `@MainActor`, for the same reason the readiness gate is not: it conforms to the
-/// nonisolated ``HotkeyEventSink`` seam, and the annotation would make the conformance illegal.
-/// The confinement is a fact about how the sink is *used* — `receive` runs on the tap callback's
-/// main actor and `active` is written only by `setActiveMode`, also on the main actor.
-final class ModeRoutingSink: HotkeyEventSink {
-    var active: any HotkeyEventSink
+    /// The tap's sink, fanned out to whichever configuration is active.
+    ///
+    /// The tap delivers into one wiring at a time; the inactive machine receives nothing, so its
+    /// microphone can never open (`DictationLoopRoot/setActiveMode(_:)` is the only writer).
+    ///
+    /// **One key is intercepted before the fan-out: Escape.** `PRODUCT_SPEC.md:129` — "Esc during
+    /// `OPENING`, `RECORDING` or `TRANSCRIBING` aborts and discards" — is not a session rule the
+    /// machine can carry: the machine's `cancel()` is a separate entry point (`SessionMachine.swift:440-445`)
+    /// and an in-flight transcription belongs to the router, not to any machine. So the session's
+    /// cancel key is routed here, to the root's cancel router, instead of down the ordinary rule path
+    /// — which would pass a non-binding key straight through (`SessionRules.swift:115-128`). The
+    /// classification is ``SessionKeyPolicy``'s (a fresh Escape key-down, `VoccaHotkey`); the routing
+    /// is the root's; this object is the one point that has both.
+    ///
+    /// Not annotated `@MainActor`, for the same reason the readiness gate is not: it conforms to the
+    /// nonisolated ``HotkeyEventSink`` seam, and the annotation would make the conformance illegal.
+    /// The confinement is a fact about how the sink is *used* — `receive` runs on the tap callback's
+    /// main actor and `active` is written only by `setActiveMode`, also on the main actor. The
+    /// cancel router is reached through `MainActor.assumeIsolated` for the same reason the tap
+    /// callback itself asserts it: the tap is attached to the main run loop, so every event delivered
+    /// here is already on the one actor the root lives in (`CGEventTapSource.swift:442-493`).
+    final class ModeRoutingSink: HotkeyEventSink {
+        var active: any HotkeyEventSink
 
-    init(active: any HotkeyEventSink) {
-        self.active = active
-    }
+        /// Where the session's cancel key goes — the root's cancel router, which knows what is in
+        /// flight and what to cancel.
+        private let sessionCancelKey: @MainActor (RawKeyEvent) -> EventPropagation
 
-    func receive(_ event: RawKeyEvent) -> EventPropagation {
-        active.receive(event)
+        init(
+            active: any HotkeyEventSink,
+            sessionCancelKey: @escaping @MainActor (RawKeyEvent) -> EventPropagation
+        ) {
+            self.active = active
+            self.sessionCancelKey = sessionCancelKey
+        }
+
+        func receive(_ event: RawKeyEvent) -> EventPropagation {
+            guard !SessionKeyPolicy.isSessionKey(event) else {
+                // Read out first: the closure is main-actor-isolated, and the assumeIsolated
+                // body must not capture `self` — this sink is deliberately not annotated, so a
+                // main-actor use inside the closure could race a later nonisolated read.
+                let cancel = sessionCancelKey
+                return MainActor.assumeIsolated { cancel(event) }
+            }
+            return active.receive(event)
+        }
     }
-}
 
 // MARK: - The readiness gate
 

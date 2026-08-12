@@ -49,6 +49,7 @@ public enum PipelineSurface: Sendable, Equatable {
 /// | Input | What happens | Surface |
 /// |---|---|---|
 /// | `.cancelled` outcome | Discarded — no transcribe, no inject, no holder touch. Esc is an instruction (`PRODUCT_SPEC.md:129`) | `.idle` |
+/// | `.completed`, task cancelled | Esc during TRANSCRIBING — the in-flight transcribe task is cancelled (`AppBootstrap`'s router holds the handle), a discard not a failure: never inject, never notice | `.idle` |
 /// | `.completed`, empty captured buffer | Decided empty *before* transcribe: the empty-buffer policy makes `samples.isEmpty` and `text == ""` the same fact (`ASREngine.swift:28-32`), so the 20 ms press never asks the engine | `.idle` |
 /// | `.completed`, `transcribe` throws | Nothing was ever produced — PRD R5's `.transcriptionFailed` notice ("Nothing was lost — you can try again") | `.reasonOnly(.transcriptionFailed)` |
 /// | `.completed`, empty transcript text | An engine that calls the audio silence still must not paste `""` | `.idle` |
@@ -154,14 +155,29 @@ public struct DictationPipeline: Sendable {
     private func transcribeAndInject(_ audio: AudioBuffer, target: TargetContext) async
         -> PipelineSurface
     {
+        // A cancellation that landed before the engine was asked (Esc during TRANSCRIBING —
+        // `PRODUCT_SPEC.md:129`): a discard, and the engine is not worth asking.
+        guard !Task.isCancelled else { return .idle }
+
         let transcript: Transcript
         do {
             transcript = try await engine.transcribe(audio)
+        } catch is CancellationError {
+            // The user pressed Escape while the engine was transcribing, and the engine observed
+            // the cancellation (the transcribe task is cancellable — the root cancels it through
+            // the router). This is a discard, not a failure: no `.transcriptionFailed` notice,
+            // nothing held, nothing injected.
+            return .idle
         } catch {
             // PRD R5: a failed transcribe is a reason-only notice. Nothing was ever produced,
             // so nothing is held and nothing is lost — the notice is the whole surface.
             return .reasonOnly(.transcriptionFailed)
         }
+
+        // A cancellation that landed *after* the transcribe returned: the engine finished, but
+        // the user's Escape was earlier than the injection decision. **A cancelled transcription
+        // must never inject** (`PRODUCT_SPEC.md:129`).
+        guard !Task.isCancelled else { return .idle }
 
         // The engine's own answer can be empty even for non-empty audio; whatever it called
         // silence, `""` must not be pasted and no failsafe may hold it.

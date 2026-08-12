@@ -874,8 +874,23 @@ set -euo pipefail
 # session. The extended `testDefaultConfigurationMakesZeroNetworkConnections` assertion is the
 # same test, grown.
 #
+# It was 823 by the dictation-loop review-closure commit that routes the session's cancel key:
+# eight tests. Six in SessionKeyPolicyTests pin "Escape is a session key" two-sided, in the
+# tap-policy layer (`VoccaHotkey`, the H7 shape — the adapter stays decision-free): a fresh
+# Escape key-down is the cancel gesture, the closed set of near-misses is not (autorepeat,
+# key-up, flagsChanged, the hotkey's own key, a letter), the session key is swallowed while
+# something is in flight and passes through over an idle Vocca, a non-session key passes through
+# in both states, and the two dispositions are not collapsed into one. Two in DictationLoopTests
+# close the route through the composed root, the `PRODUCT_SPEC.md:129` acceptance: Esc during
+# RECORDING delivered **through the tap** ends the session `.userCancelled` (the only
+# `EndReason` permitted to discard), closes the microphone, swallows the key — the focused app
+# never sees it — and injects nothing; Esc during TRANSCRIBING cancels the in-flight transcribe
+# parked on `GatedTranscribeEngine`'s real sleep, the engine observes the cancellation, and a
+# cancelled transcription never injects, never notices and returns the widget to IDLE. The
+# floor moves 823 → 831.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=823
+MINIMUM_EXECUTED_TESTS=831
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

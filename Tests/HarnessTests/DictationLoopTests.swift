@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Carbon.HIToolbox
 import VoccaBootstrap
 import VoccaCore
 import VoccaInject
@@ -193,6 +194,20 @@ final class DictationLoopTests: XCTestCase {
             let held = await condition()
             XCTAssertTrue(held, message)
         }
+
+        /// The real-time form of ``drain(until:_:)``, for paths that cross an actual sleep.
+        ///
+        /// ``drain``'s pure yield loop cannot wait out a real `Task.sleep` — the gated engine's
+        /// parked transcribe — so this form interleaves short sleeps with the yields, bounded by
+        /// a deadline rather than by a turn count.
+        func drainRealtime(until condition: @escaping () async -> Bool, _ message: String) async {
+            let deadline = Date().addingTimeInterval(10)
+            while !(await condition()) && Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            let held = await condition()
+            XCTAssertTrue(held, message)
+        }
     }
 
     // MARK: - The composed acceptance
@@ -349,6 +364,93 @@ final class DictationLoopTests: XCTestCase {
         XCTAssertEqual(currentCalls, 0)
         XCTAssertEqual(harness.panel.heldPresentations, 0)
         XCTAssertEqual(harness.panel.reasons, [])
+    }
+
+    // MARK: - Esc, routed to the machine's cancel path (PRODUCT_SPEC.md:129)
+
+    /// **Esc during RECORDING, through the tap.** The Escape key-down arrives at the root's sink;
+    /// the session's cancel route ends it as `.userCancelled` — the one `EndReason` permitted to
+    /// discard — and nothing is transcribed or injected. The Escape itself is swallowed: the
+    /// session acted on it, so the focused application never sees it (`SessionKeyPolicy`).
+    func testEscDuringRecordingCancelsTheSessionAndInjectsNothing() async {
+        let harness = Harness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+
+        harness.pressAndRecord()
+        XCTAssertEqual(harness.source.beginCount, 1, "the session is recording")
+
+        let disposition = harness.tap.deliver(event(.keyDown, UInt16(kVK_Escape), []))
+        await harness.drain(
+            until: { await harness.injector.calls.isEmpty },
+            "the cancellation's routing must settle")
+
+        XCTAssertEqual(
+            disposition, .swallow,
+            "an Escape the session acted on must not reach the focused application")
+        XCTAssertEqual(
+            harness.tap.charactersTyped(for: UInt16(kVK_Escape)), 0,
+            "the focused application never saw the Escape key-down")
+        XCTAssertEqual(harness.source.endCount, 1, "cancelling still closed the microphone")
+        XCTAssertEqual(
+            harness.source.closesWithoutOpen, 0,
+            "the close is the session's own — not an orphaned teardown")
+        let calls = await harness.injector.calls
+        XCTAssertEqual(calls, [], "a cancelled session must never inject")
+        let holdCalls = await harness.holder.holdCalls
+        XCTAssertEqual(holdCalls, 0)
+        let currentCalls = await harness.holder.currentCalls
+        XCTAssertEqual(currentCalls, 0)
+        XCTAssertEqual(harness.panel.heldPresentations, 0)
+        XCTAssertEqual(harness.panel.reasons, [])
+        XCTAssertEqual(
+            harness.root.widgetStore.state.state, .idle,
+            "the discard returns the widget to IDLE")
+    }
+
+    /// **Esc during TRANSCRIBING.** The session has already ended — the machine answers
+    /// `.unchanged` — but the pipeline's transcribe is in flight, parked on the gated engine's
+    /// sleep. The Escape key-down cancels the transcription task; the engine observes the
+    /// cancellation; and a cancelled transcription never injects. The discard is not a failure:
+    /// no reason notice, no failsafe — the user asked to abandon, and the widget returns to IDLE.
+    func testEscDuringTranscribingCancelsTheInFlightTranscriptionAndInjectsNothing() async {
+        let engine = GatedTranscribeEngine()
+        let harness = Harness(
+            engine: engine,
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+
+        harness.oneCycle()
+        await harness.drainRealtime(
+            until: { await engine.transcribeCalls == 1 },
+            "the session's audio must reach the engine's transcribe before Escape can abort it")
+        XCTAssertEqual(
+            harness.root.widgetStore.state.state, .transcribing,
+            "the widget is showing TRANSCRIBING while the transcription is in flight")
+
+        let disposition = harness.tap.deliver(event(.keyDown, UInt16(kVK_Escape), []))
+        await harness.drainRealtime(
+            until: { await engine.sawCancellation },
+            "the in-flight transcribe must observe the cancellation")
+
+        XCTAssertEqual(
+            disposition, .swallow,
+            "an Escape the loop acted on must not reach the focused application")
+        XCTAssertEqual(
+            harness.tap.charactersTyped(for: UInt16(kVK_Escape)), 0,
+            "the focused application never saw the Escape key-down")
+        let calls = await harness.injector.calls
+        XCTAssertEqual(calls, [], "a cancelled transcription must never inject")
+        let holdCalls = await harness.holder.holdCalls
+        XCTAssertEqual(holdCalls, 0)
+        XCTAssertEqual(harness.panel.heldPresentations, 0)
+        XCTAssertEqual(harness.panel.reasons, [])
+        XCTAssertEqual(
+            harness.root.widgetStore.state.state, .idle,
+            "the abort returns the widget to IDLE")
     }
 
     /// **The readiness gate, wired through the root**: an unprepared engine refuses honestly —
@@ -739,6 +841,34 @@ actor ScriptedTranscribeEngine: ASREngine {
             engine: identity,
             isFinal: true,
             audioDuration: buffer.audioDuration)
+    }
+}
+
+/// An engine whose `transcribe` **parks in flight** — the "Esc during TRANSCRIBING" fixture.
+///
+/// The park is a `Task.sleep` loop, which throws `CancellationError` the moment the enclosing
+/// task is cancelled: the engine records that it *observed* the cancellation (the abort is
+/// asserted on the engine's own ledger, never on a believed call) and rethrows, so the pipeline's
+/// cancellation path is exercised end to end rather than replaced.
+actor GatedTranscribeEngine: ASREngine {
+    let identity = EngineIdentity(
+        id: "gated-engine", displayName: "Gated engine", isLocal: true)
+    let supportsStreaming = false
+    private(set) var transcribeCalls = 0
+    private(set) var sawCancellation = false
+
+    func prepare() async throws {}
+
+    func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+        transcribeCalls += 1
+        while true {
+            do {
+                try await Task.sleep(for: .milliseconds(10))
+            } catch {
+                sawCancellation = true
+                throw error
+            }
+        }
     }
 }
 
