@@ -12,11 +12,19 @@ Your audio never has to leave your Mac.
 
 ---
 
-> ### ⚠️ Status: early — the skeleton exists, the product does not
+> ### ⚠️ Status: early — the loop exists, the product is not yet proven
 >
-> **There is nothing to dictate with yet.** What exists is the project skeleton for **C1** (audio capture + global hotkey): a nine-module Swift 6 package (every module a placeholder), an `App/` target that builds a signed, unsandboxed, hardened-runtime `Vocca.app`, signing and notarization scripts, and a three-job CI matrix that enforces the invariants — zero strict-concurrency warnings, zero network calls in the default configuration, module boundaries, licence headers, and the shipped bundle's entitlements.
+> **The P0 dictation loop is wired and tested: hold `⌥Space`, talk, release, and the words are
+> transcribed locally and typed into the focused app** — capture, hotkey, two ASR engines
+> (Parakeet via FluidAudio and whisper.cpp), the injection ladder with its failsafe, and the
+> live widget are all shipped behind tested seams, and the zero-network probe drives a full
+> dictation cycle end to end. There is still **no release**: no real-machine execution has
+> happened (CI structurally cannot — no microphone, no Accessibility grant, no window server),
+> so the first real dictation is yours, per `docs/SMOKE_CHECKLIST.md` steps 62–68.
 >
-> No audio is captured, no hotkey is registered, nothing is transcribed and nothing is injected. The plan — vision, phased roadmap, capability backlog, architecture, product spec — is all still here and still governs.
+> No audio is transcribed on a real machine yet and no text has been injected into a real app;
+> the numbers (latency, injection success) are unmeasured until then. The plan — vision, phased
+> roadmap, capability backlog, architecture, product spec — is all still here and still governs.
 >
 > If you're here from a link expecting a download — there isn't one yet. Star the repo if you want to know when there is.
 
