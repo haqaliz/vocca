@@ -89,6 +89,22 @@ final class RealtimeSafetyTests: XCTestCase {
         // "the set of bodies a reviewer must read stays small and known" — it had grown from one to
         // two without this set changing, which is the control failing quietly.
         "AudioRingBuffer.swift: room",
+        // Phase 4. The sink node's block, and the channel policy it calls.
+        //
+        // `receive` is the `AVAudioSinkNode` block itself. It lives in `AudioBufferListInterleaving.swift`
+        // and not on the graph on purpose: `AVAudioSinkNode(receiverBlock: self.render)` with a
+        // bound method on the graph captures the graph, so graph → node → block → graph is a cycle
+        // and the graph's `deinit` — which is what stops the engine, and therefore what puts out
+        // the orange mic indicator — never runs (measured with a probe against the real framework;
+        // the whole argument is the interleaver's header). The block capturing the interleaver is
+        // what keeps the graph releasable. `interleave` is where the strided copy actually
+        // happens, and it is deliberately *not* in the graph file: `AudioBufferList` is a plain C
+        // struct, so a test builds one and drives the copy — which is what turns "the declared
+        // channel count matches the samples" from an obligation on the implementer into an
+        // assertion. Both are marked, because both run on CoreAudio's thread and the marker is
+        // what selects, not the file.
+        "AudioBufferListInterleaving.swift: receive",
+        "AudioBufferListInterleaving.swift: interleave",
     ]
 
     /// What a realtime body may call.
@@ -115,11 +131,31 @@ final class RealtimeSafetyTests: XCTestCase {
     ///
     /// These are permitted **names**, not permitted operations — see this type's header for what
     /// that costs and why the marker set is pinned by equality as the compensating control.
+    /// **It did not double, and the per-declaration allow-list was not needed.** Phase 4 was expected
+    /// to roughly double this set and to make a per-declaration split worth having. It added four
+    /// names, because the work the sink node does was written as pointer arithmetic against the ring
+    /// rather than as anything new. The shared list stays shared, which keeps the reviewer's job one
+    /// list rather than three; revisit if a later phase needs a name that is bounded in one body and
+    /// not in another.
     static let permittedCalls: Set<String> = [
         "load", "store",
         "min", "max", "room",
         "advanced", "update",
         "Int", "UInt64",
+
+        // Phase 4.
+        // - `write` — `AudioRingBuffer.write`, itself on this list of linted bodies. The
+        //   interleaver hands it the scratch buffer once per callback.
+        // - `assumingMemoryBound` — a compile-time pointer type change. No allocation, no check, no
+        //   runtime work at all; it is `unsafeBitCast` for pointers with a name that says what it
+        //   assumes.
+        // - `UnsafeRawPointer` — the same, as an initializer: a pointer-to-pointer conversion used
+        //   once, to reach `mBuffers` at the byte offset resolved at construction. The offset is
+        //   *not* computed here; `MemoryLayout.offset(of:)` takes a key path and a key path is not
+        //   something to materialise on the audio thread.
+        // - `interleave` — `AudioBufferListInterleaver.interleave`, linted in its own right. Being
+        //   on this list is a claim about the call, not a substitute for reading the callee.
+        "write", "assumingMemoryBound", "UnsafeRawPointer", "interleave",
     ]
 
     /// Identifiers a realtime body may not mention, whether or not they are followed by a `(`.
@@ -610,9 +646,39 @@ final class RealtimeSafetyTests: XCTestCase {
 
             let first = line.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? ""
             guard first != "let", first != "var" else { continue }
+            guard !isAStoreThroughAPointer(line) else { continue }
             if containsABareAssignment(line) { offenders.append(line) }
         }
         return offenders
+    }
+
+    /// Whether `line` is a store through a pointer — `somePointer.advanced(by: i).pointee = …`.
+    ///
+    /// **The one exemption pass 4 has, added by Phase 4 and anticipated by the plan that asked for
+    /// it.** Interleaving a deinterleaved `AudioBufferList` is a *strided* copy: destination index
+    /// `frame * channels + channel`, source index `frame * channelsInBuffer + channel`. A stride
+    /// cannot use `update(from:count:)`, which copies a contiguous run, so it needs a per-element
+    /// store — and pass 4 reports that, because it cannot tell a pointer store from
+    /// `sidecar.total = count`.
+    ///
+    /// The exemption is deliberately about the **left-hand side and nothing else**: the assignment
+    /// target must end in `.pointee`. That is exactly what `update(from:count:)` already does,
+    /// unrolled — a write through a pointer into memory the object owns. It is neither of the two
+    /// shapes this pass exists for:
+    ///
+    /// - a copy-on-write uniqueness check on a stored collection (`scratch[0] = …`), which pass 3
+    ///   already refuses on the `[` and which does not end in `.pointee` either;
+    /// - a property write on a captured object (`sidecar.total = count`), which ends in the property
+    ///   name.
+    ///
+    /// **Compound assignment is untouched.** `pointer.pointee += 1` is still reported, because the
+    /// compound rule runs first and unconditionally — a read-modify-write is a different claim from
+    /// a store, and `AudioRingBuffer`'s whole atomic argument rests on the difference.
+    private static func isAStoreThroughAPointer(_ line: String) -> Bool {
+        guard let equals = line.firstIndex(of: "=") else { return false }
+        return line[line.startIndex..<equals]
+            .trimmingCharacters(in: .whitespaces)
+            .hasSuffix(".pointee")
     }
 
     /// Whether `line` contains an `=` that is an assignment rather than part of a comparison or a

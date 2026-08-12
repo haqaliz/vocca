@@ -1122,10 +1122,14 @@ final class AudioFormatConverterTests: XCTestCase {
     /// **Too few** means the adapter stopped speaking to the framework and the seam has quietly
     /// moved.
     ///
-    /// Phase 4 adds the `AVAudioEngine` graph and will have to edit this line to do it. That is the
-    /// intended cost.
+    /// Phase 4 added the `AVAudioEngine` graph and edited this line to do it, exactly as promised:
+    /// the graph (`AudioCaptureGraph.swift`) is the one new file with a reason to name the
+    /// framework, and it is the only one added. That is the intended cost.
     func testTheFilesThatImportAVFoundationAreExactlyTheExpectedSet() throws {
-        let expected: Set<String> = ["VoccaAudio/AudioFormatConverter.swift"]
+        let expected: Set<String> = [
+            "VoccaAudio/AudioFormatConverter.swift",
+            "VoccaAudio/AudioCaptureGraph.swift",
+        ]
 
         let sources = try PackageRootLocator.find(from: #filePath)
             .appendingPathComponent("Sources")

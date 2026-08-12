@@ -55,6 +55,18 @@ set -euo pipefail
 # block's counts are the C1 branch's pre-merge totals, not project totals.
 #
 # The C1 audio-capture chain, newest first (branch totals, pre-merge):
+# It was 418 by audio-capture phase 4, which added eight (426 at the branch tip, 725 on the merged
+# tree — the floor line moves 717 → 725 in this commit). AudioBufferListInterleavingTests drives
+# the channel policy with hand-built AudioBufferLists and reads the ring back: the deinterleaved
+# two-buffer layout and the interleaved one-buffer layout (the two shapes CoreAudio produces), the
+# null-mData skip with the accounting staying exact (a skipped buffer must not shorten the ring's
+# count, and a refusal still counts the whole block), the oversized callback counted whole or not
+# written at all, zero frames as a success, the declared channel count matching the samples at 1
+# and 2 channels — the plan's "the one thing no test will catch", which this file exists to catch —
+# and the clamp on a channel beyond the declared count. The sink block moved with them:
+# `AudioBufferListInterleaver.receive` is now the AVAudioSinkNode block (the measured
+# graph → node → block → graph leak is why), so the realtime declarations are receive + interleave
+# and AudioCaptureGraph carries none.
 # It was 388 by audio-capture phase 2 review round 2, which added four. The instructive one:
 # 388 by audio-capture phase 2 review round 2, which added four. The instructive one:
 # `convert(_:)` throws too, is called once per poll rather than once per session, and did **not**
@@ -718,7 +730,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=717
+MINIMUM_EXECUTED_TESTS=725
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

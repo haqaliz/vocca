@@ -222,6 +222,11 @@ final class DeinitIsolationTests: XCTestCase {
     /// `free(3)` behind a pointer method — it takes no lock this process owns, reaches no actor,
     /// and asserts no isolation domain — so it is safe on whatever thread the last release lands
     /// on, which is the whole of the rule.
+    /// `AudioCaptureGraph.deinit` routes through `tearDown()`, the same non-asserting teardown
+    /// pattern the timers use: its teardown stops the engine (synchronous, documentedly asserting
+    /// no isolation domain) and removes the configuration-change observer (a token-based removal
+    /// that needs no domain), and naming it `tearDown` rather than leaving the calls in the deinit
+    /// is what keeps the lint able to see an asserting `stop` at all.
     static let permittedInADeinit: Set<String> = [
         "tearDown",
         "stopWithoutAssertingIsolation",
