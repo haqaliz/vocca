@@ -202,6 +202,16 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 751 by the dictation-loop loop-wiring Task 2, which added six in
+# DictationEngineResolverTests: the engine lifecycle — the builder runs exactly once across
+# repeated prepares with the resolver's own selection, and the readiness gate answers the *same*
+# engine it resolved (identity-of-cast, since ASREngine is not class-bound); a non-default
+# selection arrives at the builder intact; two concurrent prepares are single-flight (the first
+# parked inside the engine's prepare at a gate — the ModelStore proof shape — the parked count
+# stays one and the builder does not re-run, and both callers complete when the gate opens);
+# readiness flips only after prepare succeeds; a prepare failure surfaces its reason intact and
+# keeps engineIfReady() nil; and a failure does not poison the next attempt — the retry re-warms
+# the same engine (prepare twice, builder once) and readiness opens.
 # It was 742 by the dictation-loop loop-wiring Task 1, which added nine in
 # DictationPipelineTests: the pipeline's whole decision table over the closed set — the cancelled
 # outcome discards even while carrying audio (no transcribe, no inject, no holder touch — Esc is
@@ -772,7 +782,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=751
+MINIMUM_EXECUTED_TESTS=757
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
