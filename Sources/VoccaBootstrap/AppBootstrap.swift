@@ -240,6 +240,22 @@ public enum AppBootstrap {
             toggleMicrophone = RefusingAudioSource()
         }
 
+        // MARK: The live widget
+        //
+        // The pill's window is created **lazily** — `LiveWidget` constructs the panel on the
+        // first non-IDLE state fold, so `configure` stays window-free (the probe's charter; the
+        // window-server rows of SMOKE_CHECKLIST.md are smoke rows, not CI's). What is built here
+        // is the level source the waveform draws: the hold-to-talk graph's — the configuration
+        // the loop ships in, and the one whose microphone the widget must truthfully track
+        // (`PRODUCT_SPEC.md:87-88`). A Mac with no input device has no graph to read, and the
+        // honest answer is the same 0 a stopped graph publishes: silent bars, never a ghost.
+        let liveLevel: any LiveLevelSource
+        if let graph {
+            liveLevel = MicrophoneLevelSource(graph: graph)
+        } else {
+            liveLevel = SilentLevelSource()
+        }
+
         // MARK: The root
         //
         // The pipeline is assembled after the engine is prepared (it needs a *prepared* engine),
@@ -275,7 +291,8 @@ public enum AppBootstrap {
             toggleSource: toggleMicrophone,
             toggleTimer: MainRunLoopTimer(),
             runningAppName: SystemRunningAppName(),
-            widgetClock: MainRunLoopTimer())
+            widgetClock: MainRunLoopTimer(),
+            liveLevel: liveLevel)
         rootBox.value = root
         return root
     }
@@ -553,6 +570,11 @@ public final class DictationLoopRoot {
     public let downloadSession: (any ModelDownloadSession)?
     /// The live widget's observable state — the root folds every effect through the projection.
     public let widgetStore: WidgetStateStore
+    /// The live pill's window, held for its lifetime and constructed lazily: no window exists
+    /// until the store's first non-IDLE state fold (``LiveWidget`` — `configure` stays
+    /// window-free). Bound to the same store the effect stream feeds, with the level source
+    /// the root injected.
+    public let liveWidget: LiveWidget
     /// The widget clock: the timer whose fires drive ``WidgetStateStore/timerFired(_:)`` while
     /// the widget is in a time-driven state.
     public let widgetClock: any RepeatingTimer
@@ -592,6 +614,10 @@ public final class DictationLoopRoot {
     ///   - toggleTimer: The toggle wiring's watchdog timer.
     ///   - runningAppName: The display-name reader behind the widget's target indicator.
     ///   - widgetClock: The timer whose fires drive the widget store's time-based folds.
+    ///   - liveLevel: The input level the widget's waveform draws. The shipped composition
+    ///     injects `MicrophoneLevelSource` over the hold-to-talk capture graph; a test injects a
+    ///     fake. No window is created here — the root's ``liveWidget`` constructs its panel
+    ///     lazily, on the store's first non-IDLE fold.
     ///   - pipeline: The pipeline, when it can be built before the root — the test shape, where
     ///     the engine is a stub and the injector/holder are ledgers. Mutually exclusive with
     ///     `pipelineAssembly`.
@@ -620,7 +646,8 @@ public final class DictationLoopRoot {
         toggleSource: any SessionAudioSource<AudioBuffer>,
         toggleTimer: any RepeatingTimer,
         runningAppName: RunningAppNameReading,
-        widgetClock: any RepeatingTimer
+        widgetClock: any RepeatingTimer,
+        liveLevel: any LiveLevelSource
     ) {
         precondition(
             pipeline == nil || pipelineAssembly == nil,
@@ -648,6 +675,12 @@ public final class DictationLoopRoot {
 
         let widgetStore = WidgetStateStore(clock: clock, ceiling: ceiling)
         self.widgetStore = widgetStore
+
+        // The live pill, bound to that store and the injected level source. The window itself is
+        // created lazily on the first non-IDLE fold — see `LiveWidget` — so nothing here touches
+        // the window server.
+        let liveWidget = LiveWidget(store: widgetStore, level: liveLevel)
+        self.liveWidget = liveWidget
 
         let router = EffectRouter(
             panel: panel, targetResolution: targetResolution, readiness: readiness,
@@ -1238,6 +1271,16 @@ final class RefusingAudioSource: SessionAudioSource {
     func endCapture() -> AudioBuffer {
         AudioBuffer(samples: [], sampleRate: AudioBuffer.interchangeSampleRate)
     }
+}
+
+/// The live widget's level when no capture graph exists — a stopped graph's honest answer.
+///
+/// `configure`'s fallback for the same no-input-device shape `RefusingAudioSource` answers: there
+/// is no graph to run, so the honest level is the same `0` a stopped graph publishes
+/// (`MicrophoneLevelSource/latestLevel()` gates on the graph's `isRunning`), and the waveform
+/// draws silent bars rather than a ghost.
+private final class SilentLevelSource: LiveLevelSource {
+    func latestLevel() -> Float { 0 }
 }
 
 // MARK: - The deferred custody chain

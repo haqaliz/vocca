@@ -396,7 +396,8 @@ extension VoccaNetworkProbe {
             toggleSource: toggleMicrophone,
             toggleTimer: ProbeTimer(),
             runningAppName: appName,
-            widgetClock: ProbeTimer())
+            widgetClock: ProbeTimer(),
+            liveLevel: MicrophoneLevelSource(graph: graph))
         // The readiness gate: the test hook, and the launch path's last step — the session may
         // open the microphone and the router may route the ended session into the injected
         // pipeline.

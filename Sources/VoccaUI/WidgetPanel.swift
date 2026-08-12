@@ -85,6 +85,19 @@ public final class WidgetPanel: NSPanel {
         apply(store.state)
     }
 
+    // MARK: - Key handling
+
+    /// **Never becomes key — the inverse of `FailsafePanel`'s override, and every bit as
+    /// deliberate.**
+    ///
+    /// The FAILSAFE overrides `canBecomeKey` to `true` so ⌘C / ⏎ / ✕ reach it while the target
+    /// app keeps the field. The live pill has no affordances — nothing to copy, nothing to retry —
+    /// and its whole job is to stay out of the way: a titled `NSPanel` can become key by default,
+    /// and a pill that can is one keypress from stealing the field the user is dictating into
+    /// (`PRODUCT_SPEC.md:22` — "It does not take focus — ever"). The override makes the absence
+    /// explicit rather than inherited, and `WidgetPanelBindingTests` pins it.
+    public override var canBecomeKey: Bool { false }
+
     // MARK: - The window follows the store
 
     /// The single funnel the store's every publication flows through: show a non-IDLE widget (or a

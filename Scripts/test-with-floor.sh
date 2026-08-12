@@ -889,8 +889,23 @@ set -euo pipefail
 # cancelled transcription never injects, never notices and returns the widget to IDLE. The
 # floor moves 823 → 831.
 #
+# It was 831 by the dictation-loop review-closure commit that wires the live pill into the
+# composition root: five tests. Four in WidgetPanelBindingTests pin the store↔window binding —
+# show/hide follows the reducer state in both directions (IDLE → RECORDING → IDLE), OPENING and a
+# terminal notice also order the window front, and the pill is non-activating and **can never
+# become key** — that last one is a caught defect, not a formality: a titled NSPanel can become
+# key by default, so the shipped panel's "never takes focus" (`PRODUCT_SPEC.md:22`) was inherited
+# rather than real, and `WidgetPanel` now overrides `canBecomeKey` to `false` — the exact inverse
+# of `FailsafePanel`'s override. One in DictationLoopTests is the composition recipe: the root's
+# `liveWidget` is bound (identity, not type) to the same store the effect stream folds and to the
+# injected level source, `configure` created no window, and the first non-IDLE fold through the
+# real effect stream constructs the panel and it orders itself front. The window itself is glue
+# executed by nothing in CI (the precedent); the binding and the recipe are the tested half, and
+# the zero-network probe still drives `configure` with no window created (the panel is lazy).
+# The floor moves 831 → 836.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=831
+MINIMUM_EXECUTED_TESTS=836
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

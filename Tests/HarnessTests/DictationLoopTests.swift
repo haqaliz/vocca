@@ -85,6 +85,7 @@ final class DictationLoopTests: XCTestCase {
         let secureInput: FakeSecureInput
         let appName: FakeRunningAppName
         let panel: RecordingPanel
+        let liveLevel: any LiveLevelSource
         let root: DictationLoopRoot
 
         init(
@@ -92,7 +93,8 @@ final class DictationLoopTests: XCTestCase {
             injectorResult: InjectionResult,
             held: HeldTranscript? = nil,
             samples: [Float] = [1, 2, 3],
-            prepared: Bool = true
+            prepared: Bool = true,
+            liveLevel: any LiveLevelSource = FakeLevelSource(level: 0)
         ) {
             let clock = TestClock()
             let keyboard = Keyboard()
@@ -134,7 +136,8 @@ final class DictationLoopTests: XCTestCase {
                 toggleSource: toggleSource,
                 toggleTimer: toggleTimer,
                 runningAppName: appName,
-                widgetClock: widgetClock)
+                widgetClock: widgetClock,
+                liveLevel: liveLevel)
 
             self.clock = clock
             self.keyboard = keyboard
@@ -153,6 +156,7 @@ final class DictationLoopTests: XCTestCase {
             self.secureInput = secureInput
             self.appName = appName
             self.panel = panel
+            self.liveLevel = liveLevel
             self.root = root
 
             if prepared {
@@ -696,6 +700,44 @@ final class DictationLoopTests: XCTestCase {
         XCTAssertEqual(harness.root.widgetStore.state.state, .idle, "the confirmation collapsed")
         XCTAssertFalse(harness.widgetClock.isRunning, "the widget clock stopped at IDLE")
     }
+
+    // MARK: - The live widget's window, wired (R4)
+
+    /// The composition recipe for the live pill: the root's live widget is bound to **the same
+    /// store the effect stream feeds**, with the injected level source, and the window is
+    /// **lazy** — `configure`'s window-freedom is structural, because no window exists until the
+    /// first non-IDLE state makes one necessary. The lazy construction then runs through the
+    /// real effect stream: a press constructs the panel, and the panel follows the store.
+    func testTheRootConstructsTheLiveWidgetBoundToItsStoreAndLevelSource() async {
+        let level = FakeLevelSource(level: 0.5)
+        let harness = Harness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            liveLevel: level)
+
+        XCTAssertTrue(
+            harness.root.liveWidget.store === harness.root.widgetStore,
+            "the live widget must be bound to the same store the effect stream folds")
+        XCTAssertTrue(
+            (harness.root.liveWidget.level as AnyObject) === level,
+            "the injected level source must be the one the widget's waveform draws")
+        XCTAssertNil(
+            harness.root.liveWidget.presentedPanel,
+            "configure created no window — the panel is constructed lazily")
+
+        harness.pressAndRecord()
+        await harness.drain(
+            until: { harness.root.liveWidget.presentedPanel != nil },
+            "the first non-IDLE state must construct the live widget's window")
+        XCTAssertEqual(
+            harness.root.liveWidget.presentedPanel?.isVisible, true,
+            "the constructed panel orders itself front — the pill is showing RECORDING")
+        XCTAssertTrue(
+            harness.root.liveWidget.presentedPanel?.styleMask.contains(.nonactivatingPanel) == true,
+            "the live pill must never activate Vocca (PRODUCT_SPEC.md:22)")
+    }
 }
 
 // MARK: - The microphone, with an AudioBuffer payload
@@ -919,6 +961,26 @@ actor LedgerHolder: TranscriptHolder {
     func release() async {
         releaseCalls += 1
     }
+}
+
+// MARK: - The widget's level source
+
+/// The input level the composed loop's live widget draws, as a plain value the test scripts.
+///
+/// A class rather than the projection tests' struct so the recipe assertion can be an **identity**
+/// check — "the level source the test injected is the one the widget holds" is the composition
+/// claim, and `===` is the only form of it that cannot be satisfied by a different instance that
+/// happens to read the same. Final with one immutable stored property, so `Sendable` (the seam's
+/// requirement) is inferred rather than asserted. File-private, like every other same-named fake
+/// in this suite: the level source is a common double and each file owns its own spelling.
+private final class FakeLevelSource: LiveLevelSource {
+    let level: Float
+
+    init(level: Float) {
+        self.level = level
+    }
+
+    func latestLevel() -> Float { level }
 }
 
 // MARK: - Fixture helpers
