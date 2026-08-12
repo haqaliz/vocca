@@ -295,6 +295,8 @@ extension VoccaNetworkProbe {
         case .secureInput: return "secureInput"
         case .exhausted: return "exhausted"
         case .noFocusedField: return "noFocusedField"
+        case .modelUnavailable: return "modelUnavailable"
+        case .transcriptionFailed: return "transcriptionFailed"
         case .accessibilityRevoked: return "accessibilityRevoked"
         }
     }

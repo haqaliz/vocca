@@ -30,13 +30,16 @@ import VoccaCore
 /// affordance arrives with the settings unit. Everything else is verbatim.
 public enum FailsafeCopy {
 
-    /// The cause-specific reason line, `PRODUCT_SPEC.md:111-113` verbatim, plus the reserved
-    /// revocation fallback (`:114`, minus the not-yet-real `[Open Settings]` affordance).
+    /// The cause-specific reason line, `PRODUCT_SPEC.md:111-113` verbatim, plus the two
+    /// voice-processing reasons (`dictation-loop` PRD R5) and the reserved revocation fallback
+    /// (`:114`, minus the not-yet-real `[Open Settings]` affordance).
     ///
     /// ``FailsafeReason/exhausted`` interpolates the target app name — "Couldn't type into
     /// Notion." — and falls back to a name-less phrasing when the name could not be resolved
     /// (``HeldTranscript/targetAppName`` is `nil`): the sentence must never read "Couldn't type
-    /// into .", and must never invent a name.
+    /// into .", and must never invent a name. The two voice-processing reasons are target-app
+    /// agnostic by construction: no transcript was ever held, so no app name is in play and no
+    /// ⌘C / ⏎ ladder affordance appears in their copy (PRD R5).
     public static func reasonText(for reason: FailsafeReason, targetAppName: String?) -> String {
         switch reason {
         case .secureInput:
@@ -46,6 +49,10 @@ public enum FailsafeCopy {
             return "Couldn't type into \(target). Press ⌘C to paste it manually, or ⏎ to try again."
         case .noFocusedField:
             return "Nothing was focused. Click where you want this, then press ⏎."
+        case .modelUnavailable:
+            return "Voice processing isn't ready yet — try again in a moment."
+        case .transcriptionFailed:
+            return "Voice processing failed. Nothing was lost — you can try again."
         case .accessibilityRevoked:
             return "Vocca's permission to type was turned off. Press ⌘C to paste it manually."
         }

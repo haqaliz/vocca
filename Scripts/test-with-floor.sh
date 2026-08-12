@@ -202,6 +202,11 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 733 by the dictation-loop failure-surfaces Task 1, which added four in FailsafeReasonTests:
+# the two voice-processing reasons (PRD R5) round-trip through the recovery journal over the REAL
+# FileSystemJournalStore — the reason field is persisted as its raw spelling, so only a real JSON
+# encode→decode proves the spelling survives the schema — and each reason's copy renders the PRD
+# sentence verbatim, non-empty, with no ⌘C/⏎ ladder affordance in it (no held text exists to copy).
 # It was 405 by the local-asr download-ui: 405 by the local-asr download-ui: the three session-adapter tests in ModelDownloadSessionTests
 # (the seam's happy path ends .committed with monotonic progress, a failure ends .failed with the
 # cause and no presence, and a skip ends .cancelled with the .part surviving — the resume
@@ -746,7 +751,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=733
+MINIMUM_EXECUTED_TESTS=737
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
