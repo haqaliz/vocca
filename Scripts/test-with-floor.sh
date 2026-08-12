@@ -202,6 +202,20 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 742 by the dictation-loop loop-wiring Task 1, which added nine in
+# DictationPipelineTests: the pipeline's whole decision table over the closed set — the cancelled
+# outcome discards even while carrying audio (no transcribe, no inject, no holder touch — Esc is
+# an instruction, not the pipeline forgetting), the empty captured buffer is decided empty before
+# the engine is asked (the empty-buffer policy makes samples.isEmpty and text == "" the same
+# fact, `ASREngine.swift:28-32`), the engine's own empty answer for non-empty audio never reaches
+# the injector (no paste of ""), the happy path transcribes once and injects into the exact
+# key-down context, every delivery rung ends idle with the holder untouched (over the closed
+# InjectionRung set), `.widgetFailsafe` surfaces the handoff's held transcript after reading the
+# holder exactly once — never holding or releasing — plus the residual row (a failsafe with
+# nothing held surfaces .exhausted rather than a silent idle), the transcribe-throw row
+# (.reasonOnly(.transcriptionFailed), nothing injected, nothing held), and the four non-ended
+# effects routing to idle touching nothing. StubEngine gained a transcribeCalls ledger beside its
+# prepareCount so the skip rows assert on a counter.
 # It was 737 by the dictation-loop failure-surfaces Task 2, which added five in
 # FailsafeStateReducerTests: the reason-only state's decision table over the closed action set —
 # .reasonShown presents the newest reason from hidden and from every presented state, ⌘C/⏎ are
@@ -758,7 +772,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=742
+MINIMUM_EXECUTED_TESTS=751
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
