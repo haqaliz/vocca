@@ -47,6 +47,7 @@ final class FailsafeStateReducerTests: XCTestCase {
         case .presenting(let transcript): return transcript.text
         case .retrying(let transcript): return transcript.text
         case .copied(let transcript): return transcript.text
+        case .reasonOnly: return nil
         }
     }
 
@@ -233,5 +234,98 @@ final class FailsafeStateReducerTests: XCTestCase {
         XCTAssertEqual(reduce([.copyRequested]), .hidden)
         XCTAssertEqual(reduce([.retryRequested]), .hidden)
         XCTAssertEqual(reduce([.dismissRequested]), .hidden)
+    }
+
+    // MARK: - The reason-only notice (PRD R5: no held text, dismiss-only, time-free)
+
+    /// The voice-processing loop reports a reason with no held transcript: `.reasonShown` from
+    /// `hidden` presents the reason-only notice — the cause, and nothing else.
+    func testReasonShownFromHiddenPresentsTheReasonOnlyNotice() {
+        let state = reduce([.reasonShown(.modelUnavailable)])
+        XCTAssertEqual(
+            state, .reasonOnly(.modelUnavailable),
+            "a reason-only notice must present the cause from hidden")
+    }
+
+    /// `.reasonShown` from any non-hidden state presents the newest reason — a fresh reason-only
+    /// notice replaces a shown transcript (presenting/retrying/copied) or an older reason-only
+    /// notice, exactly as a new hold replaces the shown transcript.
+    func testReasonShownFromAnyNonHiddenStatePresentsTheNewestReason() {
+        let transcript = heldTranscript()
+        let states: [(FailsafeState, String)] = [
+            (.presenting(transcript), "presenting"),
+            (.retrying(transcript), "retrying"),
+            (.copied(transcript), "copied"),
+            (.reasonOnly(.modelUnavailable), "reasonOnly"),
+        ]
+        for (state, name) in states {
+            XCTAssertEqual(
+                FailsafeStateReducer.reduce(state, action: .reasonShown(.transcriptionFailed)),
+                .reasonOnly(.transcriptionFailed),
+                "reasonShown must present the newest reason from \(name)")
+        }
+    }
+
+    /// ⌘C and ⏎ in `.reasonOnly` are no-ops: no text is held, so there is nothing to copy and
+    /// nothing to retry — the affordances are structurally disabled for this state.
+    func testCopyAndRetryAreNoOpsWhileAReasonOnlyNoticeShows() {
+        let reasonOnly = FailsafeState.reasonOnly(.modelUnavailable)
+        XCTAssertEqual(
+            FailsafeStateReducer.reduce(reasonOnly, action: .copyRequested), reasonOnly,
+            "⌘C must not disturb a reason-only notice: no text exists to copy")
+        XCTAssertEqual(
+            FailsafeStateReducer.reduce(reasonOnly, action: .retryRequested), reasonOnly,
+            "⏎ must not disturb a reason-only notice: no transcript exists to re-run")
+    }
+
+    /// **The reason-only state is dismiss-only, pinned structurally over the closed action set:**
+    /// folding every action from `.reasonOnly`, the only transition into `hidden` is
+    /// ``FailsafeAction/dismissRequested`` and no action reaches any other state — the state set
+    /// over the fold is exactly `{reasonOnly, hidden}`. A held transcript arriving mid-notice
+    /// stays in the journal (the journal holds one entry and survives launch); the notice itself
+    /// yields nothing. No time-based transition exists because no time-based action exists.
+    func testDismissIsTheOnlyExitFromReasonOnly() {
+        let reasonOnly = FailsafeState.reasonOnly(.modelUnavailable)
+
+        let everyAction: [(FailsafeAction, String)] = [
+            (.transcriptHeld(heldTranscript(text: "Held while the notice shows")), "transcriptHeld"),
+            (.copyRequested, "copyRequested"),
+            (.retryRequested, "retryRequested"),
+            (.dismissRequested, "dismissRequested"),
+            (.relaunchLoaded(heldTranscript(text: "Loaded while the notice shows")), "relaunchLoaded"),
+            (.reasonShown(.transcriptionFailed), "reasonShown"),
+        ]
+
+        var reachable: [FailsafeState] = []
+        for (action, name) in everyAction {
+            let result = FailsafeStateReducer.reduce(reasonOnly, action: action)
+            switch result {
+            case .reasonOnly:
+                if !reachable.contains(result) { reachable.append(result) }
+                XCTAssertNil(
+                    heldText(of: result),
+                    "\(name) must never attach held text to a reason-only notice")
+            case .hidden:
+                if !reachable.contains(result) { reachable.append(result) }
+                XCTAssertEqual(
+                    action, .dismissRequested,
+                    "\(name) must not hide a reason-only notice: dismiss is the only exit")
+            case .presenting, .retrying, .copied:
+                XCTFail("\(name) must not leave the reason-only state into \(result)")
+            }
+        }
+        XCTAssertEqual(
+            reachable.count, 3,
+            "the fold must reach exactly the reason-only and hidden states, no others: \(reachable)")
+        XCTAssertTrue(
+            reachable.contains(.hidden),
+            "dismiss must be an exit from the reason-only state")
+    }
+
+    /// A reason-only notice holds no text by construction — the view can render no transcript
+    /// area and no copy affordance, whatever sequence produced the state.
+    func testReasonOnlyHoldsNoText() {
+        XCTAssertNil(heldText(of: .reasonOnly(.modelUnavailable)))
+        XCTAssertNil(heldText(of: .reasonOnly(.transcriptionFailed)))
     }
 }

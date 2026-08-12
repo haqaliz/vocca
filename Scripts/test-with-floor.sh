@@ -202,6 +202,13 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 737 by the dictation-loop failure-surfaces Task 2, which added five in
+# FailsafeStateReducerTests: the reason-only state's decision table over the closed action set —
+# .reasonShown presents the newest reason from hidden and from every presented state, ⌘C/⏎ are
+# no-ops (no text is held to copy or re-run), and the fold of every action from .reasonOnly lands
+# in exactly {reasonOnly, hidden} with dismissRequested the only exit — never-auto-dismiss for
+# the new state is structural, not policed. The same commit grew FailsafeCopy.affordancesLine(for:)
+# to render an empty legend for the reason-only state (PRD R5).
 # It was 733 by the dictation-loop failure-surfaces Task 1, which added four in FailsafeReasonTests:
 # the two voice-processing reasons (PRD R5) round-trip through the recovery journal over the REAL
 # FileSystemJournalStore — the reason field is persisted as its raw spelling, so only a real JSON
@@ -751,7 +758,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=737
+MINIMUM_EXECUTED_TESTS=742
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -37,7 +37,9 @@ import VoccaCore
 /// panel when a failsafe has fired (after awaiting the holder's `hold`), and the panel answers by
 /// reading `current()`: ``presentHeldTranscript()`` is that read, and ``loadJournalOnLaunch()``
 /// is the same read at startup, carrying the unresolved entry's captured-at note
-/// (`PRODUCT_SPEC.md:117`). Neither is a poll — the window adds no timer and no loop.
+/// (`PRODUCT_SPEC.md:117`). The voice-processing loop's refusals have no transcript to read —
+/// ``presentReasonOnly(_:)`` takes the reason itself as the whole payload (PRD R5). Neither is a
+/// poll — the window adds no timer and no loop.
 ///
 /// ## The injected handlers
 ///
@@ -116,6 +118,18 @@ public final class FailsafePanel: NSPanel {
         guard let transcript = await holder.current() else { return nil }
         apply(.relaunchLoaded(transcript))
         return transcript
+    }
+
+    /// A reason-only notice (PRD R5): the voice-processing loop failed with `reason` and no text
+    /// was ever held — the panel shows the cause and the ✕ affordance, nothing to copy and
+    /// nothing to retry. The composition root calls this after a `.modelUnavailable` or
+    /// `.transcriptionFailed` refusal; unlike the custody entries there is no holder read — the
+    /// reason is the whole payload, so the notice is dispatched and ordered front in one call.
+    ///
+    /// `@MainActor` like every entry on this window: the panel is an `NSPanel` subclass.
+    public func presentReasonOnly(_ reason: FailsafeReason) {
+        apply(.reasonShown(reason))
+        showWindow()
     }
 
     // MARK: - The intents (⌘C, ⏎, ✕)
@@ -225,11 +239,12 @@ public final class FailsafePanel: NSPanel {
                 }))
     }
 
-    /// The held transcript any shown state carries — `hidden` holds nothing, and a hidden panel
-    /// has nothing to copy, retry or release.
+    /// The held transcript any shown state carries — `hidden` holds nothing, a reason-only
+    /// notice holds nothing (no text ever existed, PRD R5), and a hidden panel has nothing to
+    /// copy, retry or release.
     private func heldTranscript(from state: FailsafeState) -> HeldTranscript? {
         switch state {
-        case .hidden:
+        case .hidden, .reasonOnly:
             return nil
         case .presenting(let transcript), .retrying(let transcript), .copied(let transcript):
             return transcript

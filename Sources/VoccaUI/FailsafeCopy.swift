@@ -59,7 +59,16 @@ public enum FailsafeCopy {
     }
 
     /// The affordances legend, `PRODUCT_SPEC.md:54` verbatim: what ⌘C, ⏎ and ✕ do.
-    public static func affordancesLine() -> String {
-        "⌘C to copy    ⏎ retry   ✕"
+    ///
+    /// A reason-only notice renders an **empty** legend (PRD R5): no text is held, so ⌘C and ⏎
+    /// are disabled for that state, and a legend advertising them would be a lie — the same rule
+    /// that keeps ⌘C/⏎ out of the reason copy itself.
+    public static func affordancesLine(for state: FailsafeState) -> String {
+        switch state {
+        case .reasonOnly:
+            return ""
+        case .hidden, .presenting, .retrying, .copied:
+            return "⌘C to copy    ⏎ retry   ✕"
+        }
     }
 }
