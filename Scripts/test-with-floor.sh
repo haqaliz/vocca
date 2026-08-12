@@ -202,6 +202,19 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 768 after widget-live-states Task 2, which adds the widget reducer and the waveform
+# mapping in VoccaUI — twenty-one tests (thirteen in WidgetStateReducerTests, eight in
+# WaveformMappingTests), raising the floor to 791. The ones that justify the raise are
+# `testDeliveredCollapsesToIdleExactlyAtSixHundredMilliseconds` and
+# `testNoTimeBasedTransitionWithoutAClockEvent` (the injected-clock pair: the DELIVERED→IDLE
+# collapse lands at exactly 600 ms of the fold's clock, and a fold with no clock event can be
+# handed any time without moving the state — the structural pin that the widget has no hidden
+# timers), `testTheCeilingWarningTracksTheConfiguredCeiling` (the warning is derived via
+# `WatchdogPolicy.warningThreshold(before:)`, never hard-coded — a configured 60 s ceiling must
+# warn at 50 s, the `SessionWatchdog.swift:118-128` doctrine enforced from the UI side), and
+# `testTheClosedEventSetFoldsFromEveryState` (the closed action set from every state, asserting
+# the bookkeeping invariants — the time anchors exist exactly while their states do — so a fold
+# can never leave the widget claiming a session it no longer has).
 # It was 757 before widget-live-states Task 1, which adds the widget projection and the
 # live-level seam in VoccaCore — eleven tests in WidgetProjectionTests, raising the floor to
 # 768. The ones that justify the raise are `testEveryMachineEffectMapsToExactlyOneResult` and
@@ -803,7 +816,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=768
+MINIMUM_EXECUTED_TESTS=791
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
