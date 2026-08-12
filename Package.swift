@@ -70,6 +70,11 @@ let package = Package(
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 "WhisperCpp",
             ],
+            // The shipped model manifests ship in the bundle: the composition root's engine
+            // builder loads the manifest for the selected tier through `Bundle.module`, so the
+            // packaged app carries the exact JSON files the store verifies against. `.copy`
+            // preserves the files byte-for-byte — the digests inside them are the trust anchor.
+            resources: [.copy("Models/Manifests")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // The whisper.cpp v1.9.2 XCFramework (MIT, https://github.com/ggml-org/whisper.cpp):
@@ -105,9 +110,21 @@ let package = Package(
             dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // The app's composition root. It wires the other modules together, so it depends on them
+        // (ModuleBoundaryTests' rule 5 pins the direction: the root may import modules, and
+        // nothing in the package may import it). It is a package module rather than a file in the
+        // Xcode app target so that VoccaNetworkProbe can drive it: sources under App/ are outside
+        // the package and therefore outside the zero-network invariant.
         .target(
             name: "VoccaBootstrap",
-            dependencies: [],
+            dependencies: [
+                "VoccaCore",
+                "VoccaAudio",
+                "VoccaHotkey",
+                "VoccaASR",
+                "VoccaInject",
+                "VoccaUI",
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Test-only fixtures for the zero-network invariant. Neither is a package product:

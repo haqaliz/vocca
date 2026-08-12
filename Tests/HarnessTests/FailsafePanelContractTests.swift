@@ -117,7 +117,7 @@ final class FailsafePanelContractTests: XCTestCase {
     /// recoverable" probe.
     private func heldText(of state: FailsafeState) -> String? {
         switch state {
-        case .hidden: return nil
+        case .hidden, .reasonOnly: return nil
         case .presenting(let transcript), .retrying(let transcript), .copied(let transcript):
             return transcript.text
         }
@@ -351,8 +351,16 @@ final class FailsafePanelContractTests: XCTestCase {
             "Vocca's permission to type was turned off. Press ⌘C to paste it manually.")
     }
 
-    /// The affordances legend, `PRODUCT_SPEC.md:54` verbatim — what ⌘C, ⏎ and ✕ do.
+    /// The affordances legend, `PRODUCT_SPEC.md:54` verbatim — what ⌘C, ⏎ and ✕ do. Asserted
+    /// over a presented transcript; a reason-only notice renders an empty legend instead (PRD R5).
     func testAffordancesLineRendersTheProductSpecAffordances() {
-        XCTAssertEqual(FailsafeCopy.affordancesLine(), "⌘C to copy    ⏎ retry   ✕")
+        let transcript = heldTranscript()
+        XCTAssertEqual(
+            FailsafeCopy.affordancesLine(for: .presenting(transcript)),
+            "⌘C to copy    ⏎ retry   ✕")
+        XCTAssertEqual(
+            FailsafeCopy.affordancesLine(for: .reasonOnly(.modelUnavailable)),
+            "",
+            "a reason-only notice must render no affordances legend — no text exists to copy or retry")
     }
 }

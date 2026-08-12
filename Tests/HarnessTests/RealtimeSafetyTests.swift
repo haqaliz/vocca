@@ -105,6 +105,13 @@ final class RealtimeSafetyTests: XCTestCase {
         // what selects, not the file.
         "AudioBufferListInterleaving.swift: receive",
         "AudioBufferListInterleaving.swift: interleave",
+        // widget-live-states Task 4. The level accounting the interleave body publishes: called
+        // from `interleave` on CoreAudio's thread, so it is marked and linted in its own right —
+        // the `room` precedent, where an unmarked helper spent a round holding an allocation and
+        // a `print` with every signal green. The body is an `UnsafeBufferPointer` (a two-word
+        // non-owning view) and a `reduce` (the standard fold — iterates, allocates nothing), both
+        // on this file's permit list.
+        "MicrophoneLevelSource.swift: peak",
     ]
 
     /// What a realtime body may call.
@@ -156,6 +163,17 @@ final class RealtimeSafetyTests: XCTestCase {
         // - `interleave` — `AudioBufferListInterleaver.interleave`, linted in its own right. Being
         //   on this list is a claim about the call, not a substitute for reading the callee.
         "write", "assumingMemoryBound", "UnsafeRawPointer", "interleave",
+
+        // widget-live-states Task 4.
+        // - `peak` — `MicrophoneLevelSource.peak(of:count:)`, the level accounting, itself on this
+        //   list of linted bodies. The one call `interleave` adds; everything the publish needs is
+        //   above the callback and tested (`MicrophoneLevelTests`).
+        // - `UnsafeBufferPointer` — a two-word view over existing memory (start + count), no
+        //   allocation, no ownership, no reference count. The level fold's only container.
+        // - `reduce` — the standard Sequence fold: iterate, apply the closure on the stack,
+        //   accumulate nothing. Allocation-free and lock-free; the one sanctioned expression-only
+        //   fold, which is what pass 4's no-mutation rule leaves a realtime body.
+        "peak", "UnsafeBufferPointer", "reduce",
     ]
 
     /// Identifiers a realtime body may not mention, whether or not they are followed by a `(`.

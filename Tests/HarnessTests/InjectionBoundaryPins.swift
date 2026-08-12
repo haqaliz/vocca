@@ -85,6 +85,10 @@ final class InjectionBoundaryPins: XCTestCase {
         "InjectionStrategyOrder.swift", "InjectionAllowlist.swift", "FailsafeHandoff.swift",
     ]
 
+    /// The one file under `Ladder/` that the decision scan deliberately does not cover: the
+    /// composition factory (see `testTheLadderDecisionFilesNameNoSystemIdentifier`'s header).
+    private static let ladderCompositionFactoryFile = "ShippingLadder.swift"
+
     /// Every `.swift` file at or below `root`, refusing to scan nothing.
     private static func scannedFiles(under root: URL) throws -> [URL] {
         let files = SwiftSourceScanner.swiftFiles(under: root)
@@ -241,11 +245,12 @@ final class InjectionBoundaryPins: XCTestCase {
 
     /// Every forbidden-identifier sighting under `root`, one entry per occurrence.
     private static func systemIdentifierSightings(
-        under root: URL
+        under root: URL, excluding fileName: String? = nil
     ) throws -> [SystemIdentifierSighting] {
         let rootPath = root.resolvingSymlinksInPath().path
         var sightings: [SystemIdentifierSighting] = []
         for file in try scannedFiles(under: root) {
+            if let fileName, file.lastPathComponent == fileName { continue }
             let source = try String(contentsOf: file, encoding: .utf8)
             for identifier in systemIdentifiers(inSource: source) {
                 sightings.append(
@@ -318,6 +323,14 @@ final class InjectionBoundaryPins: XCTestCase {
     ///
     /// `VoccaInject/Placeholder.swift` is deliberately outside the scan: it predates the aspect
     /// and is a placeholder, not a decision.
+    ///
+    /// `ShippingLadder.swift` is deliberately outside it for the opposite reason: it is the
+    /// **composition factory**, not a decision — its whole content is constructing the rung
+    /// adapters the decision consults, which is precisely the naming this pin forbids in the
+    /// decision files and exactly what a factory is for (the `loop-wiring` Task 3 pattern — "it
+    /// composes existing internal types"). The adapters it names live in their own files, where
+    /// the per-seam tables confine their families; this scan would flag the factory for the same
+    /// vocabulary the adapters' own files are permitted to carry.
     func testTheLadderDecisionFilesNameNoSystemIdentifier() throws {
         let ladderRoot = try ladderRoot()
         let files = try Self.scannedFiles(under: ladderRoot)
@@ -328,7 +341,8 @@ final class InjectionBoundaryPins: XCTestCase {
                 missing: missing.sorted(), under: ladderRoot.path)
         }
 
-        let sightings = try Self.systemIdentifierSightings(under: ladderRoot)
+        let sightings = try Self.systemIdentifierSightings(
+            under: ladderRoot, excluding: Self.ladderCompositionFactoryFile)
 
         XCTAssertEqual(
             sightings, [],

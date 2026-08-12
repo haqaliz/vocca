@@ -54,7 +54,17 @@ Vocca.app  (single process, Swift 6, strict concurrency)
 
 **Swift 6 strict concurrency is on from commit one.** Retrofitting it onto an audio pipeline with a realtime thread, an actor graph, and main-thread UI is materially harder than starting with it.
 
-Modules are **Swift Package Manager targets** in one repository. The dependency graph is strictly acyclic and **points inward to the core**: `VoccaBootstrap → VoccaUI → VoccaCore ← {VoccaAudio, VoccaHotkey, VoccaASR, VoccaText, VoccaInject, VoccaSpeech}`.
+Modules are **Swift Package Manager targets** in one repository. The dependency graph is strictly acyclic and **points inward to the core**: `VoccaCore ← {VoccaAudio, VoccaHotkey, VoccaASR, VoccaText, VoccaInject, VoccaSpeech}`, with one deliberate outward exception — the composition root: `VoccaBootstrap → {VoccaCore, VoccaAudio, VoccaHotkey, VoccaASR, VoccaInject, VoccaUI}`. It is the only module permitted to import adapters, and it is itself imported by nothing but the zero-network probe (see §14).
+
+> **Amended (`dictation-loop`, 2026-08-12).** This paragraph previously read
+> `VoccaBootstrap → VoccaUI → VoccaCore ← {…}` — the root had no edges because the loop was not
+> wired. The dictation-loop unit gave the root its edges: `configure` composes the tap, the
+> session machine, the microphone, the engine, the ladder and both panels, so the root must name
+> the adapters. The amendment is exactly the rule it appears to break: the *adapters* still point
+> only at the core (the seam lints enforce it file by file), and the root's imports are what make
+> the composed loop drivable by `VoccaNetworkProbe` inside §14's coverage guard. `VoccaBootstrap`
+> gained `VoccaCore`, `VoccaAudio`, `VoccaHotkey`, `VoccaASR`, `VoccaInject` and `VoccaUI`; it is
+> still imported by no module except the probe.
 
 **`VoccaCore` imports nothing** — not Foundation, not a system framework, and not a sibling module. It owns the seams (`HotkeyEventSource`, `SessionAudioSource`, `ASREngine`, `SpeechSynthesizer`, …) and the plain-data vocabulary they are phrased in (`RawKeyEvent`, `ModifierSet`, `SessionOutcome`, …). **Adapters depend on the core** to implement those seams, and each imports `VoccaCore` and no other Vocca module. This is what makes each capability testable in isolation: every branch worth testing is expressed in types a `swift test` run can construct on a machine with no permissions, no microphone and no network, and the untestable half is reduced to translation with no decisions in it.
 

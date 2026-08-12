@@ -73,6 +73,11 @@ actor StubEngine: ASREngine {
     /// how a test tells whether `transcribe` honoured it or quietly re-prepared.
     private(set) var prepareCount = 0
 
+    /// How many times `transcribe(_:)` was called — the ledger half of the pipeline contract: a
+    /// decision that skips transcription (a cancelled outcome, an empty captured buffer) is
+    /// asserted against this count rather than assumed.
+    private(set) var transcribeCalls = 0
+
     init(identity: EngineIdentity) {
         self.identity = identity
     }
@@ -82,7 +87,8 @@ actor StubEngine: ASREngine {
     }
 
     func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
-        Transcript(
+        transcribeCalls += 1
+        return Transcript(
             text: Self.text(for: buffer.samples),
             segments: [],
             engine: identity,

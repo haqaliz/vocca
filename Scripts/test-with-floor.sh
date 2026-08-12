@@ -202,6 +202,127 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 815 by the dictation-loop widget-live-states Task 4, which added seven in
+# MicrophoneLevelTests: the real `LiveLevelSource` conformance driven through the REAL interleaver
+# (the callback body ships the peak accounting; the fake seam's `levelPeak` forwards the
+# interleaver's atomic, and frames are fed as hand-built AudioBufferLists — the
+# AudioBufferListInterleavingTests shape). The ones that justify the raise are
+# `testThePublishedLevelTracksTheNewestCallbackNotALifetimeMaximum` (the level must fall when the
+# voice falls — a lifetime maximum would hold yesterday's shout over today's whisper),
+# `testTheLevelIsZeroWhileTheGraphIsStopped` (the seam's "decaying to 0 when stopped" half: a
+# session that ends must not leave a ghost level for the waveform to draw) and
+# `testEachSessionPublishesItsOwnPeakAndStoppingReturnsToSilence` (which is what grew the graph's
+# stop() into engine-stop-plus-level-reset — the fresh-session-starts-silent contract, pinned
+# through the fake that mirrors `AudioCaptureGraph.stop()`). The accounting itself is table-tested
+# directly (`testThePeakAccountingTracksTheGreatestAmplitudeIgnoringSign` and the silence/range
+# rows), and the realtime body it ships in is linted by RealtimeSafetyTests as a reviewed
+# declaration (`MicrophoneLevelSource.swift: peak`, with `UnsafeBufferPointer` and `reduce` added
+# to the permit list — a two-word non-owning view and the allocation-free standard fold). The
+# floor moves 815 → 822.
+# It was 808 by the dictation-loop widget-live-states Task 3, which added seven in
+# WidgetCopyTests: the live widget's copy — every user-visible string rendered from the reducer's
+# structured state, pinned to the spec with no AppKit anywhere near it (the views themselves are
+# window-server glue executed by nothing in CI, so this file is the tested half). The ones that
+# justify the raise are the target-indicator pair (`testTheOpeningLabelNamesTheTarget` and
+# `testTheDeliveredLabelConfirmsTheTarget` — the PRODUCT_SPEC.md:70 "→ Slack" label must never
+# dangle: the router folds OPENING with an empty name before the resolution lands, so an unresolved
+# name renders nothing rather than "→ "), `testTheElapsedTimerFormatsAsMinutesAndSeconds` (the
+# display ticks once per second, `0:04`-style, off the reducer's whole-second reading),
+# `testTheEscapeHintIsTheSpecsCancelInstruction` (`esc to cancel`, `:129` verbatim — the obvious
+# way out of a dictation the user has thought better of), and
+# `testTheCeilingWarningCopyIsPresentAndDoesNotNameANumber` (the threshold is derived from the
+# *configured* ceiling, so the copy must never hard-code the shipped 120 s). The floor moves
+# 808 → 815.
+# It was 798 by the dictation-loop loop-wiring Task 5, which added ten: four in
+# WidgetStateStoreTests (the store fold over the closed event set — the recording timer's fires
+# advance the display at the injected clock's cadence with the 2 s / 3 s surfaces appearing at
+# exactly `WidgetTiming`'s constants, the DELIVERED collapse landing at exactly the 600 ms
+# deadline, and the out-of-state timer no-ops) and six in DictationLoopTests (the toggle
+# configuration through the root: press → runs → `.toggledOff`, the ceiling through the toggle
+# timer, the `.tapDisabled` route, the mode switch moving the tap's route with the default
+# hold-to-talk, the display-name resolution feeding the DELIVERED confirmation, and the widget
+# clock collapsing the confirmation and stopping). The floor moves 798 → 808.
+# It was 791 by the dictation-loop loop-wiring Task 4, which added seven in DictationLoopTests:
+# the composed-loop acceptance driven through the real composition root (DictationLoopRoot) over
+# fakes — the R8-1 100-cycle run (100 started, 100 ended, 0 overlapping, 0 orphaned, 100
+# transcripts delivered into the key-down context, asserted against the fakes' ledgers rather
+# than against anything the root claims), and the four failure injections the spec names
+# (engine throws → .transcriptionFailed surface with the injector untouched; ladder exhausts →
+# the held transcript presented on the panel; an empty buffer → no injector call; a cancelled
+# session → no injector call), plus the readiness gate (`testAnUnpreparedEngineRefusesBeforeTheMicrophoneOpens`,
+# which pins "the mic never opens" on the source's own begin-count and that the refusal is not a
+# dead hotkey) and the arm contract (`testTheRootArmsTheTapAndStartsTheHealthPoll`, the
+# `TapHealthTimer` root-ownership obligation). The floor moves 791 → 798.
+# It was 768 after widget-live-states Task 2, which adds the widget reducer and the waveform
+# mapping in VoccaUI — twenty-one tests (thirteen in WidgetStateReducerTests, eight in
+# WaveformMappingTests), raising the floor to 791. The ones that justify the raise are
+# `testDeliveredCollapsesToIdleExactlyAtSixHundredMilliseconds` and
+# `testNoTimeBasedTransitionWithoutAClockEvent` (the injected-clock pair: the DELIVERED→IDLE
+# collapse lands at exactly 600 ms of the fold's clock, and a fold with no clock event can be
+# handed any time without moving the state — the structural pin that the widget has no hidden
+# timers), `testTheCeilingWarningTracksTheConfiguredCeiling` (the warning is derived via
+# `WatchdogPolicy.warningThreshold(before:)`, never hard-coded — a configured 60 s ceiling must
+# warn at 50 s, the `SessionWatchdog.swift:118-128` doctrine enforced from the UI side), and
+# `testTheClosedEventSetFoldsFromEveryState` (the closed action set from every state, asserting
+# the bookkeeping invariants — the time anchors exist exactly while their states do — so a fold
+# can never leave the widget claiming a session it no longer has).
+# It was 757 before widget-live-states Task 1, which adds the widget projection and the
+# live-level seam in VoccaCore — eleven tests in WidgetProjectionTests, raising the floor to
+# 768. The ones that justify the raise are `testEveryMachineEffectMapsToExactlyOneResult` and
+# `testRecordingNeverComesFromANonRecordingSignal` (the aspect's load-bearing pair: `.recording`
+# must appear in the closed effect table exactly once, from `SessionEffect.started` — the
+# machine's own recording signal, produced in exactly one place, `SessionMachine.openTheMicrophone()`
+# at `SessionMachine.swift:596-603` — so a waveform can never be claimed over a dead mic), and
+# `testTheLevelSourceSeamIsSendable` (the `LiveLevelSource` seam pinned at compile time by
+# capturing the existential in a `@Sendable` closure — the read the widget's refresh makes, so a
+# conformance that stops being Sendable stops building the test).
+# It was 757 by the dictation-loop loop-wiring Task 3, which added two in
+# TargetResolutionSurfaceTests: the composition root's construction surface for target
+# resolution, pinned from OUTSIDE the module — the file imports VoccaInject without @testable,
+# so the recipe `TargetResolution(focusedApp: AXSource(), secureInput: SystemSecureInputRead())`
+# fails to compile the moment either adapter drops back to internal, and the is-checks pin that
+# the type-erased values the resolver receives are the shipped adapters. The semantics half runs
+# the same recipe over the seam fakes (per-file private actors, the AccessibilityRungTests norm)
+# and proves one resolution yields bundleID, windowTitle and isSecureInput — the three facts
+# the ladder's decision reads. Access-level changes only: AXSource and SystemSecureInputRead
+# became public with public inits and public protocol witnesses; zero decisions moved and the
+# H7-style seam tables are untouched (same one file per family).
+# It was 751 by the dictation-loop loop-wiring Task 2, which added six in
+# DictationEngineResolverTests: the engine lifecycle — the builder runs exactly once across
+# repeated prepares with the resolver's own selection, and the readiness gate answers the *same*
+# engine it resolved (identity-of-cast, since ASREngine is not class-bound); a non-default
+# selection arrives at the builder intact; two concurrent prepares are single-flight (the first
+# parked inside the engine's prepare at a gate — the ModelStore proof shape — the parked count
+# stays one and the builder does not re-run, and both callers complete when the gate opens);
+# readiness flips only after prepare succeeds; a prepare failure surfaces its reason intact and
+# keeps engineIfReady() nil; and a failure does not poison the next attempt — the retry re-warms
+# the same engine (prepare twice, builder once) and readiness opens.
+# It was 742 by the dictation-loop loop-wiring Task 1, which added nine in
+# DictationPipelineTests: the pipeline's whole decision table over the closed set — the cancelled
+# outcome discards even while carrying audio (no transcribe, no inject, no holder touch — Esc is
+# an instruction, not the pipeline forgetting), the empty captured buffer is decided empty before
+# the engine is asked (the empty-buffer policy makes samples.isEmpty and text == "" the same
+# fact, `ASREngine.swift:28-32`), the engine's own empty answer for non-empty audio never reaches
+# the injector (no paste of ""), the happy path transcribes once and injects into the exact
+# key-down context, every delivery rung ends idle with the holder untouched (over the closed
+# InjectionRung set), `.widgetFailsafe` surfaces the handoff's held transcript after reading the
+# holder exactly once — never holding or releasing — plus the residual row (a failsafe with
+# nothing held surfaces .exhausted rather than a silent idle), the transcribe-throw row
+# (.reasonOnly(.transcriptionFailed), nothing injected, nothing held), and the four non-ended
+# effects routing to idle touching nothing. StubEngine gained a transcribeCalls ledger beside its
+# prepareCount so the skip rows assert on a counter.
+# It was 737 by the dictation-loop failure-surfaces Task 2, which added five in
+# FailsafeStateReducerTests: the reason-only state's decision table over the closed action set —
+# .reasonShown presents the newest reason from hidden and from every presented state, ⌘C/⏎ are
+# no-ops (no text is held to copy or re-run), and the fold of every action from .reasonOnly lands
+# in exactly {reasonOnly, hidden} with dismissRequested the only exit — never-auto-dismiss for
+# the new state is structural, not policed. The same commit grew FailsafeCopy.affordancesLine(for:)
+# to render an empty legend for the reason-only state (PRD R5).
+# It was 733 by the dictation-loop failure-surfaces Task 1, which added four in FailsafeReasonTests:
+# the two voice-processing reasons (PRD R5) round-trip through the recovery journal over the REAL
+# FileSystemJournalStore — the reason field is persisted as its raw spelling, so only a real JSON
+# encode→decode proves the spelling survives the schema — and each reason's copy renders the PRD
+# sentence verbatim, non-empty, with no ⌘C/⏎ ladder affordance in it (no held text exists to copy).
 # It was 405 by the local-asr download-ui: 405 by the local-asr download-ui: the three session-adapter tests in ModelDownloadSessionTests
 # (the seam's happy path ends .committed with monotonic progress, a failure ends .failed with the
 # cause and no presence, and a skip ends .cancelled with the .part surviving — the resume
@@ -745,8 +866,46 @@ set -euo pipefail
 # CapturedAudio constraint.) It was 36 after the package-root-helper consolidation (task 1), and 33
 # before that.
 #
+# It was 822 when the dictation-loop branch forked, and the probe-full-cycle aspect raised it to
+# 823: one new test — `testTheAssertedCyclePostConditionStillDescribesACompleteDictationCycle`,
+# the guard-the-guard that reads the full-cycle post-condition back and refuses a version that no
+# longer describes a cycle which started, captured, transcribed with the stub's attribution,
+# delivered through a real rung, and never touched the failsafe, the handoff or the download
+# session. The extended `testDefaultConfigurationMakesZeroNetworkConnections` assertion is the
+# same test, grown.
+#
+# It was 823 by the dictation-loop review-closure commit that routes the session's cancel key:
+# eight tests. Six in SessionKeyPolicyTests pin "Escape is a session key" two-sided, in the
+# tap-policy layer (`VoccaHotkey`, the H7 shape — the adapter stays decision-free): a fresh
+# Escape key-down is the cancel gesture, the closed set of near-misses is not (autorepeat,
+# key-up, flagsChanged, the hotkey's own key, a letter), the session key is swallowed while
+# something is in flight and passes through over an idle Vocca, a non-session key passes through
+# in both states, and the two dispositions are not collapsed into one. Two in DictationLoopTests
+# close the route through the composed root, the `PRODUCT_SPEC.md:129` acceptance: Esc during
+# RECORDING delivered **through the tap** ends the session `.userCancelled` (the only
+# `EndReason` permitted to discard), closes the microphone, swallows the key — the focused app
+# never sees it — and injects nothing; Esc during TRANSCRIBING cancels the in-flight transcribe
+# parked on `GatedTranscribeEngine`'s real sleep, the engine observes the cancellation, and a
+# cancelled transcription never injects, never notices and returns the widget to IDLE. The
+# floor moves 823 → 831.
+#
+# It was 831 by the dictation-loop review-closure commit that wires the live pill into the
+# composition root: five tests. Four in WidgetPanelBindingTests pin the store↔window binding —
+# show/hide follows the reducer state in both directions (IDLE → RECORDING → IDLE), OPENING and a
+# terminal notice also order the window front, and the pill is non-activating and **can never
+# become key** — that last one is a caught defect, not a formality: a titled NSPanel can become
+# key by default, so the shipped panel's "never takes focus" (`PRODUCT_SPEC.md:22`) was inherited
+# rather than real, and `WidgetPanel` now overrides `canBecomeKey` to `false` — the exact inverse
+# of `FailsafePanel`'s override. One in DictationLoopTests is the composition recipe: the root's
+# `liveWidget` is bound (identity, not type) to the same store the effect stream folds and to the
+# injected level source, `configure` created no window, and the first non-IDLE fold through the
+# real effect stream constructs the panel and it orders itself front. The window itself is glue
+# executed by nothing in CI (the precedent); the binding and the recipe are the tested half, and
+# the zero-network probe still drives `configure` with no window created (the panel is lazy).
+# The floor moves 831 → 836.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=733
+MINIMUM_EXECUTED_TESTS=836
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

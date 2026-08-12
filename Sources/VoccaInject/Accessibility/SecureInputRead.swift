@@ -39,11 +39,17 @@ import Carbon.HIToolbox
 /// on whatever thread the resolver's actor runs, and the call needs no grant, no entitlement and
 /// no run loop. The object holds no state, so `Sendable` is checked, not asserted — the
 /// resolver actor holds it across the resolution boundary.
-final class SystemSecureInputRead: SecureInputReading, Sendable {
+///
+/// Public because the composition root constructs it: `VoccaBootstrap` builds
+/// ``TargetResolution`` with this adapter and ``AXSource``, and the root imports `VoccaInject`
+/// like any consumer. The public surface is the constructor and the one protocol witness — the
+/// same raw read ``TargetResolution`` already consumed when the type was module-internal.
+public final class SystemSecureInputRead: SecureInputReading, Sendable {
 
-    init() {}
+    /// The composition root's construction — a plain adapter, no arguments and no grants.
+    public init() {}
 
-    func isSecureInputActive() async -> Bool {
+    public func isSecureInputActive() async -> Bool {
         IsSecureEventInputEnabled()
     }
 }

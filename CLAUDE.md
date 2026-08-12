@@ -2,13 +2,14 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status:** the **C1 skeleton, the C2 ASR half, the C3 second ASR engine and the C4 injection
-> ladder exist**; the product
+> **Status:** the **C1 skeleton, the C2 ASR half, the C3 second ASR engine, the C4 injection
+> ladder and the P0 dictation loop** exist; the product
 > does not. C1 (audio
-> capture + global hotkey) is under way — session machine, hotkey source seam and the tap
-> adapter shipped; the audio capture aspect is in flight. C2 (local ASR) merged 2026-08-09; C3
+> capture + global hotkey) merged 2026-08-12; C2 (local ASR) merged 2026-08-09; C3
 > (second-asr-engine) landed 2026-08-11; C4 (the
-> injection ladder and its failsafe surface) landed 2026-08-09.
+> injection ladder and its failsafe surface) landed 2026-08-09; the
+> **dictation-loop unit landed 2026-08-12** — the loop wired end to end, the live widget
+> shipped, the zero-network probe driving a full cycle.
 >
 > **What is built and enforced:**
 > - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
@@ -36,9 +37,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   so it is the first
 >   module to depend on `VoccaCore` (see `ARCHITECTURE.md` §2 — the graph points inward to the core,
 >   amended in that commit). `VoccaASR`, `VoccaInject` and `VoccaUI` have since shipped behind their
->   seams (recorded below); `VoccaAudio`, `VoccaText` and `VoccaSpeech` remain placeholders, and
->   **there is still no audio and no loop wiring** — the session machine reacts to synthetic key events
->   and an injected clock, and `SessionAudioSource` is still a stub. The C1 acceptance (100 cycles, 100 started,
+>   seams (recorded below); `VoccaAudio`, `VoccaText` and `VoccaSpeech` — `VoccaAudio` has since
+>   shipped behind its seam (recorded below); `VoccaText` and `VoccaSpeech` remain placeholders, and
+>   **the loop is wired** — `AppBootstrap.configure` composes tap → session machine → `MicrophoneSource`
+>   → engine → ladder → failsafe → widget, driven end to end by the zero-network probe. The C1 acceptance (100 cycles, 100 started,
 >   100 ended, 0 overlapping, 0 orphaned) runs over the `HotkeyEventSource` seam with a fake source
 >   in the tap's place. **The tap adapter itself is written and is executed by nothing**: `tapCreate`
 >   returns `nil` without an Accessibility grant, so not one line of `CGEventTapSource.swift` runs in
@@ -55,9 +57,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   after the floor check — because `swift build` and `swift test` never see `Tools/`, and a check
 >   that lived only in CI is what let a `RepeatingTimer` change break the harness with every local
 >   signal green and master red on merge.
-> - `Tests/HarnessTests/`: 623 tests — the **zero-network invariant** (a `dyld` interposer over
+> - `Tests/HarnessTests/`: 836 tests — the **zero-network invariant** (a `dyld` interposer over
 >   `connect(2)` driving a probe binary that now drives a full session through the real machine and
->   watchdog, and two complete ladder runs through the real injector), module-boundary lint,
+>   watchdog, two complete ladder runs through the real injector, and a full dictation cycle
+>   through the composed root), module-boundary lint,
 >   licence-header lint, package-manifest coverage guard, the
 >   built-bundle/entitlement contracts, the session machine's own decision-table, mutation, and
 >   invariant coverage, the hotkey flag translation with its `fn` rule, the `HotkeyEventSource` seam
@@ -169,8 +172,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   run on a macos-15 hosted runner is unanswered, and C3's entry in
 >   `docs/planning/local-asr/fixture-suite/ci-wiring-decision_20260809.md` records the same
 >   env-gated decision for whisper rather than re-deciding it.
-> - **There is still no audio and no loop** — nothing connects session → ASR → injection, and the
->   picker's engine switch cannot be exercised against a live session until C1's capture exists.
+> - **The loop exists, but its real-machine execution does not** — nothing connects session → ASR →
+>   injection in a way CI can run (no Accessibility, no TCC, no microphone on a hosted runner);
+>   `SMOKE_CHECKLIST.md` steps 62–68 are the loop's first execution, and the picker's engine
+>   switch is exercised against a live session there.
 >
 > **C4 (`injection-ladder`) landed 2026-08-09 — the injection half of the dictation loop.** The
 > `TextInjector` seam exists as code in `VoccaCore` (`inject`, `resolve`, `failsafe` over
@@ -194,15 +199,51 @@ This file orients a coding agent working in this repository. Read it first.
 > runs through the real injector, replacing the `VoccaInject` placeholder — and the suite floor is
 > 623 tests.
 >
+> **The `dictation-loop` unit landed 2026-08-12 — the P0 loop, wired.** `VoccaCore` holds the
+> decisions the loop is made of: `DictationPipeline` (a cancelled session never injects — Esc
+> during TRANSCRIBING cancels the in-flight transcription — an empty short press skips the
+> injector entirely, and every other `.ended` transcribes and injects, surfacing
+> `.transcriptHeld` or a reason-only notice), `DictationEngineResolver` (resolve-once at launch,
+> single-flight background `prepare()` with the existing download surface, and a readiness gate
+> that refuses a dictation with `.modelUnavailable` before the microphone ever opens), and the
+> `WidgetProjection`/`LiveLevelSource` seams the widget renders through. The composition root
+> (`AppBootstrap.configure`) composes the real adapters: `CGEventTapSource` → `ScheduledWatchdog`
+> → `SessionMachine` over `MicrophoneSource`/`AudioCaptureGraph`, the engine per selection
+> (`ShippingLadder`, `ShippingPasteboard`, `ShippedModelManifest` are the new public composition
+> factories), `LadderInjector` with the seeded allowlist and `JournalTranscriptHolder` as both
+> handoff and panel holder, `TargetResolution` (made public for the root, translation only),
+> `FailsafePanel`, and the live widget. `SessionKeyPolicy` routes **Escape** into the machine's
+> `cancel()` during OPENING/RECORDING and cancels an in-flight transcription — `PRODUCT_SPEC.md:129`
+> is now code, not a promise. The live widget ships its five P0 states (IDLE/OPENING/RECORDING/
+> TRANSCRIBING/DELIVERED) as a projection of the machine's effects over a headless reducer with
+> injected-clock timers (2 s esc hint, 3 s elapsed, 110 s ceiling warning derived from the
+> configured ceiling, 600 ms DELIVERED collapse), a waveform driven by a **real** input level
+> published from the capture graph's realtime callback (`MicrophoneLevelSource`, the 
+> `@realtime`-marked accounting), and Reduce Motion → static meter; `WidgetPanel` overrides
+> `canBecomeKey = false` so the "never takes focus" claim is real. `FailsafeReason` gained
+> `.modelUnavailable` and `.transcriptionFailed` with a reason-only, dismiss-only panel variant.
+> The zero-network probe now drives a **full dictation cycle** through the composed root
+> (`PROBE-CYCLE`: press → mic opens over a scripted graph → frames → transcribe → inject →
+> idle, zero `connect(2)`, no download started), which is how it caught and fixed a real defect —
+> `ShippedModelManifest` could never load in an SPM build. Test floor: 836.
+>
+> **What the dictation loop is NOT, and must not be claimed:**
+> - **Its first execution is the founder's machine.** No part of the loop runs in CI — no tap, no
+>   TCC, no microphone, no window server; `SMOKE_CHECKLIST.md` steps 62–68 (with the model
+>   downloaded first) are the loop's only real run, exactly as steps 22–35 were the adapters'.
+> - **CONVERSING and the settings surface are out of scope** (P3, C11); the toggle machine is
+>   wired and tested but has no visible control yet; sounds are deferred to a settings surface.
+> - **C5 (cleanup), C7 (latency instrumentation) and C8 (strategy memory) remain unbuilt.** Raw
+>   ASR text is injected verbatim, the numbers are unmeasured, and the ladder does not learn yet.
+>
 > **What C4 is NOT, and must not be claimed:**
 > - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
 >   Accessibility or Automation grant, no real pasteboard session, no window server on a hosted
 >   runner. Every decision is above the seam and tested; `SMOKE_CHECKLIST.md` steps 22–35 are the
 >   adapters' and the panel's only execution.
-> - **There is still no audio and no loop** — `audio-capture` is unmerged and `SessionAudioSource`
->   is still a stub; nothing yet connects session → ASR → injection; the full six-state widget is
->   still out of scope (only the FAILSAFE surface ships); and C8 (strategy memory), C7 (latency
->   instrumentation) and C5 (cleanup) remain unbuilt.
+> - **The loop is wired** (the `dictation-loop` unit above); CONVERSING and the settings surface
+>   are out of scope (only the FAILSAFE and the five live states ship); and C8 (strategy
+>   memory), C7 (latency instrumentation) and C5 (cleanup) remain unbuilt.
 >
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no

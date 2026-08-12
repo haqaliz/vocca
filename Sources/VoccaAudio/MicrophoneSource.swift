@@ -42,6 +42,18 @@ public protocol CaptureGraphSeam: AnyObject {
     /// the graph's.
     var captureFormat: CapturedAudioFormat { get }
 
+    /// The newest published input level, 0...1 — the widget's level source
+    /// (`MicrophoneLevelSource`) reads it on the main actor. The realtime callback publishes it
+    /// (`AudioBufferListInterleaver`'s atomic, `widget-live-states` Task 4); a stopped graph stops
+    /// publishing, which is why ``isRunning`` sits on this seam too.
+    var levelPeak: Float { get }
+
+    /// Whether the engine is running — the graph's own answer, read off the engine rather than
+    /// remembered (`AudioCaptureGraph.isRunning`). The level source reads it so `latestLevel()`
+    /// answers 0 the moment the graph stops or is idle: a session's end closes the microphone,
+    /// and a level left over from it would be a ghost the waveform draws.
+    var isRunning: Bool { get }
+
     /// Open the microphone. May be slow; throws when the device refuses — the machine maps that
     /// to ``CaptureStart/unavailable``.
     func start() throws

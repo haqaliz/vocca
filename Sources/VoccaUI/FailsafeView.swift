@@ -71,7 +71,7 @@ public struct FailsafeView: View {
                     .foregroundStyle(.secondary)
 
                 HStack {
-                    Text(FailsafeCopy.affordancesLine())
+                    Text(FailsafeCopy.affordancesLine(for: state))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -80,6 +80,26 @@ public struct FailsafeView: View {
                 HStack {
                     Button("Copy", action: onCopy)
                     Button("Retry", action: onRetry)
+                    Spacer()
+                    Button("✕", action: onDismiss)
+                }
+            }
+            .padding(16)
+            .frame(width: 420)
+        case .reasonOnly(let reason):
+            VStack(alignment: .leading, spacing: 10) {
+                Text(FailsafeCopy.reasonText(for: reason, targetAppName: nil))
+                    .font(.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack {
+                    Text(FailsafeCopy.affordancesLine(for: state))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                HStack {
                     Spacer()
                     Button("✕", action: onDismiss)
                 }

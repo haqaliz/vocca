@@ -119,6 +119,18 @@ public final class AudioBufferListInterleaver {
     /// `AudioRingBuffer` makes the same claim about its own counters for the same reason.
     private let oversizedSamples = Atomic<UInt64>(0)
 
+    /// The newest published input level, 0...1 — the greatest sample magnitude of the most recent
+    /// callback, written by the realtime body over the just-written window and read by the
+    /// widget's level source (`MicrophoneLevelSource`) through the seam.
+    ///
+    /// A plain `store`/`load`, `.relaxed` in both directions, and the claim is exactly the ring's
+    /// refusal counter's: the realtime body is the steady writer, `resetPublishedLevel()` is a
+    /// second one that only ever stores 0 from `stop()` — never a read-modify-write, and a reset
+    /// racing a callback's store is benign, because the reader sees one or the other and either is
+    /// a valid level. Nothing hangs off the value, so there is nothing for an ordering pair to
+    /// publish.
+    private let publishedLevel = Atomic<Float>(0)
+
     /// - Parameters:
     ///   - channelCount: channels the input node delivers, and the number the ring's
     ///     ``CapturedAudioFormat`` must declare.
@@ -155,6 +167,17 @@ public final class AudioBufferListInterleaver {
 
     /// Samples dropped because a callback exceeded ``maximumFrameCount``.
     public var oversizedSampleCount: Int { Int(oversizedSamples.load(ordering: .relaxed)) }
+
+    /// The newest published input level, 0...1 — the level source's read, through the seam.
+    public var levelPeak: Float { publishedLevel.load(ordering: .relaxed) }
+
+    /// Clear the published level to 0 — the graph's `stop()` calls this so a fresh session's first
+    /// reading is silence, never the previous session's peak (`MicrophoneLevelTests` pins that a
+    /// session starts silent). A plain store off the realtime thread: `stop()` runs after
+    /// `engine.stop()` has torn the I/O down, so no callback is in flight when the reset lands.
+    public func resetPublishedLevel() {
+        publishedLevel.store(0, ordering: .relaxed)
+    }
 
     /// **The `AVAudioSinkNode` block itself**, in the shape the framework's `receiverBlock` takes.
     ///
@@ -237,6 +260,12 @@ public final class AudioBufferListInterleaver {
             }
         }
 
-        return ring.write(scratch, count: total)
+        // The callback body stays minimal: the copy, the write, and the one publish the widget's
+        // level depends on — the accounting itself is `MicrophoneLevelSource.peak`, linted in its
+        // own right (the "accounting above the callback" rule, widget-live-states Task 4).
+        let accepted = ring.write(scratch, count: total)
+        publishedLevel.store(
+            MicrophoneLevelSource.peak(of: scratch, count: total), ordering: .relaxed)
+        return accepted
     }
 }

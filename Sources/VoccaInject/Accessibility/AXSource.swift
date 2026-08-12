@@ -17,6 +17,12 @@ import ApplicationServices
 
 /// **The AX adapter — the one file in `VoccaInject` permitted to speak Accessibility.**
 ///
+/// Public because the composition root constructs it: `VoccaBootstrap` builds
+/// ``TargetResolution`` with this adapter and ``SystemSecureInputRead``, and the root imports
+/// `VoccaInject` like any consumer. The public surface is the constructor and the three
+/// protocol witnesses — the class's raw answers, exactly the shape ``AccessibilityRungStrategy``
+/// and ``TargetResolution`` already consumed when both were module-internal.
+///
 /// The injection ladder's accessibility rung (`ARCHITECTURE.md:398-401`) must name
 /// `AXUIElement` and the `kAX*` attributes to find the focused field, write into it and read it
 /// back, and this file is the only one in the module that may: the H9-style seam lint (Phase D
@@ -56,7 +62,7 @@ import ApplicationServices
 /// a timed-out call answers as a failure. The class holds no mutable state, so `Sendable` is
 /// checked, not asserted: sharing one instance across the rung and the resolver is safe because
 /// the queue serializes every call.
-final class AXSource: FocusedAppReading, AccessibilityInserting, Sendable {
+public final class AXSource: FocusedAppReading, AccessibilityInserting, Sendable {
 
     /// The per-call budget, below the system default: one answer per question, no matter how
     /// unresponsive the focused application is.
@@ -68,13 +74,15 @@ final class AXSource: FocusedAppReading, AccessibilityInserting, Sendable {
     /// file exists to satisfy.
     private let callQueue = DispatchQueue(label: "dev.vocca.ax-source", qos: .userInitiated)
 
-    init() {}
+    /// The composition root's construction — a plain adapter, no arguments and no grants
+    /// required to build it (the grant gates the *calls*, not the object).
+    public init() {}
 
     // MARK: - FocusedAppReading
 
     /// The focused application's identity, raw: its bundle identifier and its focused window's
     /// title. `nil` when the system answers "nothing focused".
-    func focusedApp() async -> FocusedAppIdentity? {
+    public func focusedApp() async -> FocusedAppIdentity? {
         timedCall { () -> FocusedAppIdentity? in
             guard let appElement = self.copyElement(
                 kAXFocusedApplicationAttribute as CFString, on: AXUIElementCreateSystemWide())
@@ -89,13 +97,13 @@ final class AXSource: FocusedAppReading, AccessibilityInserting, Sendable {
 
     /// Whether a focused UI element could be resolved at all — the first raw answer, asked
     /// before anything is written.
-    func resolveFocusedElement() async -> Bool {
+    public func resolveFocusedElement() async -> Bool {
         timedCall { () -> Bool in self.focusedElement() != nil } ?? false
     }
 
     /// Insert `text` into the focused field by setting its selected text. Raw: `true` when the
     /// system accepted the write. A timeout is `false` — the API's own guard, never a success.
-    func insertSelectedText(_ text: String) async -> Bool {
+    public func insertSelectedText(_ text: String) async -> Bool {
         timedCall { () -> Bool in
             guard let element = self.focusedElement() else { return false }
             return AXUIElementSetAttributeValue(
@@ -105,7 +113,7 @@ final class AXSource: FocusedAppReading, AccessibilityInserting, Sendable {
 
     /// What the focused field contains now, raw; `nil` when it cannot be read (including a
     /// timeout).
-    func readBackValue() async -> String? {
+    public func readBackValue() async -> String? {
         timedCall { () -> String? in
             guard let element = self.focusedElement() else { return nil }
             return self.copyAttribute(kAXValueAttribute as CFString, on: element) as? String

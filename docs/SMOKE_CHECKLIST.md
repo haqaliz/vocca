@@ -977,6 +977,192 @@ and a test that opened one would light the indicator M23 exists to keep dark.
     reported differently on purpose: the older version of the script probed credentials with a
     network call and told an offline machine with perfectly good credentials that it had none.
 
+### The dictation loop — its first execution
+
+*(Added 2026-08-12, `dictation-loop`.)* Nothing in the loop runs in CI: the real tap needs the
+Accessibility grant (§1), the microphone needs TCC and hardware (§2), the engine needs real model
+bytes (steps 18-19), and the panel needs a window server (steps 31-35). CI drives the *composed
+loop* instead — the real machine, watchdog and pipeline over fakes: 100 cycles, failure
+injection, cancel-discard, empty-skip (PRD metrics 1, 3, 5). These seven steps are the loop's
+first execution with all of it real — the pass/fail of the `dictation-loop` PRD metric 1's
+first-execution clause, in the steps 22-35 discipline. Every expected result below was
+cross-checked against the shipped machine's `EndReason`/`SessionEffect` vocabulary; where the
+shipped app cannot yet produce the plan's claim, the step says so and records **not performed**
+(step 47's convention) rather than passing an invented criterion (rule 2 of the preamble).
+
+Two preconditions govern the whole section: **the model must be present and prepared** — the
+launch-time background `prepare` (`AppBootstrap.main` → `startEnginePreparation`) runs once, in
+the background, and a press before it completes is step 66's gesture, not this section's — and
+**the Accessibility and microphone grants must be live** (steps 5-10).
+
+And one half of the plan is **not yet wired in the shipping app**, which is why one of the
+steps below cannot pass yet:
+
+- the **toggle mode** selection control belongs to the settings surface, which does not ship yet
+  (`PRODUCT_SPEC.md:291`); `setActiveMode` is a wiring seam (`AppBootstrap.swift:700-719`).
+
+The two halves that this section previously listed as unshipped are now wired and their steps
+performable: the live pill's window is constructed by the composition root (`LiveWidget`,
+`AppBootstrap.swift` — lazily, on the store's first non-IDLE fold, so `configure` creates no
+window) and the **Esc** key's route to the machine's `cancel()` is closed end to end
+(`SessionKeyPolicy` in `VoccaHotkey`; the root's cancel router in `AppBootstrap.swift`) — see
+step 64, which was the blocked step.
+
+62. **First dictation — Notes and TextEdit; a 10-second utterance lands verbatim.** PRD metric 1.
+
+    *Gesture:* with the model present and the launch-time prepare completed (a trial press starts
+    a session), focus a new note in Notes, press `⌥Space`, speak a fixed 10-second utterance, and
+    release on the beat. Select all, copy, and compare with `pbpaste` **byte for byte** — the
+    steps 22-35 discipline, against the transcript Vocca produced, not against your intention
+    (an ASR mishearing is step 18's matter; a byte difference against what the engine produced is
+    an injection matter). Repeat in TextEdit (`⌘⇧T` — rich text reflows and defeats the byte
+    compare).
+
+    *Pass:* the field holds the transcript verbatim in both apps, no failsafe appears, and the
+    orange mic indicator (step 58's discipline) is out within a watchdog tick of the release. The
+    cycle the machine executes is the plan's sequence — OPENING → RECORDING → TRANSCRIBING →
+    DELIVERED → IDLE (`PRODUCT_SPEC.md:77-103`): `.opening` shows the target label with **no
+    waveform yet** (`:33-38`), `.started` begins the live waveform — the "it heard me" signal
+    (`:84`), tracking real input level, never a canned animation (`:87-88`) — with `esc to
+    cancel` after 2 s (`:129`) and the elapsed timer after 3 s (`:89`); TRANSCRIBING freezes the
+    waveform with the `○○○` progress (`:93-95`); DELIVERED shows `✓ → Notes` before the ~600 ms
+    collapse to IDLE (`:50`, `:98`). The sequence is store-folded and CI-pinned, and the pill's
+    window is wired: `LiveWidget` constructs it on the store's first non-IDLE fold, it
+    self-drives show/hide from the store, and it never takes focus (`PRODUCT_SPEC.md:22`;
+    `WidgetPanel.canBecomeKey` is `false`). The waveform tracks the real input level through
+    `MicrophoneLevelSource` over the capture graph — a flat line while speaking is an input-level
+    defect, not a display preference.
+
+    *Failure:* the field does not hold the transcript verbatim; the failsafe appears with a
+    reason instead of a delivery; or the mic indicator stays lit after the release. A transcribe
+    failure surfaces the `.transcriptionFailed` reason-only notice — **"Voice processing failed.
+    Nothing was lost — you can try again."** (`FailsafeCopy.swift:54-55`, PRD R5) — never a
+    silent idle pretending the text landed.
+
+63. **Secure Input through the loop — no text ever lands in a password field.** PRD metric 1.
+
+    *Gesture:* focus a password field in Safari or Chrome (Secure Input engages — the steps 55-57
+    precondition), press `⌥Space`, speak.
+
+    *Pass:* **no session starts at all.** Secure Input makes every event tap in the session deaf
+    (steps 55-57), so the press never reaches Vocca — the hotkey is blocked, the mic indicator
+    never lights, and no text is captured, transcribed or typed into the field. The refusal copy
+    surfaces on the failsafe when the ladder meets a secure-input target at rung 0 with
+    `attempted: []` (`InjectionLadderDecision.swift:87-96`): **"This looks like a password field.
+    Vocca won't type into it — press ⌘C to paste it yourself."** (`FailsafeCopy.swift:45-46`,
+    `PRODUCT_SPEC.md:111`). On this build that copy is reachable by the ⏎-retry route of step 27 —
+    a fresh dictation cannot begin over a password field, because the hotkey is deaf — and it is
+    a **held** presentation: the transcript is present and ⌘C-copyable, not the reason-only shape
+    (no ⌘C/⏎ affordances) that `.modelUnavailable` and `.transcriptionFailed` render
+    (`FailsafeCopy.swift:66-72`).
+
+    *Failure:* any text lands in the password field; a session starts while Secure Input is held;
+    or the failsafe's reason is anything but the `.secureInput` copy.
+
+64. **Esc during RECORDING and during TRANSCRIBING.** PRD metric 1.
+
+    *Gesture:* press `⌥Space`, speak, and press Esc **during RECORDING** (the live waveform is
+    drawing). In a second cycle, release the key and press Esc **during TRANSCRIBING** (the
+    waveform is frozen behind the `○○○` progress, `PRODUCT_SPEC.md:93-95`). Do both over an empty
+    Notes field, and watch the field and the mic indicator (step 58's discipline).
+
+    *Pass:* the session is **discarded and nothing lands in the field**: the widget returns to
+    IDLE immediately, no injector call and no failsafe, and the mic indicator goes out with the
+    discard. The route is CI-pinned end to end — the tap's Escape is classified by
+    `SessionKeyPolicy` (a fresh key-down; `Sources/VoccaHotkey/SessionKeyPolicy.swift`), the
+    root's cancel router ends a recording session as `.userCancelled` — the only `EndReason`
+    permitted to discard (`SessionMachine.swift:440-445`) — and cancels an in-flight transcription
+    through the router's task handle, and a cancelled transcription never injects
+    (`DictationPipeline.swift:155-186` — the pipeline checks its own cancellation at every
+    decision boundary). The key is **swallowed** during the gesture — the focused application
+    never sees it — so the app's own Esc behaviour (dismissing a popover, say) must not be
+    expected to fire. `PRODUCT_SPEC.md:129`'s cost is honoured: an Esc during
+    OPENING — the instant between the press and the microphone opening — opens and closes the
+    mic, briefly lighting the indicator (the `stopDeferredByTheOpening` record,
+    `SessionMachine.swift:240`); that variant is a third gesture: press `⌥Space` and Esc
+    back-to-back, and the indicator's flash is the expected behaviour, not a failure.
+
+    *Failure:* text lands in the field; the failsafe appears with a held transcript or a reason
+    notice; the mic indicator stays lit after the Esc (the discard did not close the microphone);
+    or a second dictation cannot start immediately after (a stuck session).
+
+65. **Short press (~80 ms) — returns to IDLE, no injector call.** PRD metric 1.
+
+    *Gesture:* with the model present, tap `⌥Space` briefly (~80 ms) over an empty Notes field,
+    in a silent room, and watch the field.
+
+    *Pass:* the press returns the widget to IDLE with **no text in the field and no failsafe**.
+    The shipped guarantees that make this the honest expectation: a key-up that lands while the
+    microphone is opening is held and applied the instant the session exists
+    (`SessionMachine.swift:240`, the deferred-stop funnel); the empty-buffer policy decides
+    *before* the engine — `samples.isEmpty` means the press never asks the engine, and empty
+    text is never pasted (`DictationPipeline.swift:142-148, 166-170`). One bound to state rather
+    than hide: the buffer is the opening window's audio (~42-114 ms, `PRODUCT_SPEC.md:105-127`),
+    so in a *noisy* room the buffer may not be empty and a real transcript can land — the pass is
+    "no text, no failsafe, back to IDLE", not "guaranteed silent".
+
+    *Failure:* a failsafe appears (a transcript was captured and the ladder failed — a real
+    injector call), text lands, or the widget is stuck in any state past its window.
+
+66. **Engine-not-ready refusal — the model blocked, the mic never opens.** PRD metric 2.
+
+    *Gesture:* with the model directory moved aside — or the network off so the launch-time
+    `prepare` cannot succeed — launch Vocca, then press `⌥Space`.
+
+    *Pass:* the press is refused with the `.modelUnavailable` reason-only notice —
+    **"Voice processing isn't ready yet — try again in a moment."** (`FailsafeCopy.swift:52-53`,
+    PRD R5) — and the **system mic indicator never lights**: the readiness gate refuses before
+    the machine can ask the microphone (`EngineReadinessGate.beginCapture` answers `.unavailable`,
+    `AppBootstrap.swift:1098-1117`), so no session begins and no text appears anywhere. The
+    refusal repeats for every press until a preparation succeeds — honest and repeatable, never a
+    silent dead end (`AppBootstrap.swift:750-759`); `prepare` runs once at launch, so restore the
+    model and relaunch. The contrast that makes the copy mean something: with the engine *ready*
+    and the microphone genuinely unavailable, the surface is the widget's notice instead —
+    **"The microphone didn't open — try again."** (`WidgetCopy.swift:77-82`).
+
+    *Failure:* the mic indicator lights during the refusal (the gate was bypassed), the press
+    appears to do nothing at all, or the notice's copy is anything but the `.modelUnavailable`
+    text.
+
+67. **A toggle session runs and ends via its triggers (ceiling / tap-disabled / system).**
+    PRD metric 5.
+
+    *Not yet performable on this build — record as **not performed**.* The toggle wiring ships:
+    the second configuration of the same machine, `activation: .toggle`, constructed and owned
+    (`AppBootstrap.swift:273-278, 656-670`), with the machine's toggle end vocabulary — the next
+    matching press (`.toggledOff`), the 120 s ceiling (`.ceilingReached`), a dead tap
+    (`.tapDisabled`), and the system triggers (`EndReason.swift:50-88`) — and the composed
+    toggle cycle is CI-driven over fakes (press → runs → ended via `.toggledOff` / ceiling /
+    tap-disabled). What does not ship is the mode-selection control: it belongs to the settings
+    surface (`PRODUCT_SPEC.md:291` — "Hold-to-talk always has a toggle alternative"), and
+    `setActiveMode` is a wiring seam that refuses a switch while a session is in flight
+    (`AppBootstrap.swift:700-719`). When the control ships, the gesture is: switch to toggle,
+    press `⌥Space`, release, talk, press again to end — the transcript lands; and the backstops:
+    unplug the input device (the one system trigger wired today, `.audioConfigurationChanged`,
+    `AppBootstrap.swift:207-222`) and hold a session past the ceiling — the mic indicator must
+    go out within a watchdog tick of each stop (step 51's discipline).
+
+68. **20-cycle stability — no crash, no stuck session, zero transcript loss.** PRD metric 3
+    (invariant I1), with metric 1's "no crash and no stuck session across 20 cycles" clause.
+
+    *Gesture:* with the model present, dictate 20 cycles into Notes — a mix of ~5-10 s utterances
+    and the short presses of step 65. Between sessions, watch the mic indicator continuously
+    (step 58's discipline, not a glance at the end), and after resolving any failsafe, list
+    `~/Library/Application Support/Vocca/recovery/` (step 35's check).
+
+    *Pass:* every cycle ends — the mic indicator goes out within a watchdog tick of each release
+    and stays dark between sessions (a session that does not end keeps it lit: the hot-mic class);
+    no crash; and **zero transcript loss** — every spoken utterance either landed in the field
+    verbatim or is held and copyable in the failsafe, the two halves of invariant I1, enforced by
+    the pipeline's closed terminal set: an injector call, a journaled hold, or a reason-only
+    notice that names the failure — never a silent idle (`DictationPipeline.swift:47-57`,
+    `prd.md` metric 3).
+
+    *Failure:* a session that does not end (stuck past its window — the hot mic), a crash, or an
+    utterance that neither lands, nor is held, nor is accounted for by a reason notice. CI's
+    100-cycle composed run (metric 5) makes the same claim over fakes; this step is the first
+    time it is made with a real tap, a real mic and a real engine.
+
 ---
 
 ## When this file is wrong
