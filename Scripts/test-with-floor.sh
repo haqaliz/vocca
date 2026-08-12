@@ -202,6 +202,17 @@ set -euo pipefail
 # to the 120 s ceiling, in both modes, with the whole suite green.
 
 # The C2/C3/C4 chain, newest first (master totals):
+# It was 791 by the dictation-loop loop-wiring Task 4, which added seven in DictationLoopTests:
+# the composed-loop acceptance driven through the real composition root (DictationLoopRoot) over
+# fakes — the R8-1 100-cycle run (100 started, 100 ended, 0 overlapping, 0 orphaned, 100
+# transcripts delivered into the key-down context, asserted against the fakes' ledgers rather
+# than against anything the root claims), and the four failure injections the spec names
+# (engine throws → .transcriptionFailed surface with the injector untouched; ladder exhausts →
+# the held transcript presented on the panel; an empty buffer → no injector call; a cancelled
+# session → no injector call), plus the readiness gate (`testAnUnpreparedEngineRefusesBeforeTheMicrophoneOpens`,
+# which pins "the mic never opens" on the source's own begin-count and that the refusal is not a
+# dead hotkey) and the arm contract (`testTheRootArmsTheTapAndStartsTheHealthPoll`, the
+# `TapHealthTimer` root-ownership obligation). The floor moves 791 → 798.
 # It was 768 after widget-live-states Task 2, which adds the widget reducer and the waveform
 # mapping in VoccaUI — twenty-one tests (thirteen in WidgetStateReducerTests, eight in
 # WaveformMappingTests), raising the floor to 791. The ones that justify the raise are
@@ -816,7 +827,7 @@ set -euo pipefail
 # before that.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=791
+MINIMUM_EXECUTED_TESTS=798
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

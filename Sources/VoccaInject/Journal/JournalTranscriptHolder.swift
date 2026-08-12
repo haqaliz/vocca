@@ -22,7 +22,7 @@ import VoccaCore
 /// nothing else. This file is the seam's one conformance, glue with no decisions in it: the
 /// durability ordering (R6), the bounded eviction and the purge-on-resolve are all
 /// ``RecoveryJournal``'s, and the file system is ``FileSystemJournalStore``'s one-file concern.
-public actor JournalTranscriptHolder: TranscriptHolder {
+public actor JournalTranscriptHolder: TranscriptHolder, FailsafeHandoff {
     private let journal: RecoveryJournal
 
     /// A holder over `journal` — the composition root's construction: a journal over the
@@ -33,6 +33,10 @@ public actor JournalTranscriptHolder: TranscriptHolder {
 
     /// Durably holds `transcript` — awaits the journal's write before answering (PRD R6: the
     /// write is part of the hand-off, not after it). Throws when it cannot be made so.
+    ///
+    /// The same method satisfies both seams this actor serves: the core's ``TranscriptHolder``
+    /// (the panel's reads) and ``FailsafeHandoff`` (the ladder's hand-off) — which is the point of
+    /// the plan's "as handoff AND panel holder": one custody, two vocabularies.
     public func hold(_ transcript: HeldTranscript) async throws {
         try await journal.hold(transcript)
     }

@@ -353,6 +353,30 @@ public final class CGEventTapSource: RecoverableHotkeyEventSource {
     }
 }
 
+/// The composition root's two touch points on the shipped tap, behind names that carry no
+/// CoreGraphics identifier.
+///
+/// The H7 per-seam lint permits exactly one file — this one — to name the family, and the
+/// composition root (`VoccaBootstrap/AppBootstrap.swift`) is not it. Everything the root needs
+/// from the shipped tap is construction and a deferral — translation with no decisions, which is
+/// precisely this file's charter — so it is exposed here, in the family's one file, and the root
+/// names only this type. The lint's own doctrine is what makes the shape right: a decision that
+/// names the system is a decision CI cannot reach, and a *construction* that names it is not a
+/// decision at all.
+public enum ShippingEventTap {
+
+    /// The shipped ``CGEventTapSource`` over `clock` — the root's tap construction.
+    public static func make(clock: any MonotonicClock) -> CGEventTapSource {
+        CGEventTapSource(clock: clock)
+    }
+
+    /// The shipped ``RunLoopDeferral`` — ``CGEventTapSource/deferToALaterMainRunLoopTurn(_:)``
+    /// under a name the root may speak.
+    public static func deferToALaterMainRunLoopTurn(_ work: @escaping () -> Void) {
+        CGEventTapSource.deferToALaterMainRunLoopTurn(work)
+    }
+}
+
 /// **The physical keyboard, read directly — the answer for the key-up that never happened.**
 ///
 /// The shipped `PhysicalKeyStateReader`, and it is in *this* file rather than one of its own because
