@@ -1,53 +1,50 @@
-# Dictation loop — wire capture → ASR → injection + live widget states
+# Latency instrumentation — C7 first slice (local-only spans + success counters)
 
-> Source: inline brief (no GitHub issue filed — `gh issue list` returns "No Issues" for
-> this repo). Handed off from the `vocca-next` session on 2026-08-12, which picked this
-> as the single highest-leverage unshipped capability.
+> Source: inline brief (no GitHub issue filed — `gh` reports no issues for this repo).
+> Handed off from the `vocca-next` session on 2026-08-14, which picked this as the single
+> highest-leverage unshipped capability.
 
 ## Brief
 
-Build the P0 dictation loop: wire hotkey → session machine → MicrophoneSource → ASREngine
-(Parakeet/whisper selection) → LadderInjector → failsafe in `AppBootstrap.configure`, and
-ship the minimal live widget states (IDLE → RECORDING with a waveform driven by real input
-level → TRANSCRIBING → collapse), per `docs/planning/_card/understanding.md:114-116`, which
-names this as the follow-on unit once `audio-capture` merges (it merged 2026-08-12, `84f4817`).
+Build C7's first slice: local-only latency/success instrumentation for the dictation loop —
+the unshipped half of P0 week-4 milestone 7 (`docs/ROADMAP.md:86`). Instrument the loop with
+named capture-close / ASR / cleanup / inject spans plus per-session success counters, rendered
+as a local-only histogram the user can inspect; a test asserts zero network calls and that no
+span is ever transmitted, and a headless benchmark replays the existing fixture suite asserting
+the span contract end-to-end (the real p50 ≤ 400 ms / p95 ≤ 800 ms run is env-gated on the
+founder's machine, like the WER tests — CI runs stubs, and the measure-timers suppression-state
+discipline applies). Acceptance tests come first: span accounting for every route into and out
+of a session, counters that never go missing on aborts/failsafe paths, and the regression-gate
+test that fails CI when the benchmark regresses. Caveat: real numbers need the real engine on
+M-series hardware; CI proves the plumbing, the founder's machine sets the numbers. Deferred to
+later C7 slices: warm start and widget-only streaming partials.
 
-The completeness bridge already shipped in `MicrophoneSource.swift:191` — do not rebuild it.
+## Context pulled from the repo (vocca-next + deep-dig runs)
 
-Caveat: no part of the loop runs in CI (no Accessibility/TCC/mic on a hosted runner), so
-acceptance is test-first over the existing seams: a composed-loop test driving the real
-session machine with fake source/engine/injector that asserts the transcript reaches the
-injector and the widget state transitions IDLE→RECORDING→TRANSCRIBING→IDLE/FAILSAFE; the
-zero-network probe extended to drive a full dictation cycle through the composed root; a
-level→waveform mapping test headless; and a `SMOKE_CHECKLIST` entry for the first real
-speak→waveform→text-lands run on the founder's machine (steps 22–35 precedent).
-
-Wire hold-to-talk and the toggle configuration of the same machine through the root, per
-the session-lifecycle spec.
-
-## Context pulled from the repo (vocca-next run)
-
-- P0 building blocks are all merged on `master` as of 2026-08-12:
-  - C1 hotkey + session machine + watchdog + tap adapter (project-skeleton, hotkey-source,
-    session-lifecycle aspects; `feat/audio-capture/aliz` merged as `84f4817`).
-  - C1 audio capture: `VoccaAudio/AudioCaptureGraph.swift`, `MicrophoneSource.swift`
-    (the `SessionAudioSource` conformance; `missingSampleCount` filled from the ring's
-    `refusedSampleCount` at `MicrophoneSource.swift:191`).
-  - C2 local ASR: `ASREngine` seam in `VoccaCore`; Parakeet in `VoccaASR/Parakeet/`.
-  - C3 second ASR engine: whisper.cpp in `VoccaASR/Whisper/`; engine selection value
-    (`EngineSelection`) with its decision table.
-  - C4 injection ladder: `LadderInjector` in `VoccaInject/Ladder/`; failsafe surface in
-    `VoccaUI` (`FailsafePanel`); `TranscriptHolder` single-slot seam in Core.
-- **Not shipped:** any composition root wiring (`AppBootstrap.configure` only sets the
-  activation policy — `AppBootstrap.swift:52`), the live widget states (only FAILSAFE,
-  EnginePicker and DownloadProgress surfaces exist in `VoccaUI`), and the C7 latency
-  instrumentation (out of scope here; P2 owns the numbers).
-- `PRODUCT_SPEC.md` owns the widget's user-visible behavior: IDLE → OPENING → RECORDING
-  (live waveform, "it heard me" signal) → TRANSCRIBING → DELIVERED, plus FAILSAFE;
-  Reduce Motion maps the waveform to a static level meter.
-- `ROADMAP.md` P0 milestone week 1: "`⌥Space` down/up drives `AVAudioEngine`; widget shows
-  a live waveform | 100 press/release cycles, zero missed or stuck sessions".
-- The P0 gate (`ROADMAP.md:100-104`) — founder dictates daily for 7 days — is
-  un-attemptable until this loop exists. C5/C7/C8 (P1/P2) are phase-gated behind it.
-- Test floor: 623 tests in `Tests/HarnessTests/`, run via `Scripts/test-with-floor.sh`
-  (a bundle contract per config + the headless suite under strict concurrency).
+- Everything the loop is made of shipped on `master` as of 2026-08-12 (C1 capture+hotkey,
+  C2 Parakeet ASR, C3 whisper.cpp, C4 injection ladder, dictation-loop unit). P0 milestone 7's
+  *failsafe* half shipped; its *"local-only latency/success counters"* half did not.
+- The numbers exist but nothing reads them:
+  - `EngineTiming` (`Sources/VoccaASR/Parakeet/EngineTiming.swift`) — actor with an in-memory
+    ledger of coldLoad / warmTranscribe / firstAfterLaunch samples; Parakeet records,
+    whisper does not (it owns a clock, unwired). Doc comment: "C7's latency work reads the
+    ledger."
+  - `InjectionResult.elapsed` (`Sources/VoccaCore/InjectionResult.swift:41`) — ladder duration
+    per session already measured via the injected `MonotonicClock`.
+  - `CaptureStartTiming` (`Sources/VoccaCore/CaptureStartTiming.swift`) — 114 ms jack / 42 ms
+    array numbers recorded so "C7 would optimise against the right figure".
+- No histogram/span code exists anywhere in `Sources/` (only spike tools have private
+  stopwatches). The recovery journal writes only failsafe-held transcripts, no timings.
+- CI can't run the real loop (no mic/TCC/AX); the zero-network probe
+  (`Sources/VoccaNetworkProbe/`) drives a full dictation cycle through the composed root with
+  stub engine; the fixture suite (`Tests/Fixtures/*.wav`) + `WER` scorer exist; real-engine
+  runs are env-gated via `VOCCA_MODEL_DIR` (`ParakeetEngineWERTests`, `WhisperCppEngineWERTests`).
+- Measurement discipline precedent: `Scripts/measure-timers.sh` records
+  `getpriority(PRIO_DARWIN_PROCESS, 0)` beside every row (suppression state) and runs under
+  `taskpolicy -b`.
+- `ARCHITECTURE.md:589` names the benchmark harness (replays fixtures, asserts p50/p95, fails
+  CI on regression) as C7's deliverable; `docs/planning/injection-ladder/prd.md:220` and
+  `docs/planning/dictation-loop/prd.md:201` defer all of C7 explicitly.
+- Phase placement: C7 is tagged P2 in `CAPABILITY_ROADMAP.md`, but its instrumentation slice
+  completes P0's own week-4 milestone; P0 records latency, P2 gates it (`ROADMAP.md:98`).
+- Test floor: 836 tests via `Scripts/test-with-floor.sh`.
