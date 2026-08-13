@@ -128,6 +128,115 @@ final class LatencyVocabularyTests: XCTestCase {
         }
     }
 
+    // MARK: - SessionRecord
+
+    /// The record is the ledger's unit (spec §3): one per session, carrying the id the ledger
+    /// minted, the outcome class, the spans **in the order they were recorded** (spec A2), and
+    /// the engine attribution.
+    ///
+    /// `delivered` as the outcome is set at finalize from a hand-built ``InjectionResult`` — the
+    /// ``testDeliveredCarriesRungAndVerificationFromInjectionResult`` precedent above — so the
+    /// rung and the read-back truth travel with the record.
+    func testSessionRecordCarriesIDOutcomeSpansInRecordOrderAndEngine() {
+        let id = SessionRecord.ID(rawValue: 1)
+        let spans = [
+            LatencySpan.recorded(name: .captureClose, elapsed: .milliseconds(3)),
+            LatencySpan.recorded(name: .asr, elapsed: .milliseconds(120)),
+            LatencySpan.cleanupNotPresent(),
+            LatencySpan.recorded(name: .inject, elapsed: .milliseconds(9)),
+        ]
+        let record = SessionRecord(
+            id: id,
+            outcome: .delivered(rung: .accessibility, verified: true),
+            spans: spans,
+            engine: EngineIdentity(
+                id: "parakeet-tdt-0.6b-v3", displayName: "Parakeet", isLocal: true))
+        XCTAssertEqual(record.id, id)
+        XCTAssertEqual(record.outcome, .delivered(rung: .accessibility, verified: true))
+        XCTAssertEqual(
+            record.spans, spans,
+            "spans keep the order they were recorded in — the histogram keys on the sequence")
+        XCTAssertEqual(record.engine?.id, "parakeet-tdt-0.6b-v3")
+        XCTAssertEqual(record.engine?.isLocal, true)
+    }
+
+    /// Engine attribution is nil only for the two routes that never asked the engine (C2's rule,
+    /// scoped honestly — spec Phase 2): `aborted` (Escape — nothing was asked) and `emptySkip`
+    /// (no audio — the injector was skipped). Every other route attempted a transcription, so
+    /// its record carries the engine.
+    func testEngineAttributionIsNilOnlyForTheTwoNeverAskedPaths() {
+        let engine = EngineIdentity(
+            id: "whisper-large-v3-turbo", displayName: "Whisper", isLocal: true)
+
+        let aborted = SessionRecord(
+            id: SessionRecord.ID(rawValue: 1), outcome: .aborted, spans: [], engine: nil)
+        let emptySkip = SessionRecord(
+            id: SessionRecord.ID(rawValue: 2), outcome: .emptySkip, spans: [], engine: nil)
+        XCTAssertNil(
+            aborted.engine,
+            "an aborted session never asked the engine — the record must not fabricate an engine")
+        XCTAssertNil(
+            emptySkip.engine,
+            "an empty short press never asked the engine — the record must not fabricate one")
+
+        let delivered = SessionRecord(
+            id: SessionRecord.ID(rawValue: 3),
+            outcome: .delivered(rung: .clipboardPaste, verified: false), spans: [], engine: engine)
+        let failsafe = SessionRecord(
+            id: SessionRecord.ID(rawValue: 4), outcome: .failsafeHeld, spans: [], engine: engine)
+        let failed = SessionRecord(
+            id: SessionRecord.ID(rawValue: 5), outcome: .failed, spans: [], engine: engine)
+        XCTAssertEqual(delivered.engine, engine)
+        XCTAssertEqual(failsafe.engine, engine)
+        XCTAssertEqual(failed.engine, engine)
+    }
+
+    /// The id is a stable opaque handle: `Hashable` — the ledger's store key — and the same
+    /// minted value compares equal every time it is handed back across calls. The seam's entry
+    /// points refer to a session by the value `beginSession` returned; a fresh value with the
+    /// same content must be indistinguishable from it.
+    func testSessionRecordIDIsHashableAndStableAcrossCalls() {
+        let id = SessionRecord.ID(rawValue: 7)
+        let sameValueHandedBackAcrossCalls = SessionRecord.ID(rawValue: 7)
+        XCTAssertEqual(id, sameValueHandedBackAcrossCalls)
+        XCTAssertEqual(id.hashValue, sameValueHandedBackAcrossCalls.hashValue)
+
+        var seen = Set<SessionRecord.ID>()
+        seen.insert(id)
+        XCTAssertTrue(
+            seen.contains(sameValueHandedBackAcrossCalls),
+            "the id must be usable as a set/dictionary key — mint once, hold it, use it twice")
+
+        let first = SessionRecord(id: id, outcome: .aborted, spans: [], engine: nil)
+        let second = SessionRecord(id: id, outcome: .aborted, spans: [], engine: nil)
+        XCTAssertEqual(first.id, second.id)
+    }
+
+    // MARK: - LatencyRecorder
+
+    /// The seam has exactly three entry points: begin (mints the id), record (a span for a
+    /// session), finalize (the outcome class and engine attribution) — all `async` because the
+    /// ledger is an actor (spec A8), and `Sendable` because the seam crosses module boundaries.
+    ///
+    /// If a fourth requirement appears, or any signature changes, this conformance stops
+    /// compiling — the compiler pins the seam the way the exhaustive switch pins the outcome
+    /// classes. The two mutating entry points return `Bool` so refusals (a duplicate span name,
+    /// a write after finalize) are visible to the caller — spec A3, plan §6.
+    func testLatencyRecorderIsExactlyTheThreeEntryPointSeam() {
+        struct RecordingStub: LatencyRecorder {
+            func beginSession() async -> SessionRecord.ID { SessionRecord.ID(rawValue: 1) }
+            func recordSpan(_ span: LatencySpan, for sessionID: SessionRecord.ID) async -> Bool {
+                true
+            }
+            func finalize(
+                id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?
+            ) async -> Bool {
+                true
+            }
+        }
+        _ = RecordingStub()
+    }
+
     // MARK: - Sendable
 
     /// Compile-time, not runtime: `requireSendable` constrains its parameter to `Sendable`, so a
@@ -148,5 +257,23 @@ final class LatencyVocabularyTests: XCTestCase {
         _ = requireSendable(SessionOutcomeClass.aborted)
         _ = requireSendable(SessionOutcomeClass.failed)
         _ = requireSendable(SessionOutcomeClass.emptySkip)
+    }
+
+    /// The Phase 2 additions cross the same actor boundaries as the vocabulary: the record
+    /// travels from the pipeline to the ledger, and the seam is the ledger's protocol. Both must
+    /// be `Sendable` themselves; the seam is pinned with a metatype binding.
+    func testSessionRecordAndRecorderAreSendable() {
+        func requireSendable<T: Sendable>(_ value: T) -> T { value }
+        func requireSendableProtocol<T: Sendable>(_ type: T.Type) {}
+        _ = requireSendable(SessionRecord.ID(rawValue: 1))
+        _ = requireSendable(
+            SessionRecord(
+                id: SessionRecord.ID(rawValue: 1), outcome: .emptySkip, spans: [], engine: nil))
+        _ = requireSendable(
+            SessionRecord(
+                id: SessionRecord.ID(rawValue: 2), outcome: .delivered(rung: .accessibility, verified: true),
+                spans: [LatencySpan.cleanupNotPresent()],
+                engine: EngineIdentity(id: "e", displayName: "E", isLocal: true)))
+        requireSendableProtocol(LatencyRecorder.self)
     }
 }
