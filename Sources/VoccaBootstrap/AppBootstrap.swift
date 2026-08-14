@@ -596,6 +596,11 @@ public final class DictationLoopRoot {
     public let widgetClock: any RepeatingTimer
     /// The display-name reader behind the widget's "→ Slack" indicator.
     public let runningAppName: RunningAppNameReading
+    /// The latency ledger, when the wired recorder is one — the loop's own numbers, inspectable
+    /// but not writable through the root (spec §5, W5). Reading only, and honest about its
+    /// type: a recorder that is not a ``LatencyLedger`` (none exists today) leaves this `nil`
+    /// rather than pretending an actor behind a different seam is one.
+    public let latencyLedger: LatencyLedger?
 
     /// The cadence the widget clock fires at — the display's refresh rate for the elapsed timer
     /// and the DELIVERED collapse's resolution. One hundred milliseconds: ~10 updates per second,
@@ -686,6 +691,7 @@ public final class DictationLoopRoot {
         self.targetResolution = targetResolution
         self.panel = panel
         self.downloadSession = downloadSession
+        self.latencyLedger = recorder as? LatencyLedger
         self.pipelineAssembly = pipelineAssembly
         self.readiness = readiness
         self.widgetClock = widgetClock
