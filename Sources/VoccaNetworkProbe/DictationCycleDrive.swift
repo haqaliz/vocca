@@ -247,6 +247,10 @@ extension VoccaNetworkProbe {
         /// `ZeroNetworkTests.expectedCycleLifecycle`.
         let report: String
 
+        /// The latency ledger's `describe()` output after the cycle — the `PROBE-LATENCY` line's
+        /// payload. One finalized record's class, spans and engine attribution, in mint order.
+        let latencyReport: String
+
         /// A type minted **by this drive**, from which `VoccaAudio`'s name is derived for the
         /// coverage list: the real `MicrophoneSource` instance the cycle captured through. This
         /// is why the module entry is not a metatype literal any more —
@@ -318,17 +322,33 @@ extension VoccaNetworkProbe {
         keyState.isHeld = true
         keyState.heldModifiers = [.option]
 
+        // The latency ledger every span of the cycle records through, and the box the router
+        // shares with the microphones — wired exactly as `AppBootstrap.configure` wires them:
+        // the router begins the record at `.opening`, the microphones read the id from the box
+        // at `endCapture`, and the pipeline finalizes it on its delivered route. The report's
+        // `records=1` and the PROBE-LATENCY line are read from this ledger after the cycle.
+        let ledger = LatencyLedger()
+        let sessionBox = LatencySessionBox()
+
         // The microphone: the real `MicrophoneSource` over the scripted graph — `VoccaAudio`'s
         // capture path, run for real. `try!` because the failure it could report is a fact about
         // this build (a 16 kHz mono converter) rather than a runtime condition — the same posture
         // `MicrophoneSourceTests` takes with `try`.
         let graph = ProbeGraph()
-        let microphone = try! MicrophoneSource(graph: graph)
+        let microphone = try! MicrophoneSource(
+            graph: graph,
+            recorder: ledger,
+            clock: clock,
+            sessionIDProvider: { sessionBox.sessionID })
         // The toggle configuration's own microphone — constructed, never opened: only the active
         // configuration may hold the input, and the report's `toggle.opens=0` is read off this
         // graph's ledger.
         let toggleGraph = ProbeGraph()
-        let toggleMicrophone = try! MicrophoneSource(graph: toggleGraph)
+        let toggleMicrophone = try! MicrophoneSource(
+            graph: toggleGraph,
+            recorder: ledger,
+            clock: clock,
+            sessionIDProvider: { sessionBox.sessionID })
 
         // The engine lifecycle, with the builder substituted: every path that would construct a
         // real engine constructs the stub instead, so a model download is structurally
@@ -362,8 +382,12 @@ extension VoccaNetworkProbe {
         // The pipeline, injected — the `DictationLoopTests` shape: the root takes the assembled
         // pipeline and the drive opens the readiness gate itself, which is what makes the cycle
         // deterministic (the shipped launch path prepares a real engine, which the probe must
-        // never trigger).
-        let pipeline = DictationPipeline(engine: engine, injector: injectorLedger, holder: handoff)
+        // never trigger). The pipeline's ASR span is measured with the shipped
+        // `ContinuousMonotonicClock` — the one `Sendable` clock the probe owns — so the span is
+        // a real measurement rather than a fabricated constant.
+        let pipeline = DictationPipeline(
+            engine: engine, injector: injectorLedger, holder: handoff,
+            recorder: ledger, clock: ContinuousMonotonicClock())
 
         let targetResolution = TargetResolution(
             focusedApp: ProbeFocusedApp(
@@ -391,6 +415,8 @@ extension VoccaNetworkProbe {
             targetResolution: targetResolution,
             panel: panel,
             pipeline: pipeline,
+            recorder: ledger,
+            sessionBox: sessionBox,
             toggleConfiguration: HotkeyConfiguration(
                 keyCode: spaceKeyCode, modifiers: [.option], activation: .toggle),
             toggleSource: toggleMicrophone,
@@ -414,6 +440,17 @@ extension VoccaNetworkProbe {
         // "the cycle started" fact, and reading it after the release would report the idle answer
         // and prove nothing.
         let recordingAfterPress = root.holdToTalk.machine.state == .recording
+
+        // The router's opening mints the record's id on the main actor and stores it in the box
+        // the microphones read at `endCapture`. The key-up must not beat the mint: the
+        // capture-close span is recorded only when the box already holds the id, so the drive
+        // drains until the write lands — the W2 shape (`DictationLoopTests` drains the same way
+        // between its press and its release).
+        var mintTurns = 0
+        while sessionBox.sessionID == nil && mintTurns < 20_000 {
+            await Task.yield()
+            mintTurns += 1
+        }
 
         // The scripted utterance lands in the ring while the microphone is open, the way the
         // realtime producer would.
@@ -442,6 +479,20 @@ extension VoccaNetworkProbe {
         let holds = await handoff.held.count
         let downloadStarts = await downloadSession.startCount()
 
+        // The cycle's own ledger, read through the root's inspection accessor — the loop's
+        // numbers, reported headlessly (spec §5). A root wired without a recorder reports the
+        // absence by name rather than asserting inside the observed process; the suite's
+        // PROBE-LATENCY assertions fail on that report rather than on a crash.
+        let recordCount: Int
+        let latencyReport: String
+        if let ledger = root.latencyLedger {
+            recordCount = await ledger.snapshot().count
+            latencyReport = await ledger.describe()
+        } else {
+            recordCount = 0
+            latencyReport = "no-ledger"
+        }
+
         let fields = [
             "press=\(describe(pressDisposition))",
             "recording=\(recordingAfterPress ? 1 : 0)",
@@ -462,10 +513,12 @@ extension VoccaNetworkProbe {
             "widget=\(describe(root.widgetStore.state.state))",
             "toggle.opens=\(toggleGraph.starts)",
             "state=\(describe(root.holdToTalk.machine.state))",
+            "records=\(recordCount)",
         ]
 
         return CycleDrive(
             report: fields.joined(separator: " "),
+            latencyReport: latencyReport,
             audioModuleWitness: type(of: microphone),
             asrModuleWitness: type(of: manifest))
     }

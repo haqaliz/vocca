@@ -1,81 +1,79 @@
-# Dictation loop — understanding (Phase 2)
+# Understanding — latency instrumentation (C7 first slice)
 
-## What this unit really is
+## What the work is really asking
 
-The last unshipped piece of P0. Every seam of the dictation loop exists as tested code
-(C1 capture + session machine, C2/C3 ASR, C4 injection + failsafe); nothing connects them,
-and the app's composition root (`AppBootstrap.configure`, `Sources/VoccaBootstrap/AppBootstrap.swift:52-68`)
-only sets the `.accessory` activation policy. This unit wires the loop and ships the live
-widget states the product spec owns.
+P0's week-4 milestone promises "Failsafe + **telemetry-free instrumentation** — Widget retains
+last transcript with ⌘C; **local-only latency/success counters**" (`docs/ROADMAP.md:86`). The
+failsafe half shipped; the counters did not. ROADMAP's P0 success metrics also say latency is
+"measured and recorded, but not yet a gate" (`ROADMAP.md:98`) — so this unit is P0-completing,
+even though CAPABILITY_ROADMAP files the full C7 (instrumentation + warm start + widget-only
+streaming) under P2. The slice is: **make the loop's own numbers observable, on-device, with a
+regression gate — without touching warm start or streaming.**
 
-## Affected areas (from the dig)
+## What exists to build on (verified in code)
 
-1. **Session → ASR handoff.** The machine hands outcomes out through the `deliverEffect`
-   closure (`SessionEventSink.swift:54,62-64`); `.ended(SessionOutcome)` is the only route
-   by which audio leaves (`SessionEffect.swift:53-59`), and `outcome.content.audio` is
-   already the ASR seam's type — `AudioBuffer` (`AudioBuffer.swift:99`). There is no
-   intra-machine hook; the wiring matches on `.ended` and calls `engine.transcribe(_:)`.
-2. **ASR construction.** One engine per session start, resolved once
-   (`EnginePickerView.swift:28-39`, pinned by `EngineSelectionConsumptionTests`): a
-   `ModelStore` + shipped `ModelManifest` + transport + clock build `ParakeetEngine` or
-   `WhisperCppEngine`; `prepare()` once; `transcribe` per buffer. Selection source is
-   `EnginePickerState.selection` (default Parakeet v3).
-3. **Injection.** `LadderInjector.inject(_:into:)` (`VoccaInject/Ladder/LadderInjector.swift`)
-   with `DefaultInjectionStrategyOrder(allowlist: SeededInjectionAllowlist())`; the
-   failsafe handoff is `JournalTranscriptHolder` (durable before `hold` returns), which is
-   both the ladder's `FailsafeHandoff` and the panel's `TranscriptHolder`. `.widgetFailsafe`
-   is a **success** outcome under invariant I1. The panel is presented by the root *after*
-   `inject` answers `.widgetFailsafe` — the seam has no push.
-4. **Widget states.** `PRODUCT_SPEC.md:24-68` owns the states; the one-frame IDLE→RECORDING
-   claim is amended (`:105-127`, measured 42/114 ms engine start → OPENING comes first).
-   Waveform tracks real input level (`:87-88`), Reduce Motion → static level meter
-   (`:289`), widget never takes focus (`:22`). `VoccaUI` imports only `VoccaCore`
-   (`ModuleBoundaryTests.swift:297-305`) — live states land there behind a Core-owned
-   state projection, mirroring the `FailsafeState`/`EnginePickerState` reducer precedent.
-5. **Composition root.** `VoccaBootstrap` currently depends on nothing
-   (`Package.swift:108-112`); wiring it means a deliberate, reviewed dependency change.
-   The zero-network probe must drive the composed root — `VoccaAudio`/`VoccaASR` are
-   placeholders in its module witness list and the coverage guard
-   (`ZeroNetworkTests.swift:730-757`) fails on any module not driven.
-6. **Toggle mode.** The session machine already has toggle as a second configuration
-   (session-lifecycle spec); the root wires both hold-to-talk and toggle. The accessibility
-   requirement is at `PRODUCT_SPEC.md:291` (the `:257` cite in `CAPABILITY_ROADMAP.md:36`
-   is stale — flag for correction).
+- `EngineTiming` (VoccaASR/Parakeet/EngineTiming.swift) — actor, in-memory ledger, three
+  `Kind`s; Parakeet records coldLoad/warmTranscribe/firstAfterLaunch; **whisper records
+  nothing** (owns a clock, unwired). Nobody reads the ledger.
+- `InjectionResult.elapsed` — ladder duration already measured per injection via injected
+  clock (VoccaCore/InjectionResult.swift:41).
+- `CaptureStartTiming` — the measured engine-start figures (114 ms jack / 42 ms array).
+- `DictationPipeline` (VoccaCore) — the routing decision table: cancelled → idle, empty →
+  idle, transcription failure → reasonOnly(.transcriptionFailed), widgetFailsafe →
+  transcriptHeld, delivered rungs → idle. Every route out of a session is named here.
+- `SessionMachine.elapsed` — recording duration already tracked.
+- Composition root: `AppBootstrap.deliver(_:)` and `present(surface:)` fold pipeline surfaces
+  into widget events — the natural place a session's outcome is observable end to end.
+- Zero-network probe drives a full cycle headless (ProbeEngine stub); fixture suite + WER
+  scorer exist; real-engine runs env-gated (`VOCCA_MODEL_DIR`).
 
-## Constraints that shape the plan
+## The shape of the slice
 
-- **Test-first over seams, always.** No part of the loop runs in CI: no Accessibility grant,
-  no TCC, no microphone (`CLAUDE.md`; `SMOKE_CHECKLIST.md`). Acceptance = composed-loop
-  tests over fakes (the `SessionTestDoubles`/`ASRTestDoubles` precedent) + the probe driving
-  a full cycle + a `SMOKE_CHECKLIST` entry for the founder's machine.
-- **Zero-network invariant is a release blocker.** Anything wired into
-  `AppBootstrap.configure` is inside the probe's reach — that is the point of the module
-  (`AppBootstrap.swift:20-30`).
-- **`VoccaApp.swift` is pinned** character-for-character by
-  `BundleConfigurationTests.testAppTargetSourceIsOnlyAShimToTheBootstrapModule`
-  (`BundleConfigurationTests.swift:484-516`) — all wiring goes in the package.
-- **SessionMachine is the only place session state lives** (`ARCHITECTURE.md:355`) — the
-  widget renders a projection; the machine must be the source of truth for
-  IDLE/RECORDING/TRANSCRIBING transitions.
-- Test floor: 623 tests, run via `Scripts/test-with-floor.sh`; strict concurrency, any
-  warning fails CI.
+1. **A span vocabulary in VoccaCore** — capture-close / ASR / cleanup / inject, each with a
+   monotonic elapsed. Cleanup has no implementation yet (C5 unbuilt): the span exists as a
+   slot that records nothing today, so C5 slots in without touching the vocabulary. Pure
+   stdlib types (no Foundation/Dispatch — CoreBoundaryTests forbids them).
+2. **Per-session success counters** — one record per session: route taken, spans, outcome
+   (delivered / held / reason-only), counters that are written on *every* exit path (abort,
+   failsafe, delivery) — the "never go missing" acceptance.
+3. **A local-only store** — in-memory histogram, user-inspectable; **never transmitted**
+   (zero-network probe asserts no connect(2) during a measured cycle; the histogram lives in
+   VoccaCore so nothing below it can send it).
+4. **Benchmark harness** — headless, replays fixtures through the composed route; asserts the
+   span contract end to end in CI; the real p50/p95 number is env-gated to the founder's
+   machine (the WER precedent). The regression gate is a CI test that fails when the
+   benchmark regresses.
+5. **Honest measurement discipline** — the measure-timers lesson: record the process's
+   suppression state (`getpriority(PRIO_DARWIN_PROCESS, 0)`) beside any wall-clock claim.
 
-## Open questions for the interview
+## Ambiguities / open questions
 
-1. **Widget state span**: does the loop unit ship OPENING + DELIVERED too, or only
-   IDLE/RECORDING/TRANSCRIBING (per the handoff brief)? PRODUCT_SPEC owns all states;
-   CONVERSING stays P3 regardless.
-2. **Where the waveform's level comes from**: the spec says "tracks input level" — the
-   capture graph's tap delivers frames; the projection must publish a level the widget
-   observes (MainActor-safe). Fakeable headless.
-3. **What happens on ASR failure mid-loop**: engine unavailable / prepare failed — the
-   transcript-holder invariant says nothing is lost; raw text path? error to failsafe with
-   a reason? (Cleanup is P1 — no cleanup in the loop; the injector takes the raw
-   transcript.)
-4. **Probe scope**: full composed cycle through the probe (microphone over a fake graph
-   seam + stub engine + ladder with probe fakes) — confirm that's in scope for this unit
-   vs. a lighter "wire but assert at seam boundaries" shape. (The coverage guard pushes
-   toward driving the real modules.)
-5. **Empty/short utterance policy**: a 20 ms press yields an empty buffer; engine policy
-   says an empty buffer → empty transcript. Should the loop skip injection for empty text?
-   (No injection call for `text == ""`?) PRODUCT_SPEC silent about it.
+- **Where the counters live** (VoccaCore `LatencyLedger`-style type vs. a new module). Core
+   is the natural home: vocabulary + zero network, and Bootstrap/UI can read it.
+- **Cleanup span semantics** — absent today; record as `nil`/skipped, or 0? (Proposal: absent
+  spans are recorded as "not present", never fabricated as 0.)
+- **Persistence** — in-memory only for this slice, or a small on-disk tail like the journal
+  (which is `FileManager`-gated to one file)? The brief says "local-only histogram the user
+  can inspect" — a UI surface is out of scope (no settings surface exists; C11/P3 territory),
+  but a headless "inspect" (print/read) path is in.
+- **Success counter definition** — "success" = transcript reached the target app
+  (rung delivered), vs. reached the user (failsafe held counts as success-with-caveat)?
+  P0's metric is "first-method-success ≥90%" — the counter should record rung used +
+  verified, so the P0 matrix metric is derivable from it.
+- **Regression gate thresholds** — CI runs stubs only; the gate can assert *contract*
+  (spans present, no network) and *relative* regression (a seeded slow span fails the gate),
+  not absolute p50/p95. Absolute numbers stay the founder's env-gated run.
+
+## Contradictions / flags
+
+- `WhisperCppEngine.swift:67-68` owns a clock "for C7's latency ledger" — the slice should
+  wire whisper's recording to match Parakeet's, or the ledger is only half-populated.
+- The brief names a "cleanup" span, but cleanup (C5) is unbuilt and phase-gated behind the
+  P0→P1 gate; the span is vocabulary-only this slice — do not build cleanup.
+- Nothing may enter the OSS core that transmits telemetry; the "never transmitted" assertion
+  is a hard requirement, not a preference (R11, ROADMAP.md:310).
+
+## Placement
+
+Layer: the loop itself (capture → ASR → inject) plus its outcome accounting. Phase: P2 by
+capability tag, but this slice completes P0's milestone 7 — it does not advance past any gate.

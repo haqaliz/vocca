@@ -233,8 +233,37 @@ This file orients a coding agent working in this repository. Read it first.
 >   downloaded first) are the loop's only real run, exactly as steps 22–35 were the adapters'.
 > - **CONVERSING and the settings surface are out of scope** (P3, C11); the toggle machine is
 >   wired and tested but has no visible control yet; sounds are deferred to a settings surface.
-> - **C5 (cleanup), C7 (latency instrumentation) and C8 (strategy memory) remain unbuilt.** Raw
->   ASR text is injected verbatim, the numbers are unmeasured, and the ladder does not learn yet.
+> - **C5 (cleanup) and C8 (strategy memory) remain unbuilt; C7's latency-instrumentation slice
+>   shipped (below).** Raw ASR text is injected verbatim, and the ladder does not learn yet.
+>
+> **The `latency-instrumentation` unit landed 2026-08-14 — C7's first slice: the loop's
+> numbers, measured and gated.** `VoccaCore` now owns the local-only vocabulary the loop
+> records through: `LatencySpan` (captureClose/asr/cleanup/inject — cleanup exists as a
+> `notPresent` state because C5 is unbuilt), the five `SessionOutcomeClass` cases
+> (delivered-by-rung / failsafeHeld / aborted / failed / emptySkip — never force-labeled, so
+> the P0 first-method-success metric is derived, not stored), `SessionRecord` with engine
+> attribution, the `LatencyRecorder` seam, and the bounded in-memory `LatencyLedger` actor
+> (cap 512, loud refusal of duplicates and double-finalize, pure `describe()`). The loop
+> records end to end: the router begins a record at `.opening`, `DictationPipeline` finalizes
+> on every row of its own decision table (ASR span measured around `transcribe` with the
+> injected clock, inject span from `InjectionResult.elapsed`), the capture-close span is
+> measured on the `stop()` caller's side — never on the realtime thread — and the
+> zero-network probe's cycle now prints the record (`PROBE-LATENCY`) with the interposer
+> proving zero `connect(2)`. Whisper's owned clock now records the shared `EngineTiming`
+> kinds exactly like Parakeet's. The benchmark half ships as two honest halves: a headless
+> fixture-replay harness + regression gate in CI (a seeded slow injector must fail it — a
+> gate that cannot fail proves nothing) and an env-gated real-engine run
+> (`VOCCA_LATENCY_BENCH` + `VOCCA_MODEL_DIR`, visible skip otherwise) that prints per-span
+> p50/p95 with the process's suppression state beside every row; `SMOKE_CHECKLIST.md` steps
+> 69–70 are its first execution. Test floor: 876.
+>
+> **What the latency-instrumentation unit is NOT, and must not be claimed:**
+> - **The numbers are unmeasured.** The env-gated real run has not happened; the provisional
+>   tolerances (p50 ≤ 400 ms / p95 ≤ 800 ms, `ROADMAP.md:171`) are targets in one named
+>   table, recorded not gated, until the founder's first run re-baselines them.
+> - **Warm start and widget-only streaming partials remain unbuilt** (the rest of C7), and
+>   speculative-ASR correctness under revision is still `ARCHITECTURE.md` open question 2.
+> - **The ledger is in-memory**: no persistence, no UI surface, nothing ever transmitted.
 >
 > **What C4 is NOT, and must not be claimed:**
 > - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
@@ -243,7 +272,8 @@ This file orients a coding agent working in this repository. Read it first.
 >   adapters' and the panel's only execution.
 > - **The loop is wired** (the `dictation-loop` unit above); CONVERSING and the settings surface
 >   are out of scope (only the FAILSAFE and the five live states ship); and C8 (strategy
->   memory), C7 (latency instrumentation) and C5 (cleanup) remain unbuilt.
+>   memory) and C5 (cleanup) remain unbuilt; C7's latency-instrumentation slice shipped
+>   (below), its warm-start and widget-streaming halves did not.
 >
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no

@@ -44,11 +44,24 @@ private final class StubWhisperContext: WhisperContext, Sendable {
         State(prepareCallCount: 0, transcribeCallCount: 0, preparedModelFileURL: nil,
               prepareError: nil, transcribeError: nil, segments: []))
 
+    /// The shared hand-moved clock the W4 timing tests drive: `prepare`/`transcribe` advance it
+    /// by their fixed steps inside the seam, so the engine's two clock reads straddle an exact,
+    /// asserted delta — the `FakeCaptureGraph` stop-advance precedent, one level up.
+    private let clock: StubClock?
+    private let prepareAdvance: Duration
+    private let transcribeAdvance: Duration
+
     init(
         segments: [WhisperSegment] = [],
         prepareError: Error? = nil,
-        transcribeError: Error? = nil
+        transcribeError: Error? = nil,
+        clock: StubClock? = nil,
+        prepareAdvance: Duration = .zero,
+        transcribeAdvance: Duration = .zero
     ) {
+        self.clock = clock
+        self.prepareAdvance = prepareAdvance
+        self.transcribeAdvance = transcribeAdvance
         lock.withLock { state in
             state.segments = segments
             state.prepareError = prepareError
@@ -65,10 +78,16 @@ private final class StubWhisperContext: WhisperContext, Sendable {
         set { lock.withLock { $0.prepareError = newValue } }
     }
 
+    var transcribeError: Error? {
+        get { lock.withLock { $0.transcribeError } }
+        set { lock.withLock { $0.transcribeError = newValue } }
+    }
+
     func prepare(modelFileURL: URL) throws {
         let error: Error? = lock.withLock { state in
             state.prepareCallCount += 1
             state.preparedModelFileURL = modelFileURL
+            if let clock { clock.now += prepareAdvance }
             return state.prepareError
         }
         if let error { throw error }
@@ -77,6 +96,7 @@ private final class StubWhisperContext: WhisperContext, Sendable {
     func transcribe(samples: [Float]) throws -> [WhisperSegment] {
         let answer: (error: Error?, segments: [WhisperSegment]) = lock.withLock { state in
             state.transcribeCallCount += 1
+            if let clock { clock.now += transcribeAdvance }
             return (state.transcribeError, state.segments)
         }
         if let error = answer.error { throw error }
@@ -130,11 +150,14 @@ final class WhisperEngineTests: XCTestCase {
     }
 
     /// The engine the tests drive: a real ``ModelStore`` over a stub transport, a stub context,
-    /// and a stub clock — the shipped store/transport shape, the injected context and clock.
+    /// a hand-moved clock, and a shared ``EngineTiming`` the W4 tests read samples from — the
+    /// shipped store/transport shape, the injected context, clock and ledger.
     private func makeEngine(
         context: StubWhisperContext,
         transport: StubTransport,
-        root: URL? = nil
+        root: URL? = nil,
+        clock: StubClock = StubClock(),
+        timing: EngineTiming = EngineTiming()
     ) -> (engine: WhisperCppEngine, root: URL) {
         let root = root ?? makeRoot()
         let store = ModelStore(rootURL: root)
@@ -145,7 +168,8 @@ final class WhisperEngineTests: XCTestCase {
             store: store,
             manifest: manifest,
             transport: transport,
-            clock: StubClock(),
+            clock: clock,
+            timing: timing,
             context: context)
         return (engine, root)
     }
@@ -400,6 +424,149 @@ final class WhisperEngineTests: XCTestCase {
         }
     }
 
+    // MARK: - Timing (W4: whisper parity)
+
+    /// **W4, cold load.** `prepare()` records a `.coldLoad` sample on the engine's
+    /// ``EngineTiming`` whose elapsed equals the injected clock's delta **exactly** — the stub
+    /// context makes the load take a measurable time by advancing the shared clock inside
+    /// `prepare` (the `FakeCaptureGraph` stop-advance precedent), and the pre-set base proves
+    /// the sample is the delta, never an absolute reading.
+    func testPrepareRecordsColdLoadWithExactlyTheClockDelta() async throws {
+        let clock = StubClock()
+        clock.now = .milliseconds(1_000)
+        let timing = EngineTiming()
+        let context = StubWhisperContext(clock: clock, prepareAdvance: .milliseconds(40))
+        let (engine, _) = makeEngine(
+            context: context,
+            transport: StubTransport(files: [modelFile: [0x01]]),
+            clock: clock, timing: timing)
+
+        try await engine.prepare()
+
+        let cold = await timing.samples(for: .coldLoad)
+        XCTAssertEqual(
+            cold, [.milliseconds(40)],
+            "the cold-load sample must equal the clock's delta across the load — never a "
+                + "fabricated zero, never an absolute reading")
+    }
+
+    /// **W4, failure records nothing.** A failed `prepare` records no `.coldLoad` — Parakeet's
+    /// rule (the sample is recorded only on the success path), mirrored exactly.
+    func testAFailedPrepareRecordsNoColdLoad() async throws {
+        let clock = StubClock()
+        let timing = EngineTiming()
+        let context = StubWhisperContext(
+            prepareError: StubContextError.prepareRefused,
+            clock: clock, prepareAdvance: .milliseconds(40))
+        let (engine, _) = makeEngine(
+            context: context,
+            transport: StubTransport(files: [modelFile: [0x01]]),
+            clock: clock, timing: timing)
+
+        do {
+            try await engine.prepare()
+            XCTFail("a refusing context must fail prepare")
+        } catch is VoccaError {
+        } catch {
+            XCTFail("expected VoccaError, got \(error)")
+        }
+
+        let cold = await timing.samples(for: .coldLoad)
+        XCTAssertEqual(
+            cold, [],
+            "a failed load must not record a cold-load sample")    }
+
+    /// **W4, the first-transcribe split.** The first successful transcription records
+    /// `.firstAfterLaunch`; every later one records `.warmTranscribe` — the same
+    /// `transcribedSinceLoad` split Parakeet draws, driven with the same clock-delta discipline.
+    func testFirstTranscribeRecordsFirstAfterLaunchAndLaterOnesRecordWarm() async throws {
+        let clock = StubClock()
+        let timing = EngineTiming()
+        let context = StubWhisperContext(clock: clock, transcribeAdvance: .milliseconds(5))
+        let (engine, _) = makeEngine(
+            context: context,
+            transport: StubTransport(files: [modelFile: [0x01]]),
+            clock: clock, timing: timing)
+        try await engine.prepare()
+
+        _ = try await engine.transcribe(buffer())
+        _ = try await engine.transcribe(buffer())
+
+        let first = await timing.samples(for: .firstAfterLaunch)
+        let warm = await timing.samples(for: .warmTranscribe)
+        XCTAssertEqual(
+            first, [.milliseconds(5)],
+            "the first transcription after launch is measured apart from the warm steady state")
+        XCTAssertEqual(warm, [.milliseconds(5)])
+        XCTAssertEqual(
+            first.count, 1,
+            "only the first transcription may claim firstAfterLaunch — the split is one-shot")
+        XCTAssertEqual(
+            warm.count, 1,
+            "the second transcription must land in the warm ledger, not the first column")
+    }
+
+    /// **W4, the empty-buffer silence.** An empty buffer is answered above the seam — no clock
+    /// read, no transcription, nothing recorded: the ledger must not count a non-transcription.
+    func testAnEmptyBufferTranscribeRecordsNoTiming() async throws {
+        let clock = StubClock()
+        let timing = EngineTiming()
+        let context = StubWhisperContext(clock: clock, transcribeAdvance: .milliseconds(5))
+        let (engine, _) = makeEngine(
+            context: context,
+            transport: StubTransport(files: [modelFile: [0x01]]),
+            clock: clock, timing: timing)
+        try await engine.prepare()
+
+        let transcript = try await engine.transcribe(buffer([]))
+
+        XCTAssertEqual(transcript.text, "")
+        let first = await timing.samples(for: .firstAfterLaunch)
+        let warm = await timing.samples(for: .warmTranscribe)
+        XCTAssertEqual(first, [])
+        XCTAssertEqual(warm, [])
+    }
+
+    /// **W4, a failed transcription records nothing — and does not consume the first slot.** A
+    /// transcribe failure records no sample, and the next successful transcription is still
+    /// `firstAfterLaunch` — the split flips only on success, exactly as Parakeet's
+    /// `transcribedSinceLoad` bookkeeping draws it.
+    func testAFailedTranscribeRecordsNothingAndDoesNotConsumeTheFirstSlot() async throws {
+        let clock = StubClock()
+        let timing = EngineTiming()
+        let context = StubWhisperContext(
+            transcribeError: StubContextError.transcribeFailed,
+            clock: clock, transcribeAdvance: .milliseconds(5))
+        let (engine, _) = makeEngine(
+            context: context,
+            transport: StubTransport(files: [modelFile: [0x01]]),
+            clock: clock, timing: timing)
+        try await engine.prepare()
+
+        do {
+            _ = try await engine.transcribe(buffer())
+            XCTFail("a failing context must fail transcribe")
+        } catch is VoccaError {
+        } catch {
+            XCTFail("expected VoccaError, got \(error)")
+        }
+
+        var first = await timing.samples(for: .firstAfterLaunch)
+        var warm = await timing.samples(for: .warmTranscribe)
+        XCTAssertEqual(first, [])
+        XCTAssertEqual(warm, [])
+
+        context.transcribeError = nil
+        _ = try await engine.transcribe(buffer())
+
+        first = await timing.samples(for: .firstAfterLaunch)
+        warm = await timing.samples(for: .warmTranscribe)
+        XCTAssertEqual(
+            first, [.milliseconds(5)],
+            "a failed transcription must not consume the one-shot firstAfterLaunch slot")
+        XCTAssertEqual(warm, [])
+    }
+
     // MARK: - Offline
 
     /// Transcription never touches the transport: the store is the only path to the outside
@@ -422,8 +589,11 @@ final class WhisperEngineTests: XCTestCase {
     }
 }
 
-/// The stub clock: the injected ``MonotonicClock`` the engine owns but does not read yet (C7's
-/// latency ledger is future work) — present so the injection point is exercised, never the wall.
-private struct StubClock: MonotonicClock {
+/// The hand-moved clock: the injected ``MonotonicClock`` the engine measures against — the
+/// `TestClock` shape, `@unchecked Sendable` because the shared double is handed into the engine
+/// actor (the `TableClock`/`SendableTestClock` precedent): the test — or the stub context it
+/// drives — moves `now` by hand, and the engine's two clock reads straddle an exact, asserted
+/// delta. Never the wall.
+private final class StubClock: MonotonicClock, @unchecked Sendable {
     var now: Duration = .zero
 }

@@ -262,6 +262,11 @@ struct VoccaNetworkProbe {
         // they stand for. See `DictationCycleDrive.swift`.
         let cycle = exerciseDictationCycle()
         print("PROBE-CYCLE\t\(cycle.report)")
+        // The loop's own latency numbers, reported headlessly: the ledger's pure `describe()`
+        // rendering of every finalized record, asserted by the zero-network suite (spec §5, W5).
+        // The record count is already a structured field of the cycle report (`records=N`); this
+        // line carries the detail — classes, spans, engine attribution, in mint order.
+        print("PROBE-LATENCY\t\(cycle.latencyReport)")
 
         let placeholders: [Any.Type] = [
             session.moduleWitness,

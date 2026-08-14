@@ -285,6 +285,11 @@ final class ZeroNetworkTests: XCTestCase {
         "widget=delivered",
         "toggle.opens=0",
         "state=idle",
+        // The latency ledger closed exactly one record over the cycle — the finalized-record
+        // count as a structured token (`records=N`), so the "exactly one record" fact is
+        // asserted in the same grammar as every other field, not inside the PROBE-LATENCY
+        // payload, whose durations are measurements rather than constants.
+        "records=1",
     ].joined(separator: " ")
 
     /// The only modules the probe is not required to drive.
@@ -498,6 +503,67 @@ final class ZeroNetworkTests: XCTestCase {
             probe now prints — see \
             testTheAssertedCyclePostConditionStillDescribesACompleteDictationCycle.
             \(observation.diagnosticSummary)
+            """)
+
+        // The latency post-condition. The fifth effect-not-reference check: after the cycle, the
+        // probe reports its ledger's `describe()` — the pure, deterministic rendering of every
+        // finalized record — so the loop's own numbers are observable headlessly (spec §5, W5).
+        // The line exists only when exerciseDictationCycle() is followed by a latency report, so
+        // its absence is a missing drive rather than an empty ledger. It is asserted by property
+        // rather than verbatim: the record count and the class/spans/id facts are stable, but the
+        // ASR span's duration is a real measurement (the drive's engine clock is the shipped
+        // ContinuousMonotonicClock), and a measured number is a fact, not a constant.
+        //
+        // Deleting the report removes the line entirely, so the unwrap below fails against nil
+        // rather than quietly covering less — the same shape as the four post-conditions above.
+        let latency = try XCTUnwrap(
+            latencyPayload(of: observation),
+            """
+            The probe did not report its latency ledger's describe() output after the dictation \
+            cycle. Either VoccaNetworkProbe.exerciseDictationCycle() is no longer followed by a \
+            PROBE-LATENCY report, or the composed root is no longer wired to a ledger at all. \
+            Both matter: without the line, the loop's own latency numbers are observable to \
+            nothing, and the zero-network assertion says nothing about the recording path.
+            \(observation.diagnosticSummary)
+            """)
+        // Exactly one record: describe() renders one "session <id>:" per finalized record, and
+        // the drive runs exactly one cycle. Zero would be a cycle that recorded nothing; more
+        // than one would be a session that closed two records.
+        XCTAssertEqual(
+            occurrences(of: "session ", in: latency), 1,
+            """
+            The latency report does not contain exactly one record. One cycle must finalize \
+            exactly one record — anything else is a cycle that recorded nothing or recorded \
+            twice. payload: \(latency)
+            """)
+        // The record's id, minted by the cycle's own ledger: a fresh ledger's first mint is
+        // deterministic, and describe() renders in mint order (W5's stability claim).
+        XCTAssertTrue(
+            latency.hasPrefix("session 0:"),
+            "The latency report's single record is not the first-minted id: \(latency)")
+        // The class: delivered, off the clipboard rung — the cycle delivered, and only a
+        // delivered record may carry that class.
+        XCTAssertTrue(
+            latency.contains("delivered("),
+            "The latency report's record is not class delivered: \(latency)")
+        // The three spans the P0 loop measures — capture-close closing on the stop path, the
+        // pipeline's asr and inject. The cleanup span C5 never ran is *not in the record at
+        // all*: the ledger's notPresent is the absence of the span (describe() renders only what
+        // was recorded), so the honest assertion is that no cleanup token appears — never a
+        // fabricated zero, and never a span the pipeline did not measure.
+        XCTAssertTrue(
+            latency.contains("captureClose") && latency.contains("asr")
+                && latency.contains("inject"),
+            """
+            The latency report's record is missing one of the captureClose/asr/inject spans. \
+            payload: \(latency)
+            """)
+        XCTAssertFalse(
+            latency.contains("cleanup"),
+            """
+            The latency report's record carries a cleanup span — C5 is unbuilt, and the ledger \
+            must carry it as notPresent, which for describe() means the span is absent, never a \
+            zero it never measured. payload: \(latency)
             """)
 
         // The coverage cross-check. Without it the assertions above stay green while covering an
@@ -859,6 +925,33 @@ final class ZeroNetworkTests: XCTestCase {
             try value("widget"), "delivered",
             "The asserted full-cycle post-condition no longer ends with the widget showing the "
             + "delivery.")
+
+        // The latency ledger closed exactly one record: the structured count token of the
+        // whole-line assertion. Zero would mean the drive no longer records anything, and a
+        // value above one would mean one session closed two records.
+        XCTAssertEqual(
+            try value("records"), "1",
+            "The asserted full-cycle post-condition does not close exactly one latency record.")
+    }
+
+    /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
+    /// probe never reported one.
+    ///
+    /// Mirrors the report-prefix scanning of the observation accessors in `NetworkInterposer`:
+    /// the line exists only when `exerciseDictationCycle()` is followed by a latency report, so
+    /// its absence is a missing drive rather than an empty ledger.
+    private func latencyPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-LATENCY\t") {
+            return String(line.dropFirst("PROBE-LATENCY\t".count))
+        }
+        return nil
+    }
+
+    /// How many times `needle` occurs in `haystack` — the exactly-one-record count of the
+    /// `describe()` payload, which renders one `session <id>:` per finalized record.
+    private func occurrences(of needle: String, in haystack: String) -> Int {
+        haystack.components(separatedBy: needle).count - 1
     }
 
     /// Splits a `key=value key=value` post-condition, refusing anything that is not one.

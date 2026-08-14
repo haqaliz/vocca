@@ -140,13 +140,42 @@ public final class MicrophoneSource: SessionAudioSource {
     /// ``beginCapture()``, before ``CaptureGraphSeam/start()``, while no producer can write.
     private var refusedAtSessionStart = 0
 
+    /// The latency ledger's seam, wired by the composition root — `nil` (the default) keeps
+    /// `endCapture()` exactly as it was before the loop-wiring phase: no span is measured,
+    /// nothing is recorded.
+    private let recorder: (any LatencyRecorder)?
+
+    /// The injected clock the capture-close span is measured with (the ``MonotonicClock``
+    /// contract — this type reads no clock of its own); `nil` (the default) with the same
+    /// absence effect as a nil recorder.
+    private let clock: (any MonotonicClock)?
+
+    /// Where the in-flight session's record id comes from at `endCapture()` — the router's
+    /// ``LatencySessionBox`` at ship, a fixed id in a test. `nil` (the default) means no
+    /// recording.
+    private let sessionIDProvider: (@Sendable () -> SessionRecord.ID?)?
+
     /// - Parameter graph: the capture graph, already constructed with its configuration-change
     ///   callback (a device switch mid-session is the machine's trigger, not this type's).
+    /// - Parameter recorder: the latency ledger's seam, `nil` by default — the loop-wiring
+    ///   wiring decision, and the W3 absence pin.
+    /// - Parameter clock: the injected clock the capture-close span is measured with, `nil` by
+    ///   default with the same absence effect.
+    /// - Parameter sessionIDProvider: where the in-flight session's record id comes from at
+    ///   `endCapture()`, `nil` by default.
     /// - Throws: ``AudioFormatConversionError`` if the graph's format cannot be converted to the
     ///   interchange format.
-    public init(graph: any CaptureGraphSeam) throws {
+    public init(
+        graph: any CaptureGraphSeam,
+        recorder: (any LatencyRecorder)? = nil,
+        clock: (any MonotonicClock)? = nil,
+        sessionIDProvider: (@Sendable () -> SessionRecord.ID?)? = nil
+    ) throws {
         self.graph = graph
         self.converter = try AudioFormatConverter(inputFormat: graph.captureFormat)
+        self.recorder = recorder
+        self.clock = clock
+        self.sessionIDProvider = sessionIDProvider
     }
 
     /// Open the microphone.
@@ -180,7 +209,23 @@ public final class MicrophoneSource: SessionAudioSource {
     ///   cannot report it, and a return would be the machine's "released and done" signal over
     ///   audio that was never produced.
     public func endCapture() -> AudioBuffer {
+        // The capture-close span: measured on **this side of `stop()`** — the caller's side,
+        // never inside the graph's realtime callback — as the delta between two reads of the
+        // injected clock, and recorded only after the device is released (spec W3: the span
+        // closes on the stop path).
+        let stopStart = clock?.now
         graph.stop()
+        if let recorder, let clock, let start = stopStart, let sessionID = sessionIDProvider?() {
+            let elapsed = clock.now - start
+            // The ledger is an actor and `endCapture()` is synchronous (the machine's funnel),
+            // so the already-measured span is handed over in a task on the main actor — the stop
+            // path runs in the machine's domain, and main-actor FIFO lands the span before the
+            // `.ended` route finalizes the record.
+            Task { @MainActor in
+                _ = await recorder.recordSpan(
+                    LatencySpan.recorded(name: .captureClose, elapsed: elapsed), for: sessionID)
+            }
+        }
 
         let raw = graph.ring.drain()
 
