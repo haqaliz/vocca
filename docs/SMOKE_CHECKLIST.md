@@ -1163,6 +1163,56 @@ step 64, which was the blocked step.
     100-cycle composed run (metric 5) makes the same claim over fakes; this step is the first
     time it is made with a real tap, a real mic and a real engine.
 
+### The real-engine latency benchmark — its first measured run
+
+*(Added 2026-08-14, `benchmark-gate`.)* The benchmark's headless half is CI-covered: the span
+contract, the regression gate's mechanism (a seeded slow injector must fail it — a gate that
+cannot fail proves nothing), and the `ProvisionalTolerances` table are asserted in
+`Tests/HarnessTests/LatencyBenchmarkTests.swift`. The real-engine run is executed by nothing in
+CI — the steps 18-19 precedent: the model cannot reach a hosted runner, and a CI number would
+be about fakes, never about Vocca. These two steps are the run's first execution, on the
+founder's machine, and the first real latency data this repository will have.
+
+69. **The first real latency benchmark run — the real engine, on this machine.** The WER
+    discipline (step 19) applied to latency: the runner is env-gated exactly like the engine
+    tests — without `VOCCA_LATENCY_BENCH` it skips visibly, and the founder's machine is its
+    only execution.
+
+    *Gesture:* reuse the steps 17-18 model install if it is still present, or provision one —
+    `./Scripts/provision-asr-fixtures.sh --source <model-dir> --root <store-root>` (the
+    parakeet default; the script prints the `VOCCA_MODEL_DIR` value to use). Then run the
+    benchmark with both env vars set:
+    `VOCCA_MODEL_DIR=<version_dir> VOCCA_LATENCY_BENCH=1 swift test --filter LatencyBenchmarkTests`
+    — with `VOCCA_LATENCY_BENCH` set but no model, the runner fails loudly with the
+    provisioning instructions rather than skipping (the WER pattern).
+
+    *Pass:* the run completes and prints, for each fixture (the 200 ms, the clean and the 60 s
+    clips), a per-span p50/p95 row for **captureClose, asr and inject** — the closed span set
+    the gate checks (`cleanup` is never recorded, C5 unbuilt) — **with the process's
+    suppression state beside every row**, and the suppression column reads **not-suppressed
+    throughout**. Rule 1 of the preamble applies without softening: a run taken while the
+    process was throttled is **voided, not recorded** — a throttled number recorded as clean is
+    the exact error this column exists to prevent (step 52's discipline, the `measure-timers.sh`
+    precedent).
+
+70. **The record: the printed numbers re-baseline the tolerances table.** The run's deliverable
+    is a record, not a verdict — the way step 59's engine-start measurement is. Read the printed
+    per-span p50/p95 against the provisional table — **p50 ≤ 400 ms / p95 ≤ 800 ms for a
+    10-second utterance** (`ProvisionalTolerances` in `Tests/HarnessTests/LatencyBenchmarkTests.swift`,
+    `ROADMAP.md:171`) — and record the measured values in that table, the C3 tolerances
+    mechanism (`tolerances_20260810.md`): the table is the one place the numbers live, and
+    nothing passes or fails a release gate on them until this run has re-baselined them.
+
+    *Two honest bounds, stated rather than hidden:* the **10-second target is measured on the
+    founder's machine, not claimed from CI** — CI proves the span contract and the gate's
+    mechanism over seeded fakes and never produces a product latency number; and the fixture
+    suite has **no 10-second clip**, so the target is measured over the 60 s fixture (the
+    closest length the suite has), and that substitution is recorded beside the numbers, not
+    smoothed over. Record the run's machine and model-version alongside, as step 19 records
+    its machine and artifact hashes — the numbers are about that machine or they are about
+    nothing. Until this step has been run once, everything this repository says about perceived
+    latency is a claim about structure, not about measurement.
+
 ---
 
 ## When this file is wrong
