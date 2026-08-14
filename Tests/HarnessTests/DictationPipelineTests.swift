@@ -350,6 +350,351 @@ final class DictationPipelineTests: XCTestCase {
             XCTAssertEqual(holdCalls, 0)
         }
     }
+
+    // MARK: - W1: every route finalizes exactly one record (loop-wiring Phase 1)
+
+    /// A route with the recorder, the clock and a minted ``SessionRecord/ID`` — the W1 shape —
+    /// runs the session end to end and hands the ledger back, for the table test below.
+    private func makeRecordedPipeline(
+        engine: any ASREngine,
+        clock: TableClock,
+        injectorResult: InjectionResult,
+        held: HeldTranscript? = nil
+    ) async -> (
+        pipeline: DictationPipeline, ledger: LatencyLedger, sessionID: SessionRecord.ID
+    ) {
+        let ledger = LatencyLedger()
+        let sessionID = await ledger.beginSession()
+        let pipeline = DictationPipeline(
+            engine: engine,
+            injector: LedgerTextInjector(result: injectorResult),
+            holder: LedgerTranscriptHolder(held: held),
+            recorder: ledger,
+            clock: clock)
+        return (pipeline, ledger, sessionID)
+    }
+
+    /// Routes one ended outcome through a recorded pipeline and collects the ledger's answer.
+    ///
+    /// The engine's own `identity` comes back with the record, so the table can assert
+    /// attribution against the engine that was actually asked — never a value the test invented.
+    private func runRecordedRoute(
+        _ outcome: SessionOutcome<AudioBuffer>,
+        engine: any ASREngine,
+        clock: TableClock,
+        injectorResult: InjectionResult,
+        held: HeldTranscript? = nil
+    ) async -> (
+        surface: PipelineSurface, records: [SessionRecord], sessionID: SessionRecord.ID,
+        engineIdentity: EngineIdentity
+    ) {
+        let (pipeline, ledger, sessionID) = await makeRecordedPipeline(
+            engine: engine, clock: clock, injectorResult: injectorResult, held: held)
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome), target: target(), sessionID: sessionID)
+        let records = await ledger.snapshot()
+        return (surface, records, sessionID, engine.identity)
+    }
+
+    /// Waits until a condition holds — the gate test's synchronisation, the
+    /// `DictationEngineResolverTests.waitUntil` shape (2 s deadline, 1 ms sleep).
+    private func waitUntil(_ condition: @Sendable () async -> Bool) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
+            if await condition() { return }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        XCTFail("condition did not hold within 2 seconds")
+    }
+
+    /// The W1 closed-set finalize table (spec W1): **every** row of the pipeline's decision
+    /// table — the guards at `DictationPipeline.swift:139,147,160,165,174,180,184,195-198,201` —
+    /// driven over a real `LatencyLedger`, a hand-moved clock and the ledger-minted
+    /// ``SessionRecord/ID``. Each row yields exactly one record, class per the table, spans
+    /// `asr` then `inject` in order, `cleanup` never recorded, engine = the fake engine's
+    /// identity on every row that reached transcribe (nil on the three that never did),
+    /// delivered rows carrying the rung + verified off the ``InjectionResult``.
+    func testEveryRowOfTheDecisionTableFinalizesExactlyOneRecord() async {
+        let asrAdvance = Duration.milliseconds(5)
+        let injectElapsed = Duration.milliseconds(3)
+        let standardResult = InjectionResult(
+            rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+            elapsed: injectElapsed)
+
+        let cases: [(
+            name: String,
+            outcome: SessionOutcomeClass,
+            surface: PipelineSurface,
+            spanNames: [SpanName],
+            engineAttributed: Bool,
+            run: () async -> (
+                surface: PipelineSurface, records: [SessionRecord], sessionID: SessionRecord.ID,
+                engineIdentity: EngineIdentity
+            )
+        )] = [
+            // Row 1: a cancelled outcome is an instruction — nothing was asked of anyone.
+            ("cancelled outcome", .aborted, .idle, [], false, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock)
+                return await self.runRecordedRoute(
+                    self.outcome(.userCancelled, [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: standardResult)
+            }),
+            // Row 2: the empty captured buffer is decided empty *before* transcribe.
+            ("completed with empty captured buffer", .emptySkip, .idle, [], false, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock)
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), []), engine: engine, clock: clock,
+                    injectorResult: standardResult)
+            }),
+            // Row 3: cancelled *before* the engine was asked (Esc during TRANSCRIBING) — the
+            // cancellation is delivered before the route body can start, so the guard at
+            // `DictationPipeline.swift:160` fires with nothing asked of the engine. The
+            // cancellation-before-start race is resolved in practice by the absence of a
+            // suspension between `Task {}` and `cancel()`; if it ever lost, the assertions
+            // below fail loudly (a transcribe would have happened) rather than pass falsely.
+            ("cancelled before transcribe", .aborted, .idle, [], false, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock)
+                let (pipeline, ledger, sessionID) = await self.makeRecordedPipeline(
+                    engine: engine, clock: clock, injectorResult: standardResult)
+                let effect = SessionEffect<AudioBuffer>.ended(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]))
+                let target = self.target()
+                let task = Task {
+                    await pipeline.route(effect, target: target, sessionID: sessionID)
+                }
+                task.cancel()
+                let surface = await task.value
+                let records = await ledger.snapshot()
+                return (surface, records, sessionID, engine.identity)
+            }),
+            // Row 4: `transcribe` throws — the ASR span is still measured and recorded (the
+            // transcribe consumed the time), and the failure is attributed to the engine that
+            // failed (`EngineIdentity`: "which engine produced a transcript *or failed to*").
+            ("transcribe throws", .failed, .reasonOnly(.transcriptionFailed), [.asr], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock, error: FakeTranscriptionError.boom)
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: standardResult)
+            }),
+            // Row 5: the engine observes the cancellation as CancellationError — a discard,
+            // not a failure; the ASR span was measured before it threw.
+            ("engine throws CancellationError", .aborted, .idle, [.asr], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock, error: CancellationError())
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: standardResult)
+            }),
+            // Row 6: cancelled *after* transcribe returned — the route is held inside the
+            // engine's transcribe (the gate), the cancellation lands while it is parked, and
+            // the post-transcribe guard at `DictationPipeline.swift:180` fires. A cancelled
+            // transcription never injects (`PRODUCT_SPEC.md:129`), and the transcript the
+            // engine did produce is attributed.
+            ("cancelled after transcribe", .aborted, .idle, [.asr], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock, gated: true)
+                let (pipeline, ledger, sessionID) = await self.makeRecordedPipeline(
+                    engine: engine, clock: clock, injectorResult: standardResult)
+                let effect = SessionEffect<AudioBuffer>.ended(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]))
+                let target = self.target()
+                let task = Task {
+                    await pipeline.route(effect, target: target, sessionID: sessionID)
+                }
+                await self.waitUntil { await engine.parkedTranscribes == 1 }
+                task.cancel()
+                await engine.openGate()
+                let surface = await task.value
+                let records = await ledger.snapshot()
+                return (surface, records, sessionID, engine.identity)
+            }),
+            // Row 7: the engine's own answer can be empty for non-empty audio — whatever it
+            // called silence, `""` is never pasted and never held.
+            ("empty transcript text", .emptySkip, .idle, [.asr], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock, text: "")
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: standardResult)
+            }),
+            // Row 8: a delivered rung is a success under I1 — the class carries the rung and
+            // the read-back truth off the InjectionResult, verbatim.
+            ("delivered via accessibility", .delivered(rung: .accessibility, verified: true),
+                .idle, [.asr, .inject], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock)
+                let result = InjectionResult(
+                    rung: .accessibility, attempted: [.accessibility], verified: true,
+                    elapsed: injectElapsed)
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: result)
+            }),
+            ("delivered via clipboardPaste", .delivered(rung: .clipboardPaste, verified: false),
+                .idle, [.asr, .inject], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock)
+                let result = InjectionResult(
+                    rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                    elapsed: injectElapsed)
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: result)
+            }),
+            ("delivered via keystrokeSynthesis", .delivered(rung: .keystrokeSynthesis, verified: false),
+                .idle, [.asr, .inject], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock)
+                let result = InjectionResult(
+                    rung: .keystrokeSynthesis, attempted: [.keystrokeSynthesis], verified: false,
+                    elapsed: injectElapsed)
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: result)
+            }),
+            // Row 9: the failsafe's handoff already holds — the class is `failsafeHeld`, and
+            // the inject span still records the ladder's own measurement.
+            ("widgetFailsafe with the transcript held", .failsafeHeld,
+                .transcriptHeld(HeldTranscript(
+                    text: "1 2 3", reason: .exhausted, targetAppName: "Notes",
+                    capturedAt: .seconds(7))),
+                [.asr, .inject], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock)
+                let result = InjectionResult(
+                    rung: .widgetFailsafe, attempted: [.accessibility, .clipboardPaste],
+                    verified: false, elapsed: injectElapsed)
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: result,
+                    held: HeldTranscript(
+                        text: "1 2 3", reason: .exhausted, targetAppName: "Notes",
+                        capturedAt: .seconds(7)))
+            }),
+            // Row 10: a `.widgetFailsafe` with *nothing* held — the journal refused custody —
+            // is a visible failure, not a silent idle.
+            ("widgetFailsafe with nothing held", .failed, .reasonOnly(.exhausted),
+                [.asr, .inject], true, {
+                let clock = TableClock()
+                let engine = TableEngine(clock: clock)
+                let result = InjectionResult(
+                    rung: .widgetFailsafe, attempted: [.accessibility], verified: false,
+                    elapsed: injectElapsed)
+                return await self.runRecordedRoute(
+                    self.outcome(.retained(.keyUp), [1, 2, 3]), engine: engine, clock: clock,
+                    injectorResult: result)
+            }),
+        ]
+
+        for testCase in cases {
+            let ran = await testCase.run()
+            let name = testCase.name
+
+            XCTAssertEqual(
+                ran.records.count, 1,
+                "\(name): exactly one record per route — no path produces no record, none two")
+            guard let record = ran.records.first else { continue }
+            XCTAssertEqual(record.id, ran.sessionID, "\(name): the record carries the minted id")
+            XCTAssertEqual(
+                record.outcome, testCase.outcome,
+                "\(name): the class from the pipeline's own table")
+            XCTAssertEqual(
+                record.spans.map(\.name), testCase.spanNames,
+                "\(name): spans in recording order — asr before inject, nothing else recorded")
+            XCTAssertTrue(
+                record.spans.allSatisfy { $0.presence == .recorded },
+                "\(name): a recorded span is never notPresent")
+            XCTAssertNil(
+                record.spans.first { $0.name == .cleanup },
+                "\(name): cleanup never ran (C5 unbuilt) — never a recorded span")
+            if testCase.engineAttributed {
+                XCTAssertEqual(
+                    record.engine, ran.engineIdentity,
+                    "\(name): the engine was asked — attribution is the engine's identity")
+            } else {
+                XCTAssertNil(
+                    record.engine,
+                    "\(name): the engine was never asked — attribution stays nil")
+            }
+            if testCase.spanNames.contains(.asr) {
+                XCTAssertEqual(
+                    record.spans[0].elapsed, asrAdvance,
+                    "\(name): the ASR span carries the measured delta between the pipeline's two "
+                        + "clock reads — never a fabricated zero")
+            }
+            if testCase.spanNames.contains(.inject) {
+                XCTAssertEqual(
+                    record.spans[1].elapsed, injectElapsed,
+                    "\(name): the inject span carries the InjectionResult's elapsed verbatim")
+            }
+            XCTAssertEqual(ran.surface, testCase.surface, "\(name): the surface is the table's")
+        }
+    }
+
+    /// The absence pin (spec W1, plan §6): the recorder and the clock are wired, but the router
+    /// did not begin a session — `sessionID` is the default `nil` — so the route must behave
+    /// exactly as before (transcribe and inject, the same `.idle` surface) and record nothing:
+    /// the ledger stays empty.
+    func testRouteWithARecorderAndClockButNoSessionIDRecordsNothing() async {
+        let ledger = LatencyLedger()
+        let engine = StubEngine.parakeet()
+        let injector = LedgerTextInjector(
+            result: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+        let pipeline = DictationPipeline(
+            engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
+            recorder: ledger, clock: TableClock())
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target())
+
+        XCTAssertEqual(surface, .idle, "no sessionID — the route itself is unchanged")
+        let snapshot = await ledger.snapshot()
+        XCTAssertTrue(
+            snapshot.isEmpty,
+            "without a sessionID no record may begin or finalize — the ledger is untouched")
+        let transcribeCalls = await engine.transcribeCalls
+        XCTAssertEqual(transcribeCalls, 1, "the absence is about recording, not about routing")
+        let calls = await injector.calls
+        XCTAssertEqual(calls.count, 1)
+    }
+
+    /// The defaults' absence pin: a pipeline built with no recorder and no clock, routed without
+    /// a sessionID, behaves exactly as before — the same surfaces, the same engine/injector/
+    /// holder behaviour, nothing crashes.
+    func testADefaultPipelineWithNoRecorderOrClockRoutesExactlyAsBefore() async {
+        let engine = StubEngine.parakeet()
+        let (pipeline, injector, holder) = makePipeline(
+            engine: engine,
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero))
+
+        let delivered = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target())
+        XCTAssertEqual(delivered, .idle)
+
+        let cancelled = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.userCancelled, [1, 2, 3])),
+            target: target())
+        XCTAssertEqual(cancelled, .idle)
+
+        let transcribeCalls = await engine.transcribeCalls
+        XCTAssertEqual(transcribeCalls, 1, "only the delivered route asked the engine")
+        let calls = await injector.calls
+        XCTAssertEqual(calls.count, 1, "the cancelled route injected nothing")
+        let currentCalls = await holder.currentCalls
+        XCTAssertEqual(currentCalls, 0)
+        let holdCalls = await holder.holdCalls
+        XCTAssertEqual(holdCalls, 0)
+    }
 }
 
 /// What a scripted transcription failure is, for the throw row of the table. The specific error
@@ -438,5 +783,81 @@ actor LedgerTranscriptHolder: TranscriptHolder {
 
     func release() async {
         releaseCalls += 1
+    }
+}
+
+// MARK: - W1: the recorded table's own doubles
+
+/// **The W1 table's hand-moved clock** — `TestClock`'s role, `Sendable` because the pipeline is
+/// a `Sendable` struct and `MonotonicClock` itself carries no `Sendable` requirement: a plain
+/// class clock like ``TestClock`` could not cross into the pipeline's stored properties under
+/// strict concurrency (the harness's other hand-moved clocks are plain classes for exactly that
+/// reason — they live in non-`Sendable` holders).
+///
+/// `@unchecked Sendable` is the claim every test clock with a mutable reading makes, confined to
+/// this file: the reading is only ever mutated by this suite's own thread and by the
+/// ``TableEngine`` actor it is handed to, serialized by the gate.
+private final class TableClock: MonotonicClock, @unchecked Sendable {
+    var now: Duration = .zero
+}
+
+/// **The W1 table's engine** — `ScriptedEngine`'s role with the clock in the loop: `transcribe`
+/// advances the shared ``TableClock`` by a fixed step, so the pipeline's two clock reads straddle
+/// a real, asserted delta (measured, not assumed), and then answers from a scripted text/error.
+///
+/// `gated` is the cancelled-after-transcribe row's transcribe gate: `transcribe` parks on a
+/// continuation until the test opens it, so the route is *held mid-transcribe* and the
+/// cancellation lands deterministically — the `GatedPrepareEngine` precedent
+/// (`DictationEngineResolverTests.swift:230-277`).
+private actor TableEngine: ASREngine {
+    let identity = EngineIdentity(
+        id: "table-engine", displayName: "Table engine", isLocal: true)
+    let supportsStreaming = false
+
+    /// How much one `transcribe` advances the shared clock.
+    private let advance: Duration
+    private let clock: TableClock
+    private let text: String?
+    private let error: Error?
+    private let gated: Bool
+    private var gate: CheckedContinuation<Void, Never>?
+    private(set) var transcribeCalls = 0
+    private(set) var parkedTranscribes = 0
+
+    init(
+        clock: TableClock,
+        advance: Duration = .milliseconds(5),
+        text: String? = nil,
+        error: Error? = nil,
+        gated: Bool = false
+    ) {
+        self.clock = clock
+        self.advance = advance
+        self.text = text
+        self.error = error
+        self.gated = gated
+    }
+
+    func prepare() async throws {}
+
+    func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+        transcribeCalls += 1
+        if gated {
+            parkedTranscribes += 1
+            await withCheckedContinuation { self.gate = $0 }
+        }
+        clock.now += advance
+        if let error { throw error }
+        return Transcript(
+            text: text ?? "1 2 3",
+            segments: [],
+            engine: identity,
+            isFinal: true,
+            audioDuration: buffer.audioDuration)
+    }
+
+    func openGate() {
+        gate?.resume()
+        gate = nil
     }
 }
