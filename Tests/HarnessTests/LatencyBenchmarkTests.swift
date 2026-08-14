@@ -23,6 +23,10 @@ import XCTest
 /// stub engine and fast fakes, then asserts the **span contract** on the latency ledger's records
 /// and the **mechanism of the regression gate**.
 ///
+/// The env-gated real half (spec B3) lives in `LatencyBenchmarkRealEngineTests.swift` and drives
+/// the *same* harness — this file's types are shared with it (internal, not private) and the
+/// harness carries a real-engine composition next to the seeded one.
+///
 /// ## What is measured, and what is not
 ///
 /// Everything with a branch in it is real: the machine, the watchdog, the sink, the router and the
@@ -47,12 +51,14 @@ final class LatencyBenchmarkTests: XCTestCase {
 
     // MARK: - The seeded constants (the benchmark's one clock, three fixed advances)
 
-    /// The capture-close delta: the fake graph's `stop()` takes this long (the W3 shape).
-    private static let captureCloseAdvance = Duration.milliseconds(3)
+    /// The capture-close delta: the fake graph's `stop()` takes this long (the W3 shape). Shared
+    /// with the env-gated real run — its capture-close row is this same seeded fake, never a claim.
+    static let captureCloseAdvance = Duration.milliseconds(3)
     /// The ASR delta: the stub engine's `transcribe` takes this long (the `TableEngine` shape).
     private static let asrAdvance = Duration.milliseconds(5)
-    /// The fast injector's delta.
-    private static let fastInjectAdvance = Duration.milliseconds(7)
+    /// The fast injector's delta. Shared with the env-gated real run — its inject row is this same
+    /// seeded fake: the harness has no real injector (no AX, no pasteboard on a hosted runner).
+    static let fastInjectAdvance = Duration.milliseconds(7)
     /// The slow injector's delta — the B2 seed: ~100 ms against the ~10 ms mechanism threshold.
     private static let slowInjectAdvance = Duration.milliseconds(100)
 
@@ -218,14 +224,16 @@ final class LatencyBenchmarkTests: XCTestCase {
     /// read — exactly the loop-wiring W2 shape, with the clock in the loop so the spans carry
     /// exact seeded deltas instead of zeros.
     @MainActor
-    private struct BenchmarkHarness {
+    struct BenchmarkHarness {
         let clock: BenchmarkClock
         let keyboard: Keyboard
         let graph: BenchmarkGraph
         let ledger: LatencyLedger
         let sessionBox: LatencySessionBox
         let root: DictationLoopRoot
+        private let drainBudget: Int
 
+        /// The seeded (headless) composition: the stub engine with the clock in the loop.
         init(
             ringCapacity: Int,
             stopAdvance: Duration,
@@ -233,6 +241,48 @@ final class LatencyBenchmarkTests: XCTestCase {
             injectAdvance: Duration
         ) throws {
             let clock = BenchmarkClock()
+            try self.init(
+                ringCapacity: ringCapacity,
+                stopAdvance: stopAdvance,
+                engine: ClockAdvancingEngine(clock: clock, advance: asrAdvance),
+                injectAdvance: injectAdvance,
+                clock: clock,
+                drainBudget: 20_000)
+        }
+
+        /// The real-engine composition (spec B3, Phase 2): the *same* harness, with the real engine
+        /// in place of the stub — the wrapper measures the engine's actual wall-clock transcription
+        /// and advances the shared clock by exactly it, so the ASR span is the only real number on
+        /// the run's rows; capture-close and inject stay the harness's seeded fakes.
+        ///
+        /// The drain budget is generous by default: the real 60 s fixture's transcription runs for
+        /// a real second or more, and the drain must outlast it (the 20_000-turn budget was sized to
+        /// the stub's string build, not to CoreML).
+        init(
+            ringCapacity: Int,
+            stopAdvance: Duration,
+            realEngine: any ASREngine,
+            injectAdvance: Duration,
+            drainBudget: Int = 500_000
+        ) throws {
+            let clock = BenchmarkClock()
+            try self.init(
+                ringCapacity: ringCapacity,
+                stopAdvance: stopAdvance,
+                engine: WallClockAdvancingEngine(inner: realEngine, clock: clock),
+                injectAdvance: injectAdvance,
+                clock: clock,
+                drainBudget: drainBudget)
+        }
+
+        private init(
+            ringCapacity: Int,
+            stopAdvance: Duration,
+            engine: any ASREngine,
+            injectAdvance: Duration,
+            clock: BenchmarkClock,
+            drainBudget: Int
+        ) throws {
             let keyboard = Keyboard()
             let configuration = HotkeyConfiguration(
                 keyCode: 49, modifiers: [.option], activation: .holdToTalk)
@@ -248,7 +298,6 @@ final class LatencyBenchmarkTests: XCTestCase {
                 recorder: ledger,
                 clock: clock,
                 sessionIDProvider: { sessionBox.sessionID })
-            let engine = ClockAdvancingEngine(clock: clock, advance: asrAdvance)
             let injector = BenchmarkInjector(clock: clock, advance: injectAdvance)
             let holder = BenchmarkHolder()
             let pipeline = DictationPipeline(
@@ -292,6 +341,7 @@ final class LatencyBenchmarkTests: XCTestCase {
             self.ledger = ledger
             self.sessionBox = sessionBox
             self.root = root
+            self.drainBudget = drainBudget
         }
 
         /// One full hold-to-talk cycle carrying `samples`: press → the opening mints the record's
@@ -320,12 +370,14 @@ final class LatencyBenchmarkTests: XCTestCase {
         }
 
         /// Lets the router's unstructured tasks run until `condition` holds, then asserts it —
-        /// the `DictationLoopTests` shape, with the probe's 20_000-turn budget: the 60 s
-        /// fixture's transcription (the stub's full sample-string build, unoptimized in debug)
-        /// is the slowest honest step, and the drain must outlast it.
+        /// the `DictationLoopTests` shape, with the probe's 20_000-turn budget as the headless
+        /// floor: the 60 s fixture's transcription (the stub's full sample-string build,
+        /// unoptimized in debug) is the slowest honest step, and the drain must outlast it. The
+        /// env-gated real run carries a larger budget (see the real-engine composition), because a
+        /// real CoreML transcription of the 60 s fixture runs for a real second or more.
         func drain(until condition: @escaping () async -> Bool, _ message: String) async {
             var attempts = 0
-            while !(await condition()) && attempts < 20_000 {
+            while !(await condition()) && attempts < drainBudget {
                 await Task.yield()
                 attempts += 1
             }
@@ -336,35 +388,36 @@ final class LatencyBenchmarkTests: XCTestCase {
 
     // MARK: - The fixtures
 
-    /// The three benchmark fixtures, by name: the shortest, the clean one, and the 60 s one —
-    /// three different lengths, per the spec's ≥ 3 fixture-derived cycles.
-    private static func fixtureCases() throws -> [ASRFixtureCase] {
-        let all = try ASRFixtureSuite.loadFixtures()
-        let wanted = ["two-hundred-ms", "clean", "sixty-second"]
-        let byName = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
-        return try wanted.map { name in
-            guard let fixture = byName[name] else {
-                throw BenchmarkFixtureError.missing(name)
-            }
-            return fixture
+/// The three benchmark fixtures, by name: the shortest, the clean one, and the 60 s one —
+/// three different lengths, per the spec's ≥ 3 fixture-derived cycles. Shared with the env-gated
+/// real run — the real engine drives the same three fixtures through the same harness.
+static func fixtureCases() throws -> [ASRFixtureCase] {
+    let all = try ASRFixtureSuite.loadFixtures()
+    let wanted = ["two-hundred-ms", "clean", "sixty-second"]
+    let byName = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
+    return try wanted.map { name in
+        guard let fixture = byName[name] else {
+            throw BenchmarkFixtureError.missing(name)
         }
+        return fixture
     }
+}
 
-    /// The ring must hold the largest fixture whole (the 60 s clip, ~2^20 samples): the ring
-    /// refuses a block that does not fit, so a ring sized to the largest fixture is what makes
-    /// every fixture-derived cycle complete rather than truncated.
-    private static func ringCapacity(for fixtures: [ASRFixtureCase]) -> Int {
-        let largest = fixtures.map { $0.buffer.samples.count }.max() ?? 0
-        var capacity = 1
-        while capacity < largest + 1 {
-            capacity *= 2
-        }
-        return capacity
+/// The ring must hold the largest fixture whole (the 60 s clip, ~2^20 samples): the ring
+/// refuses a block that does not fit, so a ring sized to the largest fixture is what makes
+/// every fixture-derived cycle complete rather than truncated.
+static func ringCapacity(for fixtures: [ASRFixtureCase]) -> Int {
+    let largest = fixtures.map { $0.buffer.samples.count }.max() ?? 0
+    var capacity = 1
+    while capacity < largest + 1 {
+        capacity *= 2
     }
+    return capacity
+}
 
-    private enum BenchmarkFixtureError: Error {
-        case missing(String)
-    }
+enum BenchmarkFixtureError: Error {
+    case missing(String)
+}
 }
 
 // MARK: - The gate and its tables
@@ -485,7 +538,7 @@ enum LatencyBenchmarkGate {
 /// it, each by its fixed seeded amount, so every span's delta is exact. `@unchecked Sendable` for
 /// the `TableClock` reason: the reading is mutated from the main actor (the graph's `stop()`) and
 /// from the engine and injector actors, serialized by the awaits between them.
-private final class BenchmarkClock: MonotonicClock, @unchecked Sendable {
+final class BenchmarkClock: MonotonicClock, @unchecked Sendable {
     var now: Duration = .zero
 }
 
@@ -493,7 +546,7 @@ private final class BenchmarkClock: MonotonicClock, @unchecked Sendable {
 /// `stop()` takes ``stopAdvance`` by moving the shared clock, so the capture-close span's delta is
 /// exact and hand-asserted, and the whole fixture is drained through a real ring and the real
 /// converter.
-private final class BenchmarkGraph: CaptureGraphSeam {
+final class BenchmarkGraph: CaptureGraphSeam {
     let ring: AudioRingBuffer
     let captureFormat: CapturedAudioFormat = .interchange
     private(set) var stopCalls = 0
@@ -547,8 +600,38 @@ private actor ClockAdvancingEngine: ASREngine {
     }
 }
 
+/// The real-engine wrapper with the clock in the loop (spec B3): measures the inner engine's
+/// **actual** wall-clock transcription and advances the shared benchmark clock by exactly that
+/// delta — the only real number in the whole benchmark. The pipeline's two clock reads then straddle
+/// the real duration, so the ledger's ASR span carries the real measurement while every other span
+/// keeps its seeded delta. The wrapper's identity is the inner engine's, verbatim — attribution on
+/// the real run's records is the real engine's own.
+private actor WallClockAdvancingEngine: ASREngine {
+    let identity: EngineIdentity
+    let supportsStreaming = false
+    private let inner: any ASREngine
+    private let clock: BenchmarkClock
+
+    init(inner: any ASREngine, clock: BenchmarkClock) {
+        self.inner = inner
+        self.clock = clock
+        self.identity = inner.identity
+    }
+
+    func prepare() async throws {
+        try await inner.prepare()
+    }
+
+    func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+        let start = ContinuousClock.now
+        let transcript = try await inner.transcribe(buffer)
+        clock.now += ContinuousClock.now - start
+        return transcript
+    }
+}
+
 /// One recorded injection — the benchmark injector's ledger row.
-private struct BenchmarkInjectionCall {
+struct BenchmarkInjectionCall {
     let text: String
     let target: TargetContext
 }
@@ -557,7 +640,7 @@ private struct BenchmarkInjectionCall {
 /// ``advance`` and reports that same delta as the ladder's measured `elapsed` — the pipeline
 /// records `InjectionResult.elapsed` verbatim, so the inject span's delta is exact. The slow
 /// variant is the B2 seed: the same shape at ~100 ms against the ~10 ms budget.
-private actor BenchmarkInjector: TextInjector {
+actor BenchmarkInjector: TextInjector {
     private let clock: BenchmarkClock
     private let advance: Duration
     private(set) var calls: [BenchmarkInjectionCall] = []
@@ -577,7 +660,7 @@ private actor BenchmarkInjector: TextInjector {
 }
 
 /// The holder, as a ledger that never holds: the delivered path must never touch it.
-private actor BenchmarkHolder: TranscriptHolder {
+actor BenchmarkHolder: TranscriptHolder {
     private(set) var holdCalls = 0
     private(set) var currentCalls = 0
 
@@ -594,7 +677,7 @@ private actor BenchmarkHolder: TranscriptHolder {
 }
 
 /// The widget's level source, as a fixed value — the waveform is not this suite's subject.
-private final class BenchmarkLevelSource: LiveLevelSource {
+final class BenchmarkLevelSource: LiveLevelSource {
     let level: Float
 
     init(level: Float) {
