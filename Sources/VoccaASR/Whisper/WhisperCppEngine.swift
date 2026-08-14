@@ -64,8 +64,13 @@ public actor WhisperCppEngine: ASREngine {
     /// The seam the store downloads through — injected so tests never touch the network.
     private let transport: any ModelTransport
 
-    /// The injected clock: owned for C7's latency ledger, read by nothing today.
+    /// The injected clock: cold-load and warm-transcribe spans are measured against it (C7's
+    /// latency ledger, PRD S1) — the same role the Parakeet engine's clock plays.
     private let clock: any MonotonicClock
+
+    /// The local-only latency ledger (PRD S1) — the same `EngineTiming` the Parakeet engine
+    /// records into; whisper's `prepare`/`transcribe` mirror its kinds exactly.
+    private let timing: EngineTiming
 
     /// The transcription parameters, translated to the C API by the bridge — injected so the
     /// default (threads, language, tier) is replaceable without touching the C surface.
@@ -78,11 +83,17 @@ public actor WhisperCppEngine: ASREngine {
     /// The load-once bookkeeping: `prepare()` runs the load only when this says it may.
     private var loadState = WhisperLoadState()
 
+    /// Whether any transcription has completed since the load — the split between
+    /// ``EngineTiming/Kind/firstAfterLaunch`` and ``EngineTiming/Kind/warmTranscribe``, the
+    /// Parakeet engine's `transcribedSinceLoad` rule.
+    private var transcribedSinceLoad = false
+
     public init(
         store: ModelStore,
         manifest: ModelManifest,
         transport: any ModelTransport,
         clock: any MonotonicClock,
+        timing: EngineTiming = EngineTiming(),
         parameters: WhisperCppParameters = .init(),
         context: any WhisperContext = WhisperCAPI()
     ) {
@@ -90,6 +101,7 @@ public actor WhisperCppEngine: ASREngine {
         self.manifest = manifest
         self.transport = transport
         self.clock = clock
+        self.timing = timing
         self.parameters = parameters
         self.context = context
         self.identity = WhisperCppEngineIdentity.whisper
@@ -110,12 +122,14 @@ public actor WhisperCppEngine: ASREngine {
                 identity, reason: "the manifest declares no model files to load")
         }
         loadState.beginAttempt()
+        let start = clock.now
         do {
             try await store.downloadIfMissing(manifest: manifest, transport: transport)
             let modelFileURL = await store.baseURL(for: manifest.engineID, version: manifest.version)
                 .appendingPathComponent(file.name)
             try context.prepare(modelFileURL: modelFileURL)
             loadState.complete()
+            await timing.record(.coldLoad, elapsed: clock.now - start)
         } catch {
             loadState.fail()
             throw VoccaError.modelUnavailable(
@@ -142,8 +156,16 @@ public actor WhisperCppEngine: ASREngine {
                 segments: [], duration: buffer.audioDuration,
                 missingSampleCount: buffer.missingSampleCount)
         }
+        let start = clock.now
         do {
             let segments = try context.transcribe(samples: buffer.samples)
+            let elapsed = clock.now - start
+            if transcribedSinceLoad {
+                await timing.record(.warmTranscribe, elapsed: elapsed)
+            } else {
+                await timing.record(.firstAfterLaunch, elapsed: elapsed)
+                transcribedSinceLoad = true
+            }
             return WhisperTranscriptMapper.map(
                 segments: segments, duration: buffer.audioDuration,
                 missingSampleCount: buffer.missingSampleCount)
