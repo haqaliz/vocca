@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Carbon.HIToolbox
+import VoccaAudio
 import VoccaBootstrap
 import VoccaCore
 import VoccaInject
@@ -94,12 +95,20 @@ final class DictationLoopTests: XCTestCase {
             held: HeldTranscript? = nil,
             samples: [Float] = [1, 2, 3],
             prepared: Bool = true,
-            liveLevel: any LiveLevelSource = FakeLevelSource(level: 0)
+            liveLevel: any LiveLevelSource = FakeLevelSource(level: 0),
+            ledger: LatencyLedger? = nil,
+            sessionBox: LatencySessionBox? = nil,
+            audioSource: (any SessionAudioSource<AudioBuffer>)? = nil
         ) {
             let clock = TestClock()
             let keyboard = Keyboard()
-            let source = RecordingAudioSource()
-            source.nextSamples = samples
+            let recordingSource = RecordingAudioSource()
+            recordingSource.nextSamples = samples
+            // The W2 cycles inject a real `MicrophoneSource` over a fake graph — the one source
+            // whose `endCapture` records the capture-close span — so the root is wired with
+            // `audioSource` when one is given; `source` stays the ledger shape every other test
+            // asserts against.
+            let wiredSource: any SessionAudioSource<AudioBuffer> = audioSource ?? recordingSource
             let toggleSource = RecordingAudioSource()
             let timer = FakeTimer()
             let toggleTimer = FakeTimer()
@@ -116,12 +125,15 @@ final class DictationLoopTests: XCTestCase {
                 focusedApp: focusedApp, secureInput: secureInput)
             let panel = RecordingPanel(holder: holder)
             let resolver = DictationEngineResolver(selection: .defaultSelection) { _ in engine }
-            let pipeline = DictationPipeline(engine: engine, injector: injector, holder: holder)
+            let pipeline = DictationPipeline(
+                engine: engine, injector: injector, holder: holder,
+                recorder: ledger,
+                clock: ledger != nil ? SendableTestClock() : nil)
             let root = DictationLoopRoot(
                 configuration: DictationLoopTests.configuration,
                 ceiling: SessionCeiling.default,
                 clock: clock,
-                audioSource: source,
+                audioSource: wiredSource,
                 keyState: TruthfulKeyState(keyboard),
                 watchdogTimer: timer,
                 healthTimer: healthTimer,
@@ -132,6 +144,8 @@ final class DictationLoopTests: XCTestCase {
                 targetResolution: targetResolution,
                 panel: panel,
                 pipeline: pipeline,
+                recorder: ledger,
+                sessionBox: sessionBox,
                 toggleConfiguration: DictationLoopTests.toggleConfiguration,
                 toggleSource: toggleSource,
                 toggleTimer: toggleTimer,
@@ -142,7 +156,7 @@ final class DictationLoopTests: XCTestCase {
             self.clock = clock
             self.keyboard = keyboard
             self.keyState = TruthfulKeyState(keyboard)
-            self.source = source
+            self.source = recordingSource
             self.toggleSource = toggleSource
             self.timer = timer
             self.toggleTimer = toggleTimer
@@ -182,6 +196,17 @@ final class DictationLoopTests: XCTestCase {
             keyboard.hold(DictationLoopTests.configuration)
             _ = root.holdToTalk.scheduledWatchdog.receive(
                 event(.keyDown, DictationLoopTests.configuration.keyCode, [.option]))
+        }
+
+        /// The key-up half of a cycle, for a session started with ``pressAndRecord()``.
+        ///
+        /// The W2 cycles drive the press and the release as separate turns — the record's id is
+        /// minted asynchronously (the ledger is an actor), and the capture-close span at key-up
+        /// requires the mint to have landed, exactly as it has by key-up on a real machine.
+        func releaseAndEnd() {
+            _ = root.holdToTalk.scheduledWatchdog.receive(
+                event(.keyUp, DictationLoopTests.configuration.keyCode, [.option]))
+            keyboard.release(DictationLoopTests.configuration.keyCode)
         }
 
         /// Lets the router's unstructured tasks run until `condition` holds, then asserts it.
@@ -260,6 +285,174 @@ final class DictationLoopTests: XCTestCase {
         XCTAssertEqual(holdCalls, 0, "no delivery may touch the holder")
         XCTAssertEqual(harness.panel.heldPresentations, 0, "no delivery may present the failsafe")
         XCTAssertEqual(harness.panel.reasons, [], "no delivery may show a reason notice")
+    }
+
+    // MARK: - W2: begin/finalize symmetry over the latency ledger (loop-wiring Phase 2)
+
+    /// The W2 cycles run the **real** `MicrophoneSource` over a fake graph — the one source whose
+    /// `endCapture` records the capture-close span — with the ledger, the box and the clock wired
+    /// through the root exactly as `configure` wires them.
+    @MainActor
+    private func makeRecordedHarness(
+        engine: any ASREngine,
+        injectorResult: InjectionResult,
+        ledger: LatencyLedger,
+        sessionBox: LatencySessionBox,
+        graph: CaptureGraphSeam,
+        prepared: Bool = true
+    ) throws -> Harness {
+        let source = try MicrophoneSource(
+            graph: graph,
+            recorder: ledger,
+            clock: TestClock(),
+            sessionIDProvider: { sessionBox.sessionID })
+        return Harness(
+            engine: engine,
+            injectorResult: injectorResult,
+            prepared: prepared,
+            ledger: ledger,
+            sessionBox: sessionBox,
+            audioSource: source)
+    }
+
+    /// **W2.** A delivered cycle leaves the ledger with exactly one record: class `delivered`
+    /// with the rung and read-back truth, the three spans `captureClose` then `asr` then `inject`
+    /// (capture-close closing on the stop path, the pipeline's two after), `cleanup` never
+    /// recorded, attribution the engine that was asked — and the record carries the very id the
+    /// opening minted. Nothing stays in flight: the snapshot equals the finalized set, and the
+    /// box is released for the next session.
+    func testADeliveredCycleLeavesExactlyOneDeliveredRecord() async throws {
+        let ledger = LatencyLedger()
+        let sessionBox = LatencySessionBox()
+        let engine = StubEngine.parakeet()
+        let graph = FakeW2CaptureGraph(
+            ring: AudioRingBuffer(capacity: 8), captureFormat: .interchange)
+        let harness = try makeRecordedHarness(
+            engine: engine,
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            ledger: ledger,
+            sessionBox: sessionBox,
+            graph: graph)
+
+        harness.pressAndRecord()
+        await harness.drain(
+            until: { sessionBox.sessionID != nil },
+            "the opening must mint and store the record's id before the key-up")
+        let mintedID = sessionBox.sessionID
+        XCTAssertNotNil(mintedID, "the id must be observable after the opening's mint")
+        write([1, 2, 3], to: graph.ring)
+        harness.releaseAndEnd()
+        await harness.drain(
+            until: {
+                if sessionBox.sessionID != nil { return false }
+                return await ledger.snapshot().count == 1
+            },
+            "the delivered session must finalize exactly one record and release the id")
+
+        let records = await ledger.snapshot()
+        XCTAssertEqual(records.count, 1, "one session — one record, nothing left in flight")
+        let record = records[0]
+        XCTAssertEqual(
+            record.id, mintedID,
+            "the finalized record is the record the opening began — begin/finalize symmetry")
+        XCTAssertEqual(
+            record.outcome, .delivered(rung: .clipboardPaste, verified: false),
+            "the delivered rung and read-back truth close the record")
+        XCTAssertEqual(
+            record.spans.map(\.name), [.captureClose, .asr, .inject],
+            "capture-close closes on the stop path, then the pipeline's asr and inject spans")
+        XCTAssertTrue(
+            record.spans.allSatisfy { $0.presence == .recorded },
+            "every span that ran is recorded — never a fabricated zero")
+        XCTAssertNil(
+            record.spans.first { $0.name == .cleanup },
+            "cleanup never ran (C5 unbuilt) — never recorded")
+        XCTAssertEqual(record.engine, engine.identity, "attribution is the engine that was asked")
+    }
+
+    /// **W2.** A `captureUnavailable` cycle — the readiness gate refusing before the microphone
+    /// opens — leaves exactly one `failed` record, attributed to no engine, with no spans: the
+    /// microphone never opened, so there is no capture-close span to record. The box is released
+    /// and nothing stays in flight.
+    func testACaptureUnavailableCycleLeavesExactlyOneFailedRecord() async throws {
+        let ledger = LatencyLedger()
+        let sessionBox = LatencySessionBox()
+        let graph = FakeW2CaptureGraph(
+            ring: AudioRingBuffer(capacity: 8), captureFormat: .interchange)
+        let harness = try makeRecordedHarness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            ledger: ledger,
+            sessionBox: sessionBox,
+            graph: graph,
+            prepared: false)
+
+        harness.pressAndRecord()
+        await harness.drain(
+            until: {
+                if sessionBox.sessionID != nil { return false }
+                return await ledger.snapshot().count == 1
+            },
+            "the refused session must finalize exactly one failed record and release the id")
+
+        let records = await ledger.snapshot()
+        XCTAssertEqual(records.count, 1, "one refusal — one record, nothing left in flight")
+        let record = records[0]
+        XCTAssertEqual(
+            record.outcome, .failed,
+            "a capture that never happened is a failure — never a delivery")
+        XCTAssertNil(record.engine, "the engine was never asked on the refusal path")
+        XCTAssertEqual(
+            record.spans, [],
+            "no microphone opened — no capture-close span exists to record")
+        XCTAssertEqual(graph.stopCalls, 0, "the gate refused before the graph was ever started")
+    }
+
+    /// **W2.** An Esc-cancelled session (through the root's cancel router) leaves exactly one
+    /// `aborted` record: the microphone did close — the only span a discard carries — and the
+    /// engine was never asked. The box is released and nothing stays in flight.
+    func testAnEscCancelledCycleLeavesExactlyOneAbortedRecord() async throws {
+        let ledger = LatencyLedger()
+        let sessionBox = LatencySessionBox()
+        let graph = FakeW2CaptureGraph(
+            ring: AudioRingBuffer(capacity: 8), captureFormat: .interchange)
+        let harness = try makeRecordedHarness(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            ledger: ledger,
+            sessionBox: sessionBox,
+            graph: graph)
+
+        harness.pressAndRecord()
+        await harness.drain(
+            until: { sessionBox.sessionID != nil },
+            "the opening must mint and store the record's id before Escape")
+        let mintedID = sessionBox.sessionID
+        XCTAssertNotNil(mintedID, "the id must be observable before the cancellation")
+        write([1, 2, 3], to: graph.ring)
+        _ = harness.root.cancel()
+        await harness.drain(
+            until: {
+                if sessionBox.sessionID != nil { return false }
+                return await ledger.snapshot().count == 1
+            },
+            "the cancelled session must finalize exactly one record and release the id")
+
+        let records = await ledger.snapshot()
+        XCTAssertEqual(records.count, 1, "one cancellation — one record, nothing left in flight")
+        let record = records[0]
+        XCTAssertEqual(record.id, mintedID, "the aborted record is the record the opening began")
+        XCTAssertEqual(record.outcome, .aborted, "Escape is an abort — never a failure")
+        XCTAssertNil(record.engine, "the engine was never asked on the discard path")
+        XCTAssertEqual(
+            record.spans.map(\.name), [.captureClose],
+            "the microphone closed — that is the only span a discard carries")
     }
 
     // MARK: - Failure injection, per the spec
@@ -998,4 +1191,47 @@ fileprivate func event(
     RawKeyEvent(
         kind: kind, keyCode: keyCode, modifiers: modifiers, isAutorepeat: false,
         timestamp: .zero)
+}
+
+// MARK: - The W2 latency fixtures (loop-wiring Phase 2)
+
+/// The graph the W2 cycles capture through — the `MicrophoneSourceTests` shape: a real ring, a
+/// ledger of starts and stops, and a `stop()` that takes no measurable time (the exact
+/// stop-path deltas are W3's assertion, driven over the same seam).
+private final class FakeW2CaptureGraph: CaptureGraphSeam {
+    let ring: AudioRingBuffer
+    let captureFormat: CapturedAudioFormat
+    private(set) var stopCalls = 0
+    private(set) var isRunning = false
+    var levelPeak: Float = 0
+
+    init(ring: AudioRingBuffer, captureFormat: CapturedAudioFormat) {
+        self.ring = ring
+        self.captureFormat = captureFormat
+    }
+
+    func start() throws {
+        isRunning = true
+    }
+
+    func stop() {
+        stopCalls += 1
+        isRunning = false
+    }
+}
+
+/// The W2 latency clock: the shared `TestClock` shape — hand-moved, deterministic — marked
+/// `@unchecked Sendable` because the pipeline's clock slot is `MonotonicClock & Sendable`
+/// (the `TableClock` precedent in `DictationPipelineTests`; the confinement is the shared
+/// double's, stated for the compiler).
+private final class SendableTestClock: MonotonicClock, @unchecked Sendable {
+    var now: Duration = .zero
+}
+
+/// Write `samples` into `ring` the way the realtime producer would — whole blocks, refused
+/// whole when there is no room.
+private func write(_ samples: [Float], to ring: AudioRingBuffer) {
+    _ = samples.withUnsafeBufferPointer { pointer in
+        ring.write(pointer.baseAddress!, count: pointer.count)
+    }
 }

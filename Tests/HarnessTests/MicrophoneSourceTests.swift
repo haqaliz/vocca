@@ -249,6 +249,100 @@ final class MicrophoneSourceTests: XCTestCase {
         XCTAssertFalse(graph.isRunning, "the machine went idle over a live microphone")
     }
 
+    // MARK: - W3: capture-close measured on the stop path (loop-wiring Phase 2)
+
+    /// **W3.** With an injected recorder, a hand-moved clock and a fixed id (minted via
+    /// `beginSession`), `endCapture()` records a `captureClose` span whose elapsed **equals the
+    /// fake graph's stop duration** — the span closes on the stop path, after `stop()` returns,
+    /// never on the realtime thread (spec "Isolation decisions"). The fake graph makes `stop()`
+    /// take a measurable time by advancing the injected clock, so the delta is exact.
+    @MainActor
+    func testEndCaptureRecordsTheCaptureCloseSpanWithExactlyTheStopPathDelta() async throws {
+        let clock = TestClock()
+        let graph = FakeCaptureGraph(
+            ring: AudioRingBuffer(capacity: 8), captureFormat: .interchange,
+            stopClock: clock, stopAdvance: .milliseconds(7))
+        let recorder = LatencyLedger()
+        let id = await recorder.beginSession()
+        let source = try MicrophoneSource(
+            graph: graph, recorder: recorder, clock: clock,
+            sessionIDProvider: { id })
+
+        _ = source.endCapture()
+        // A main-actor barrier enqueued *after* the span's hand-over task: the main actor runs
+        // them in enqueue order, so when the barrier completes the span has been handed to the
+        // ledger — and the finalize below is ordered after it. (A bare `Task.yield()` is a
+        // scheduling hint, not a barrier — this ordering must not depend on one.)
+        await Task { @MainActor in }.value
+        let finalized = await recorder.finalize(id: id, outcome: .aborted, engine: nil)
+        XCTAssertTrue(
+            finalized,
+            "the finalize must be accepted — the span was recorded while the session was in flight")
+
+        let snapshot = await recorder.snapshot()
+        XCTAssertEqual(snapshot.count, 1)
+        XCTAssertEqual(
+            snapshot[0].spans,
+            [LatencySpan.recorded(name: .captureClose, elapsed: .milliseconds(7))],
+            "the capture-close span must carry exactly the measured stop-path delta — never a "
+                + "fabricated zero")
+        XCTAssertEqual(graph.stopCalls, 1, "the span is recorded because the device was released")
+    }
+
+    /// **W3, the absence pin.** A source built with the defaulted recorder (`nil`) records
+    /// nothing: the same endCapture, the same graph work, and the ledger's record carries no
+    /// spans — `endCapture` is exactly what it was before the loop-wiring phase.
+    @MainActor
+    func testEndCaptureWithoutARecorderRecordsNothing() async throws {
+        let clock = TestClock()
+        let graph = FakeCaptureGraph(
+            ring: AudioRingBuffer(capacity: 8), captureFormat: .interchange,
+            stopClock: clock, stopAdvance: .milliseconds(7))
+        let recorder = LatencyLedger()
+        let id = await recorder.beginSession()
+        let source = try MicrophoneSource(
+            graph: graph, clock: clock, sessionIDProvider: { id })
+
+        _ = source.endCapture()
+        await Task { @MainActor in }.value
+        let finalized = await recorder.finalize(id: id, outcome: .aborted, engine: nil)
+        XCTAssertTrue(finalized)
+
+        let snapshot = await recorder.snapshot()
+        XCTAssertEqual(snapshot.count, 1)
+        XCTAssertEqual(
+            snapshot[0].spans, [],
+            "no recorder — the capture-close span is neither measured nor recorded")
+        XCTAssertEqual(graph.stopCalls, 1, "the absence is about recording, not about the release")
+    }
+
+    /// **W3, the other absence pin.** The recorder is present, but the provider answers `nil` —
+    /// no session began (the router never wrote the box) — so nothing is recorded. A session that
+    /// never began must not fabricate a span under a record that was never minted.
+    @MainActor
+    func testEndCaptureWithAProviderAnsweringNilRecordsNothing() async throws {
+        let clock = TestClock()
+        let graph = FakeCaptureGraph(
+            ring: AudioRingBuffer(capacity: 8), captureFormat: .interchange,
+            stopClock: clock, stopAdvance: .milliseconds(7))
+        let recorder = LatencyLedger()
+        let id = await recorder.beginSession()
+        let source = try MicrophoneSource(
+            graph: graph, recorder: recorder, clock: clock,
+            sessionIDProvider: { nil })
+
+        _ = source.endCapture()
+        await Task { @MainActor in }.value
+        let finalized = await recorder.finalize(id: id, outcome: .aborted, engine: nil)
+        XCTAssertTrue(finalized)
+
+        let snapshot = await recorder.snapshot()
+        XCTAssertEqual(snapshot.count, 1)
+        XCTAssertEqual(
+            snapshot[0].spans, [],
+            "a nil session id — nothing recorded, even with the recorder wired")
+    }
+
     // MARK: - Helpers
 
     /// The graph, as a **ledger**. It uses a real `AudioRingBuffer`, because the conformance's
@@ -265,10 +359,21 @@ final class MicrophoneSourceTests: XCTestCase {
         /// through the real interleaver.
         var levelPeak: Float = 0
         var nextStart: Result<Void, Error> = .success(())
+        /// The W3 stop-duration fixture: `stop()` takes ``stopAdvance`` by moving the injected
+        /// clock, so `endCapture`'s measured delta is exact and hand-asserted.
+        private let stopClock: TestClock?
+        private let stopAdvance: Duration
 
-        init(ring: AudioRingBuffer, captureFormat: CapturedAudioFormat) {
+        init(
+            ring: AudioRingBuffer,
+            captureFormat: CapturedAudioFormat,
+            stopClock: TestClock? = nil,
+            stopAdvance: Duration = .zero
+        ) {
             self.ring = ring
             self.captureFormat = captureFormat
+            self.stopClock = stopClock
+            self.stopAdvance = stopAdvance
         }
 
         func start() throws {
@@ -284,6 +389,7 @@ final class MicrophoneSourceTests: XCTestCase {
         func stop() {
             stopCalls += 1
             isRunning = false
+            stopClock?.now += stopAdvance
         }
     }
 

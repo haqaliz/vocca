@@ -100,6 +100,13 @@ public enum AppBootstrap {
         // same way.
         let clock = ContinuousMonotonicClock()
 
+        // The latency ledger every session records through, and the box the router shares with
+        // the microphone: the router begins a session's record at `.opening` and the microphone
+        // closes the capture-close span at key-up through this box (spec §3 — the machine's
+        // single-session invariant is what makes the box's one slot safe).
+        let ledger = LatencyLedger()
+        let sessionBox = LatencySessionBox()
+
         // The model store every engine loads through — one store, keyed by engine id and version,
         // so the Parakeet and whisper artifacts share the verified-marker machinery and the
         // single-flight download guard.
@@ -222,7 +229,10 @@ public enum AppBootstrap {
             })
 
         let microphone: any SessionAudioSource<AudioBuffer>
-        if let graph, let source = try? MicrophoneSource(graph: graph) {
+        if let graph, let source = try? MicrophoneSource(
+            graph: graph, recorder: ledger, clock: clock,
+            sessionIDProvider: { sessionBox.sessionID })
+        {
             microphone = source
         } else {
             logger.error(
@@ -234,7 +244,10 @@ public enum AppBootstrap {
             microphone = RefusingAudioSource()
         }
         let toggleMicrophone: any SessionAudioSource<AudioBuffer>
-        if let toggleGraph, let source = try? MicrophoneSource(graph: toggleGraph) {
+        if let toggleGraph, let source = try? MicrophoneSource(
+            graph: toggleGraph, recorder: ledger, clock: clock,
+            sessionIDProvider: { sessionBox.sessionID })
+        {
             toggleMicrophone = source
         } else {
             toggleMicrophone = RefusingAudioSource()
@@ -283,9 +296,12 @@ public enum AppBootstrap {
                     throw PipelineAssemblyError.engineNotPrepared
                 }
                 return DictationPipeline(
-                    engine: engine, injector: custody.ladder, holder: custody.holder)
+                    engine: engine, injector: custody.ladder, holder: custody.holder,
+                    recorder: ledger, clock: clock)
             },
             downloadSession: downloadSession,
+            recorder: ledger,
+            sessionBox: sessionBox,
             toggleConfiguration: HotkeyConfiguration(
                 keyCode: Self.shippedHotkeyKeyCode, modifiers: [.option], activation: .toggle),
             toggleSource: toggleMicrophone,
@@ -625,6 +641,11 @@ public final class DictationLoopRoot {
     ///     the shipped shape, run by ``startEnginePreparation()`` after `prepare` succeeds.
     ///   - downloadSession: The download window's surface, `nil` when the shipped manifest could
     ///     not be loaded (a broken install — the download UI stays hidden).
+    ///   - recorder: The latency ledger's seam, `nil` by default — the loop-wiring wiring
+    ///     decision; the router begins a session's record at `.opening` and finalizes on every
+    ///     terminal only when one is wired.
+    ///   - sessionBox: The box the microphone reads the record's id from at `endCapture()`,
+    ///     `nil` by default with the same absence effect.
     public init(
         configuration: HotkeyConfiguration,
         ceiling: Duration,
@@ -642,6 +663,8 @@ public final class DictationLoopRoot {
         pipeline: DictationPipeline? = nil,
         pipelineAssembly: (@MainActor () async throws -> DictationPipeline)? = nil,
         downloadSession: (any ModelDownloadSession)? = nil,
+        recorder: (any LatencyRecorder)? = nil,
+        sessionBox: LatencySessionBox? = nil,
         toggleConfiguration: HotkeyConfiguration,
         toggleSource: any SessionAudioSource<AudioBuffer>,
         toggleTimer: any RepeatingTimer,
@@ -685,7 +708,7 @@ public final class DictationLoopRoot {
         let router = EffectRouter(
             panel: panel, targetResolution: targetResolution, readiness: readiness,
             pipeline: pipeline, runningAppName: runningAppName, widgetStore: widgetStore,
-            widgetClock: widgetClock)
+            widgetClock: widgetClock, recorder: recorder, sessionBox: sessionBox)
         self.router = router
 
         let deliver: (SessionEffect<AudioBuffer>) -> Void = { [weak router] in
@@ -906,6 +929,25 @@ public final class DictationLoopRoot {
 
 // MARK: - The effect router
 
+/// The session record's id, shared between the router (writes it at `.opening`) and the
+/// microphone (reads it at `endCapture`) — the one slot of mutable state the composition root
+/// is allowed.
+///
+/// `@unchecked Sendable` is permitted here because the lint is Core-only, and this class is
+/// the spec's sanctioned exception (spec "Isolation decisions"): the router writes the slot on
+/// the main actor at `.opening` and the microphone reads it on the stop path — ordered because
+/// `.opening` delivery happens-before `beginCapture`, which happens-before `endCapture` at
+/// key-up (spec §3). The single slot is safe only under the machine's **single-session
+/// invariant** — one session at a time, from every terminal path — which the machine
+/// guarantees; a second concurrent session would clobber the slot, and is impossible by
+/// construction.
+public final class LatencySessionBox: @unchecked Sendable {
+    /// The in-flight session's record id, `nil` between sessions.
+    public var sessionID: SessionRecord.ID?
+
+    public init() {}
+}
+
 /// The consumer side of the effect stream: where every effect from every wiring goes, and what it
 /// does about it.
 ///
@@ -953,8 +995,22 @@ private final class EffectRouter {
     private let runningAppName: RunningAppNameReading
     private let widgetStore: WidgetStateStore
     private let widgetClock: any RepeatingTimer
+    /// The latency ledger, when the composition wired one — `nil` keeps the router exactly as it
+    /// was before the loop-wiring phase: no session begins, nothing finalizes.
+    private let recorder: (any LatencyRecorder)?
+    /// The box the microphone reads the session's record id from at `endCapture()` — written by
+    /// the mint below, cleared with ``pendingSessionID`` on every terminal.
+    private let sessionBox: LatencySessionBox?
     private var pipelineTask: Task<DictationPipeline, Never>?
     private var pendingResolution: Task<(target: TargetContext, name: String), Never>?
+    /// **The in-flight session's record id** — the router's own copy of the box's slot, written
+    /// by the mint once `beginSession` answers. `nil` between sessions and on the no-recorder
+    /// composition.
+    private var pendingSessionID: SessionRecord.ID?
+    /// **The mint**: `beginSession` for the session whose `.opening` was delivered. Every
+    /// terminal awaits the same mint — so a `.captureUnavailable` arriving before the mint
+    /// answered still finalizes the id it will mint, never a stale or a missing one.
+    private var pendingBeginSession: Task<SessionRecord.ID, Never>?
     /// **The in-flight transcription**: the task that runs an ended session's audio through the
     /// pipeline. Esc during TRANSCRIBING cancels it (`PRODUCT_SPEC.md:129`); the handle is what
     /// makes the in-flight transcribe cancellable at all.
@@ -991,7 +1047,9 @@ private final class EffectRouter {
         pipeline: DictationPipeline?,
         runningAppName: RunningAppNameReading,
         widgetStore: WidgetStateStore,
-        widgetClock: any RepeatingTimer
+        widgetClock: any RepeatingTimer,
+        recorder: (any LatencyRecorder)?,
+        sessionBox: LatencySessionBox?
     ) {
         self.panel = panel
         self.targetResolution = targetResolution
@@ -999,6 +1057,8 @@ private final class EffectRouter {
         self.runningAppName = runningAppName
         self.widgetStore = widgetStore
         self.widgetClock = widgetClock
+        self.recorder = recorder
+        self.sessionBox = sessionBox
         self.pipelineTask = pipeline.map { pipeline in Task { pipeline } }
     }
 
@@ -1016,11 +1076,30 @@ private final class EffectRouter {
             // OPENING state is folded immediately with a placeholder name — the widget must react
             // within a frame, and the name is display-only — and the resolution's guarded re-fold
             // fills it in.
+            //
+            // The session's latency record begins here too: `beginSession` mints the id, and the
+            // mint's completion stores it in the box — where the microphone's `endCapture` reads
+            // it at key-up — and in router state. The ledger is an actor, so the mint is a task;
+            // `.opening` delivery happens-before `beginCapture` happens-before `endCapture`
+            // (spec §3), and the terminals below await the same mint rather than assuming the
+            // write landed.
+            if let recorder {
+                let box = sessionBox
+                let mint = Task { await recorder.beginSession() }
+                pendingBeginSession = mint
+                Task { [weak self] in
+                    guard let self else { return }
+                    let id = await mint.value
+                    box?.sessionID = id
+                    self.pendingSessionID = id
+                }
+            }
             pendingResolution = Task { await resolveTarget() }
             foldEffect(effect, appName: "")
         case .ended(let outcome):
             let resolution = pendingResolution
             pendingResolution = nil
+            let mint = pendingBeginSession
             // The effect fold: `.ended(.cancelled)` → IDLE, `.ended(.completed)` → TRANSCRIBING
             // (the waveform freeze — `WidgetProjection`'s own table).
             foldEffect(effect, appName: "")
@@ -1028,13 +1107,24 @@ private final class EffectRouter {
                 guard let self else { return }
                 defer { self.transcriptionTask = nil }
                 let (target, name) = await resolution?.value ?? (Self.nothingFocused, "")
+                let sessionID = await mint?.value
                 guard let pipeline = await self.pipelineTask?.value else {
                     self.logger.error(
                         "an ended session found no pipeline — surfacing the transcript as a reason rather than dropping it")
+                    // The one terminal that never reaches the pipeline still owes its record:
+                    // finalized failed, attributed to no engine.
+                    if let sessionID, let recorder = self.recorder {
+                        _ = await recorder.finalize(id: sessionID, outcome: .failed, engine: nil)
+                    }
+                    self.clearPendingSession()
                     self.panel.presentReasonOnly(.exhausted)
                     return
                 }
-                let surface = await pipeline.route(.ended(outcome), target: target)
+                let surface = await pipeline.route(.ended(outcome), target: target, sessionID: sessionID)
+                // The route finalized the record on every path it ran (its own table, W1) — the
+                // router's half is only to let the id go, so the next session begins a fresh
+                // record rather than inheriting this one's.
+                self.clearPendingSession()
                 guard !Task.isCancelled else {
                     // Esc during TRANSCRIBING: the cancel router already folded IDLE and a
                     // cancelled transcription must never present — least of all as DELIVERED.
@@ -1046,6 +1136,18 @@ private final class EffectRouter {
             // transcription (`cancelTranscription`), and it is cleared by the task's own defer.
             transcriptionTask = task
         case .captureUnavailable:
+            if let recorder, let mint = pendingBeginSession {
+                // The one terminal that never reaches the pipeline: a capture that never
+                // happened still owes its record — finalized failed, attributed to no engine.
+                // Awaited through the same mint, so the finalize lands even when the refusal
+                // arrives before the mint answered (the deferred-opening shape).
+                Task { [weak self] in
+                    guard let self else { return }
+                    let id = await mint.value
+                    _ = await recorder.finalize(id: id, outcome: .failed, engine: nil)
+                    self.clearPendingSession()
+                }
+            }
             if readiness.isReady {
                 // A genuine microphone failure: the widget's notice.
                 foldEffect(effect, appName: "")
@@ -1057,6 +1159,14 @@ private final class EffectRouter {
         case .unchanged, .started:
             foldEffect(effect, appName: "")
         }
+    }
+
+    /// The terminal half of a record: release the id from the box and from router state. The
+    /// finalize is the caller's — every terminal finalizes before it clears.
+    private func clearPendingSession() {
+        pendingSessionID = nil
+        pendingBeginSession = nil
+        sessionBox?.sessionID = nil
     }
 
     // MARK: - The widget fold
