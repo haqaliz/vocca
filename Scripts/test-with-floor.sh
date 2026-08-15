@@ -952,8 +952,15 @@ set -euo pipefail
 # (exact percentage, seed, per-class lines) — plus the eval-family no-`URLSession` lint row in
 # ModelDownloaderSeamTests (one), the family's empty-permitted-set confinement.
 #
+# The same aspect raises it to 958: the env-gated real run (four, B4) — the missing-pairs-
+# directory loud failure naming VOCCA_CLEANUP_EVAL and the smoke step, the ballot-and-verdict
+# flow (verdicts follow the comparator's mapping for the printed seed, the run records and
+# never gates on a losing ballot), the missing/unknown-answers loud failures, and the
+# env-gated test itself (visible skip without the variable, hard failure with a broken
+# directory, wav-sidecar engine-attribution guard, recorded comparison line when complete).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=954
+MINIMUM_EXECUTED_TESTS=958
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import AVFoundation
 import Foundation
 import VoccaASR
 import VoccaCore
@@ -346,14 +347,15 @@ final class CleanupEvalHarnessTests: XCTestCase {
     /// The env-gated runner fails loudly when the pairs directory is missing — a named error
     /// carrying the `VOCCA_CLEANUP_EVAL` name and the provisioning route (`SMOKE_CHECKLIST.md`
     /// step 73), the `RealEngineWERRunner` discipline.
-    func testTheEnvGatedRunnerFailsLoudlyWhenThePairsDirectoryIsMissing() {
+    func testTheEnvGatedRunnerFailsLoudlyWhenThePairsDirectoryIsMissing() async {
         let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent("vocca-no-such-pairs-directory")
-        let answersURL = missing.appendingPathComponent("answers.tsv")
-        XCTAssertThrowsError(try CleanupEvalRun.runFromDirectory(missing, answersURL: answersURL)) { error in
-            XCTAssertEqual(
-                error as? CleanupEvalRunError,
-                .pairsDirectoryMissing(path: missing.path))
+        do {
+            _ = try await CleanupEvalRun.runFromDirectory(
+                missing, answersURL: missing.appendingPathComponent("answers.tsv"))
+            XCTFail("a missing pairs directory must throw, never read green")
+        } catch let error as CleanupEvalRunError {
+            XCTAssertEqual(error, .pairsDirectoryMissing(path: missing.path))
             let description = String(describing: error)
             XCTAssertTrue(
                 description.contains("VOCCA_CLEANUP_EVAL"),
@@ -361,6 +363,8 @@ final class CleanupEvalHarnessTests: XCTestCase {
             XCTAssertTrue(
                 description.contains("73"),
                 "the error must point at the smoke step, got: \(description)")
+        } catch {
+            XCTFail("wrong error type: \(error)")
         }
     }
 
@@ -468,8 +472,52 @@ final class CleanupEvalHarnessTests: XCTestCase {
             return
         }
 
+        var pairs = try CleanupPairSuite.loadPairs(from: pairsDirectory)
+        if hasWavs {
+            // The optional engine half: a pair's raw side is the real engine's transcript of
+            // the recording (the `.raw.txt` is ignored for that pair), attributed to the
+            // Parakeet identity — the I1 discipline. Construction mirrors
+            // `ParakeetEngineWERTests`; the transport is a stub URL because a present and
+            // verified model never reaches it.
+            let modelDir = ProcessInfo.processInfo.environment["VOCCA_MODEL_DIR"]!
+            let manifestURL = try PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent(
+                    "Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json")
+            let manifest = try ModelManifest.load(from: Data(contentsOf: manifestURL))
+            let modelDirectory = URL(fileURLWithPath: modelDir)
+            let store = ModelStore(
+                rootURL: modelDirectory.deletingLastPathComponent()
+                    .deletingLastPathComponent())
+            let engine = ParakeetEngine(
+                store: store,
+                manifest: manifest,
+                transport: DefaultModelTransport(
+                    baseURL: URL(string: "https://unused.invalid")!),
+                clock: ContinuousMonotonicClock())
+            try await engine.prepare()
+
+            var substituted: [CleanupPair] = []
+            for pair in pairs {
+                let wavURL = pairsDirectory.appendingPathComponent("\(pair.name).wav")
+                guard FileManager.default.fileExists(atPath: wavURL.path) else {
+                    substituted.append(pair)
+                    continue
+                }
+                let samples = try readSamples16kMono(from: wavURL)
+                let audio = VoccaCore.AudioBuffer(samples: samples, sampleRate: 16_000)
+                let transcript = try await engine.transcribe(audio)
+                XCTAssertEqual(
+                    transcript.engine, ParakeetEngineIdentity.parakeet,
+                    "the transcript must be attributed to the Parakeet identity (I1)")
+                substituted.append(
+                    CleanupPair(
+                        name: pair.name, raw: transcript.text, clean: pair.clean,
+                        className: pair.className))
+            }
+            pairs = substituted
+        }
+
         let parsed = try CleanupEvalRun.parseAnswers(answersURL)
-        let pairs = try CleanupPairSuite.loadPairs(from: pairsDirectory)
         let dictionary = await FileSystemDictionaryStore(directory: pairsDirectory).load()
         let spy = PrinterSpy()
         let report = try CleanupEvalRun.runReal(
@@ -533,6 +581,56 @@ private final class PrinterSpy: @unchecked Sendable {
     func append(_ line: String) { lines.append(line) }
 }
 
+/// The `answers.tsv` verdict words — `left|right|tie|noPreference` — parsed from the founder's
+/// ballot answers.
+extension BlindJudgeAnswer {
+    init?(tsvWord: String) {
+        switch tsvWord {
+        case "left": self = .left
+        case "right": self = .right
+        case "tie": self = .tie
+        case "noPreference": self = .noPreference
+        default: return nil
+        }
+    }
+}
+
+/// Reads any WAV into 16 kHz mono Float32 — the ASR seam's format — the F2 recording contract
+/// (`SMOKE_CHECKLIST.md` step 73). The same AVFoundation conversion the ASR fixture suite uses;
+/// a recording the harness cannot load must fail loudly, not read green.
+private func readSamples16kMono(from url: URL) throws -> [Float] {
+    let file = try AVAudioFile(forReading: url)
+    guard
+        let buffer = AVAudioPCMBuffer(
+            pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))
+    else {
+        throw CleanupEvalRunError.recordingUnreadable(path: url.path)
+    }
+    try file.read(into: buffer)
+    let target = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+    guard let converter = AVAudioConverter(from: file.processingFormat, to: target) else {
+        throw CleanupEvalRunError.recordingUnreadable(path: url.path)
+    }
+    let ratio = target.sampleRate / file.processingFormat.sampleRate
+    let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 1024)
+    guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else {
+        throw CleanupEvalRunError.recordingUnreadable(path: url.path)
+    }
+    var error: NSError?
+    let status = converter.convert(to: output, error: &error) { _, outStatus in
+        outStatus.pointee = .haveData
+        return buffer
+    }
+    guard status != .error else {
+        throw CleanupEvalRunError.recordingUnreadable(path: url.path)
+    }
+    guard let channels = output.floatChannelData else {
+        throw CleanupEvalRunError.recordingUnreadable(path: url.path)
+    }
+    return Array(UnsafeBufferPointer(start: channels[0], count: Int(output.frameLength)))
+}
+
 /// The real run's recorded-not-gated comparison line reads this constant — the B6 consumption
 /// pin — so the founder's run cannot print a verdict against a number that silently stopped
 /// existing, and the provisional table stays the one place the figure lives.
@@ -585,6 +683,42 @@ enum CleanupLatencyGate {
             return clock.now - start
         }
         return percentile(samples, 0.50) ?? .zero
+    }
+}
+
+/// Why the env-gated real run failed, named — the `RealEngineWERRunner` discipline: a founder
+/// run that cannot score everything must say so, listing the gap.
+enum CleanupEvalRunError: Error, Equatable, CustomStringConvertible {
+    /// The `VOCCA_CLEANUP_EVAL` pairs directory does not exist.
+    case pairsDirectoryMissing(path: String)
+    /// The answers file has no answer for a pair in the corpus.
+    case answersMissingPair(name: String)
+    /// The answers file names a pair the corpus does not hold.
+    case unknownPairInAnswers(name: String)
+    /// A line of `answers.tsv` is not `name<TAB>left|right|tie|noPreference`, or the seed line
+    /// is missing.
+    case malformedAnswers(line: String)
+    /// An F2 recording (`<name>.wav`) cannot be read into the seam's 16 kHz mono format.
+    case recordingUnreadable(path: String)
+
+    var description: String {
+        switch self {
+        case .pairsDirectoryMissing(let path):
+            return "VOCCA_CLEANUP_EVAL points at a directory that does not exist: \(path) — "
+                + "record the F2 corpus there per docs/SMOKE_CHECKLIST.md step 73"
+        case .answersMissingPair(let name):
+            return "answers.tsv has no answer for pair \(name) — a run that cannot score "
+                + "everything must not read green"
+        case .unknownPairInAnswers(let name):
+            return "answers.tsv names pair \(name), which the corpus does not hold — a typo "
+                + "must not silently vanish into no pair"
+        case .malformedAnswers(let line):
+            return "malformed answers.tsv line: \"\(line)\" — expected name<TAB>"
+                + "left|right|tie|noPreference, with a first line seed<TAB><hex>"
+        case .recordingUnreadable(let path):
+            return "cannot read the F2 recording at \(path) into 16 kHz mono — the recording "
+                + "contract is per docs/SMOKE_CHECKLIST.md step 73"
+        }
     }
 }
 
@@ -652,5 +786,158 @@ enum CleanupEvalRun {
             percentage: percentage,
             perClassTallies: perClassTallies,
             seed: seed)
+    }
+
+    // MARK: - The env-gated real half (B4)
+
+    /// The per-pair presentations for a ballot, deterministic in the seed: one generator draw
+    /// per pair, even → `rawFirst`. Both `printBallot` and `runReal` derive the same order from
+    /// the same seed — the seed embedded in `answers.tsv` is what makes the two invocations
+    /// present the same sides.
+    static func presentations(for names: [String], seed: UInt64) -> [PairPresentation] {
+        var generator = SeededGenerator(seed: seed)
+        return names.map { _ in
+            generator.next() % 2 == 0 ? PairPresentation.rawFirst : .cleanedFirst
+        }
+    }
+
+    /// Parses `<pairsDir>/answers.tsv`: a first line `seed<TAB><hex>` (the ballot-time seed, so
+    /// both invocations present the same order), then one `name<TAB>left|right|tie|noPreference`
+    /// line per pair. Anything else is a named error listing the line.
+    static func parseAnswers(
+        _ url: URL
+    ) throws -> (seed: UInt64, answers: [String: BlindJudgeAnswer]) {
+        let content = try String(contentsOf: url, encoding: .utf8)
+        let lines = content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard let seedLine = lines.first, seedLine.hasPrefix("seed\t"),
+            let seed = UInt64(seedLine.dropFirst("seed\t".count), radix: 16)
+        else {
+            throw CleanupEvalRunError.malformedAnswers(line: lines.first ?? "")
+        }
+        var answers: [String: BlindJudgeAnswer] = [:]
+        for line in lines.dropFirst() where !line.isEmpty {
+            let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                let verdict = BlindJudgeAnswer(tsvWord: String(parts[1]))
+            else {
+                throw CleanupEvalRunError.malformedAnswers(line: line)
+            }
+            answers[String(parts[0])] = verdict
+        }
+        return (seed, answers)
+    }
+
+    /// Prints the founder's reading copy: the seed at the top, then every pair in the seeded
+    /// presentation order as `A:`/`B:` texts with its class tag and a blank answer column. The
+    /// judge answers `left|right|tie|noPreference` per pair — never seeing labels.
+    static func printBallot(
+        pairs: [CleanupPair],
+        seed: UInt64,
+        printer: @escaping @Sendable (String) -> Void = { print($0) }
+    ) {
+        printer("seed=0x" + String(seed, radix: 16, uppercase: true))
+        let names = pairs.map(\.name)
+        let presentations = presentations(for: names, seed: seed)
+        for name in CleanupPairwiseScorer.presentedOrder(names, seed: seed) {
+            guard let index = names.firstIndex(of: name) else { continue }
+            let pair = pairs[index]
+            let sideA =
+                presentations[index] == .rawFirst ? pair.raw : pair.clean
+            let sideB =
+                presentations[index] == .rawFirst ? pair.clean : pair.raw
+            printer("## \(pair.name) [\(pair.className.rawValue)]")
+            printer("A: \(sideA)")
+            printer("B: \(sideB)")
+            printer("answer: ")
+        }
+    }
+
+    /// The founder's run: blind answers mapped through the seed's presentation order into
+    /// verdicts. **Records, never gates** — a below-target percentage is printed as a
+    /// RECORDED comparison line, never thrown (`LatencyBenchmarkRealEngineTests` discipline).
+    @discardableResult
+    static func runReal(
+        pairs: [CleanupPair],
+        dictionary: [ReplacementRule],
+        answers: [String: BlindJudgeAnswer],
+        seed: UInt64,
+        printer: @escaping @Sendable (String) -> Void = { print($0) }
+    ) throws -> Report {
+        for pair in pairs where answers[pair.name] == nil {
+            throw CleanupEvalRunError.answersMissingPair(name: pair.name)
+        }
+        for name in answers.keys where !pairs.contains(where: { $0.name == name }) {
+            throw CleanupEvalRunError.unknownPairInAnswers(name: name)
+        }
+
+        let names = pairs.map(\.name)
+        let presentations = presentations(for: names, seed: seed)
+        let seedHex = "0x" + String(seed, radix: 16, uppercase: true)
+
+        let verdicts = pairs.enumerated().map { index, pair in
+            let verdict = CleanupPairwiseScorer.verdict(
+                judgeAnswer: answers[pair.name]!, presentation: presentations[index])
+            printer("\(pair.name)\t\(verdictLabel(verdict))\tseed=\(seedHex)")
+            return PairVerdict(
+                name: pair.name, preference: verdict, className: pair.className)
+        }
+        let percentage = try CleanupPairwiseScorer.preferencePercentage(verdicts)
+
+        var perClassTallies: [CleanupPairClass: [PairwisePreference: Int]] = [:]
+        for className in CleanupPairClass.allCases {
+            perClassTallies[className] = [:]
+        }
+        for verdict in verdicts {
+            perClassTallies[verdict.className, default: [:]][verdict.preference, default: 0] += 1
+        }
+
+        printer(String(format: "preference=%.1f%%", percentage * 100))
+        for className in CleanupPairClass.allCases {
+            let tallies = perClassTallies[className] ?? [:]
+            printer(
+                "\(className.rawValue): cleaned \(tallies[.cleanedPreferred, default: 0]), "
+                    + "raw \(tallies[.rawPreferred, default: 0])")
+        }
+        printer(
+            "verdict \(String(format: "%.0f%%", percentage * 100)) vs provisional "
+                + "\(CleanupRealRunTargets.preferenceMinimum): RECORDED, not gated — the "
+                + "founder re-baselines (SMOKE_CHECKLIST.md step 73)")
+
+        return Report(
+            verdicts: verdicts,
+            percentage: percentage,
+            perClassTallies: perClassTallies,
+            seed: seed)
+    }
+
+    /// The founder-machine entry point: everything a run needs from one directory — the pairs
+    /// (missing directory is a named error naming `VOCCA_CLEANUP_EVAL`), the answers file and
+    /// the dictionary.
+    static func runFromDirectory(
+        _ pairsDirectory: URL,
+        answersURL: URL,
+        printer: @escaping @Sendable (String) -> Void = { print($0) }
+    ) async throws -> Report {
+        guard FileManager.default.fileExists(atPath: pairsDirectory.path) else {
+            throw CleanupEvalRunError.pairsDirectoryMissing(path: pairsDirectory.path)
+        }
+        let parsed = try parseAnswers(answersURL)
+        let pairs = try CleanupPairSuite.loadPairs(from: pairsDirectory)
+        let dictionary = await FileSystemDictionaryStore(directory: pairsDirectory).load()
+        return try runReal(
+            pairs: pairs, dictionary: dictionary, answers: parsed.answers,
+            seed: parsed.seed, printer: printer)
+    }
+
+    /// The verdict's word on the ballot-answer rows — the human-readable record.
+    private static func verdictLabel(_ preference: PairwisePreference) -> String {
+        switch preference {
+        case .cleanedPreferred: return "cleanedPreferred"
+        case .rawPreferred: return "rawPreferred"
+        case .tie: return "tie"
+        case .noPreference: return "noPreference"
+        }
     }
 }
