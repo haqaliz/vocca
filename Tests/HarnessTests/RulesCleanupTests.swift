@@ -161,6 +161,60 @@ final class RulesCleanupTests: XCTestCase {
         }
     }
 
+    // MARK: - B6 · token protection + cannot-corrupt
+
+    /// `protectionRows` — the global cannot-corrupt guarantee (M2), driving the composed `clean`:
+    /// a token containing any of `/ . - _ @` is one unit — no rewrite inside it, its internal `.`
+    /// is **not** a sentence boundary (`v2.4.1` does not capitalize `it`), an `@`-token is never
+    /// first-char-capitalized at sentence start, a `_`-token is (`My_repo`), and a symbol may
+    /// attach *after* a protected token (`aliz@vocca.dev.`).
+    func testProtectionRows() {
+        struct Row {
+            let input: String
+            let expected: String
+        }
+        let rows: [Row] = [
+            Row(
+                input: "email me at aliz@vocca.dev period",
+                expected: "Email me at aliz@vocca.dev."),
+            Row(
+                input: "the build is v2.4.1 it is stable",
+                expected: "The build is v2.4.1 it is stable."),
+            Row(input: "run deploy-vocca.sh now", expected: "Run deploy-vocca.sh now."),
+            Row(
+                input: "checkout /Users/aliz/dev then test",
+                expected: "Checkout /Users/aliz/dev then test."),
+            Row(input: "my_repo is fine", expected: "My_repo is fine."),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                RulesCleanup.clean(row.input, dictionary: []), row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
+    /// `noCorruptionRows` — a rule's edit is confined to its match span, driving
+    /// `{removeFillers, normalizeNumbers}` — the two classes whose span discipline the rows pin:
+    /// the filler removal takes the filler plus its adjacent space and nothing else (no double
+    /// spaces, no mangled neighbors), and the number rewrite touches only its own words.
+    func testNoCorruptionRows() {
+        struct Row {
+            let input: String
+            let expected: String
+        }
+        let rows: [Row] = [
+            Row(
+                input: "I like pizza um and twelve apples",
+                expected: "I like pizza and 12 apples"),
+            Row(input: "um kawa", expected: "kawa"),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                RulesCleanup.normalizeNumbers(RulesCleanup.removeFillers(row.input)), row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
     // MARK: - B4 · spoken punctuation
 
     /// `spokenPunctuationRows` — the spoken commands resolved to their symbols, driving the
