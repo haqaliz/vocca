@@ -341,6 +341,151 @@ final class CleanupEvalHarnessTests: XCTestCase {
         return await FileSystemDictionaryStore(directory: pairsDirectory).load()
     }
 
+    // MARK: - B4: the env-gated real run
+
+    /// The env-gated runner fails loudly when the pairs directory is missing — a named error
+    /// carrying the `VOCCA_CLEANUP_EVAL` name and the provisioning route (`SMOKE_CHECKLIST.md`
+    /// step 73), the `RealEngineWERRunner` discipline.
+    func testTheEnvGatedRunnerFailsLoudlyWhenThePairsDirectoryIsMissing() {
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-no-such-pairs-directory")
+        let answersURL = missing.appendingPathComponent("answers.tsv")
+        XCTAssertThrowsError(try CleanupEvalRun.runFromDirectory(missing, answersURL: answersURL)) { error in
+            XCTAssertEqual(
+                error as? CleanupEvalRunError,
+                .pairsDirectoryMissing(path: missing.path))
+            let description = String(describing: error)
+            XCTAssertTrue(
+                description.contains("VOCCA_CLEANUP_EVAL"),
+                "the error must name the environment variable, got: \(description)")
+            XCTAssertTrue(
+                description.contains("73"),
+                "the error must point at the smoke step, got: \(description)")
+        }
+    }
+
+    /// The ballot-and-verdict flow is order-independent and never gates: a losing run (every
+    /// answer one side) still returns the report, prints the seed beside the verdicts, and
+    /// never throws on a below-target result — the run records, the founder re-baselines
+    /// (`LatencyBenchmarkRealEngineTests`'s recorded-not-gated discipline).
+    func testTheBallotAndVerdictFlowIsOrderIndependentAndNeverGates() throws {
+        let names = (0..<20).map { String(format: "pair-%02d", $0) }
+        let pairs = names.map {
+            CleanupPair(name: $0, raw: "um raw", clean: "Clean.", className: .fillers)
+        }
+        let seed: UInt64 = 0x1234_5678
+        let answers = Dictionary(uniqueKeysWithValues: names.map { ($0, BlindJudgeAnswer.left) })
+        let spy = PrinterSpy()
+
+        let report = try CleanupEvalRun.runReal(
+            pairs: pairs, dictionary: [], answers: answers, seed: seed,
+            printer: { spy.append($0) })
+
+        let presentations = CleanupEvalRun.presentations(for: names, seed: seed)
+        for (index, pair) in pairs.enumerated() {
+            let expected = CleanupPairwiseScorer.verdict(
+                judgeAnswer: answers[pair.name]!, presentation: presentations[index])
+            XCTAssertEqual(
+                report.verdicts[index].preference, expected,
+                "\(pair.name): the verdict must follow the comparator's mapping for the seed")
+        }
+        XCTAssertEqual(
+            report.percentage,
+            try CleanupPairwiseScorer.preferencePercentage(report.verdicts),
+            "the report carries the scorer's exact arithmetic")
+        XCTAssertTrue(
+            spy.lines.contains {
+                $0.contains(String(seed, radix: 16, uppercase: true)) && $0.contains("pair-")
+            },
+            "the seed must be printed beside the verdict rows, got: \(spy.lines)")
+        XCTAssertTrue(
+            spy.lines.contains { $0.contains("RECORDED") },
+            "the run must print the recorded-not-gated comparison line, got: \(spy.lines)")
+    }
+
+    /// An answers file that cannot score everything must not read green: a missing pair's
+    /// answer and an answer naming a pair the corpus does not hold both fail loudly, listing
+    /// the gap.
+    func testMissingOrUnknownAnswersFailLoudly() throws {
+        let pairs = (0..<3).map {
+            CleanupPair(name: "pair-\($0)", raw: "raw", clean: "Clean.", className: .fillers)
+        }
+        let complete = Dictionary(uniqueKeysWithValues: pairs.map { ($0.name, BlindJudgeAnswer.tie) })
+
+        var missingOne = complete
+        missingOne.removeValue(forKey: "pair-1")
+        XCTAssertThrowsError(
+            try CleanupEvalRun.runReal(
+                pairs: pairs, dictionary: [], answers: missingOne, seed: 1)
+        ) { error in
+            XCTAssertEqual(error as? CleanupEvalRunError, .answersMissingPair(name: "pair-1"))
+        }
+
+        var withUnknown = complete
+        withUnknown["mystery-pair"] = .left
+        XCTAssertThrowsError(
+            try CleanupEvalRun.runReal(
+                pairs: pairs, dictionary: [], answers: withUnknown, seed: 1)
+        ) { error in
+            XCTAssertEqual(
+                error as? CleanupEvalRunError, .unknownPairInAnswers(name: "mystery-pair"))
+        }
+    }
+
+    /// The env-gated real scoring run: skips **visibly** without `VOCCA_CLEANUP_EVAL`; with it
+    /// set, a missing pairs directory is a **hard failure** (the variable was set — a skip
+    /// would misread as "CI didn't run it"), a missing answers file skips naming the answers
+    /// path (first invocation prints the ballot), and a complete F2 directory records — never
+    /// gates — through the real run.
+    func testTheRealScoringRunSkipsVisiblyWithoutTheEnvVarAndRecordsWhenSet() async throws {
+        guard let envValue = ProcessInfo.processInfo.environment["VOCCA_CLEANUP_EVAL"] else {
+            throw XCTSkip(
+                "set VOCCA_CLEANUP_EVAL to the F2 pairs directory — see "
+                    + "docs/SMOKE_CHECKLIST.md step 73")
+        }
+        let pairsDirectory = URL(fileURLWithPath: envValue)
+        let answersURL = pairsDirectory.appendingPathComponent("answers.tsv")
+        guard FileManager.default.fileExists(atPath: pairsDirectory.path) else {
+            XCTFail(
+                "VOCCA_CLEANUP_EVAL is set but the directory does not exist: "
+                    + "\(pairsDirectory.path) — provision the F2 corpus per "
+                    + "docs/SMOKE_CHECKLIST.md step 73")
+            return
+        }
+        guard FileManager.default.fileExists(atPath: answersURL.path) else {
+            throw XCTSkip(
+                "VOCCA_CLEANUP_EVAL is set but answers.tsv is missing at \(answersURL.path) — "
+                    + "the first invocation prints the ballot")
+        }
+
+        let hasWavs = try FileManager.default.contentsOfDirectory(
+            at: pairsDirectory, includingPropertiesForKeys: nil)
+            .contains { $0.pathExtension == "wav" }
+        if hasWavs, ProcessInfo.processInfo.environment["VOCCA_MODEL_DIR"] == nil {
+            XCTFail(
+                "an F2 pair carries a .wav sidecar but VOCCA_MODEL_DIR is unset — provision "
+                    + "the engine via Scripts/provision-asr-fixtures.sh first")
+            return
+        }
+
+        let parsed = try CleanupEvalRun.parseAnswers(answersURL)
+        let pairs = try CleanupPairSuite.loadPairs(from: pairsDirectory)
+        let dictionary = await FileSystemDictionaryStore(directory: pairsDirectory).load()
+        let spy = PrinterSpy()
+        let report = try CleanupEvalRun.runReal(
+            pairs: pairs, dictionary: dictionary, answers: parsed.answers,
+            seed: parsed.seed, printer: { spy.append($0) })
+
+        XCTAssertFalse(spy.lines.isEmpty, "the run must print its record")
+        XCTAssertEqual(
+            report.percentage,
+            try CleanupPairwiseScorer.preferencePercentage(report.verdicts),
+            "the record carries the scorer's exact arithmetic")
+        XCTAssertTrue(
+            spy.lines.contains { $0.contains("RECORDED") },
+            "the comparison line must say recorded, never gated, got: \(spy.lines)")
+    }
+
     /// The real run's recorded-not-gated comparison line reads the same table — the founder's
     /// run cannot print a verdict against a number that silently stopped existing.
     func testTheRealRunConsumesTheProvisionalPreferenceMinimum() {
