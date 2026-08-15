@@ -232,13 +232,55 @@ public enum RulesCleanup {
     }
 
     /// Stage 3 — sentence segmentation and terminal punctuation (`spec.md` B2).
+    ///
+    /// A terminal `.` is appended iff the trimmed end lacks `.`/`?`/`!` (never doubled — the
+    /// B2 row 2); empty and whitespace-only input are identity (B11 rows 1–2). **No boundary is
+    /// ever inserted without a signal** (Open question 6 — `we are late it is fine` is one
+    /// sentence): boundaries exist only at spoken commands, literal tokens and end of input.
     public static func segmentAndTerminate(_ input: String) -> String {
-        input
+        guard let last = Self.lastNonWhitespaceCharacter(of: input) else { return input }
+        if last == "." || last == "?" || last == "!" {
+            return input
+        }
+        return input + "."
     }
 
     /// Stage 4 — sentence-initial capitalization (`spec.md` B3).
+    ///
+    /// Uppercases the first letter of each sentence only — first-char, never a token rewrite
+    /// (`i'm here` → `I'm here`); a caseless script's first letter is a no-op (B11's hostile
+    /// rows); commas are not boundaries (`please pause, we are live` keeps `we` lowercase).
+    ///
+    /// Boundaries are `.`/`?`/`!` in **terminal position** — the last character of their token —
+    /// and every `\n`; a `.` inside a token (`v2.4.1`) is not a boundary (B6 row 2 — `it` stays
+    /// lowercase). The Open-question-8 split: a protected token at sentence start **is**
+    /// first-char-capitalized except `@`-tokens, whose local part must not be rewritten
+    /// (`aliz@vocca.dev` stays lowercase at sentence start; `My_repo` capitalizes — B6 row 5).
     public static func capitalizeSentences(_ input: String) -> String {
-        input
+        guard !input.isEmpty else { return input }
+        var output = ""
+        var atSentenceStart = true
+        var index = input.startIndex
+        while index < input.endIndex {
+            let character = input[index]
+            let nextIndex = input.index(after: index)
+            if character == "\n"
+                || ((character == "." || character == "?" || character == "!")
+                    && Self.isTerminalInToken(character, at: index, in: input))
+            {
+                atSentenceStart = true
+                output.append(character)
+            } else if atSentenceStart, character.isLetter,
+                !Self.tokenContains("@", in: input, from: index)
+            {
+                output.append(String(character).uppercased())
+                atSentenceStart = false
+            } else {
+                output.append(character)
+            }
+            index = nextIndex
+        }
+        return output
     }
 
     /// Stage 5 — bounded number/unit normalization (`spec.md` B5).
@@ -283,5 +325,45 @@ public enum RulesCleanup {
     private static func isProtectedToken(_ token: Substring) -> Bool {
         token.contains("/") || token.contains(".")
             || token.contains("-") || token.contains("_") || token.contains("@")
+    }
+
+    /// The last non-whitespace character of the input, or `nil` when the input is empty or
+    /// whitespace-only — the trimmed end `segmentAndTerminate` judges the terminal punctuation
+    /// on. The appended period lands at the raw end, so the input's characters are never moved.
+    private static func lastNonWhitespaceCharacter(of input: String) -> Character? {
+        var index = input.endIndex
+        while index > input.startIndex {
+            index = input.index(before: index)
+            if !input[index].isWhitespace {
+                return input[index]
+            }
+        }
+        return nil
+    }
+
+    /// Whether the character at `index` is the last character of its whitespace-delimited token
+    /// — the terminal-position boundary rule: `done.` ends a sentence, the `.` inside `v2.4.1`
+    /// does not.
+    private static func isTerminalInToken(
+        _ character: Character, at index: String.Index, in input: String
+    ) -> Bool {
+        let next = input.index(after: index)
+        guard next < input.endIndex else { return true }
+        return input[next].isWhitespace
+    }
+
+    /// Whether the whitespace-delimited token beginning at `start` contains `character` — the
+    /// `@`-token guard capitalization consults before rewriting a sentence-initial letter.
+    private static func tokenContains(
+        _ character: Character, in input: String, from start: String.Index
+    ) -> Bool {
+        var index = start
+        while index < input.endIndex {
+            let current = input[index]
+            if current.isWhitespace { return false }
+            if current == character { return true }
+            index = input.index(after: index)
+        }
+        return false
     }
 }
