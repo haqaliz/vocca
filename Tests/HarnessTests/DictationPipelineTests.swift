@@ -374,6 +374,36 @@ final class DictationPipelineTests: XCTestCase {
         return (pipeline, ledger, sessionID)
     }
 
+    /// The cleanup contract's builder — ``makeRecordedPipeline`` plus the `cleanup:` argument.
+    ///
+    /// The recorder is always a fresh ``LatencyLedger`` (the shape `makeRecordedPipeline` sets);
+    /// a test that wants the record mints a session id from the returned ledger and passes it to
+    /// the route. `clock` is optional because the B1/B5 rows exercise the no-clock path — no
+    /// measurement, no budget race, direct call (`plan §6`). Synchronous because nothing here
+    /// awaits — the ledger minting is the test's call, not the builder's.
+    private func makeCleanupPipeline(
+        engine: any ASREngine,
+        injectorResult: InjectionResult,
+        held: HeldTranscript? = nil,
+        cleanup: (any CleanupProvider)? = nil,
+        clock: TableClock? = nil
+    ) -> (
+        pipeline: DictationPipeline, injector: LedgerTextInjector, holder: LedgerTranscriptHolder,
+        ledger: LatencyLedger
+    ) {
+        let ledger = LatencyLedger()
+        let injector = LedgerTextInjector(result: injectorResult)
+        let holder = LedgerTranscriptHolder(held: held)
+        let pipeline = DictationPipeline(
+            engine: engine,
+            injector: injector,
+            holder: holder,
+            cleanup: cleanup,
+            recorder: ledger,
+            clock: clock)
+        return (pipeline, injector, holder, ledger)
+    }
+
     /// Routes one ended outcome through a recorded pipeline and collects the ledger's answer.
     ///
     /// The engine's own `identity` comes back with the record, so the table can assert
@@ -695,11 +725,279 @@ final class DictationPipelineTests: XCTestCase {
         let holdCalls = await holder.holdCalls
         XCTAssertEqual(holdCalls, 0)
     }
+
+    // MARK: - The cleanup stage: wired, degraded, budgeted, recorded
+
+    /// **B1 — clean routes through.** With a cleanup provider wired, the raw transcript reaches
+    /// `clean` and the provider's output — **not** the raw text — is what the injector records
+    /// (the ledger-injector convention). The context handed over carries the route's target, the
+    /// dictation mode and the pipeline's shipped budget as information only.
+    func testCleanRoutesThroughAndTheInjectorReceivesTheCleanedText() async {
+        let provider = ScriptedCleanupProvider(behavior: .returns("cleaned"))
+        let target = target()
+        let (pipeline, injector, _, _) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            cleanup: provider)
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target)
+
+        XCTAssertEqual(surface, .idle)
+        let calls = await injector.calls
+        XCTAssertEqual(
+            calls, [InjectionCall(text: "cleaned", target: target)],
+            "the cleaned text — not the raw transcript — is what reaches the injector")
+        let cleanCalls = await provider.cleanCalls
+        XCTAssertEqual(cleanCalls, 1, "the wired provider was asked exactly once")
+        let received = await provider.receivedContext
+        XCTAssertEqual(received?.target, target, "the context's target is the route's target")
+        XCTAssertEqual(received?.mode, .dictation, "the context's mode is the dictation mode")
+        XCTAssertEqual(
+            received?.budget, .milliseconds(10),
+            "the context carries the pipeline's shipped budget (ARCHITECTURE.md:316) — "
+                + "caller-enforced, handed over as information")
+    }
+
+    /// **B2 — nil is today.** `cleanup: nil` calls no provider, injects the raw text, and the
+    /// finalized record carries no cleanup span — the ledger's `notPresent` is the absence
+    /// (`describe()` renders only recorded spans). Nothing is constructed, so no provider can be
+    /// called.
+    func testNilCleanupCallsNoProviderInjectsRawAndRecordsNoCleanupSpan() async {
+        let clock = TableClock()
+        let (pipeline, injector, _, ledger) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            cleanup: nil,
+            clock: clock)
+        let sessionID = await ledger.beginSession()
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target(), sessionID: sessionID)
+
+        XCTAssertEqual(surface, .idle)
+        let calls = await injector.calls
+        XCTAssertEqual(
+            calls.map(\.text), ["1 2 3"],
+            "nil cleanup is today's behavior, byte for byte — the raw transcript reaches the "
+                + "injector")
+        let records = await ledger.snapshot()
+        XCTAssertEqual(records.count, 1)
+        XCTAssertNil(
+            records.first?.spans.first { $0.name == .cleanup },
+            "a nil-cleanup pipeline records no cleanup span — cleanup stays notPresent")
+    }
+
+    /// **B3 — hung provider → raw within budget.** A provider that never completes, against a
+    /// short injected-clock budget, terminates with the raw text reaching the injector — the
+    /// caller's cancellation fires on the *injected clock*, not on the provider's cooperation.
+    /// The double advances the shared clock past the budget and then suspends
+    /// cancellation-responsively, so the test is instant: no wall-clock waiting.
+    func testAHungProviderFallsBackToRawWithinTheInjectedClockBudget() async {
+        let clock = TableClock()
+        let provider = ScriptedCleanupProvider(
+            behavior: .hangs(clock: clock, budget: .milliseconds(10)))
+        let (pipeline, injector, _, _) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            cleanup: provider,
+            clock: clock)
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target())
+
+        XCTAssertEqual(surface, .idle)
+        let calls = await injector.calls
+        XCTAssertEqual(
+            calls.map(\.text), ["1 2 3"],
+            "a provider that never returns must not block the loop — the injected-clock deadline "
+                + "fires, the group cancels the provider, and raw proceeds")
+    }
+
+    /// **B4 — provider throwing → raw, and the cleanup span is still recorded.** The throw
+    /// degrades to the raw text (the surface is the rung's own `.idle`), and the span's elapsed
+    /// is the measured delta between the pipeline's two clock reads — the double advances the
+    /// shared clock during `clean`, the W1 table's ``TableEngine`` shape — never a fabricated
+    /// zero, exactly like the throwing ASR row's.
+    func testAThrowingProviderRoutesRawAndStillRecordsTheCleanupSpan() async {
+        let clock = TableClock()
+        let provider = ScriptedCleanupProvider(
+            behavior: .throws, clock: clock, advance: .milliseconds(2))
+        let (pipeline, injector, _, ledger) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            cleanup: provider,
+            clock: clock)
+        let sessionID = await ledger.beginSession()
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target(), sessionID: sessionID)
+
+        XCTAssertEqual(surface, .idle)
+        let calls = await injector.calls
+        XCTAssertEqual(
+            calls.map(\.text), ["1 2 3"],
+            "a throwing cleanup degrades to the raw text — the throw never loses the transcript")
+        let records = await ledger.snapshot()
+        XCTAssertEqual(records.count, 1)
+        let cleanupSpan = records.first?.spans.first { $0.name == .cleanup }
+        XCTAssertEqual(
+            cleanupSpan?.elapsed, .milliseconds(2),
+            "the cleanup span is recorded on the throwing path — the measured delta between the "
+                + "pipeline's two clock reads, never a fabricated zero")
+    }
+
+    /// **B5 — empty clean result → raw (never-empty).** The provider returns `""` and `"   "`;
+    /// in both rows the raw text reaches the injector. The empty-text guard ran before cleanup,
+    /// so this is cleanup's own guard: cleanup never injects `""`.
+    func testAnEmptyCleanResultFallsBackToRaw() async {
+        for scripted in ["", "   "] {
+            let provider = ScriptedCleanupProvider(behavior: .returns(scripted))
+            let (pipeline, injector, _, _) = makeCleanupPipeline(
+                engine: StubEngine.parakeet(),
+                injectorResult: InjectionResult(
+                    rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                    elapsed: .zero),
+                cleanup: provider)
+
+            let surface = await pipeline.route(
+                SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+                target: target())
+
+            XCTAssertEqual(surface, .idle, "scripted result: \(scripted)")
+            let calls = await injector.calls
+            XCTAssertEqual(
+                calls.map(\.text), ["1 2 3"],
+                "scripted result: \(scripted) — an empty/whitespace clean result falls back to "
+                    + "the raw text (never-empty)")
+        }
+    }
+
+    /// **B6 — Esc during cleanup → nothing injected.** The route task is cancelled mid-clean
+    /// (the `signalAndHang` double parks on a cancellation-responsive suspension); the post-clean
+    /// re-check discards the raw candidate: `.idle`, injector untouched, record finalized
+    /// `.aborted` (`PRODUCT_SPEC.md:129`).
+    func testCancellationDuringCleanupInjectsNothingAndFinalizesAborted() async {
+        let provider = ScriptedCleanupProvider(behavior: .signalAndHang)
+        let (pipeline, injector, _, ledger) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            cleanup: provider)
+        let sessionID = await ledger.beginSession()
+        let effect = SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3]))
+        let target = target()
+
+        let task = Task {
+            await pipeline.route(effect, target: target, sessionID: sessionID)
+        }
+        var turns = 0
+        while !(await provider.cleanStarted) && turns < 20_000 {
+            await Task.yield()
+            turns += 1
+        }
+        let cleanStarted = await provider.cleanStarted
+        XCTAssertTrue(cleanStarted, "the route never reached the cleanup stage")
+        task.cancel()
+        let surface = await task.value
+
+        XCTAssertEqual(
+            surface, .idle,
+            "a cancellation that landed during cleanup discards — nothing is injected")
+        let calls = await injector.calls
+        XCTAssertEqual(calls, [], "a cancelled transcription must never inject")
+        let records = await ledger.snapshot()
+        XCTAssertEqual(
+            records.first?.outcome, .aborted,
+            "the record finalizes aborted — the cancelled route's cleanup is a discard")
+    }
+
+    /// **B7 — failsafe holds cleaned text.** On the `.widgetFailsafe` path the surfaced
+    /// ``HeldTranscript``'s text is the cleaned text, and the holder was read exactly once.
+    func testWidgetFailsafeHoldsTheCleanedTextAndReadsTheHolderOnce() async {
+        let held = HeldTranscript(
+            text: "cleaned", reason: .exhausted, targetAppName: "Notes", capturedAt: .seconds(7))
+        let provider = ScriptedCleanupProvider(behavior: .returns("cleaned"))
+        let (pipeline, injector, holder, _) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .widgetFailsafe, attempted: [.accessibility, .clipboardPaste],
+                verified: false, elapsed: .zero),
+            held: held,
+            cleanup: provider)
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target())
+
+        XCTAssertEqual(
+            surface, .transcriptHeld(held),
+            "the failsafe surface is the cleaned text the handoff held")
+        let currentCalls = await holder.currentCalls
+        XCTAssertEqual(currentCalls, 1, "the holder is read exactly once on the failsafe path")
+        let calls = await injector.calls
+        XCTAssertEqual(
+            calls.map(\.text), ["cleaned"],
+            "the cleaned text — not the raw — reached the ladder before the failsafe held it")
+    }
+
+    /// **B8-pipeline — the cleanup span is recorded with the injected clock.** With recorder,
+    /// clock and cleanup wired, the finalized record's spans include `cleanup` with an elapsed
+    /// equal to the injected clock's delta — the double advances the shared clock during `clean`,
+    /// the W1 ASR-span assertion style (measured delta, never a fabricated zero).
+    func testCleanupSpanIsRecordedWithTheInjectedClock() async {
+        let clock = TableClock()
+        let provider = ScriptedCleanupProvider(
+            behavior: .returns("cleaned"), clock: clock, advance: .milliseconds(3))
+        let (pipeline, injector, _, ledger) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            cleanup: provider,
+            clock: clock)
+        let sessionID = await ledger.beginSession()
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target(), sessionID: sessionID)
+
+        XCTAssertEqual(surface, .idle)
+        let calls = await injector.calls
+        XCTAssertEqual(calls.map(\.text), ["cleaned"])
+        let records = await ledger.snapshot()
+        XCTAssertEqual(records.count, 1)
+        let cleanupSpan = records.first?.spans.first { $0.name == .cleanup }
+        XCTAssertEqual(
+            cleanupSpan?.elapsed, .milliseconds(3),
+            "the cleanup span carries the measured delta between the pipeline's two clock reads — "
+                + "never a fabricated zero")
+    }
 }
 
 /// What a scripted transcription failure is, for the throw row of the table. The specific error
 /// is the engine's business — the pipeline must not stringify it.
 private enum FakeTranscriptionError: Error {
+    case boom
+}
+
+/// What a scripted cleanup failure is, for the throwing row of the cleanup contract. The specific
+/// error is the provider's business — the pipeline must not stringify it, and the degrade must not
+/// care which error it was.
+private enum FakeCleanupError: Error {
     case boom
 }
 
@@ -783,6 +1081,72 @@ actor LedgerTranscriptHolder: TranscriptHolder {
 
     func release() async {
         releaseCalls += 1
+    }
+}
+
+// MARK: - The cleanup contract's own doubles
+
+/// What the scripted cleanup provider answers on its one `clean` call.
+private enum ScriptedCleanupBehavior {
+    /// Answers the scripted text — the B1/B5/B7/B8 rows.
+    case returns(String)
+    /// Throws `FakeCleanupError.boom` — the B4 row.
+    case `throws`
+    /// Advances the shared clock past `budget`, then suspends cancellation-responsively
+    /// (`try await Task.sleep`) — the B3 hung-provider row: the provider never returns, and the
+    /// injected-clock deadline must fire anyway. The suspension observes cancellation so the
+    /// group's child-await completes instantly when the watcher wins.
+    case hangs(clock: TableClock, budget: Duration)
+    /// Sets `cleanStarted` and suspends the same way — the B6 row, so the test can cancel the
+    /// route task *during* cleanup.
+    case signalAndHang
+}
+
+/// **A cleanup provider the test scripts** — the B1–B8 rows of the cleanup contract, in
+/// ``ScriptedEngine``'s shape: an actor, because `CleanupProvider` is a `Sendable` protocol and
+/// the double must cross the boundary honestly. `requiresNetwork` is declared `false` — the
+/// B10-style honesty applied to the double too.
+///
+/// `clock`/`advance` are the shared injected clock the double moves during `clean` — the W1
+/// table's ``TableEngine`` shape: the pipeline's two clock reads straddle a real, asserted delta,
+/// so the cleanup span's elapsed is measured, never a fabricated zero.
+private actor ScriptedCleanupProvider: CleanupProvider {
+    let identity = ProviderIdentity(
+        id: "scripted-cleanup", displayName: "Scripted cleanup")
+    nonisolated var requiresNetwork: Bool { false }
+
+    private let behavior: ScriptedCleanupBehavior
+    private let clock: TableClock?
+    private let advance: Duration
+
+    private(set) var cleanCalls = 0
+    private(set) var receivedContext: CleanupContext?
+    private(set) var cleanStarted = false
+
+    init(behavior: ScriptedCleanupBehavior, clock: TableClock? = nil, advance: Duration = .zero) {
+        self.behavior = behavior
+        self.clock = clock
+        self.advance = advance
+    }
+
+    func clean(_ transcript: Transcript, context: CleanupContext) async throws -> String {
+        cleanCalls += 1
+        receivedContext = context
+        if let clock { clock.now += advance }
+        switch behavior {
+        case .returns(let text):
+            return text
+        case .throws:
+            throw FakeCleanupError.boom
+        case .hangs(let hangsClock, let budget):
+            hangsClock.now += budget + .milliseconds(1)
+            try await Task.sleep(for: .seconds(3600))
+            return ""
+        case .signalAndHang:
+            cleanStarted = true
+            try await Task.sleep(for: .seconds(3600))
+            return ""
+        }
     }
 }
 
