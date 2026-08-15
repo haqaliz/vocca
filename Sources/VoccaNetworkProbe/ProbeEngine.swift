@@ -85,6 +85,12 @@ actor ProbeEngine: ASREngine {
     /// observation of the attribution rather than a spelling of the identity.
     private(set) var lastTranscriptEngine = "none"
 
+    /// The text of the last transcript — the engine's own output, recorded at construction so
+    /// the drive's `transcript=` field stays an observation of the engine even when the cleaned
+    /// text differs from it (the cleanup stage's terminal punctuation changes what is injected,
+    /// never what the engine produced).
+    private(set) var lastTranscriptText = ""
+
     init() {}
 
     func prepare() async throws {
@@ -96,8 +102,10 @@ actor ProbeEngine: ASREngine {
         lastBufferFrames = buffer.samples.count
         lastTranscriptMissing = buffer.missingSampleCount
         lastTranscriptEngine = identity.id
+        let text = Self.text(for: buffer.samples)
+        lastTranscriptText = text
         return Transcript(
-            text: Self.text(for: buffer.samples),
+            text: text,
             segments: [],
             engine: identity,
             isFinal: true,

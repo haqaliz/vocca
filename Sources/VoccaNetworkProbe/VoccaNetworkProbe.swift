@@ -273,7 +273,7 @@ struct VoccaNetworkProbe {
             cycle.audioModuleWitness,
             VoccaHotkeyPlaceholder.self,
             cycle.asrModuleWitness,
-            VoccaTextPlaceholder.self,
+            cycle.cleanupModuleWitness,
             injection.moduleWitness,
             VoccaSpeechPlaceholder.self,
             VoccaUIPlaceholder.self,
