@@ -38,7 +38,13 @@ public enum RulesCleanup {
     /// effects matches `ARCHITECTURE.md:511`. The dictionary arrives in declared order
     /// (`ReplacementRule` — order is the contract) and runs after the built-ins.
     public static func clean(_ input: String, dictionary: [ReplacementRule]) -> String {
-        input
+        var text = removeFillers(input)
+        text = resolveSpokenCommands(text)
+        text = segmentAndTerminate(text)
+        text = capitalizeSentences(text)
+        text = normalizeNumbers(text)
+        text = applyDictionary(text, rules: dictionary)
+        return text
     }
 
     /// Stage 1 — filler removal, frequency-tuned rather than blanket (`spec.md` B1).
@@ -126,9 +132,103 @@ public enum RulesCleanup {
     }
 
     /// Stage 2 — spoken-punctuation commands resolved to their symbols, including N2 literal
-    /// tokens (`spec.md` B4, B9).
+    /// tokens (`spec.md` B4, B9): `period` → `.`, `question mark` → `?`, `exclamation point` →
+    /// `!`, `comma` → `,`, `new line`/`newline` → `\n`. A literal `.`/`?` already-symbolic token
+    /// is kept (attached — `done.` — or standalone — `we are done . then we rest`). Word and
+    /// symbol both present (`period.`): the symbol wins, the word is dropped (provisional, B9
+    /// row 5).
+    ///
+    /// Symbols left-attach: the command's own leading whitespace is consumed, and `\n` also
+    /// consumes the following whitespace run (`First line\nSecond line.`), so a boundary lands
+    /// exactly where the spoken command was. Exactly one adjacent space, never two. The
+    /// provisional false-positive guard (Open question 5): a command word does not fire when the
+    /// preceding word is a determiner (`the`/`a`/`an` — `the period of the sine wave` survives);
+    /// and a command never fires inside a protected token (`/ . - _ @`), while a symbol may
+    /// attach *after* one (`aliz@vocca.dev.` — B6 row 1).
     public static func resolveSpokenCommands(_ input: String) -> String {
-        input
+        let (entries, trailing) = Self.tokenize(input)
+        guard !entries.isEmpty else { return input }
+
+        let determiners: Set<String> = ["the", "a", "an"]
+
+        var output: [String] = []
+        var consumeNextLeading = false
+        var changedAny = false
+        var index = 0
+
+        /// The word the edited text so far ends with ("" at utterance start) — the determiner
+        /// guard's subject: earlier replacements are visible, so the check reads the edited text.
+        func previousWord() -> String {
+            guard let last = output.last else { return "" }
+            return last
+        }
+
+        while index < entries.count {
+            let word = entries[index].word
+            let lower = word.lowercased()
+            let effectiveLeading = consumeNextLeading ? Substring() : entries[index].leading
+            consumeNextLeading = false
+
+            let precededByDeterminer = determiners.contains(previousWord().lowercased())
+
+            var resolved: (symbol: String, span: Int, consumeFollowing: Bool)?
+            if lower == "." || lower == "?" {
+                // N2 standalone literal token: kept, left-attached to the previous word.
+                resolved = (String(word), 1, false)
+            } else if word.count > 1, word.last == ".",
+                let symbol = Self.singleWordCommandSymbol(String(word.dropLast().lowercased())),
+                !precededByDeterminer
+            {
+                // N2 word + symbol (`period.`): the symbol wins, the word is dropped.
+                resolved = (symbol, 1, false)
+            } else if !Self.isProtectedToken(word) {
+                if lower == "question", index + 1 < entries.count,
+                    entries[index + 1].word.lowercased() == "mark", !precededByDeterminer
+                {
+                    resolved = ("?", 2, false)
+                } else if lower == "exclamation", index + 1 < entries.count,
+                    entries[index + 1].word.lowercased() == "point", !precededByDeterminer
+                {
+                    resolved = ("!", 2, false)
+                } else if lower == "new", index + 1 < entries.count,
+                    entries[index + 1].word.lowercased() == "line", !precededByDeterminer
+                {
+                    resolved = ("\n", 2, true)
+                } else if let symbol = Self.singleWordCommandSymbol(lower), !precededByDeterminer {
+                    resolved = (symbol, 1, symbol == "\n")
+                }
+            }
+
+            if let resolved {
+                changedAny = true
+                output.append(resolved.symbol)
+                consumeNextLeading = resolved.consumeFollowing
+                index += resolved.span
+            } else {
+                if !effectiveLeading.isEmpty {
+                    output.append(String(effectiveLeading))
+                }
+                output.append(String(word))
+                index += 1
+            }
+        }
+
+        guard changedAny else { return input }
+        if !consumeNextLeading, !trailing.isEmpty {
+            output.append(String(trailing))
+        }
+        return output.joined()
+    }
+
+    /// The single-word spoken-punctuation commands (multi-word phrases are matched by the scan
+    /// itself). Returns the command's symbol or `nil` when the word is not a command.
+    private static func singleWordCommandSymbol(_ lower: String) -> String? {
+        switch lower {
+        case "period": return "."
+        case "comma": return ","
+        case "newline": return "\n"
+        default: return nil
+        }
     }
 
     /// Stage 3 — sentence segmentation and terminal punctuation (`spec.md` B2).
