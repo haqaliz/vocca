@@ -65,11 +65,62 @@ git -C "$PRIMARY" worktree list           # the worktree should be gone
 git -C "$PRIMARY" branch --list "$BRANCH" # should print nothing
 ```
 
-### Phase 3 — Release (deferred, do nothing)
+### Phase 3 — Release (only when the user asks)
 
-**There is no release step yet.** Vocca is greenfield with no release machinery — no `RELEASING.md`, no `.github/workflows/release.yml`, no packaging manifest — so finishing a unit of work does **not** tag or publish anything. Do not create a git tag, do not `gh release create`, do not build or upload artifacts. Cleanup ends at Phase 2.
+Finishing a unit of work does **not** automatically release. The release phase runs only when the
+user explicitly asks, and only with a user-confirmed version number. The machine is now real:
+`.github/workflows/release.yml` runs the whole suite, builds Release, signs it with the workflow's
+imported identity, re-runs the suite against the *signed* bundle, verifies the tag version matches
+`CFBundleShortVersionString`, and uploads `Vocca-macos.zip` (+ SHA256) to a GitHub Release — all
+triggered by pushing a `v*` tag.
 
-> **When Vocca later gains a macOS release pipeline** (likely a signed/notarized app distributed via GitHub Releases, possibly a Homebrew cask — **not** PyPI), add a real release phase here and update `vocca-end` to match. Until that machinery and its `RELEASING.md` exist, there is nothing to release.
+1. **Decide the version**: patch bump from the latest tag for small fixes, minor for new features —
+   `git tag --sort=-v:refname | head -1`. The first release is `v0.1.0` (the current
+   `CFBundleShortVersionString`); confirm the number with the user before proceeding.
+2. **Bump the bundle version in `App/Info.plist`** — it is the source of truth the workflow checks:
+   `CFBundleShortVersionString` = tag without the `v` (v0.1.0 → `0.1.0`), `CFBundleVersion` = the
+   same integer. Keep `Vocca.xcodeproj`'s `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in sync
+   (they are inert — `GENERATE_INFOPLIST_FILE = NO`, the plist's literals ship — but they must not
+   drift).
+3. Commit + push:
+   ```bash
+   git add App/Info.plist Vocca.xcodeproj/project.pbxproj
+   git commit -m "release: bump to v0.1.0"
+   git push
+   ```
+4. **Tag + ship** (v* tags trigger the signed Release build):
+   ```bash
+   git tag v0.1.0 && git push origin v0.1.0
+   ```
+5. **Verify the release landed**:
+   ```bash
+   gh run list --workflow release.yml --limit 1    # wait for green
+   gh release view v0.1.0                          # Vocca-macos.zip + .sha256 present
+   ```
+   A green run must have produced a release: without the signing secrets the workflow fails loudly
+   at the signing step, and if the tag doesn't match the bundle version it fails at the version
+   step — there is no silent skip.
+
+**Signing secrets** (set once, repo Settings → Secrets and variables → Actions): `APPLE_CERT_P12_BASE64`
++ `APPLE_CERT_PASSWORD` — an exported Apple Development .p12. Without them a tag push still runs
+the suite gate, then ends red on purpose.
+
+**Notarization is gated: do not claim it works.** The workflow signs (hardened runtime, secure
+timestamp) but does **not** notarize — `Scripts/notarize.sh` has never run end to end, and
+notarization needs a paid **Developer ID Application** certificate plus a `notarytool` credential,
+neither of which exists. **A free Apple Development certificate cannot notarize.** Until a Developer
+ID exists, state clearly in any release announcement: build signed, **not** notarized, **not**
+distributable outside the signing machine — and the workflow's own release notes say exactly that.
+
+**Local validation still precedes tagging** for releases that matter: `Scripts/dev-identity.sh` →
+build Release → `Scripts/sign.sh .build/xcode-release/Build/Products/Release/Vocca.app` →
+`docs/SMOKE_CHECKLIST.md` → "Manual steps before a release" in order; an unrun step is a failed
+step. The workflow is the *publish* path; the checklist is the *proof* path, and CI structurally
+cannot run its real-machine steps.
+
+**Default rule: no release, no tag, no artifact upload at end of a unit of work** — the release
+phase runs only when the user explicitly asks for one. There is no Homebrew cask; the eventual shape
+is a signed/notarized app via GitHub Releases.
 
 ### Phase 4 — Comment on the issue (optional)
 
@@ -106,5 +157,11 @@ Otherwise:
 | Worktree dir vs branch confusion | Worktree dir is `<type>-<id>` (e.g. `bug-12`); branch is `<type>/<id>/aliz` |
 | Posting the issue comment without confirmation | Draft first, show the user, only post after explicit OK |
 | Trying to comment when the work has no issue | Skip Phase 4 — it came from an inline brief |
-| Tagging or publishing a release at end | There is no release machinery yet — cleanup stops at Phase 2; do not tag or publish |
-| Assuming a packaging manifest / release workflow exists | Vocca is greenfield — add a release phase only once a macOS release pipeline (signed app / Homebrew cask, not PyPI) and its `RELEASING.md` land |
+| Releasing at the end of every unit of work | Release only when the user asks — default is no tag, no `gh release create`, no upload |
+| Tagging without bumping `App/Info.plist` first | The workflow fails the tag-vs-`CFBundleShortVersionString` match, and the installed app would report the old version — bump first, then tag |
+| Tagging with no signing secrets | The workflow runs the suite gate, then ends red at the signing step — configure `APPLE_CERT_P12_BASE64` + `APPLE_CERT_PASSWORD` once in repo Settings before the first tag |
+| Running a bare `Scripts/sign.sh` for local validation | Signs the Debug bundle; always pass `.build/xcode-release/Build/Products/Release/Vocca.app` |
+| Claiming a workflow release is notarized | It is not — the workflow signs with the imported Apple Development identity and says "not notarized" in the release notes; notarization needs a Developer ID that does not exist |
+| Claiming notarization works | It does not — `notarize.sh` has never run end to end; needs a paid Developer ID Application cert + `notarytool` credential; a free Apple Development cert signs but cannot notarize |
+| Checking the `runtime` flag loosely | The `flags=` line must read `flags=0x10000(runtime)`; "the word `runtime` appears" is not the same claim |
+| Tagging without a user-confirmed version | Ask for the version number and explicit OK before `git tag` / `gh release create` |

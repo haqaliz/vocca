@@ -148,6 +148,22 @@ pinned `macos-15` runner with an explicitly selected Xcode. Three jobs:
 keychain and no repository secret. That is what makes the bundle assertions *mandatory* in CI rather
 than skipped: with `VOCCA_APP_BUNDLE` set, a missing bundle is a hard failure, not a skip.
 
+### Releases
+
+Push a `v*` tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to trigger
+[`.github/workflows/release.yml`](.github/workflows/release.yml): it runs the whole suite, builds
+Release, signs it with the workflow's imported identity (via `Scripts/sign.sh`, hardened runtime
+and secure timestamp), re-runs the suite against the *signed* bundle, verifies the tag version
+equals `CFBundleShortVersionString`, and uploads `Vocca-macos.zip` (with SHA256) to a GitHub
+Release. Required secrets: `APPLE_CERT_P12_BASE64` + `APPLE_CERT_PASSWORD` (an exported Apple
+Development .p12 — see the workflow header). Without them a tag push fails loudly at the signing
+step; there is no path to a green run that produced no release.
+
+**Releases are signed, not notarized.** `Scripts/notarize.sh` has never run end to end — it needs a
+paid Developer ID Application certificate plus a `notarytool` credential, neither of which exists —
+so a GitHub Release from this workflow runs only on the machine that built it; Gatekeeper will not
+launch it elsewhere. The release notes say so out loud. Notarization lands when a Developer ID does.
+
 CI also sets `CI=1`, which raises the zero-network probe's settle window from 0.75s to 6s so that
 deferred egress on a loaded runner cannot slip past it.
 

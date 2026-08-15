@@ -141,7 +141,11 @@ sign_one() {
     local stderr_file
     stderr_file="$(mktemp)"
     log "Signing $target"
-    if codesign --force --options runtime "${entitlements_args[@]}" --timestamp \
+    # The ${var[@]+"${var[@]}"} form: the plain "${entitlements_args[@]}" expansion under `set -u`
+    # is "unbound variable" on bash 3.2 (the macOS default) whenever the array is empty — which it
+    # is for every nested binary, since only the outer bundle gets entitlements. This form expands
+    # to nothing for an empty array and to the quoted elements otherwise.
+    if codesign --force --options runtime "${entitlements_args[@]+"${entitlements_args[@]}"}" --timestamp \
         --sign "$VOCCA_DEV_IDENTITY_NAME" "$target" 2>"$stderr_file"; then
         rm -f "$stderr_file"
         return 0
@@ -153,7 +157,7 @@ sign_one() {
     log "  --timestamp failed, retrying without it (a secure timestamp is not required for local TCC):"
     sed 's/^/    /' "$stderr_file" >&2
     rm -f "$stderr_file"
-    codesign --force --options runtime "${entitlements_args[@]}" \
+    codesign --force --options runtime "${entitlements_args[@]+"${entitlements_args[@]}"}" \
         --sign "$VOCCA_DEV_IDENTITY_NAME" "$target"
 }
 

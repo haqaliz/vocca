@@ -17,9 +17,9 @@ Arguments and conventions are identical to `vocca-end-fast`.
 
 **REQUIRED SUB-SKILL:** Use `vocca-end-fast` for the cleanup pipeline.
 
-Run its **Phase 0 → Phase 2 exactly as written** (safety check → master + pull → remove worktree → delete branch). Vocca's base branch is **`master`**, never `main`. **There is no version-release step:** Vocca is greenfield with no release machinery (no `RELEASING.md`, no `release.yml`), so finishing a unit of work does not tag or publish anything. Only proceed to the report once cleanup verification passes.
+Run its **Phase 0 → Phase 2 exactly as written** (safety check → master + pull → remove worktree → delete branch). Vocca's base branch is **`master`**, never `main`. Its **Phase 3 (Release)** runs only when the user explicitly asks for a release — the release machinery now exists (`.github/workflows/release.yml`: tag-triggered, signs and publishes `Vocca-macos.zip` to GitHub Releases), but signing needs the `APPLE_CERT_P12_BASE64` + `APPLE_CERT_PASSWORD` secrets, notarization is gated on a paid Developer ID that does not exist, and a finished unit of work does not tag or publish anything by default. Only proceed to the report once cleanup verification passes.
 
-> **Note:** When Vocca later gains a macOS release pipeline (likely a signed/notarized app via GitHub Releases, possibly a Homebrew cask — **not** PyPI), update these skills to add a release phase.
+> **Note:** notarization is still not wired into the release workflow — it needs a paid Developer ID Application certificate plus a `notarytool` credential (a free Apple Development cert signs but cannot notarize). When a Developer ID exists, extend the workflow and Phase 3 in `vocca-end-fast` and mirror the change here.
 
 ### Phase 4 — Completion report
 
@@ -54,5 +54,5 @@ The comment can mirror the report's plain-English summary in a sentence or two. 
 | Passing the wrong type to `vocca-report` | Apply the mapping table (`feat`/`feature` → `feature`, `chore` → `task`) |
 | Posting the issue comment before the report | The comment (Phase 5) comes after the report (Phase 4); the report's plain-English summary is good source material |
 | Cleaning up against `main` | Vocca's base branch is `master` |
-| Trying to tag or publish a release at end | There is no release machinery yet — cleanup only; add a release phase when Vocca gains a macOS release pipeline |
+| Releasing at the end of every unit of work | Release only when the user asks (Phase 3 of `vocca-end-fast`); notarization is gated on a Developer ID that does not exist |
 | Posting the comment without confirmation | Draft first, confirm with the user, then post |

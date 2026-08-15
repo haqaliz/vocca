@@ -162,6 +162,14 @@ Stated positively, so the checklist below does not re-check things a machine alr
 Run these on a Mac, on the build you intend to ship, in order. Record the result; an unrun step is a
 failed step.
 
+> **What the release workflow automates and what this is:** `.github/workflows/release.yml` (tag
+> `v*`) runs the suite, builds Release, signs with the imported identity, re-runs the suite against
+> the signed bundle, and uploads `Vocca-macos.zip` to a GitHub Release. This checklist is not that —
+> it is the *proof* path the workflow structurally cannot run: real-microphone capture, real TCC
+> prompts, real Accessibility grants, real injection into other apps, on a machine that has never
+> run Vocca. Steps 1–4 (build/sign/verify) overlap what the workflow does; the rest of the checklist
+> is the reason a tag push must wait until these have passed on a real Mac.
+
 ### Build and identity
 
 1. `./Scripts/dev-identity.sh` if this machine has no stable identity yet, then build Release:
