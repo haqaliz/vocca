@@ -180,4 +180,43 @@ final class ModelDownloaderSeamTests: XCTestCase {
         let identifiers = Self.urlSessionIdentifiers(inSource: source)
         XCTAssertTrue(identifiers.isEmpty, "comments must be stripped before the scan")
     }
+
+    /// The cleanup eval-harness family may not name `URLSession` anywhere — the scorer, the
+    /// loader, the runs and their tests (B3): the harness is part of the default
+    /// configuration's CI surface, and the default configuration makes zero network calls. The
+    /// permitted set is **empty** — unlike the transport lint's one-file set, nothing in this
+    /// family may speak the network half of the zero-network claim, ever.
+    ///
+    /// The vacuity guards run in both directions: the fixed file list is non-empty, and every
+    /// listed file exists — a renamed-away eval file would pass "nothing names URLSession"
+    /// vacuously, so the list's existence is asserted, not assumed.
+    func testNoEvalHarnessFileNamesURLSession() throws {
+        let evalFiles = [
+            "CleanupPairwiseScorer.swift",
+            "CleanupPairSuite.swift",
+            "ProvisionalCleanupTargets.swift",
+            "CleanupPairwiseScorerTests.swift",
+            "CleanupEvalHarnessTests.swift",
+            "CleanupProvisioningScriptTests.swift",
+        ]
+        XCTAssertFalse(
+            evalFiles.isEmpty,
+            "the eval-file list must not be empty — an empty list passes 'no file names it' "
+                + "vacuously")
+
+        let root = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Tests/HarnessTests")
+        for fileName in evalFiles {
+            let url = root.appendingPathComponent(fileName)
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: url.path),
+                "every listed eval file must exist — a renamed-away file passes vacuously: "
+                    + "\(fileName)")
+            let source = try String(contentsOf: url, encoding: .utf8)
+            let identifiers = Self.urlSessionIdentifiers(inSource: source)
+            XCTAssertTrue(
+                identifiers.isEmpty,
+                "\(fileName) must not name URLSession, got: \(identifiers)")
+        }
+    }
 }

@@ -238,6 +238,109 @@ final class CleanupEvalHarnessTests: XCTestCase {
             "the rules-path p50 budget (ARCHITECTURE.md:310)")
     }
 
+    // MARK: - B3: the headless stand-in run
+
+    /// The stand-in run scores the whole checked-in corpus through the real rules: the report
+    /// covers every pair, the per-class tallies cover all six classes, the percentage equals
+    /// the scorer's exact arithmetic — and, the recovery guarantee, **every non-planted pair
+    /// is recovered by the shipped rules** (the planted pair is the one loss the scorer can
+    /// count).
+    func testTheStandInRunScoresTheWholeCorpusWithPerClassTalliesAndAPercentage() async throws {
+        let pairs = try CleanupPairSuite.loadPairs()
+        let dictionary = try await loadCorpusDictionary()
+        let report = try await CleanupEvalRun.runHeadless(pairs: pairs, dictionary: dictionary)
+
+        XCTAssertEqual(
+            report.verdicts.count, pairs.count,
+            "the report must cover every pair in the corpus")
+        XCTAssertEqual(
+            Set(report.verdicts.map(\.name)), Set(pairs.map(\.name)),
+            "every pair named, exactly once")
+
+        let plantedName = "numbers-units-planted-raw-preferred"
+        for verdict in report.verdicts where verdict.name != plantedName {
+            XCTAssertEqual(
+                verdict.preference, .cleanedPreferred,
+                "every non-planted stand-in pair must be recovered by the shipped rules: "
+                    + "\(verdict.name) is \(verdict.preference) — fix the golden, not the test")
+        }
+
+        XCTAssertEqual(
+            Set(report.perClassTallies.keys), Set(CleanupPairClass.allCases),
+            "the per-class tallies cover all six classes")
+        for className in CleanupPairClass.allCases {
+            let expectedCount = pairs.filter { $0.className == className }.count
+            XCTAssertEqual(
+                report.perClassTallies[className]?.values.reduce(0, +), expectedCount,
+                "class \(className.rawValue): tallies must account for every pair in the class")
+        }
+
+        let expectedPercentage = try CleanupPairwiseScorer.preferencePercentage(report.verdicts)
+        XCTAssertEqual(
+            report.percentage, expectedPercentage,
+            "the reported percentage is the scorer's exact arithmetic")
+    }
+
+    /// The planted raw-preferred pair is counted as a loss through the real engine and the
+    /// oracle — **the scorer can lose, or it measures nothing** (the can-lose proof).
+    func testThePlantedRawPreferredPairIsCountedRawPreferred() async throws {
+        let pairs = try CleanupPairSuite.loadPairs()
+        let dictionary = try await loadCorpusDictionary()
+        let report = try await CleanupEvalRun.runHeadless(pairs: pairs, dictionary: dictionary)
+
+        let planted = report.verdicts.first {
+            $0.name == "numbers-units-planted-raw-preferred"
+        }
+        XCTAssertEqual(
+            planted?.preference, .rawPreferred,
+            "the planted pair must count as a loss through the real engine — raw == golden, "
+                + "and the rules rewrite the number word")
+    }
+
+    /// The stand-in run is deterministic: two runs, identical verdicts and percentage — the
+    /// mechanism cannot be judged on a number that moves between invocations.
+    func testTheStandInRunIsDeterministic() async throws {
+        let pairs = try CleanupPairSuite.loadPairs()
+        let dictionary = try await loadCorpusDictionary()
+        let first = try await CleanupEvalRun.runHeadless(pairs: pairs, dictionary: dictionary)
+        let second = try await CleanupEvalRun.runHeadless(pairs: pairs, dictionary: dictionary)
+        XCTAssertEqual(first.verdicts, second.verdicts)
+        XCTAssertEqual(first.percentage, second.percentage)
+    }
+
+    /// The run prints the record — the percentage, the per-class breakdown and the seed —
+    /// through its injected printer, so the human-facing record exists and the test can hold it.
+    func testTheStandInRunPrintsTheReport() async throws {
+        let pairs = try CleanupPairSuite.loadPairs()
+        let dictionary = try await loadCorpusDictionary()
+        var printed: [String] = []
+        let report = try await CleanupEvalRun.runHeadless(
+            pairs: pairs, dictionary: dictionary, printer: { printed.append($0) })
+
+        XCTAssertFalse(printed.isEmpty, "the run must print its record")
+        XCTAssertTrue(
+            printed.contains { $0 == "preference=95.8%" },
+            "the record must carry the exact preference percentage (23 of 24 pairs preferred "
+                + "— the planted pair is the one loss), got: \(printed)")
+        XCTAssertTrue(
+            printed.contains { $0.lowercased().contains("5eedc0de") },
+            "the record must carry the seed, got: \(printed)")
+        for className in CleanupPairClass.allCases {
+            XCTAssertTrue(
+                printed.contains { $0.contains(className.rawValue) },
+                "the record must carry the \(className.rawValue) class tally, got: \(printed)")
+        }
+        XCTAssertEqual(report.seed, CleanupEvalRun.headlessSeed)
+    }
+
+    /// The corpus's shared dictionary, loaded from the checked-in `Tests/CleanupPairs`
+    /// directory — the `user-dictionary` store reading `<dir>/dictionary.json`.
+    private func loadCorpusDictionary() async throws -> [ReplacementRule] {
+        let pairsDirectory = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Tests/CleanupPairs")
+        return await FileSystemDictionaryStore(directory: pairsDirectory).load()
+    }
+
     /// The real run's recorded-not-gated comparison line reads the same table — the founder's
     /// run cannot print a verdict against a number that silently stopped existing.
     func testTheRealRunConsumesTheProvisionalPreferenceMinimum() {
