@@ -13,6 +13,9 @@
 // limitations under the License.
 
 import Foundation
+import VoccaASR
+import VoccaCore
+import VoccaText
 import XCTest
 
 /// The cleanup eval harness's acceptance surface (spec B2–B6): the corpus loader's loud-failure
@@ -172,5 +175,105 @@ final class CleanupEvalHarnessTests: XCTestCase {
                 error as? CleanupPairSuiteError,
                 .unknownClassTag(pair: "mystery", tag: "bogus-class"))
         }
+    }
+
+    // MARK: - B5/B6: the provisional targets and the latency gate
+
+    /// The checked-in stand-in corpus, cleaned by the shipped rules with the corpus's
+    /// dictionary, must land under the provisional p50 budget — measured with the real clock,
+    /// through the gate's own arithmetic (the `ARCHITECTURE.md:310` budget).
+    func testTheCorpusCleansUnderTheProvisionalP50Budget() async throws {
+        let pairs = try CleanupPairSuite.loadPairs()
+        let pairsDirectory = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Tests/CleanupPairs")
+        let dictionary = await FileSystemDictionaryStore(directory: pairsDirectory).load()
+        let p50 = CleanupLatencyGate.measureRulesP50(
+            pairs: pairs, dictionary: dictionary, clock: ContinuousMonotonicClock())
+        let verdict = CleanupLatencyGate.evaluate(p50: p50)
+        XCTAssertTrue(
+            verdict.passed,
+            "stand-in corpus p50 \(verdict.p50) must be under the provisional budget "
+                + "\(verdict.threshold) — a corpus the rules cannot clean fast measures nothing")
+    }
+
+    /// The load-bearing half of the gate: a pathological dictionary rule must genuinely blow the
+    /// 10 ms budget, so the gate can fail before any real regression can slip. A gate that
+    /// cannot fail proves nothing (`benchmark-gate/spec.md:27-29`).
+    func testASeededSlowRuleFailsTheLatencyGate() {
+        let pathologicalText = String(repeating: "a", count: 8000)
+        let slowRule = ReplacementRule(
+            source: String(repeating: "a", count: 4000) + "z",
+            replacement: "x", caseSensitive: false, wordBoundary: false)
+        let pairs = (0..<20).map { index in
+            CleanupPair(
+                name: "slow-\(index)", raw: pathologicalText, clean: "clean.",
+                className: .fillers)
+        }
+        let p50 = CleanupLatencyGate.measureRulesP50(
+            pairs: pairs, dictionary: [slowRule], clock: ContinuousMonotonicClock())
+        let verdict = CleanupLatencyGate.evaluate(p50: p50)
+        XCTAssertFalse(
+            verdict.passed,
+            "a seeded-slow rule must blow the \(verdict.threshold) budget — measured p50 "
+                + "\(verdict.p50); a gate that cannot fail proves nothing")
+    }
+
+    /// The gate's threshold IS the provisional table: deleting the table breaks the gate (the
+    /// `LatencyBenchmarkTests.swift` consumption shape).
+    func testTheLatencyGateConsumesTheProvisionalTable() {
+        XCTAssertEqual(
+            CleanupLatencyGate.threshold, ProvisionalCleanupTargets.rulesPathP50,
+            "the gate consumes the provisional rules-path budget — deleting the table breaks "
+                + "the gate")
+    }
+
+    /// The one named table exists and carries the provisional figures (`ROADMAP.md:137`,
+    /// `ARCHITECTURE.md:310`).
+    func testTheProvisionalTargetsExistAndAreMarkedProvisional() {
+        XCTAssertEqual(
+            ProvisionalCleanupTargets.preferenceMinimum, 0.80,
+            "the P1 gate's blind pairwise-preference minimum (ROADMAP.md:137)")
+        XCTAssertEqual(
+            ProvisionalCleanupTargets.rulesPathP50, .milliseconds(10),
+            "the rules-path p50 budget (ARCHITECTURE.md:310)")
+    }
+
+    /// The real run's recorded-not-gated comparison line reads the same table — the founder's
+    /// run cannot print a verdict against a number that silently stopped existing.
+    func testTheRealRunConsumesTheProvisionalPreferenceMinimum() {
+        XCTAssertEqual(
+            CleanupRealRunTargets.preferenceMinimum,
+            ProvisionalCleanupTargets.preferenceMinimum,
+            "the real run consumes the provisional preference minimum — deleting the table "
+                + "breaks the founder's comparison line")
+    }
+
+    /// The provisional figure appears in exactly the named table and the test that pins it —
+    /// nowhere else in `Sources/` or `Tests/` — so the P1-gate number cannot drift into a
+    /// second home. The scan carries the vacuity guard in both directions: the named table's
+    /// sighting exists, and the scanned tree is non-empty.
+    func testThePreferenceMinimumAppearsNowhereOutsideTheNamedFile() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let namedTable = "ProvisionalCleanupTargets.swift"
+        let pinningTest = "CleanupEvalHarnessTests.swift"
+        let allowedSightings: Set<String> = [namedTable, pinningTest]
+
+        var sightings: [String: Int] = [:]
+        for tree in [root.appendingPathComponent("Sources"), root.appendingPathComponent("Tests")] {
+            for file in SwiftSourceScanner.swiftFiles(under: tree) {
+                let content = try String(contentsOf: file, encoding: .utf8)
+                if content.contains("0.80") {
+                    sightings[file.lastPathComponent, default: 0] += 1
+                }
+            }
+        }
+
+        XCTAssertFalse(sightings.isEmpty, "vacuity guard: the scan saw no files at all")
+        XCTAssertEqual(
+            Set(sightings.keys), allowedSightings,
+            "0.80 must live in exactly the named table and its pinning test, got: \(sightings)")
+        XCTAssertEqual(
+            sightings[namedTable], 1,
+            "the named table's own sighting must exist — the vacuity guard's second direction")
     }
 }
