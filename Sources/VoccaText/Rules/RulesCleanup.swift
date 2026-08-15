@@ -75,6 +75,11 @@ public enum RulesCleanup {
         var removedAny = false
         var index = 0
 
+        // The protection class, computed once per call: a token containing any of `/ . - _ @` is
+        // one unit, and this stage (like every stage) consults the same flags rather than its
+        // own notion of the rule.
+        let protected = Self.protectedFlags(for: entries)
+
         /// `true` when the edited text so far is empty or ends with a sentence boundary —
         /// the "preceded by utterance start, a boundary symbol, or a position vacated by an
         /// earlier removal" flank (earlier removals mean `output` reflects the edited text).
@@ -91,7 +96,7 @@ public enum RulesCleanup {
                 index + 1 < entries.count ? entries[index + 1].word.lowercased() : ""
 
             var spanLength = 0
-            if !Self.isProtectedToken(word) {
+            if !protected[index] {
                 if staticFillers.contains(lower) {
                     spanLength = 1
                 } else if lower == "you", nextLower == "know" {
@@ -156,6 +161,9 @@ public enum RulesCleanup {
         var changedAny = false
         var index = 0
 
+        // The protection class, computed once per call (see `removeFillers`).
+        let protected = Self.protectedFlags(for: entries)
+
         /// The word the edited text so far ends with ("" at utterance start) — the determiner
         /// guard's subject: earlier replacements are visible, so the check reads the edited text.
         func previousWord() -> String {
@@ -181,7 +189,7 @@ public enum RulesCleanup {
             {
                 // N2 word + symbol (`period.`): the symbol wins, the word is dropped.
                 resolved = (symbol, 1, false)
-            } else if !Self.isProtectedToken(word) {
+            } else if !protected[index] {
                 if lower == "question", index + 1 < entries.count,
                     entries[index + 1].word.lowercased() == "mark", !precededByDeterminer
                 {
@@ -301,8 +309,11 @@ public enum RulesCleanup {
         var changedAny = false
         var index = 0
 
+        // The protection class, computed once per call (see `removeFillers`).
+        let protected = Self.protectedFlags(for: entries)
+
         while index < entries.count {
-            if let phrase = Self.numberPhrase(at: index, in: entries) {
+            if let phrase = Self.numberPhrase(at: index, in: entries, protected: protected) {
                 changedAny = true
                 if !entries[index].leading.isEmpty {
                     output.append(String(entries[index].leading))
@@ -362,6 +373,16 @@ public enum RulesCleanup {
     private static func isProtectedToken(_ token: Substring) -> Bool {
         token.contains("/") || token.contains(".")
             || token.contains("-") || token.contains("_") || token.contains("@")
+    }
+
+    /// The protection class computed **once per call**: the per-entry flags every word-scanning
+    /// stage consults, so the guarantee is one mechanism rather than each stage's own notion of
+    /// the rule. `capitalizeSentences` consults the same predicate through its terminal-position
+    /// boundary rule and `@`-token guard — a protected token's internal `.` is never terminal.
+    private static func protectedFlags(
+        for entries: [(leading: Substring, word: Substring)]
+    ) -> [Bool] {
+        entries.map { Self.isProtectedToken($0.word) }
     }
 
     /// The last non-whitespace character of the input, or `nil` when the input is empty or
@@ -426,11 +447,14 @@ public enum RulesCleanup {
     /// Parses the longest bounded number phrase beginning at `index`: `[tens][ones]` sums,
     /// `[ones][hundred]` multiplies, both may combine (`one hundred twenty five` → `125`).
     /// Returns the value and the number of tokens it consumed, or `nil` when the token at
-    /// `index` is not a number word. Never parses inside a protected token.
+    /// `index` is not a number word. Never parses inside a protected token — the flags are the
+    /// once-per-call protection class.
     private static func numberPhrase(
-        at index: Int, in entries: [(leading: Substring, word: Substring)]
+        at index: Int,
+        in entries: [(leading: Substring, word: Substring)],
+        protected: [Bool]
     ) -> (value: Int, count: Int)? {
-        guard index < entries.count, !Self.isProtectedToken(entries[index].word) else {
+        guard index < entries.count, !protected[index] else {
             return nil
         }
         let lower = { (offset: Int) -> String in
@@ -442,20 +466,19 @@ public enum RulesCleanup {
 
         // [ones][hundred]
         if let ones = Self.onesTable[lower(0)], index + 1 < entries.count,
-            !Self.isProtectedToken(entries[index + 1].word),
+            !protected[index + 1],
             Self.hundredWords.contains(lower(1))
         {
             value += ones * 100
             count = 2
         }
         // [tens][ones]?
-        if index + count < entries.count, !Self.isProtectedToken(entries[index + count].word),
+        if index + count < entries.count, !protected[index + count],
             let tens = Self.tensTable[lower(count)]
         {
             value += tens
             count += 1
-            if index + count < entries.count,
-                !Self.isProtectedToken(entries[index + count].word),
+            if index + count < entries.count, !protected[index + count],
                 let ones = Self.onesTable[lower(count)]
             {
                 value += ones
