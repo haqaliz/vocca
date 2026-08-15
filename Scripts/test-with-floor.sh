@@ -921,8 +921,14 @@ set -euo pipefail
 # The floor now equals the suite again — the latency-instrumentation gap (40 tests shipped
 # unfloored) is closed for this aspect, per the review finding `prd.md:120-123`.
 #
+# The deterministic-cleanup eval-harness aspect raises it to 934: the pairwise-preference
+# comparator's decision table (nine, B1) — every blind-answer × presentation row, the oracle's
+# four rows, the exact percentage arithmetic (3 of 4 ⇒ 0.75), the tie-excluded denominator, the
+# named `noPreferenceSample` error on all-tie and empty runs, and the seeded presentation
+# order's determinism (the blindness mechanism's determinism half).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=925
+MINIMUM_EXECUTED_TESTS=934
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
