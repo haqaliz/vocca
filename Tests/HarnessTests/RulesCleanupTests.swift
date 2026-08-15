@@ -134,6 +134,33 @@ final class RulesCleanupTests: XCTestCase {
         }
     }
 
+    // MARK: - B5 · bounded number normalization
+
+    /// `numberRows` — bounded cardinals + units only, driving `normalizeNumbers` alone: digit
+    /// words through explicit tables, no `Locale`/`NumberFormatter`/`String(format:)` (the
+    /// determinism claim). Unit words stay words (`forty percent` → `40 percent` — symbol
+    /// rendering is Open question 3); digits already present are unchanged (`build 42`); no
+    /// decimal rows until Open question 2 resolves.
+    func testNumberRows() {
+        struct Row {
+            let input: String
+            let expected: String
+        }
+        let rows: [Row] = [
+            Row(input: "twelve", expected: "12"),
+            Row(input: "twenty five", expected: "25"),
+            Row(input: "one hundred", expected: "100"),
+            Row(input: "forty percent", expected: "40 percent"),
+            Row(input: "twelve dollars", expected: "12 dollars"),
+            Row(input: "build 42", expected: "build 42"),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                RulesCleanup.normalizeNumbers(row.input), row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
     // MARK: - B4 · spoken punctuation
 
     /// `spokenPunctuationRows` — the spoken commands resolved to their symbols, driving the
