@@ -313,22 +313,22 @@ final class CleanupEvalHarnessTests: XCTestCase {
     func testTheStandInRunPrintsTheReport() async throws {
         let pairs = try CleanupPairSuite.loadPairs()
         let dictionary = try await loadCorpusDictionary()
-        var printed: [String] = []
+        let spy = PrinterSpy()
         let report = try await CleanupEvalRun.runHeadless(
-            pairs: pairs, dictionary: dictionary, printer: { printed.append($0) })
+            pairs: pairs, dictionary: dictionary, printer: { spy.append($0) })
 
-        XCTAssertFalse(printed.isEmpty, "the run must print its record")
+        XCTAssertFalse(spy.lines.isEmpty, "the run must print its record")
         XCTAssertTrue(
-            printed.contains { $0 == "preference=95.8%" },
+            spy.lines.contains { $0 == "preference=95.8%" },
             "the record must carry the exact preference percentage (23 of 24 pairs preferred "
-                + "— the planted pair is the one loss), got: \(printed)")
+                + "— the planted pair is the one loss), got: \(spy.lines)")
         XCTAssertTrue(
-            printed.contains { $0.lowercased().contains("5eedc0de") },
-            "the record must carry the seed, got: \(printed)")
+            spy.lines.contains { $0.lowercased().contains("5eedc0de") },
+            "the record must carry the seed, got: \(spy.lines)")
         for className in CleanupPairClass.allCases {
             XCTAssertTrue(
-                printed.contains { $0.contains(className.rawValue) },
-                "the record must carry the \(className.rawValue) class tally, got: \(printed)")
+                spy.lines.contains { $0.contains(className.rawValue) },
+                "the record must carry the \(className.rawValue) class tally, got: \(spy.lines)")
         }
         XCTAssertEqual(report.seed, CleanupEvalRun.headlessSeed)
     }
@@ -379,6 +379,13 @@ final class CleanupEvalHarnessTests: XCTestCase {
             sightings[namedTable], 1,
             "the named table's own sighting must exist — the vacuity guard's second direction")
     }
+}
+
+/// The corpus's shared dictionary, loaded from the checked-in `Tests/CleanupPairs` directory —
+/// the `user-dictionary` store reading `<dir>/dictionary.json`.
+private final class PrinterSpy: @unchecked Sendable {
+    private(set) var lines: [String] = []
+    func append(_ line: String) { lines.append(line) }
 }
 
 /// The real run's recorded-not-gated comparison line reads this constant — the B6 consumption
@@ -433,5 +440,72 @@ enum CleanupLatencyGate {
             return clock.now - start
         }
         return percentile(samples, 0.50) ?? .zero
+    }
+}
+
+/// The headless stand-in run (B3): the shipped rules over the checked-in corpus with the oracle
+/// judge — the CI-runnable half of the eval harness.
+///
+/// Text in, text out: the corpus arrives as `CleanupPair`s, the verdicts come from the pure
+/// scorer's oracle, and no transport exists to touch — the family is lint-pinned never to name
+/// `URLSession` (`ModelDownloaderSeamTests` B3 row). The printed record carries the exact
+/// preference percentage, the per-class tallies and the seed, through an injected printer (the
+/// default writes to stdout) so the human-facing record exists and tests can hold it.
+enum CleanupEvalRun {
+
+    /// The run's record: every pair's verdict, the aggregate percentage, the per-class tallies
+    /// and the seed the presentation would use — reproducible, and `Sendable`.
+    struct Report: Sendable {
+        let verdicts: [PairVerdict]
+        let percentage: Double
+        let perClassTallies: [CleanupPairClass: [PairwisePreference: Int]]
+        let seed: UInt64
+    }
+
+    /// The stand-in corpus's fixed seed — two runs of the mechanism land on the same record.
+    static let headlessSeed: UInt64 = 0x5EED_C0DE
+
+    /// Scores every pair through `RulesCleanup.clean` and the oracle, computes the aggregate
+    /// and the tallies, prints the record, and returns it.
+    @discardableResult
+    static func runHeadless(
+        pairs: [CleanupPair],
+        dictionary: [ReplacementRule],
+        seed: UInt64 = headlessSeed,
+        printer: @escaping @Sendable (String) -> Void = { print($0) }
+    ) async throws -> Report {
+        let verdicts = pairs.map { pair in
+            let produced = RulesCleanup.clean(pair.raw, dictionary: dictionary)
+            return PairVerdict(
+                name: pair.name,
+                preference: CleanupPairwiseScorer.oracleVerdict(
+                    raw: pair.raw, produced: produced, golden: pair.clean),
+                className: pair.className)
+        }
+        let percentage = try CleanupPairwiseScorer.preferencePercentage(verdicts)
+
+        var perClassTallies: [CleanupPairClass: [PairwisePreference: Int]] = [:]
+        for className in CleanupPairClass.allCases {
+            perClassTallies[className] = [:]
+        }
+        for verdict in verdicts {
+            perClassTallies[verdict.className, default: [:]][verdict.preference, default: 0] += 1
+        }
+
+        printer(String(format: "preference=%.1f%%", percentage * 100))
+        printer("seed=0x" + String(seed, radix: 16, uppercase: true))
+        for className in CleanupPairClass.allCases {
+            let tallies = perClassTallies[className] ?? [:]
+            let cleaned = tallies[.cleanedPreferred, default: 0]
+            let raw = tallies[.rawPreferred, default: 0]
+            let other = tallies[.tie, default: 0] + tallies[.noPreference, default: 0]
+            printer("\(className.rawValue): cleaned \(cleaned), raw \(raw), no-preference \(other)")
+        }
+
+        return Report(
+            verdicts: verdicts,
+            percentage: percentage,
+            perClassTallies: perClassTallies,
+            seed: seed)
     }
 }

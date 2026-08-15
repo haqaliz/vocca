@@ -945,8 +945,15 @@ set -euo pipefail
 # table, the table's own existence and values, the real run consuming the preference minimum,
 # and the single-source scan pinning `0.80` to the named table and its pinning test.
 #
+# The same aspect raises it to 954: the headless stand-in run (four, B3) — the whole-corpus
+# score with the recovery guarantee (every non-planted pair cleaned, the per-class tallies
+# covering all six classes, the percentage equal to the scorer's arithmetic), the planted pair
+# counted as a loss through the real engine, the two-run determinism, and the printed record
+# (exact percentage, seed, per-class lines) — plus the eval-family no-`URLSession` lint row in
+# ModelDownloaderSeamTests (one), the family's empty-permitted-set confinement.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=949
+MINIMUM_EXECUTED_TESTS=954
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
