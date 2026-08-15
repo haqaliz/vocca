@@ -215,6 +215,86 @@ final class RulesCleanupTests: XCTestCase {
         }
     }
 
+    // MARK: - B7 · dictionary application
+
+    /// `dictionaryRows` — user dictionary rules in declared order, driving
+    /// `{removeFillers, normalizeNumbers, applyDictionary, capitalizeSentences}` — dictionary
+    /// **before** capitalization, because row 3 pins it: capitalize-then-dictionary would yield
+    /// `"hi today"`, not `"Hi today"`. This is a testing-surface choice for the class table, not
+    /// an order change: the composed `clean` keeps the spec's fixed order (capitalize then
+    /// dictionary), which B8 row 2 pins. The rules carry `caseSensitive: false`,
+    /// `wordBoundary: true` — their full semantics ship with `user-dictionary`; this aspect
+    /// reads them, does not define them.
+    func testDictionaryRows() {
+        struct Row {
+            let input: String
+            let rules: [ReplacementRule]
+            let expected: String
+        }
+        let kawaRule = ReplacementRule(
+            source: "kawa", replacement: "Kawa",
+            caseSensitive: false, wordBoundary: true)
+        let rows: [Row] = [
+            Row(
+                input: "we should ship kawa this week", rules: [kawaRule],
+                expected: "We should ship Kawa this week"),
+            Row(
+                input: "um twelve kawa", rules: [kawaRule],
+                expected: "12 Kawa"),
+            Row(
+                input: "hello world today",
+                rules: [
+                    ReplacementRule(
+                        source: "hello world", replacement: "hi",
+                        caseSensitive: false, wordBoundary: true),
+                    ReplacementRule(
+                        source: "world", replacement: "earth",
+                        caseSensitive: false, wordBoundary: true),
+                ],
+                expected: "Hi today"),
+        ]
+        for row in rows {
+            var text = RulesCleanup.removeFillers(row.input)
+            text = RulesCleanup.normalizeNumbers(text)
+            text = RulesCleanup.applyDictionary(text, rules: row.rules)
+            XCTAssertEqual(
+                RulesCleanup.capitalizeSentences(text), row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
+    // MARK: - B8 · combination rows
+
+    /// `combinationRows` — the composed `clean` end to end: the PRD demo (`um so like we need to
+    /// ship this period` → `We need to ship this.`), built-ins-before-dictionary through the
+    /// composed pipeline, and the mid-utterance `?` boundary capitalizing the next sentence.
+    func testCombinationRows() {
+        struct Row {
+            let input: String
+            let rules: [ReplacementRule]
+            let expected: String
+        }
+        let kawaRule = ReplacementRule(
+            source: "kawa", replacement: "Kawa",
+            caseSensitive: false, wordBoundary: true)
+        let rows: [Row] = [
+            Row(
+                input: "um so like we need to ship this period", rules: [],
+                expected: "We need to ship this."),
+            Row(
+                input: "we should ship kawa this week period", rules: [kawaRule],
+                expected: "We should ship Kawa this week."),
+            Row(
+                input: "i think we are ready question mark we ship now", rules: [],
+                expected: "I think we are ready? We ship now."),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                RulesCleanup.clean(row.input, dictionary: row.rules), row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
     // MARK: - B4 · spoken punctuation
 
     /// `spokenPunctuationRows` — the spoken commands resolved to their symbols, driving the
