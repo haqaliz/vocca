@@ -137,7 +137,7 @@ today (P0 behavior unchanged on every failure path).
   `VOCCA_MODEL_DIR` skip pattern, `ParakeetEngineWERTests.swift:52-58`). F2 recording task added
   to the smoke checklist.
 - **S4 — SMOKE_CHECKLIST edits**: the verbatim assertions (steps 62-68; matrix rows) gain a
-  cleaned-vs-raw qualifier; benchmark step 69's "cleanup is never recorded, C5 unbuilt"
+  cleaned-vs-raw qualifier; benchmark step 71's "cleanup is never recorded, C5 unbuilt"
   (`SMOKE_CHECKLIST.md:1189-1191`) flips to the recorded-span expectation; new steps for the
   dictionary and for cleanup-failure degrades, in the 62-68 pattern.
 

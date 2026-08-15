@@ -353,7 +353,8 @@ transcript Vocca captured, not against your intention: with a clean phrase and t
 load-bearing because an ASR mishearing is not an injection failure — what must land verbatim is the
 field *versus the transcript*.
 
-*Pass* in every row is the same: the field holds the transcript verbatim and no failsafe appears.
+*Pass* in every row is the same: the field holds the transcript **cleaned by the shipped rules,
+which for a clean phrase is the transcript itself** verbatim and no failsafe appears.
 *Failure* in every row is the same shape and must never be silent: the failsafe shows with a
 plain-language reason (`PRODUCT_SPEC.md:109-114`) — a report of success with nothing in the field is
 the exact silent success the read-back verification exists to catch, and a row that ends that way
@@ -1008,7 +1009,8 @@ window) and the **Esc** key's route to the machine's `cancel()` is closed end to
 (`SessionKeyPolicy` in `VoccaHotkey`; the root's cancel router in `AppBootstrap.swift`) — see
 step 64, which was the blocked step.
 
-62. **First dictation — Notes and TextEdit; a 10-second utterance lands verbatim.** PRD metric 1.
+62. **First dictation — Notes and TextEdit; a 10-second utterance lands verbatim — the field
+    holds the cleaned transcript, which for a clean phrase is the raw text itself.** PRD metric 1.
 
     *Gesture:* with the model present and the launch-time prepare completed (a trial press starts
     a session), focus a new note in Notes, press `⌥Space`, speak a fixed 10-second utterance, and
@@ -1018,7 +1020,8 @@ step 64, which was the blocked step.
     an injection matter). Repeat in TextEdit (`⌘⇧T` — rich text reflows and defeats the byte
     compare).
 
-    *Pass:* the field holds the transcript verbatim in both apps, no failsafe appears, and the
+    *Pass:* the field holds the transcript **cleaned by the shipped rules, which for a clean
+    phrase is the transcript itself** verbatim in both apps, no failsafe appears, and the
     orange mic indicator (step 58's discipline) is out within a watchdog tick of the release. The
     cycle the machine executes is the plan's sequence — OPENING → RECORDING → TRANSCRIBING →
     DELIVERED → IDLE (`PRODUCT_SPEC.md:77-103`): `.opening` shows the target label with **no
@@ -1033,8 +1036,9 @@ step 64, which was the blocked step.
     `MicrophoneLevelSource` over the capture graph — a flat line while speaking is an input-level
     defect, not a display preference.
 
-    *Failure:* the field does not hold the transcript verbatim; the failsafe appears with a
-    reason instead of a delivery; or the mic indicator stays lit after the release. A transcribe
+    *Failure:* the field does not hold the transcript **cleaned by the shipped rules, which for a
+    clean phrase is the transcript itself** verbatim; the failsafe appears with a reason instead
+    of a delivery; or the mic indicator stays lit after the release. A transcribe
     failure surfaces the `.transcriptionFailed` reason-only notice — **"Voice processing failed.
     Nothing was lost — you can try again."** (`FailsafeCopy.swift:54-55`, PRD R5) — never a
     silent idle pretending the text landed.
@@ -1153,15 +1157,36 @@ step 64, which was the blocked step.
     *Pass:* every cycle ends — the mic indicator goes out within a watchdog tick of each release
     and stays dark between sessions (a session that does not end keeps it lit: the hot-mic class);
     no crash; and **zero transcript loss** — every spoken utterance either landed in the field
-    verbatim or is held and copyable in the failsafe, the two halves of invariant I1, enforced by
-    the pipeline's closed terminal set: an injector call, a journaled hold, or a reason-only
-    notice that names the failure — never a silent idle (`DictationPipeline.swift:47-57`,
-    `prd.md` metric 3).
+    **cleaned or raw** verbatim or is held and copyable in the failsafe, the two halves of
+    invariant I1, enforced by the pipeline's closed terminal set: an injector call, a journaled
+    hold, or a reason-only notice that names the failure — never a silent idle
+    (`DictationPipeline.swift:47-57`, `prd.md` metric 3).
 
     *Failure:* a session that does not end (stuck past its window — the hot mic), a crash, or an
     utterance that neither lands, nor is held, nor is accounted for by a reason notice. CI's
     100-cycle composed run (metric 5) makes the same claim over fakes; this step is the first
     time it is made with a real tap, a real mic and a real engine.
+
+69. **The user dictionary through the loop.**
+
+    *Gesture:* edit `~/Library/Application Support/Vocca/dictionary.json` to a rule (e.g.
+    `"gotcha"` → `"got you"`), relaunch, dictate the rule's source over Notes.
+
+    *Pass:* the field holds the **target**, not the source — the dictionary is applied by the
+    default-on rules provider.
+
+    *Failure:* the source lands unchanged with a clean utterance.
+
+70. **Cleanup-failure degrade: text still lands raw.**
+
+    *Gesture:* with a rules path that fails or times out (e.g. a rule file made unreadable
+    mid-session, or a strace'd suspension) dictate over Notes.
+
+    *Pass:* the raw text still lands (I5 — cleanup degrades, never blocks); the ledger's record
+    shows the **cleanup span** (step 69's `PROBE-LATENCY`/ledger read discipline — the record is
+    local, `describe()` renders it).
+
+    *Failure:* no text lands, or the cleanup failure is silent forever (no span in the record).
 
 ### The real-engine latency benchmark — its first measured run
 
@@ -1173,7 +1198,7 @@ CI — the steps 18-19 precedent: the model cannot reach a hosted runner, and a 
 be about fakes, never about Vocca. These two steps are the run's first execution, on the
 founder's machine, and the first real latency data this repository will have.
 
-69. **The first real latency benchmark run — the real engine, on this machine.** The WER
+71. **The first real latency benchmark run — the real engine, on this machine.** The WER
     discipline (step 19) applied to latency: the runner is env-gated exactly like the engine
     tests — without `VOCCA_LATENCY_BENCH` it skips visibly, and the founder's machine is its
     only execution.
@@ -1187,15 +1212,15 @@ founder's machine, and the first real latency data this repository will have.
     provisioning instructions rather than skipping (the WER pattern).
 
     *Pass:* the run completes and prints, for each fixture (the 200 ms, the clean and the 60 s
-    clips), a per-span p50/p95 row for **captureClose, asr and inject** — the closed span set
-    the gate checks (`cleanup` is never recorded, C5 unbuilt) — **with the process's
-    suppression state beside every row**, and the suppression column reads **not-suppressed
-    throughout**. Rule 1 of the preamble applies without softening: a run taken while the
-    process was throttled is **voided, not recorded** — a throttled number recorded as clean is
-    the exact error this column exists to prevent (step 52's discipline, the `measure-timers.sh`
-    precedent).
+    clips), a per-span p50/p95 row for **captureClose, asr, cleanup and inject** — the closed
+    span set the gate checks — the recorded cleanup span (C5 wired) is one of the four — **with
+    the process's suppression state beside every row**, and the suppression column reads
+    **not-suppressed throughout**. Rule 1 of the preamble applies without softening: a run taken
+    while the process was throttled is **voided, not recorded** — a throttled number recorded as
+    clean is the exact error this column exists to prevent (step 52's discipline, the
+    `measure-timers.sh` precedent).
 
-70. **The record: the printed numbers re-baseline the tolerances table.** The run's deliverable
+72. **The record: the printed numbers re-baseline the tolerances table.** The run's deliverable
     is a record, not a verdict — the way step 59's engine-start measurement is. Read the printed
     per-span p50/p95 against the provisional table — **p50 ≤ 400 ms / p95 ≤ 800 ms for a
     10-second utterance** (`ProvisionalTolerances` in `Tests/HarnessTests/LatencyBenchmarkTests.swift`,

@@ -58,7 +58,7 @@ phase P1) is four things, in build order:
 - **Test floor lags**: `Scripts/test-with-floor.sh:908` pins 836; the suite actually runs 876
   (latency-instrumentation shipped 40 tests without raising it — a review finding). C5 raises it.
 - **SMOKE_CHECKLIST verbatim assumptions**: steps 62-68 and the matrix assert injected text is
-  "verbatim" (e.g. :1011, :356); benchmark step 69 says "cleanup is never recorded, C5 unbuilt"
+  "verbatim" (e.g. :1011, :356); benchmark step 71 says "cleanup is never recorded, C5 unbuilt"
   (:1189-1191). Both need C5-qualified edits.
 
 ## What the docs add (the requirements)

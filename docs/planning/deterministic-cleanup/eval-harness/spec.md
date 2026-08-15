@@ -75,8 +75,8 @@ and the F2 smoke task that will eventually re-baseline it. It scores `RulesClean
    `tolerances_20260810.md:47-52` "Where the final numbers land: F2" mechanism, asserted
    single-sourced in the B6 pattern of the latency gate (`LatencyBenchmarkTests.swift:193-217`).
    **Goal 1's P1-gate instrument.**
-7. **F2 recording task in the smoke checklist.** A new numbered step (71, after the
-   benchmark pair 69-70, in the 62-68 *Gesture:*/*Pass:* format,
+7. **F2 recording task in the smoke checklist.** A new numbered step (73, after the
+   benchmark pair 71-72, in the 62-68 *Gesture:*/*Pass:* format,
    `SMOKE_CHECKLIST.md:1011-1149`) naming the F2 contract — recordings, golden
    transcription, pair location/format, the env-gated scoring run and what "pass" means —
    claiming the ownerless F2 (`local-asr/prd.md:369-372`). Until the founder runs it, ≥80%
@@ -160,7 +160,7 @@ implementation, per the capability rule (`CAPABILITY_ROADMAP.md:13`).
   vacuity guard) fails if the `0.80` figure appears anywhere outside the named file — the
   WER single-place discipline (`tolerances_20260810.md:3-6`) applied to the cleanup target.
 - B7 **Checklist**: `docs/SMOKE_CHECKLIST.md` gains the F2 recording + first real scoring
-  run step (numbered 71 in sequence, *Gesture:*/*Pass:* format), naming the env var, the
+   run step (numbered 73 in sequence, *Gesture:*/*Pass:* format), naming the env var, the
   pair contract, and that "pass" for this run is the printed record, not a verdict.
 - B8 **Floor/boundary**: full floor green after every commit
   (`Scripts/test-with-floor.sh`); no new dependencies; no lint edits;
@@ -180,8 +180,8 @@ implementation, per the capability rule (`CAPABILITY_ROADMAP.md:13`).
   (`LatencyBenchmarkTests.swift:193-217`), the H8 lint family (`ModelDownloaderSeamTests`),
   and the provisioning-script pattern (`Scripts/provision-asr-fixtures.sh`).
 - **`pipeline-wiring`** flips the `SMOKE_CHECKLIST.md:1189-1191` "cleanup is never recorded"
-  wording and the verbatim steps 62-68 to cleaned-vs-raw; this aspect's step 71 slots after
-  step 70 without touching those.
+  wording and the verbatim steps 62-68 to cleaned-vs-raw; this aspect's step 73 slots after
+  step 72 without touching those.
 
 ## Open questions / risks
 
