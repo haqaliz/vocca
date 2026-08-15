@@ -939,8 +939,14 @@ set -euo pipefail
 # emitted with raw == clean, and the loud rejections (unknown class directory exits 2 naming it,
 # an empty goldens tree exits 1, neither creating an output directory).
 #
+# The same aspect raises it to 949: the provisional targets and the latency gate (six, B5/B6) —
+# the stand-in corpus cleaning under the provisional p50 budget, the seeded-slow rule genuinely
+# failing the gate (a gate that cannot fail proves nothing), the gate consuming the provisional
+# table, the table's own existence and values, the real run consuming the preference minimum,
+# and the single-source scan pinning `0.80` to the named table and its pinning test.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=943
+MINIMUM_EXECUTED_TESTS=949
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

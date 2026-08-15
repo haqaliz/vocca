@@ -277,3 +277,58 @@ final class CleanupEvalHarnessTests: XCTestCase {
             "the named table's own sighting must exist — the vacuity guard's second direction")
     }
 }
+
+/// The real run's recorded-not-gated comparison line reads this constant — the B6 consumption
+/// pin — so the founder's run cannot print a verdict against a number that silently stopped
+/// existing, and the provisional table stays the one place the figure lives.
+enum CleanupRealRunTargets {
+    static let preferenceMinimum = ProvisionalCleanupTargets.preferenceMinimum
+}
+
+/// The rules-path latency gate (B5) — a test-only mechanism over the pure rules function.
+///
+/// CI asserts two things and no more: the stand-in corpus lands under the provisional p50
+/// budget (a mechanism check over a pure stdlib function), and a seeded-slow rule genuinely
+/// fails the gate (a gate that cannot fail proves nothing — `benchmark-gate/spec.md:27-29`).
+/// The product number comes from the founder's env-gated run, which records, never gates.
+enum CleanupLatencyGate {
+
+    /// One gate verdict: the measured p50, the threshold it was judged against, and the pass.
+    struct Verdict: Equatable {
+        let p50: Duration
+        let threshold: Duration
+        let passed: Bool
+    }
+
+    /// The threshold IS the provisional table — deleting the table breaks the gate.
+    static var threshold: Duration { ProvisionalCleanupTargets.rulesPathP50 }
+
+    static func evaluate(p50: Duration) -> Verdict {
+        let threshold = threshold
+        return Verdict(p50: p50, threshold: threshold, passed: p50 < threshold)
+    }
+
+    /// Nearest-rank percentile over `values`, or `nil` when there are no samples — a harness
+    /// with nothing measured must not divide by nothing.
+    static func percentile(_ values: [Duration], _ p: Double) -> Duration? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let rank = min(Int((Double(sorted.count) * p).rounded(.up)), sorted.count) - 1
+        return sorted[max(rank, 0)]
+    }
+
+    /// One `RulesCleanup.clean` call per pair, p50 over the samples — measured with the
+    /// injected clock (the pure function itself carries no clock).
+    static func measureRulesP50(
+        pairs: [CleanupPair],
+        dictionary: [ReplacementRule],
+        clock: any MonotonicClock
+    ) -> Duration {
+        let samples = pairs.map { pair in
+            let start = clock.now
+            _ = RulesCleanup.clean(pair.raw, dictionary: dictionary)
+            return clock.now - start
+        }
+        return percentile(samples, 0.50) ?? .zero
+    }
+}
