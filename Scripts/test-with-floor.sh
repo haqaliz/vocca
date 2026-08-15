@@ -916,8 +916,13 @@ set -euo pipefail
 # `DictionaryStoreTests` (eleven) and the FileManager seam's planted-tree negative control
 # (one) — the suite executes what this aspect shipped, so the floor follows it.
 #
+# The deterministic-cleanup pipeline-wiring aspect raises it to 925: the pipeline's cleanup
+# contract tests (eight, B1–B8-pipeline) and the ShippingCleanup contract tests (three, B10).
+# The floor now equals the suite again — the latency-instrumentation gap (40 tests shipped
+# unfloored) is closed for this aspect, per the review finding `prd.md:120-123`.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=914
+MINIMUM_EXECUTED_TESTS=925
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

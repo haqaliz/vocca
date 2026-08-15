@@ -10,7 +10,9 @@ This file orients a coding agent working in this repository. Read it first.
 > injection ladder and its failsafe surface) landed 2026-08-09; the
 > **dictation-loop unit landed 2026-08-12** — the loop wired end to end, the live widget
 > shipped, the zero-network probe driving a full cycle; the **rules-engine aspect landed
-> 2026-08-15** — the deterministic cleanup, pure and CI-executed (below).
+> 2026-08-15** — the deterministic cleanup, pure and CI-executed (below); the
+> **pipeline-wiring aspect landed 2026-08-15** — the loop cleans by default, the cleanup
+> span is recorded, and the probe drives the real rules provider (below).
 >
 > **What is built and enforced:**
 > - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
@@ -234,10 +236,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   downloaded first) are the loop's only real run, exactly as steps 22–35 were the adapters'.
 > - **CONVERSING and the settings surface are out of scope** (P3, C11); the toggle machine is
 >   wired and tested but has no visible control yet; sounds are deferred to a settings surface.
-> - **C5's first slice (the deterministic rules engine, below) shipped; the rest of C5 (the
->   settings surface and the pipeline wiring) and C8 (strategy memory) remain unbuilt.** Raw
->   ASR text is still injected verbatim — no `ShippingCleanup` conformer wires the engine in
->   yet — and the ladder does not learn.
+> - **C5's first two slices (the deterministic rules engine and the pipeline wiring, below)
+>   shipped; the rest of C5 (the settings surface) and C8 (strategy memory) remain unbuilt.**
+>   The ladder does not learn.
 >
 > **The `latency-instrumentation` unit landed 2026-08-14 — C7's first slice: the loop's
 > numbers, measured and gated.** `VoccaCore` now owns the local-only vocabulary the loop
@@ -287,13 +288,29 @@ This file orients a coding agent working in this repository. Read it first.
 > relaxation, `ModuleBoundaryTests`). Test floor: 894.
 >
 > **What the rules-engine aspect is NOT, and must not be claimed:**
-> - **It is unwired.** No `CleanupProvider` conformance ships (`ShippingCleanup` is
->   pipeline-wiring's M6) and raw ASR text is still injected verbatim — `pipeline-wiring`
->   composes the engine in, flips `LatencySpan.cleanup`'s `notPresent` state, and replaces the
->   `VoccaTextPlaceholder` witness (M7).
+> - **It shipped unwired, and the wiring is a separate aspect.** The engine itself ships no
+>   `CleanupProvider` conformance — `ShippingCleanup` is pipeline-wiring's M6, landed
+>   2026-08-15 (below), and the raw-vs-clean text story changed there, not here.
 > - **The dictionary is applied, not stored**: persistence and the full `caseSensitive`/
 >   `wordBoundary` semantics are the `user-dictionary` aspect's; the <10 ms product numbers
 >   are the eval-harness aspect's.
+>
+> **The `pipeline-wiring` aspect landed 2026-08-15 — C5's second slice: the loop cleans by
+> default.** `DictationPipeline` gains the optional `cleanup:` stage between transcribe and
+> inject — `nil` is today's behavior, byte for byte (the B2 test) — with the caller-enforced
+> budget race over the injected clock (`withThrowingTaskGroup`: the provider and a
+> deadline-watcher child polling `clock.now` via `Task.yield()`, never a wall-clock timer),
+> the never-empty fallback (an empty/whitespace clean result routes the raw text), and the
+> post-cleanup cancellation re-check (Esc during cleanup finalizes `.aborted` and injects
+> nothing — `PRODUCT_SPEC.md:129`). The cleanup span is recorded on **every** answer — the
+> timed-out and throwing paths included — so a silently degrading cleanup is visible in the
+> ledger, never silent forever. `ShippingCleanup.make()` (VoccaText) is wired as the default
+> cleanup stage in the composition root: `requiresNetwork == false` (declared, not defaulted),
+> the `"rules-cleanup"` identity, lazy dictionary load with the empty fallback. The
+> zero-network probe drives the **real** rules provider through the cycle
+> (`cleanup.engine=rules-cleanup`, zero `connect(2)` unchanged), the `VoccaTextPlaceholder`
+> witness is gone, and the cycle's `PROBE-LATENCY` renders the recorded cleanup span. Test
+> floor: 925.
 >
 > **What C4 is NOT, and must not be claimed:**
 > - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
