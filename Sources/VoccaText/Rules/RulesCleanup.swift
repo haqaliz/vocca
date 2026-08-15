@@ -284,8 +284,45 @@ public enum RulesCleanup {
     }
 
     /// Stage 5 — bounded number/unit normalization (`spec.md` B5).
+    ///
+    /// Bounded cardinals only, no decimals (`point` is out of the table — Open question 2):
+    /// digit words `one`…`twenty`, tens `thirty`…`ninety`, `hundred`; compositions
+    /// `[tens][ones]` sum (`twenty five` → `25`) and `[ones][hundred]` multiply
+    /// (`one hundred` → `100`). Case-blind scan against explicit tables — no
+    /// `Locale`/`NumberFormatter`/`String(format:)`, so the output is byte-identical across
+    /// machines (the determinism claim). Units stay words (`forty percent` → `40 percent`,
+    /// `twelve dollars` → `12 dollars` — symbol rendering is Open question 3), digits already
+    /// present are unchanged (`build 42`), and nothing is rewritten inside a protected token.
     public static func normalizeNumbers(_ input: String) -> String {
-        input
+        let (entries, trailing) = Self.tokenize(input)
+        guard !entries.isEmpty else { return input }
+
+        var output: [String] = []
+        var changedAny = false
+        var index = 0
+
+        while index < entries.count {
+            if let phrase = Self.numberPhrase(at: index, in: entries) {
+                changedAny = true
+                if !entries[index].leading.isEmpty {
+                    output.append(String(entries[index].leading))
+                }
+                output.append(String(phrase.value))
+                index += phrase.count
+            } else {
+                if !entries[index].leading.isEmpty {
+                    output.append(String(entries[index].leading))
+                }
+                output.append(String(entries[index].word))
+                index += 1
+            }
+        }
+
+        guard changedAny else { return input }
+        if !trailing.isEmpty {
+            output.append(String(trailing))
+        }
+        return output.joined()
     }
 
     /// Stage 6 — user dictionary rules in declared order (`spec.md` B7, B8).
@@ -365,5 +402,77 @@ public enum RulesCleanup {
             index = input.index(after: index)
         }
         return false
+    }
+
+    /// The bounded cardinal words `one`…`twenty`, including the teens — the B5 explicit table
+    /// (`spec.md` B5, Open question 2: no `point`, no thousands).
+    private static let onesTable: [String: Int] = [
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+        "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+        "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+        "nineteen": 19, "twenty": 20,
+    ]
+
+    /// The tens words — `twenty` plus `thirty`…`ninety` — the `[tens][ones]` composition's
+    /// first leg (`twenty five` → `25`; a bare `twenty` still resolves through the ones table).
+    private static let tensTable: [String: Int] = [
+        "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+        "seventy": 70, "eighty": 80, "ninety": 90,
+    ]
+
+    /// The multiplier word — `[ones][hundred]` multiplies (`one hundred` → `100`).
+    private static let hundredWords: Set<String> = ["hundred"]
+
+    /// Parses the longest bounded number phrase beginning at `index`: `[tens][ones]` sums,
+    /// `[ones][hundred]` multiplies, both may combine (`one hundred twenty five` → `125`).
+    /// Returns the value and the number of tokens it consumed, or `nil` when the token at
+    /// `index` is not a number word. Never parses inside a protected token.
+    private static func numberPhrase(
+        at index: Int, in entries: [(leading: Substring, word: Substring)]
+    ) -> (value: Int, count: Int)? {
+        guard index < entries.count, !Self.isProtectedToken(entries[index].word) else {
+            return nil
+        }
+        let lower = { (offset: Int) -> String in
+            String(entries[index + offset].word.lowercased())
+        }
+
+        var value = 0
+        var count = 0
+
+        // [ones][hundred]
+        if let ones = Self.onesTable[lower(0)], index + 1 < entries.count,
+            !Self.isProtectedToken(entries[index + 1].word),
+            Self.hundredWords.contains(lower(1))
+        {
+            value += ones * 100
+            count = 2
+        }
+        // [tens][ones]?
+        if index + count < entries.count, !Self.isProtectedToken(entries[index + count].word),
+            let tens = Self.tensTable[lower(count)]
+        {
+            value += tens
+            count += 1
+            if index + count < entries.count,
+                !Self.isProtectedToken(entries[index + count].word),
+                let ones = Self.onesTable[lower(count)]
+            {
+                value += ones
+                count += 1
+            }
+        } else if count == 0 {
+            // A bare [ones] or [tens] word.
+            if let ones = Self.onesTable[lower(0)] {
+                value = ones
+                count = 1
+            } else if let tens = Self.tensTable[lower(0)] {
+                value = tens
+                count = 1
+            }
+        }
+
+        guard count > 0 else { return nil }
+        return (value, count)
     }
 }
