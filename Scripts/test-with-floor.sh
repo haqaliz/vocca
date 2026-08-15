@@ -933,8 +933,14 @@ set -euo pipefail
 # `noPairsFound` on an empty directory, and the `corpusBelowMinimum` vacuity guard with its
 # at-the-minimum success row.
 #
+# The same aspect raises it to 943: the provisioning script's contract (three, B5) — the
+# deterministic two-run byte-identical generation over scratch goldens (24 pairs, clean side
+# byte-equal to the golden, the injection actually happening), the planted raw-preferred pair
+# emitted with raw == clean, and the loud rejections (unknown class directory exits 2 naming it,
+# an empty goldens tree exits 1, neither creating an output directory).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=940
+MINIMUM_EXECUTED_TESTS=943
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

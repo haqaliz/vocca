@@ -1,0 +1,4 @@
+[
+  {"source": "kawa", "replacement": "Kawa", "caseSensitive": false, "wordBoundary": true},
+  {"source": "mcp server", "replacement": "MCP server", "caseSensitive": false, "wordBoundary": true}
+]
