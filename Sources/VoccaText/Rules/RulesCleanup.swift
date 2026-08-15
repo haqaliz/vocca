@@ -337,8 +337,40 @@ public enum RulesCleanup {
     }
 
     /// Stage 6 — user dictionary rules in declared order (`spec.md` B7, B8).
+    ///
+    /// **Order is the contract** (`ReplacementRule.swift:17-22`): a left-to-right scan; at each
+    /// position the rules are tried in declared order; the **first match wins and consumes its
+    /// span** — the scan resumes after the replacement, and replacement text is never re-scanned.
+    /// `[("hello world", "hi"), ("world", "earth")]` on `"hello world today"` → `"hi today"`:
+    /// the first rule consumes the phrase before the second sees it. No sorting, no dedup.
+    ///
+    /// The flags are read, not defined — their full semantics ship with `user-dictionary`
+    /// (spec B2/B3): `caseSensitive: false` folds case on both sides; `wordBoundary: true` binds
+    /// the match to word boundaries (`cat.` and `the cat` match, `catalog` does not — a word
+    /// character is a letter or a digit). Built-ins run before the dictionary (`um twelve kawa`
+    /// → `12 Kawa` — B7 row 2).
     public static func applyDictionary(_ input: String, rules: [ReplacementRule]) -> String {
-        input
+        guard !rules.isEmpty else { return input }
+
+        var output = ""
+        var index = input.startIndex
+        while index < input.endIndex {
+            var matched = false
+            for rule in rules {
+                guard !rule.source.isEmpty else { continue }
+                if let end = Self.dictionaryMatch(rule, in: input, from: index) {
+                    output.append(rule.replacement)
+                    index = end
+                    matched = true
+                    break
+                }
+            }
+            if !matched {
+                output.append(input[index])
+                index = input.index(after: index)
+            }
+        }
+        return output
     }
 
     /// Splits the input into whitespace-delimited word entries, each carrying the whitespace run
@@ -443,6 +475,44 @@ public enum RulesCleanup {
 
     /// The multiplier word — `[ones][hundred]` multiplies (`one hundred` → `100`).
     private static let hundredWords: Set<String> = ["hundred"]
+
+    /// Whether the character is a word character for `wordBoundary` purposes — a letter or a
+    /// digit; anything else (whitespace, punctuation, start/end of text) is a boundary.
+    private static func isWordCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber
+    }
+
+    /// Attempts to match `rule.source` at `start`, honouring the rule's `caseSensitive` and
+    /// `wordBoundary` flags. Returns the index just past the match, or `nil`. A single
+    /// character-by-character comparison — no regex, no Foundation — deterministic across
+    /// machines.
+    private static func dictionaryMatch(
+        _ rule: ReplacementRule, in input: String, from start: String.Index
+    ) -> String.Index? {
+        var sourceIndex = rule.source.startIndex
+        var inputIndex = start
+        while sourceIndex < rule.source.endIndex {
+            guard inputIndex < input.endIndex else { return nil }
+            let sourceCharacter = rule.source[sourceIndex]
+            let inputCharacter = input[inputIndex]
+            let equal =
+                rule.caseSensitive
+                ? sourceCharacter == inputCharacter
+                : sourceCharacter.lowercased() == inputCharacter.lowercased()
+            guard equal else { return nil }
+            sourceIndex = rule.source.index(after: sourceIndex)
+            inputIndex = input.index(after: inputIndex)
+        }
+        if rule.wordBoundary {
+            if start != input.startIndex, Self.isWordCharacter(input[input.index(before: start)]) {
+                return nil
+            }
+            if inputIndex < input.endIndex, Self.isWordCharacter(input[inputIndex]) {
+                return nil
+            }
+        }
+        return inputIndex
+    }
 
     /// Parses the longest bounded number phrase beginning at `index`: `[tens][ones]` sums,
     /// `[ones][hundred]` multiplies, both may combine (`one hundred twenty five` → `125`).
