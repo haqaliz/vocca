@@ -27,10 +27,11 @@ import XCTest
 /// - **The identity is non-optional and stable** — the I1 attribution discipline applied to
 ///   cleanup: every cleaned string carries `"rules-cleanup"`, the machine key the
 ///   ``ProviderIdentity`` documentation names.
-/// - **The probe's canonical input passes through unchanged** — `"1 2 3"` over an empty
-///   dictionary is the identity, byte for byte: the zero-network probe drives the *real* rules
-///   provider, and its `transcript=1-2-3` / `injected=1-2-3` fields must stay true through the
-///   cleanup stage (`ProbeEngine.swift:43,108`).
+/// - **The probe's canonical input survives the rules path** — `"1 2 3"` keeps its digits
+///   through the empty-dictionary rules path, earning only the terminal punctuation the shipped
+///   segmentation stage appends to every unpunctuated utterance (so `injected=1-2-3.` in the
+///   zero-network probe's report): the zero-network probe drives the *real* rules provider, and
+///   its `transcript=1-2-3` field stays true through the cleanup stage (`ProbeEngine.swift:43,108`).
 final class ShippingCleanupTests: XCTestCase {
 
     /// **B10a — the shipped provider is offline by declaration.** `requiresNetwork == false` is
@@ -72,11 +73,13 @@ final class ShippingCleanupTests: XCTestCase {
             "Hashable equality holds against a hand-built identity with the same key")
     }
 
-    /// **B10c — the probe's canonical input is the identity through the rules path.** Over a
-    /// store whose directory does not exist (an empty rule set, per the dictionary store's
-    /// contract), `"1 2 3"` comes back unchanged — the zero-network probe's
-    /// `transcript=1-2-3` / `injected=1-2-3` fields must pass through the cleanup stage
-    /// byte-for-byte.
+    /// **B10c — the probe's canonical input survives the rules path.** Over a store whose
+    /// directory does not exist (an empty rule set, per the dictionary store's contract), the
+    /// probe's canonical `"1 2 3"` comes back as `"1 2 3."` — the digits unrewritten, with only
+    /// the terminal punctuation the rules engine's pinned segmentation stage appends to any
+    /// unpunctuated utterance (its combination tables: `"um so like we need to ship this period"`
+    /// → `"We need to ship this."`). The cycle report's `transcript=1-2-3` (the engine's side)
+    /// stays untouched; `injected=` carries the cleaned text.
     func testShippingCleanupLeavesTheProbeCanonicalInputUnchanged() async {
         let provider = ShippingCleanup.make(
             store: FileSystemDictionaryStore(directory: Self.tempDirectory()))
@@ -84,9 +87,9 @@ final class ShippingCleanupTests: XCTestCase {
         let cleaned = try? await provider.clean(Self.probeTranscript, context: Self.context())
 
         XCTAssertEqual(
-            cleaned, "1 2 3",
-            "the rules path with an empty dictionary is the identity on the probe's canonical "
-                + "input — cleanup must not rewrite what the probe asserts")
+            cleaned, "1 2 3.",
+            "the empty-dictionary rules path must not rewrite the probe's digits — the only "
+                + "change is the terminal punctuation every unpunctuated utterance earns")
     }
 
     // MARK: - Fixtures
