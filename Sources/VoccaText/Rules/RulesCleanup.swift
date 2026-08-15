@@ -42,8 +42,87 @@ public enum RulesCleanup {
     }
 
     /// Stage 1 — filler removal, frequency-tuned rather than blanket (`spec.md` B1).
+    ///
+    /// Static fillers (`um`, `uh`, `er`, `hmm`, the two-word unit `you know`) are removed
+    /// wherever they appear; **`like`** is removed iff utterance-initial (or preceded by a
+    /// boundary symbol, or a position vacated by an earlier removal this pass) **and** followed
+    /// by a pronoun — the discourse marker, not the verb (`I like pizza`) or the preposition
+    /// (`it looks like rain`); **`so`** (provisional, pinned only by B8 row 1) is removed iff
+    /// sentence-initial and followed by a filler or a pronoun — `so that we can`, `I think so`
+    /// and `and so on` survive because none is sentence-initial plus pronoun/filler.
+    ///
+    /// The cannot-corrupt rule (I5): a removal takes the filler span plus exactly one adjacent
+    /// whitespace run — the preceding one if present, else the following — never both, never two
+    /// spaces (`("pizza um and" → "pizza and")`, `("um kawa" → "kawa")`, pinned by the B6
+    /// `noCorruptionRows`). Whitespace-only input is identity (B11 row 2 — never trimmed), and
+    /// nothing is rewritten inside a protected token (a token containing `/ . - _ @` is one unit).
     public static func removeFillers(_ input: String) -> String {
-        input
+        let (entries, trailing) = Self.tokenize(input)
+        guard !entries.isEmpty else { return input }
+
+        let pronouns: Set<String> = ["i", "you", "he", "she", "we", "they", "it"]
+        let staticFillers: Set<String> = ["um", "uh", "er", "hmm"]
+        let fillerFlankWords: Set<String> = ["um", "uh", "er", "hmm", "you", "like"]
+
+        var output: [Substring] = []
+        var consumeNextLeading = false
+        var removedAny = false
+        var index = 0
+
+        /// `true` when the edited text so far is empty or ends with a sentence boundary —
+        /// the "preceded by utterance start, a boundary symbol, or a position vacated by an
+        /// earlier removal" flank (earlier removals mean `output` reflects the edited text).
+        func isSentenceInitial() -> Bool {
+            guard let last = output.last, let lastCharacter = last.last else { return true }
+            return lastCharacter == "." || lastCharacter == "?" || lastCharacter == "!"
+                || lastCharacter == "\n"
+        }
+
+        while index < entries.count {
+            let word = entries[index].word
+            let lower = word.lowercased()
+            let nextLower =
+                index + 1 < entries.count ? entries[index + 1].word.lowercased() : ""
+
+            var spanLength = 0
+            if !Self.isProtectedToken(word) {
+                if staticFillers.contains(lower) {
+                    spanLength = 1
+                } else if lower == "you", nextLower == "know" {
+                    spanLength = 2
+                } else if lower == "like", isSentenceInitial(), pronouns.contains(nextLower) {
+                    spanLength = 1
+                } else if lower == "so", isSentenceInitial(),
+                    fillerFlankWords.contains(nextLower) || pronouns.contains(nextLower)
+                {
+                    spanLength = 1
+                }
+            }
+
+            if spanLength > 0 {
+                removedAny = true
+                let effectiveLeading =
+                    consumeNextLeading ? Substring() : entries[index].leading
+                // A removal takes the span plus exactly one adjacent whitespace run: the
+                // preceding one (mid-utterance), else the following one (start-context —
+                // consumed here by flagging the next entry's leading as already gone).
+                consumeNextLeading = effectiveLeading.isEmpty
+                index += spanLength
+            } else {
+                if !consumeNextLeading, !entries[index].leading.isEmpty {
+                    output.append(entries[index].leading)
+                }
+                consumeNextLeading = false
+                output.append(word)
+                index += 1
+            }
+        }
+
+        guard removedAny else { return input }
+        if !consumeNextLeading, !trailing.isEmpty {
+            output.append(trailing)
+        }
+        return output.joined()
     }
 
     /// Stage 2 — spoken-punctuation commands resolved to their symbols, including N2 literal
@@ -70,5 +149,39 @@ public enum RulesCleanup {
     /// Stage 6 — user dictionary rules in declared order (`spec.md` B7, B8).
     public static func applyDictionary(_ input: String, rules: [ReplacementRule]) -> String {
         input
+    }
+
+    /// Splits the input into whitespace-delimited word entries, each carrying the whitespace run
+    /// that precedes it, plus the trailing whitespace run (empty when the input ends on a word).
+    /// Deterministic: word and whitespace boundaries only — no locale, no trimming.
+    private static func tokenize(_ input: String) -> (entries: [(leading: Substring, word: Substring)], trailing: Substring) {
+        var entries: [(leading: Substring, word: Substring)] = []
+        var index = input.startIndex
+        var trailingStart = input.startIndex
+        while index < input.endIndex {
+            let leadingStart = index
+            while index < input.endIndex, input[index].isWhitespace {
+                index = input.index(after: index)
+            }
+            let leadingEnd = index
+            let wordStart = index
+            while index < input.endIndex, !input[index].isWhitespace {
+                index = input.index(after: index)
+            }
+            if wordStart != index {
+                entries.append((input[leadingStart..<leadingEnd], input[wordStart..<index]))
+                trailingStart = index
+            }
+        }
+        return (entries, input[trailingStart..<input.endIndex])
+    }
+
+    /// The M2 cannot-corrupt guarantee, one mechanism: a token containing any of `/ . - _ @`
+    /// (URLs, paths, code identifiers, email addresses) is one unit — no stage rewrites inside
+    /// it, its internal `.` is never a sentence boundary, and only the Open-question-8
+    /// first-character rules apply at sentence start.
+    private static func isProtectedToken(_ token: Substring) -> Bool {
+        token.contains("/") || token.contains(".")
+            || token.contains("-") || token.contains("_") || token.contains("@")
     }
 }
