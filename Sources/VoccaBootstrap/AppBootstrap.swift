@@ -19,6 +19,7 @@ import VoccaAudio
 import VoccaCore
 import VoccaHotkey
 import VoccaInject
+import VoccaText
 import VoccaUI
 
 /// Vocca's composition root: everything the process does before it starts taking events.
@@ -297,7 +298,8 @@ public enum AppBootstrap {
                 }
                 return DictationPipeline(
                     engine: engine, injector: custody.ladder, holder: custody.holder,
-                    recorder: ledger, clock: clock)
+                    recorder: ledger, clock: clock,
+                    cleanup: ShippingCleanup.make())
             },
             downloadSession: downloadSession,
             recorder: ledger,

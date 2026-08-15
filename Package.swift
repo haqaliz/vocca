@@ -128,6 +128,7 @@ let package = Package(
                 "VoccaHotkey",
                 "VoccaASR",
                 "VoccaInject",
+                "VoccaText",
                 "VoccaUI",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
