@@ -79,6 +79,61 @@ final class RulesCleanupTests: XCTestCase {
         }
     }
 
+    // MARK: - B2 · segmentation + terminal punctuation
+
+    /// `segmentationRows` — no punctuation signal means a single terminal period and **no
+    /// boundary inserted** (`we are late it is fine` is one sentence; the spec's Open question 6
+    /// — boundaries exist only at spoken commands, literal tokens and end of input); an
+    /// already-terminated input is unchanged, never doubled. Drives
+    /// `{segmentAndTerminate, capitalizeSentences}` — the minimal composition that reproduces the
+    /// spec's capitalized output.
+    func testSegmentationRows() {
+        struct Row {
+            let input: String
+            let expected: String
+        }
+        let rows: [Row] = [
+            Row(input: "we are late it is fine", expected: "We are late it is fine."),
+            Row(input: "We are late.", expected: "We are late."),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                RulesCleanup.capitalizeSentences(RulesCleanup.segmentAndTerminate(row.input)),
+                row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
+    // MARK: - B3 · capitalization
+
+    /// `capitalizationRows` — sentence-initial capitalization only: first-char per sentence,
+    /// no token rewriting (`i'm here` → `I'm here`). Rows 1–2 drive `capitalizeSentences` alone
+    /// (they must not gain a terminal period); row 3 drives
+    /// `{segmentAndTerminate, capitalizeSentences}` — the boundary after the literal `.` is a
+    /// real sentence boundary, so `it` capitalizes.
+    func testCapitalizationRows() {
+        struct Row {
+            let input: String
+            let expected: String
+            let segmentFirst: Bool
+        }
+        let rows: [Row] = [
+            Row(input: "i think", expected: "I think", segmentFirst: false),
+            Row(input: "i'm here", expected: "I'm here", segmentFirst: false),
+            Row(
+                input: "we are late. it is fine",
+                expected: "We are late. It is fine.", segmentFirst: true),
+        ]
+        for row in rows {
+            let segmented = row.segmentFirst
+                ? RulesCleanup.segmentAndTerminate(row.input)
+                : row.input
+            XCTAssertEqual(
+                RulesCleanup.capitalizeSentences(segmented), row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
     // MARK: - B4 · spoken punctuation
 
     /// `spokenPunctuationRows` — the spoken commands resolved to their symbols, driving the
