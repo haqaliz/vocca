@@ -79,6 +79,56 @@ final class RulesCleanupTests: XCTestCase {
         }
     }
 
+    // MARK: - B4 · spoken punctuation
+
+    /// `spokenPunctuationRows` — the spoken commands resolved to their symbols, driving the
+    /// composed `clean`: the symbol is the sentence boundary, so `period` mid-utterance ends one
+    /// sentence and the next is capitalized.
+    func testSpokenPunctuationRows() {
+        struct Row {
+            let input: String
+            let expected: String
+        }
+        let rows: [Row] = [
+            Row(input: "we are done period", expected: "We are done."),
+            Row(input: "are you ready question mark", expected: "Are you ready?"),
+            Row(input: "wow exclamation point", expected: "Wow!"),
+            Row(input: "please pause comma we are live", expected: "Please pause, we are live."),
+            Row(input: "first line new line second line", expected: "First line\nSecond line."),
+            Row(input: "we are done period then we rest", expected: "We are done. Then we rest."),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                RulesCleanup.clean(row.input, dictionary: []), row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
+    // MARK: - B9 · N2 literal tokens
+
+    /// `literalTokenRows` — the N2 interplay: whisper emits literal `.` / `?` / `newline` tokens
+    /// as well as the spelled words, and both shapes must converge on the same output. The
+    /// `period.` row pins the provisional word+symbol rule: the symbol wins, the word is dropped
+    /// (Open question 4; the reversed `. period` shape is unpinned and has no row).
+    func testLiteralTokenRows() {
+        struct Row {
+            let input: String
+            let expected: String
+        }
+        let rows: [Row] = [
+            Row(input: "we are done. then we rest", expected: "We are done. Then we rest."),
+            Row(input: "press return newline then continue", expected: "Press return\nThen continue."),
+            Row(input: "are you ready?", expected: "Are you ready?"),
+            Row(input: "we are done . then we rest", expected: "We are done. Then we rest."),
+            Row(input: "we are done period.", expected: "We are done."),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                RulesCleanup.clean(row.input, dictionary: []), row.expected,
+                "input: \(row.input.debugDescription)")
+        }
+    }
+
     // MARK: - B10 · determinism
 
     /// `determinismRows` — the pure-function claim asserted, not assumed: for a representative
