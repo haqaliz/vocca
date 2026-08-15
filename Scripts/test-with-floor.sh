@@ -904,8 +904,15 @@ set -euo pipefail
 # the zero-network probe still drives `configure` with no window created (the panel is lazy).
 # The floor moves 831 → 836.
 #
+# The floor moves 836 → 894.
+#
+# The deterministic-cleanup rules-engine aspect raises it: the raise absorbs the cleanup seam's
+# five tests (its plan deferred the raise to M8) and this aspect's thirteen — the B1–B12
+# acceptance tables of `RulesCleanupTests`. `pipeline-wiring` (M8) will ratchet further to its
+# own total — the ratchet working, not a conflict.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=836
+MINIMUM_EXECUTED_TESTS=894
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

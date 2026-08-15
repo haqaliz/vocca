@@ -66,6 +66,12 @@ Modules are **Swift Package Manager targets** in one repository. The dependency 
 > gained `VoccaCore`, `VoccaAudio`, `VoccaHotkey`, `VoccaASR`, `VoccaInject` and `VoccaUI`; it is
 > still imported by no module except the probe.
 
+> **Amended (`deterministic-cleanup`, 2026-08-15).** The inward-ring graph above has declared
+> `VoccaText` since planning — the enforced lint never matched it until the rules-engine aspect
+> moved the module to the adapters (the reviewed `ModuleBoundaryTests` edit, `VoccaAudio`'s
+> precedent): declaration and enforcement now agree, because `VoccaText/Rules/` implements the
+> `CleanupProvider` seam's engine, whose vocabulary (`ReplacementRule`) lives in the core.
+
 **`VoccaCore` imports nothing** — not Foundation, not a system framework, and not a sibling module. It owns the seams (`HotkeyEventSource`, `SessionAudioSource`, `ASREngine`, `SpeechSynthesizer`, …) and the plain-data vocabulary they are phrased in (`RawKeyEvent`, `ModifierSet`, `SessionOutcome`, …). **Adapters depend on the core** to implement those seams, and each imports `VoccaCore` and no other Vocca module. This is what makes each capability testable in isolation: every branch worth testing is expressed in types a `swift test` run can construct on a machine with no permissions, no microphone and no network, and the untestable half is reduced to translation with no decisions in it.
 
 > **Amended (`hotkey-source`, 2026-08-05).** This paragraph previously declared the arrow the other way — `VoccaCore → {leaves}`, with "leaf modules never import `VoccaCore`". That was never consistent with the enforced rule that `VoccaCore` imports nothing at all (`CoreBoundaryTests`, an empty allow-list), and so it was never realised: the core could not depend on a leaf without an import the other lint forbids. It went unnoticed because every leaf was a placeholder. `VoccaHotkey` is the first module to implement a core-owned seam — its flag translation returns a `ModifierSet` — which forced the resolution. The direction above is the one that survives: `VoccaCore` importing an adapter is the actual architectural error, because it is what would drag `CGEvent` and `AVAudioEngine` into the one module that must have neither. **The empty allow-list is the property being protected, and it is unchanged.** A module that has not yet implemented a seam stays a leaf and may still import nothing; `VoccaAudio` moves when `SessionAudioSource` gets a real implementation.

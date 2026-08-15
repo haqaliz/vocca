@@ -3,13 +3,14 @@
 This file orients a coding agent working in this repository. Read it first.
 
 > **Status:** the **C1 skeleton, the C2 ASR half, the C3 second ASR engine, the C4 injection
-> ladder and the P0 dictation loop** exist; the product
+> ladder, the P0 dictation loop and the rules-engine first slice of C5** exist; the product
 > does not. C1 (audio
 > capture + global hotkey) merged 2026-08-12; C2 (local ASR) merged 2026-08-09; C3
 > (second-asr-engine) landed 2026-08-11; C4 (the
 > injection ladder and its failsafe surface) landed 2026-08-09; the
 > **dictation-loop unit landed 2026-08-12** — the loop wired end to end, the live widget
-> shipped, the zero-network probe driving a full cycle.
+> shipped, the zero-network probe driving a full cycle; the **rules-engine aspect landed
+> 2026-08-15** — the deterministic cleanup, pure and CI-executed (below).
 >
 > **What is built and enforced:**
 > - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
@@ -233,8 +234,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   downloaded first) are the loop's only real run, exactly as steps 22–35 were the adapters'.
 > - **CONVERSING and the settings surface are out of scope** (P3, C11); the toggle machine is
 >   wired and tested but has no visible control yet; sounds are deferred to a settings surface.
-> - **C5 (cleanup) and C8 (strategy memory) remain unbuilt; C7's latency-instrumentation slice
->   shipped (below).** Raw ASR text is injected verbatim, and the ladder does not learn yet.
+> - **C5's first slice (the deterministic rules engine, below) shipped; the rest of C5 (the
+>   settings surface and the pipeline wiring) and C8 (strategy memory) remain unbuilt.** Raw
+>   ASR text is still injected verbatim — no `ShippingCleanup` conformer wires the engine in
+>   yet — and the ladder does not learn.
 >
 > **The `latency-instrumentation` unit landed 2026-08-14 — C7's first slice: the loop's
 > numbers, measured and gated.** `VoccaCore` now owns the local-only vocabulary the loop
@@ -265,14 +268,42 @@ This file orients a coding agent working in this repository. Read it first.
 >   speculative-ASR correctness under revision is still `ARCHITECTURE.md` open question 2.
 > - **The ledger is in-memory**: no persistence, no UI surface, nothing ever transmitted.
 >
+> **The `rules-engine` aspect landed 2026-08-15 — C5's first slice: the deterministic cleanup,
+> pure.** The seam shipped first (`CleanupProvider`/`CleanupContext`/`ReplacementRule` in
+> `VoccaCore`); `VoccaText/Rules/RulesCleanup.swift` now implements the pure function
+> `ARCHITECTURE.md:511` names — `(String, [ReplacementRule]) -> String`, six fixed stages:
+> frequency-tuned filler removal (`like` is verb/preposition-protected, `so` sentence-initial
+> only), spoken-punctuation commands resolved to their symbols (plus N2 literal tokens, the
+> `period.` word+symbol shape converging on the symbol), segmentation + terminal punctuation
+> (boundaries only at signals — no ML-style splitting), capitalization, bounded number/unit
+> normalization (explicit tables, no `Locale`), then the user dictionary in declared order
+> (first match wins, replacement never re-scanned). The token-protection class is one
+> mechanism: nothing is rewritten inside `/ . - _ @` tokens, an internal `.` is never a
+> boundary, `@`-tokens are never first-char-capitalized. Stdlib-only and byte-deterministic,
+> the B1–B12 acceptance tables run the shipped function headlessly in CI — the rare aspect
+> with no TCC/Accessibility/microphone dependency — including a ~2,400-word perf smoke under a
+> named 250 ms bound (the honest <10 ms numbers are the eval-harness aspect's). The module
+> move landed with it: VoccaText is an adapter module (the boundary suite's reviewed rule-1
+> relaxation, `ModuleBoundaryTests`). Test floor: 894.
+>
+> **What the rules-engine aspect is NOT, and must not be claimed:**
+> - **It is unwired.** No `CleanupProvider` conformance ships (`ShippingCleanup` is
+>   pipeline-wiring's M6) and raw ASR text is still injected verbatim — `pipeline-wiring`
+>   composes the engine in, flips `LatencySpan.cleanup`'s `notPresent` state, and replaces the
+>   `VoccaTextPlaceholder` witness (M7).
+> - **The dictionary is applied, not stored**: persistence and the full `caseSensitive`/
+>   `wordBoundary` semantics are the `user-dictionary` aspect's; the <10 ms product numbers
+>   are the eval-harness aspect's.
+>
 > **What C4 is NOT, and must not be claimed:**
 > - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
 >   Accessibility or Automation grant, no real pasteboard session, no window server on a hosted
 >   runner. Every decision is above the seam and tested; `SMOKE_CHECKLIST.md` steps 22–35 are the
 >   adapters' and the panel's only execution.
 > - **The loop is wired** (the `dictation-loop` unit above); CONVERSING and the settings surface
->   are out of scope (only the FAILSAFE and the five live states ship); and C8 (strategy
->   memory) and C5 (cleanup) remain unbuilt; C7's latency-instrumentation slice shipped
+>   are out of scope (only the FAILSAFE and the five live states ship); C8 (strategy
+>   memory) and the rest of C5 remain unbuilt — C5's rules-engine first slice shipped (below)
+>   but no conformer wires it in yet; C7's latency-instrumentation slice shipped
 >   (below), its warm-start and widget-streaming halves did not.
 >
 > **What is NOT proven, and must not be claimed:**
