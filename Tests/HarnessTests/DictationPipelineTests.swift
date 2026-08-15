@@ -398,9 +398,9 @@ final class DictationPipelineTests: XCTestCase {
             engine: engine,
             injector: injector,
             holder: holder,
-            cleanup: cleanup,
             recorder: ledger,
-            clock: clock)
+            clock: clock,
+            cleanup: cleanup)
         return (pipeline, injector, holder, ledger)
     }
 
