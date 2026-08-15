@@ -927,8 +927,14 @@ set -euo pipefail
 # named `noPreferenceSample` error on all-tie and empty runs, and the seeded presentation
 # order's determinism (the blindness mechanism's determinism half).
 #
+# The same aspect raises it to 940: the corpus loader's contract (six, B2) — discovery over a
+# scratch corpus at the vacuity minimum with `dictionary.json`/`FIXTURES.md` ignored, the
+# `missingCleanTarget` / `missingClassTag` / `unknownClassTag` loud failures naming the pair,
+# `noPairsFound` on an empty directory, and the `corpusBelowMinimum` vacuity guard with its
+# at-the-minimum success row.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=934
+MINIMUM_EXECUTED_TESTS=940
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

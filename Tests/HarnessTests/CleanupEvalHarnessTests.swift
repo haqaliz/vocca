@@ -60,28 +60,37 @@ final class CleanupEvalHarnessTests: XCTestCase {
 
     // MARK: - B2: the loader's contract
 
-    /// Discovery keys on the `.raw.txt` suffix only: two triples load as exactly two pairs with
-    /// names and class tags intact — and a `dictionary.json` or `FIXTURES.md` in the same
-    /// directory is never misread as a pair.
+    /// Discovery keys on the `.raw.txt` suffix only: twenty triples load as exactly twenty
+    /// pairs with names and class tags intact — and a `dictionary.json` or `FIXTURES.md` in the
+    /// same directory is never misread as a pair. Twenty keeps this scratch corpus above the
+    /// vacuity minimum the loader's guard enforces (a corpus that small cannot read green).
     func testLoadPairsFindsEveryPairUnderTheDirectory() throws {
         let root = try makeScratchRoot()
-        try writeTriple(
-            "a-one", raw: "um raw one", clean: "One.", className: .fillers, in: root)
-        try writeTriple(
-            "b-two", raw: "raw two", clean: "Two.", className: .punctuation, in: root)
+        for index in 0..<CleanupPairSuite.minimumMeaningfulCorpusSize {
+            try writeTriple(
+                "pair-\(String(format: "%02d", index))",
+                raw: "um raw \(index)", clean: "Clean \(index).",
+                className: index % 2 == 0 ? .fillers : .punctuation, in: root)
+        }
         try Data(#"[{"source":"kawa","replacement":"Kawa"}]"#.utf8)
             .write(to: root.appendingPathComponent("dictionary.json"))
         try Data("# provenance".utf8).write(to: root.appendingPathComponent("FIXTURES.md"))
 
         let pairs = try CleanupPairSuite.loadPairs(from: root)
         XCTAssertEqual(
-            pairs.map(\.name), ["a-one", "b-two"],
-            "both triples found, sorted, with dictionary.json and FIXTURES.md ignored")
+            pairs.map(\.name),
+            (0..<CleanupPairSuite.minimumMeaningfulCorpusSize).map {
+                String(format: "pair-%02d", $0)
+            },
+            "every triple found, sorted, with dictionary.json and FIXTURES.md ignored")
         XCTAssertEqual(
-            pairs.map(\.className), [.fillers, .punctuation],
+            pairs.map(\.className),
+            (0..<CleanupPairSuite.minimumMeaningfulCorpusSize).map {
+                $0 % 2 == 0 ? CleanupPairClass.fillers : .punctuation
+            },
             "the class tags arrive intact")
-        XCTAssertEqual(pairs[0].raw, "um raw one")
-        XCTAssertEqual(pairs[0].clean, "One.")
+        XCTAssertEqual(pairs[0].raw, "um raw 0")
+        XCTAssertEqual(pairs[0].clean, "Clean 0.")
     }
 
     /// A pair without its `.clean.txt` is a broken fixture and must fail loudly, naming the
