@@ -232,7 +232,8 @@ final class DictionaryStoreTests: XCTestCase {
         try await store.save(v2)
 
         let fresh = FileSystemDictionaryStore(directory: directory)
-        XCTAssertEqual(await fresh.load(), v2, "the recreated file must decode")
+        let reloaded = await fresh.load()
+        XCTAssertEqual(reloaded, v2, "the recreated file must decode")
     }
 
     /// `save([])` writes `[]`; a fresh store over the same directory loads `[]`.
@@ -243,7 +244,8 @@ final class DictionaryStoreTests: XCTestCase {
 
         try await store.save([])
 
-        XCTAssertEqual(await store.load(), [])
+        let reloaded = await store.load()
+        XCTAssertEqual(reloaded, [])
         XCTAssertEqual(
             try? Data(contentsOf: directory.appendingPathComponent("dictionary.json")),
             Data("[]".utf8),
@@ -282,7 +284,8 @@ final class DictionaryStoreTests: XCTestCase {
         try await FileSystemDictionaryStore(directory: directory).save([rule])
 
         let fresh = FileSystemDictionaryStore(directory: directory)
-        XCTAssertEqual(await fresh.load(), [rule], "a unicode rule must survive save/load whole")
+        let reloaded = await fresh.load()
+        XCTAssertEqual(reloaded, [rule], "a unicode rule must survive save/load whole")
 
         let data = try? Data(contentsOf: directory.appendingPathComponent("dictionary.json"))
         let text = data.flatMap { String(data: $0, encoding: .utf8) }

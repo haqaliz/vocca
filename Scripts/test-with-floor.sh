@@ -911,8 +911,13 @@ set -euo pipefail
 # acceptance tables of `RulesCleanupTests`. `pipeline-wiring` (M8) will ratchet further to its
 # own total — the ratchet working, not a conflict.
 #
+# The deterministic-cleanup user-dictionary aspect raises it again: the B1–B4 semantics and
+# round-trip tables of `UserDictionaryTests` (eight), the real-store B5/B6/B8 tests of
+# `DictionaryStoreTests` (eleven) and the FileManager seam's planted-tree negative control
+# (one) — the suite executes what this aspect shipped, so the floor follows it.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=894
+MINIMUM_EXECUTED_TESTS=914
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
