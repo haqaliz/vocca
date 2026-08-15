@@ -19,6 +19,8 @@
 	<key>CFBundleIdentifier</key>
 	<string>dev.vocca.Vocca</string>
 
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleName</key>
 	<string>Vocca</string>
 	<key>CFBundleDisplayName</key>

@@ -18,6 +18,7 @@
 		1A0000000000000000000037 /* VoccaUI in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000027 /* VoccaUI */; };
 		1A0000000000000000000038 /* VoccaBootstrap in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000028 /* VoccaBootstrap */; };
 		1A0000000000000000000053 /* PackageSuiteBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000051 /* PackageSuiteBridge.swift */; };
+		1A000000000000000000005B /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 1A0000000000000000000059 /* AppIcon.icns */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 		1A0000000000000000000040 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		1A0000000000000000000050 /* VoccaHarnessBridge.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoccaHarnessBridge.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A0000000000000000000051 /* PackageSuiteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackageSuiteBridge.swift; sourceTree = "<group>"; };
+		1A0000000000000000000059 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -83,8 +85,17 @@
 				1A0000000000000000000010 /* VoccaApp.swift */,
 				1A0000000000000000000011 /* Info.plist */,
 				1A0000000000000000000012 /* Vocca.entitlements */,
+				1A000000000000000000005A /* Resources */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		1A000000000000000000005A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1A0000000000000000000059 /* AppIcon.icns */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		1A0000000000000000000052 /* XcodeHarnessBridge */ = {
@@ -188,6 +199,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A000000000000000000005B /* AppIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

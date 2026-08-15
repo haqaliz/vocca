@@ -519,7 +519,7 @@ final class BundleConfigurationTests: XCTestCase {
 
     /// Every file `App/` is allowed to contain.
     private static let expectedAppDirectoryContents = [
-        "Info.plist", "Vocca.entitlements", "VoccaApp.swift",
+        "Info.plist", "Resources", "Vocca.entitlements", "VoccaApp.swift",
     ]
 
     /// The app target may compile exactly one file.
@@ -554,7 +554,9 @@ final class BundleConfigurationTests: XCTestCase {
             """)
     }
 
-    /// `App/` may hold exactly the three known files.
+    /// `App/` may hold exactly the known files: the plist, the entitlements, the shim, and the
+    /// `Resources/` directory that holds the app icon (a resource, not a source — it is outside the
+    /// SwiftPM package for the same reason the shim is, and nothing compiles from it).
     ///
     /// A narrower check than the build-phase assertion above and kept alongside it deliberately:
     /// this one fails the moment an extra source appears on disk, before anyone wires it into the
@@ -1055,6 +1057,33 @@ final class BuiltBundleTests: XCTestCase {
         XCTAssertEqual(
             plist["LSUIElement"] as? Bool, true,
             "The built bundle must set LSUIElement so Vocca runs as a background agent")
+    }
+
+    /// The icon is part of the shipped identity, and it has a silent-failure shape of its own:
+    /// `CFBundleIconFile` pointing at a resource that was never copied into the bundle reads fine
+    /// in the plist and renders as a generic blank tile — in the Dock, in Spotlight, and in the
+    /// Finder. Both halves have to be true together, so both are asserted.
+    func testBuiltBundleCarriesTheAppIcon() throws {
+        let bundle = try locateBundle()
+        let plist = try BundleTestSupport.readPropertyList(
+            at: bundle.appendingPathComponent("Contents/Info.plist"))
+        XCTAssertEqual(
+            plist["CFBundleIconFile"] as? String, "AppIcon",
+            """
+            The built bundle's CFBundleIconFile is not 'AppIcon'. Without it macOS falls back to a \
+            generic tile for the app in the Dock, Spotlight, and the Finder — the icon is part of \
+            the shipped identity, not decoration.
+            """)
+        let icon = bundle.appendingPathComponent("Contents/Resources/AppIcon.icns")
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: icon.path, isDirectory: &isDirectory)
+        XCTAssertTrue(
+            exists && !isDirectory.boolValue,
+            """
+            The built bundle has no Contents/Resources/AppIcon.icns. A CFBundleIconFile with no \
+            matching resource renders as a blank tile; the resource must actually be copied in by \
+            the project's Resources build phase.
+            """)
     }
 
     // MARK: Embedded entitlements
