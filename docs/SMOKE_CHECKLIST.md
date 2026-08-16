@@ -1240,6 +1240,54 @@ founder's machine, and the first real latency data this repository will have.
 
 ---
 
+## The cleanup eval harness — the first real scoring run
+
+This section is the first execution of the cleanup eval harness's real half
+(`docs/planning/deterministic-cleanup/eval-harness/`). The headless stand-in run and the
+mechanism gates run in CI; **nothing in this section is CI** — the F2 recordings are the
+founder's artifacts and stay on the machine (R11), and a CI-run preference percentage would be
+about stand-ins, never about Vocca. Steps 69-70 are this harness's dictation-loop surface; this
+step is the number the P1 gate is judged on (`ROADMAP.md:137`), recorded not gated
+(`tolerances_20260815.md`).
+
+73. **F2: record the real held-out set and run the first real scoring.** The stand-in corpus is
+    provably recoverable by the shipped rules, so its percentage measures the mechanism, not the
+    product. This step replaces the bytes: the founder's own recordings, scored by the founder —
+    the first time the ≥ 80% preference figure is measured rather than provisional.
+
+    *Gesture:* record **≥ 40 utterances, ≥ 5 per class**, across the six classes
+    (`fillers | punctuation | capitalization | numbers-units | dictionary | token-protection`),
+    dictation-length (3-15 s), natural as-spoken speech — fillers and false starts, not reading
+    flat. For each, hand-polish the golden clean text (what should have been typed) into
+    `<name>.clean.txt` and tag the class into `<name>.class.txt`; keep the corpus in a
+    machine-local directory, e.g. `~/Vocca/f2-pairs/` — **never in the repository**. Add a
+    `dictionary.json` with the dictionary-class rules. The raw side is the real engine's
+    transcript of each recording (16 kHz mono; provision once per machine via
+    `./Scripts/provision-asr-fixtures.sh`, then the runner reads the `<name>.wav` sidecar and
+    ignores the `.raw.txt` for those pairs — attributed to the Parakeet identity); the
+    hand-typed `<name>.raw.txt` variant is the fallback when the engine is not provisioned.
+
+    Run the scorer with `VOCCA_CLEANUP_EVAL=<pairs-dir>`: the first invocation prints the
+    seeded ballot (pairs as A/B sides, never labelled); fill `answers.tsv` (the seed line is
+    printed at the top; one `name<TAB>left|right|tie|noPreference` line per pair — tie and
+    noPreference rows are excluded from the denominator by design,
+    `tolerances_20260815.md`); the second invocation prints the verdicts, the seed beside every
+    row, the per-class breakdown and the preference percentage.
+
+    *Pass:* the run prints the record — the preference percentage, the per-class breakdown and
+    the seed — and the verdicts reproduce the comparator's mapping for the printed seed.
+    **"Pass" for this run is the printed record, not a verdict**: the percentage is recorded in
+    `docs/planning/deterministic-cleanup/eval-harness/tolerances_20260815.md` and re-baselines
+    `ProvisionalCleanupTargets` via the record's measure → margin → founder-signed procedure; a
+    result below 80% is a record and a signal to fix the rules, never a gate failure.
+
+    *Failure:* the run cannot score every pair (missing clean target, missing class tag,
+    missing answers), the seed is not printed, or the percentage is presented as a verdict.
+    Until this step has been run once, everything this repository says about cleanup quality is
+    a claim about mechanism, not about measurement.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here
