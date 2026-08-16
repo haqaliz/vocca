@@ -269,9 +269,15 @@ final class ZeroNetworkTests: XCTestCase {
         // The shipped manifest — real `VoccaASR` code, no model bytes — names the Parakeet
         // artifact the stub stands in for.
         "manifest.engine=parakeet-tdt-0.6b-v3",
-        // The same text the engine produced reached the injector, and the ladder stopped at the
-        // clipboard rung with the trace to match — a delivery, not a fall-through.
-        "injected=1-2-3",
+        // The cleanup stage's attribution: the same text the engine produced reached the real
+        // rules provider (empty dictionary — no rewrite of the digits) and the seam's machine
+        // key is reported with it. `injected` below carries the cleaned text, terminal
+        // punctuation included.
+        "cleanup.engine=rules-cleanup",
+        // The cleaned text reached the injector — the digits untouched, the terminal period the
+        // rules engine appends to any unpunctuated utterance included — and the ladder stopped
+        // at the clipboard rung with the trace to match: a delivery, not a fall-through.
+        "injected=1-2-3.",
         "rung=clipboardPaste",
         "attempted=clipboardPaste",
         // The happy path's quiet surfaces: the failsafe panel presented nothing, the handoff held
@@ -546,24 +552,25 @@ final class ZeroNetworkTests: XCTestCase {
         XCTAssertTrue(
             latency.contains("delivered("),
             "The latency report's record is not class delivered: \(latency)")
-        // The three spans the P0 loop measures — capture-close closing on the stop path, the
-        // pipeline's asr and inject. The cleanup span C5 never ran is *not in the record at
-        // all*: the ledger's notPresent is the absence of the span (describe() renders only what
-        // was recorded), so the honest assertion is that no cleanup token appears — never a
-        // fabricated zero, and never a span the pipeline did not measure.
+        // The four spans the P0 loop measures — capture-close closing on the stop path, the
+        // pipeline's asr and inject, and the cleanup span the wired cleanup stage records on
+        // every answer. The cleanup span C5 wired is *in the record*: the ledger's notPresent
+        // is the absence of the span (describe() renders only what was recorded), so the honest
+        // assertion is that the recorded cleanup token appears — never a fabricated zero, and
+        // never a span the pipeline did not measure.
         XCTAssertTrue(
             latency.contains("captureClose") && latency.contains("asr")
-                && latency.contains("inject"),
+                && latency.contains("cleanup") && latency.contains("inject"),
             """
-            The latency report's record is missing one of the captureClose/asr/inject spans. \
-            payload: \(latency)
+            The latency report's record is missing one of the captureClose/asr/cleanup/inject \
+            spans. payload: \(latency)
             """)
-        XCTAssertFalse(
+        XCTAssertTrue(
             latency.contains("cleanup"),
             """
-            The latency report's record carries a cleanup span — C5 is unbuilt, and the ledger \
-            must carry it as notPresent, which for describe() means the span is absent, never a \
-            zero it never measured. payload: \(latency)
+            The latency report's record carries no cleanup span — C5 is wired, and the ledger \
+            carries the recorded cleanup span the pipeline measured around the rules provider, \
+            which describe() renders. payload: \(latency)
             """)
 
         // The coverage cross-check. Without it the assertions above stay green while covering an
@@ -886,13 +893,19 @@ final class ZeroNetworkTests: XCTestCase {
         XCTAssertEqual(
             try value("manifest.engine"), "parakeet-tdt-0.6b-v3",
             "The asserted full-cycle post-condition no longer names the shipped Parakeet manifest.")
+        XCTAssertEqual(
+            try value("cleanup.engine"), "rules-cleanup",
+            "The asserted full-cycle post-condition no longer names the shipped rules cleanup "
+            + "provider — a constant that dropped the cleanup fact must fail here.")
 
         // The same text reached the injector and was delivered through a real rung, with the
         // trace to match — `widgetFailsafe` here would mean the drive's one claimed delivery
         // never happened, exactly as in the injection post-condition's guard.
         XCTAssertEqual(
-            try value("injected"), "1-2-3",
-            "The asserted full-cycle post-condition's transcript never reached the injector.")
+            try value("injected"), "1-2-3.",
+            "The asserted full-cycle post-condition's cleaned text never reached the injector — "
+            + "the digits survive the empty-dictionary rules path, the terminal punctuation the "
+            + "rules engine appends is the only change.")
         let rung = try value("rung")
         XCTAssertNotEqual(
             rung, "widgetFailsafe",

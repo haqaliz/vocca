@@ -3,13 +3,18 @@
 This file orients a coding agent working in this repository. Read it first.
 
 > **Status:** the **C1 skeleton, the C2 ASR half, the C3 second ASR engine, the C4 injection
-> ladder and the P0 dictation loop** exist; the product
+> ladder, the P0 dictation loop and the C5 deterministic-cleanup unit** exist; the product
 > does not. C1 (audio
 > capture + global hotkey) merged 2026-08-12; C2 (local ASR) merged 2026-08-09; C3
 > (second-asr-engine) landed 2026-08-11; C4 (the
 > injection ladder and its failsafe surface) landed 2026-08-09; the
 > **dictation-loop unit landed 2026-08-12** — the loop wired end to end, the live widget
-> shipped, the zero-network probe driving a full cycle.
+> shipped, the zero-network probe driving a full cycle; the **rules-engine aspect landed
+> 2026-08-15** — the deterministic cleanup, pure and CI-executed (below); the
+> **pipeline-wiring aspect landed 2026-08-15** — the loop cleans by default, the cleanup
+> span is recorded, and the probe drives the real rules provider (below); the
+> **eval-harness aspect landed 2026-08-15** — the held-out scorer, the stand-in corpus, the
+> provisional targets and the F2 step (below).
 >
 > **What is built and enforced:**
 > - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
@@ -233,13 +238,16 @@ This file orients a coding agent working in this repository. Read it first.
 >   downloaded first) are the loop's only real run, exactly as steps 22–35 were the adapters'.
 > - **CONVERSING and the settings surface are out of scope** (P3, C11); the toggle machine is
 >   wired and tested but has no visible control yet; sounds are deferred to a settings surface.
-> - **C5 (cleanup) and C8 (strategy memory) remain unbuilt; C7's latency-instrumentation slice
->   shipped (below).** Raw ASR text is injected verbatim, and the ladder does not learn yet.
+> - **C5 shipped in full except its settings surface (the rules engine, the dictionary store,
+>   the pipeline wiring and the eval harness, below); the rest of C5 (the Cleanup-tab settings
+>   UI) and C8 (strategy memory) remain unbuilt.**
+>   The ladder does not learn.
 >
 > **The `latency-instrumentation` unit landed 2026-08-14 — C7's first slice: the loop's
 > numbers, measured and gated.** `VoccaCore` now owns the local-only vocabulary the loop
-> records through: `LatencySpan` (captureClose/asr/cleanup/inject — cleanup exists as a
-> `notPresent` state because C5 is unbuilt), the five `SessionOutcomeClass` cases
+> records through: `LatencySpan` (captureClose/asr/cleanup/inject — cleanup's span has been
+> recorded since C5's pipeline-wiring slice landed; the `notPresent` state survives for a
+> nil-cleanup pipeline), the five `SessionOutcomeClass` cases
 > (delivered-by-rung / failsafeHeld / aborted / failed / emptySkip — never force-labeled, so
 > the P0 first-method-success metric is derived, not stored), `SessionRecord` with engine
 > attribution, the `LatencyRecorder` seam, and the bounded in-memory `LatencyLedger` actor
@@ -265,14 +273,88 @@ This file orients a coding agent working in this repository. Read it first.
 >   speculative-ASR correctness under revision is still `ARCHITECTURE.md` open question 2.
 > - **The ledger is in-memory**: no persistence, no UI surface, nothing ever transmitted.
 >
+> **The `rules-engine` aspect landed 2026-08-15 — C5's first slice: the deterministic cleanup,
+> pure.** The seam shipped first (`CleanupProvider`/`CleanupContext`/`ReplacementRule` in
+> `VoccaCore`); `VoccaText/Rules/RulesCleanup.swift` now implements the pure function
+> `ARCHITECTURE.md:511` names — `(String, [ReplacementRule]) -> String`, six fixed stages:
+> frequency-tuned filler removal (`like` is verb/preposition-protected, `so` sentence-initial
+> only), spoken-punctuation commands resolved to their symbols (plus N2 literal tokens, the
+> `period.` word+symbol shape converging on the symbol), segmentation + terminal punctuation
+> (boundaries only at signals — no ML-style splitting), capitalization, bounded number/unit
+> normalization (explicit tables, no `Locale`), then the user dictionary in declared order
+> (first match wins, replacement never re-scanned). The token-protection class is one
+> mechanism: nothing is rewritten inside `/ . - _ @` tokens, an internal `.` is never a
+> boundary, `@`-tokens are never first-char-capitalized. Stdlib-only and byte-deterministic,
+> the B1–B12 acceptance tables run the shipped function headlessly in CI — the rare aspect
+> with no TCC/Accessibility/microphone dependency — including a ~2,400-word perf smoke under a
+> named 250 ms bound (the honest <10 ms numbers are the eval-harness aspect's). The module
+> move landed with it: VoccaText is an adapter module (the boundary suite's reviewed rule-1
+> relaxation, `ModuleBoundaryTests`). Test floor: 894.
+>
+> **What the rules-engine aspect is NOT, and must not be claimed:**
+> - **It shipped unwired, and the wiring is a separate aspect.** The engine itself ships no
+>   `CleanupProvider` conformance — `ShippingCleanup` is pipeline-wiring's M6, landed
+>   2026-08-15 (below), and the raw-vs-clean text story changed there, not here.
+> - **The dictionary is applied, not stored**: persistence and the full `caseSensitive`/
+>   `wordBoundary` semantics are the `user-dictionary` aspect's; the <10 ms product numbers
+>   are the eval-harness aspect's.
+>
+> **The `pipeline-wiring` aspect landed 2026-08-15 — C5's second slice: the loop cleans by
+> default.** `DictationPipeline` gains the optional `cleanup:` stage between transcribe and
+> inject — `nil` is today's behavior, byte for byte (the B2 test) — with the caller-enforced
+> budget race over the injected clock (`withThrowingTaskGroup`: the provider and a
+> deadline-watcher child polling `clock.now` via `Task.yield()`, never a wall-clock timer),
+> the never-empty fallback (an empty/whitespace clean result routes the raw text), and the
+> post-cleanup cancellation re-check (Esc during cleanup finalizes `.aborted` and injects
+> nothing — `PRODUCT_SPEC.md:129`). The cleanup span is recorded on **every** answer — the
+> timed-out and throwing paths included — so a silently degrading cleanup is visible in the
+> ledger, never silent forever. `ShippingCleanup.make()` (VoccaText) is wired as the default
+> cleanup stage in the composition root: `requiresNetwork == false` (declared, not defaulted),
+> the `"rules-cleanup"` identity, lazy dictionary load with the empty fallback. The
+> zero-network probe drives the **real** rules provider through the cycle
+> (`cleanup.engine=rules-cleanup`, zero `connect(2)` unchanged), the `VoccaTextPlaceholder`
+> witness is gone, and the cycle's `PROBE-LATENCY` renders the recorded cleanup span. Test
+> floor: 925.
+>
+> **The `eval-harness` aspect landed 2026-08-15 — the C5 unit's last slice: the number the P1
+> gate is judged on, measured not claimed.** `CleanupPairwiseScorer` is the deterministic blind
+> pairwise-preference comparator (the judge answers `left|right|tie|noPreference` over A/B
+> sides and never sees labels — blindness is mechanical, in the mapping; `tie`/`noPreference`
+> are excluded from the denominator by design), with the oracle judge for CI and the seeded
+> presentation order for the founder's ballot. The corpus is the checked-in stand-in set —
+> `Tests/CleanupPairs/`, 24 pairs = 4×6 classes, generated by
+> `Scripts/provision-cleanup-fixtures.sh` from goldens with deterministic ASR-ish injection
+> (`FIXTURES.md` is the matrix, never assumed), including the planted
+> `numbers-units-planted-raw-preferred` pair whose `raw == clean` — the can-lose proof, and the
+> recovery guarantee is a committed test (every non-planted pair is recovered by the shipped
+> rules; 23/24 preferred, the planted pair the one loss). The headless run scores the corpus in
+> CI; the latency gate asserts the p50 under the 10 ms budget and a seeded-slow rule genuinely
+> fails it (a gate that cannot fail proves nothing); the `0.80` preference figure and the 10 ms
+> budget live in exactly one file — `ProvisionalCleanupTargets` — pinned by a single-source
+> scan, and the env-gated real run (`VOCCA_CLEANUP_EVAL`, wav sidecars transcribed by the real
+> Parakeet engine with attribution asserted) **records, never gates**. `SMOKE_CHECKLIST.md`
+> step 73 is the F2 recording task — the founder's real held-out set that re-baselines the
+> provisional targets. Test floor: 958.
+>
+> **What the eval harness is NOT, and must not be claimed:**
+> - **CI produces mechanism numbers only.** The stand-in preference percentage (23/24) is a
+>   harness-sanity number; the ≥ 80% / 10 ms figures are **provisional** until the founder's F2
+>   run re-baselines them, in exactly one file (`ProvisionalCleanupTargets`), via the measure →
+>   margin → founder-signed procedure (`tolerances_20260815.md`).
+> - **The env-gated real run has not run.** It skips visibly in CI; step 73 is its first
+>   execution, and F2 is still ownerless beyond that step (the same open item the ASR tolerances
+>   already await).
+>
 > **What C4 is NOT, and must not be claimed:**
 > - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
 >   Accessibility or Automation grant, no real pasteboard session, no window server on a hosted
 >   runner. Every decision is above the seam and tested; `SMOKE_CHECKLIST.md` steps 22–35 are the
 >   adapters' and the panel's only execution.
 > - **The loop is wired** (the `dictation-loop` unit above); CONVERSING and the settings surface
->   are out of scope (only the FAILSAFE and the five live states ship); and C8 (strategy
->   memory) and C5 (cleanup) remain unbuilt; C7's latency-instrumentation slice shipped
+>   are out of scope (only the FAILSAFE and the five live states ship); C8 (strategy
+>   memory) remains unbuilt; C5 shipped in full except its settings surface — the rules
+>   dictionary is JSON-editable, the Cleanup tab waits for the deferred settings surface; C7's
+>   latency-instrumentation slice shipped
 >   (below), its warm-start and widget-streaming halves did not.
 >
 > **What is NOT proven, and must not be claimed:**

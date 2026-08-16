@@ -70,7 +70,7 @@ private enum ModuleBoundaryTestError: Error, CustomStringConvertible {
 /// it imported nothing, and moving it would have loosened a rule that held for free.
 final class ModuleBoundaryTests: XCTestCase {
     private static let leafModules: Set<String> = [
-        "VoccaText", "VoccaSpeech",
+        "VoccaSpeech",
     ]
 
     /// Modules that implement a seam `VoccaCore` owns, and may therefore import it.
@@ -96,8 +96,14 @@ final class ModuleBoundaryTests: XCTestCase {
     /// currently holds for free"); the import is the reason to move, not the move's cost. The
     /// AVFoundation expected-importer lint in `AudioFormatConverterTests` keeps the framework
     /// confined to the two graph/conversion files regardless.
+    ///
+    /// `VoccaText` joined in the deterministic-cleanup capability: it implements the `CleanupProvider`
+    /// seam (the rules engine, `RulesCleanup`). The move is what lets it import `VoccaCore` — the
+    /// engine's vocabulary (`ReplacementRule`) lives there — while the engine stays stdlib-only
+    /// beyond it, and the declared inward-ring graph (`ARCHITECTURE.md` §2) now matches the
+    /// enforced lint.
     private static let adapterModules: Set<String> = [
-        "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio",
+        "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio", "VoccaText",
     ]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.

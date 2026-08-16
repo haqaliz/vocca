@@ -93,14 +93,24 @@ public enum PipelineSurface: Sendable, Equatable {
 /// ``ASREngine/transcribe(_:)`` with the *injected* clock (never a clock read of its own — the
 /// ``MonotonicClock`` contract), recorded even on the throwing path; the inject span is the
 /// ``InjectionResult/elapsed`` the ladder already measured; attribution is the engine that was
-/// asked, nil only on the rows that never asked one. The cleanup span is never recorded — the
-/// record carries it as `notPresent` by construction (C5 is unbuilt, `LatencySpan.swift:27-32`).
+/// asked, nil only on the rows that never asked one. The cleanup span is recorded around the
+/// wired cleanup stage with the same injected clock, on every answer — the timed-out and throwing
+/// paths included; a pipeline built without a cleanup stage carries the span as `notPresent` by
+/// construction (`LatencySpan.swift:27-32`).
 public struct DictationPipeline: Sendable {
     private let engine: any ASREngine
     private let injector: any TextInjector
     private let holder: any TranscriptHolder
     private let recorder: (any LatencyRecorder)?
     private let clock: (any MonotonicClock & Sendable)?
+    private let cleanup: (any CleanupProvider)?
+
+    /// The cleanup stage's budget, caller-enforced (`ARCHITECTURE.md:316`): the pipeline races
+    /// the provider's `clean` against this deadline and routes to raw when it expires. The
+    /// provider is handed the same value in ``CleanupContext/budget`` as information only —
+    /// enforcement lives here, never with the provider. Recorded, not gated: no test asserts this
+    /// number, it is the product target in one named place.
+    private static let cleanupBudget: Duration = .milliseconds(10)
 
     /// - Parameters:
     ///   - engine: The prepared engine, resolved once at launch by the composition root's engine
@@ -116,18 +126,23 @@ public struct DictationPipeline: Sendable {
     ///   - clock: The injected clock the ASR span is measured with; `nil` (the default) with
     ///     the same effect. `Sendable` because the pipeline is a `Sendable` struct and
     ///     ``MonotonicClock`` itself carries no `Sendable` requirement.
+    ///   - cleanup: The optional cleanup stage between transcribe and inject; `nil` (the
+    ///     default) keeps the pipeline exactly as it was — the raw text is injected, and no
+    ///     cleanup span is recorded.
     public init(
         engine: any ASREngine,
         injector: any TextInjector,
         holder: any TranscriptHolder,
         recorder: (any LatencyRecorder)? = nil,
-        clock: (any MonotonicClock & Sendable)? = nil
+        clock: (any MonotonicClock & Sendable)? = nil,
+        cleanup: (any CleanupProvider)? = nil
     ) {
         self.engine = engine
         self.injector = injector
         self.holder = holder
         self.recorder = recorder
         self.clock = clock
+        self.cleanup = cleanup
     }
 
     /// Routes one session effect through the dictation loop and answers what the widget should
@@ -237,7 +252,24 @@ public struct DictationPipeline: Sendable {
             return .idle
         }
 
-        let result = await injector.inject(transcript.text, into: target)
+        // The cleanup stage, between the empty-text guard and the injector: optional, and able to
+        // degrade but never to block or lose (I5, `ARCHITECTURE.md:19`). The nil path is the old
+        // two statements, byte for byte; the re-check below exists only on the cleanup path.
+        let textToInject: String
+        if let cleanup {
+            textToInject = await cleanIfWired(
+                cleanup, transcript: transcript, target: target, sessionID: sessionID)
+            // A cancellation that landed during cleanup: the cleaned text is discarded, nothing is
+            // injected (`PRODUCT_SPEC.md:129`) — the post-transcribe guard's shape (`:228-231`).
+            guard !Task.isCancelled else {
+                await finalize(sessionID: sessionID, outcome: .aborted, engine: transcript.engine)
+                return .idle
+            }
+        } else {
+            textToInject = transcript.text
+        }
+
+        let result = await injector.inject(textToInject, into: target)
         await recordInjectSpan(from: result, sessionID: sessionID)
         switch result.rung {
         case .widgetFailsafe:
@@ -259,6 +291,94 @@ public struct DictationPipeline: Sendable {
                 engine: transcript.engine)
             return .idle
         }
+    }
+
+    /// Runs the wired cleanup stage under the caller-enforced budget and returns the text to
+    /// inject.
+    ///
+    /// The budget race lives here, not in the provider: the provider and a deadline-watcher race
+    /// in one `withThrowingTaskGroup`. The watcher reads only the injected clock
+    /// (`clock.now - start`) and suspends with `Task.yield()` — deliberately not `Task.sleep`,
+    /// because the injected clock is the pipeline's only time source: a hand-moved test clock
+    /// must be able to fire the deadline instantly. When the deadline passes, the watcher throws
+    /// the private expiry marker, the group's scope exit cancels the still-running provider child
+    /// and awaits it, and the throw escapes `try?` as `nil` → raw proceeds. Any provider throw —
+    /// the expiry, a failure, or a `CancellationError` from the route task being cancelled
+    /// (Esc) — lands in the same `nil`; the caller's post-cleanup re-check turns the cancellation
+    /// case into the `.aborted` discard.
+    ///
+    /// The provider is handed ``CleanupContext/budget`` as information only — the deadline lives
+    /// here (`ARCHITECTURE.md:509`: enforced by the caller, never the provider). `dictionary` is
+    /// the empty array at C5: the pipeline cannot know the rules, the provider owns its dictionary,
+    /// and the field stays the advisory channel for future providers — declared, not read, exactly
+    /// like ``SessionMode``. Without a clock there is no measurement and no race: a direct call,
+    /// raw on throw (the recorder/clock no-op doctrine extended to cleanup).
+    private func cleanIfWired(
+        _ provider: any CleanupProvider, transcript: Transcript, target: TargetContext,
+        sessionID: SessionRecord.ID?
+    ) async -> String {
+        let start = clock?.now
+        let cleaned: String?
+        if let clock, let start {
+            // `start` is unwrapped here so the group's closures capture a non-optional `Duration`
+            // (`clock.now - start` must typecheck) — the `let start` binding is the measured
+            // start, and the unwrap is the seam's "no measurement, no race".
+            cleaned = try? await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    try await provider.clean(transcript, context: CleanupContext(
+                        target: target, mode: .dictation, dictionary: [],
+                        budget: Self.cleanupBudget))
+                }
+                group.addTask {
+                    // `!Task.isCancelled` is what makes the watcher a cooperative group member:
+                    // when the provider wins first (or the route task is cancelled), the group
+                    // cancels the remaining children at scope exit and awaits them — a watcher
+                    // that only exits on the deadline would spin on `Task.yield()` forever, and
+                    // the scope exit would never complete.
+                    while (clock.now - start) < Self.cleanupBudget, !Task.isCancelled {
+                        await Task.yield()
+                    }
+                    throw CleanupBudgetExpired()
+                }
+                for try await text in group {
+                    // The provider won the race. `cancelAll` is explicit, not implied: the
+                    // scope's exit-await does not reliably cancel a remaining child that is
+                    // spinning in `Task.yield()` when the closure returns a value — without
+                    // this, the watcher keeps spinning and the exit never completes (the
+                    // plan's "the watcher is cancelled" is a call, not a promise).
+                    group.cancelAll()
+                    return text
+                }
+                throw CleanupBudgetExpired()
+            }
+        } else {
+            cleaned = try? await provider.clean(transcript, context: CleanupContext(
+                target: target, mode: .dictation, dictionary: [],
+                budget: Self.cleanupBudget))
+        }
+        await recordCleanupSpan(from: start, sessionID: sessionID)
+        // Never-empty: a clean result that is empty or whitespace-only falls back to the raw text.
+        // The empty-text guard ran before cleanup, so this is cleanup's own guard — cleanup never
+        // injects `""` (stdlib `Character.isWhitespace`, never Foundation).
+        guard let cleaned, !cleaned.isEmpty, !cleaned.allSatisfy(\.isWhitespace) else {
+            return transcript.text
+        }
+        return cleaned
+    }
+
+    /// Records the cleanup span the caller measured around ``CleanupProvider/clean(_:context:)``.
+    ///
+    /// A mirror of ``recordASRSpan(from:sessionID:)`` — the same no-op doctrine on absent wiring,
+    /// and recorded on **every** answer of the cleanup stage, the timed-out and throwing paths
+    /// included: the clean consumed the time, so the degrade's latency is real latency (the
+    /// ASR-span precedent). The span's name and the ledger's rendering already exist
+    /// (`LatencySpan.swift:27-29`); `cleanupNotPresent()` stays for the nil-cleanup pipeline's
+    /// untouched records.
+    private func recordCleanupSpan(from start: Duration?, sessionID: SessionRecord.ID?) async {
+        guard let sessionID, let recorder, let start, let clock else { return }
+        let elapsed = clock.now - start
+        _ = await recorder.recordSpan(
+            LatencySpan.recorded(name: .cleanup, elapsed: elapsed), for: sessionID)
     }
 
     /// Records the ASR span the caller measured around ``ASREngine/transcribe(_:)``. A no-op on
@@ -288,3 +408,8 @@ public struct DictationPipeline: Sendable {
         _ = await recorder.finalize(id: sessionID, outcome: outcome, engine: engine)
     }
 }
+
+/// The deadline-watcher's own expiry marker, fileprivate to the pipeline file: the degrade never
+/// leaks the race's mechanism past `try?` — the caller sees `nil`, and `CancellationError` from
+/// an Esc stays distinguishable at the post-cleanup re-check.
+private struct CleanupBudgetExpired: Error {}

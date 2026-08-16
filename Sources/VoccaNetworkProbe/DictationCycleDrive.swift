@@ -21,6 +21,7 @@ import VoccaBootstrap
 import VoccaCore
 import VoccaHotkey
 import VoccaInject
+import VoccaText
 
 // The probe's half of the zero-network invariant for `VoccaAudio` and `VoccaASR`.
 //
@@ -262,6 +263,13 @@ extension VoccaNetworkProbe {
         /// returned — real loader and decoder work, executed, with the witness minted by the
         /// call that did it.
         let asrModuleWitness: Any.Type
+
+        /// The same, for `VoccaText`: the real rules provider the cycle cleaned through — a
+        /// `ShippingRulesCleanupProvider` over an isolated throwaway directory, constructed here
+        /// in `buildDictationCycle` and cleaned the cycle's transcript. This is why the module
+        /// entry is not a metatype literal any more — `VoccaTextPlaceholder` sitting in that
+        /// list satisfied the coverage guard whether or not a line of `VoccaText` ever ran.
+        let cleanupModuleWitness: Any.Type
     }
 
     /// The scripted utterance's three frames, as the hand-over should carry them — the `ProbeGraph`
@@ -379,6 +387,17 @@ extension VoccaNetworkProbe {
             clock: clock)
         let injectorLedger = ProbeInjectorLedger(inner: ladder)
 
+        // The cleanup stage: the real shipped rules provider over an isolated throwaway
+        // directory whose missing `dictionary.json` is an empty rule set — the founder's real
+        // `~/Library/Application Support/Vocca/dictionary.json` is never read or written by CI,
+        // and the cycle's `"1 2 3"` passes through the empty-dictionary rules path with only
+        // the terminal punctuation the engine appends. `requiresNetwork == false` is the hook
+        // the zero-network invariant keys on.
+        let cleanup = ShippingCleanup.make(
+            store: FileSystemDictionaryStore(
+                directory: FileManager.default.temporaryDirectory.appendingPathComponent(
+                    "vocca-probe-\(UUID().uuidString)")))
+
         // The pipeline, injected — the `DictationLoopTests` shape: the root takes the assembled
         // pipeline and the drive opens the readiness gate itself, which is what makes the cycle
         // deterministic (the shipped launch path prepares a real engine, which the probe must
@@ -387,7 +406,7 @@ extension VoccaNetworkProbe {
         // a real measurement rather than a fabricated constant.
         let pipeline = DictationPipeline(
             engine: engine, injector: injectorLedger, holder: handoff,
-            recorder: ledger, clock: ContinuousMonotonicClock())
+            recorder: ledger, clock: ContinuousMonotonicClock(), cleanup: cleanup)
 
         let targetResolution = TargetResolution(
             focusedApp: ProbeFocusedApp(
@@ -473,6 +492,7 @@ extension VoccaNetworkProbe {
 
         let observation = await injectorLedger.calls.first
         let frames = await engine.lastBufferFrames
+        let transcriptText = await engine.lastTranscriptText
         let transcriptMissing = await engine.lastTranscriptMissing
         let transcriptEngine = await engine.lastTranscriptEngine
         let transcribeCalls = await engine.transcribeCalls
@@ -499,11 +519,12 @@ extension VoccaNetworkProbe {
             "mic.opens=\(graph.starts)",
             "mic.stops=\(graph.stops)",
             "frames=\(frames)",
-            "transcript=\(spell(observation?.text ?? ""))",
+            "transcript=\(spell(transcriptText))",
             "transcript.missing=\(transcriptMissing)",
             "engine=\(transcriptEngine)",
             "engine.transcribes=\(transcribeCalls)",
             "manifest.engine=\(manifest.engineID)",
+            "cleanup.engine=\(cleanup.identity.id)",
             "injected=\(spell(observation?.text ?? ""))",
             "rung=\(describe(observation?.result.rung))",
             "attempted=\(describe(observation?.result.attempted))",
@@ -520,7 +541,8 @@ extension VoccaNetworkProbe {
             report: fields.joined(separator: " "),
             latencyReport: latencyReport,
             audioModuleWitness: type(of: microphone),
-            asrModuleWitness: type(of: manifest))
+            asrModuleWitness: type(of: manifest),
+            cleanupModuleWitness: type(of: cleanup))
     }
 
     // MARK: - Reading the observation

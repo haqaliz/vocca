@@ -904,8 +904,63 @@ set -euo pipefail
 # the zero-network probe still drives `configure` with no window created (the panel is lazy).
 # The floor moves 831 → 836.
 #
+# The floor moves 836 → 894.
+#
+# The deterministic-cleanup rules-engine aspect raises it: the raise absorbs the cleanup seam's
+# five tests (its plan deferred the raise to M8) and this aspect's thirteen — the B1–B12
+# acceptance tables of `RulesCleanupTests`. `pipeline-wiring` (M8) will ratchet further to its
+# own total — the ratchet working, not a conflict.
+#
+# The deterministic-cleanup user-dictionary aspect raises it again: the B1–B4 semantics and
+# round-trip tables of `UserDictionaryTests` (eight), the real-store B5/B6/B8 tests of
+# `DictionaryStoreTests` (eleven) and the FileManager seam's planted-tree negative control
+# (one) — the suite executes what this aspect shipped, so the floor follows it.
+#
+# The deterministic-cleanup pipeline-wiring aspect raises it to 925: the pipeline's cleanup
+# contract tests (eight, B1–B8-pipeline) and the ShippingCleanup contract tests (three, B10).
+# The floor now equals the suite again — the latency-instrumentation gap (40 tests shipped
+# unfloored) is closed for this aspect, per the review finding `prd.md:120-123`.
+#
+# The deterministic-cleanup eval-harness aspect raises it to 934: the pairwise-preference
+# comparator's decision table (nine, B1) — every blind-answer × presentation row, the oracle's
+# four rows, the exact percentage arithmetic (3 of 4 ⇒ 0.75), the tie-excluded denominator, the
+# named `noPreferenceSample` error on all-tie and empty runs, and the seeded presentation
+# order's determinism (the blindness mechanism's determinism half).
+#
+# The same aspect raises it to 940: the corpus loader's contract (six, B2) — discovery over a
+# scratch corpus at the vacuity minimum with `dictionary.json`/`FIXTURES.md` ignored, the
+# `missingCleanTarget` / `missingClassTag` / `unknownClassTag` loud failures naming the pair,
+# `noPairsFound` on an empty directory, and the `corpusBelowMinimum` vacuity guard with its
+# at-the-minimum success row.
+#
+# The same aspect raises it to 943: the provisioning script's contract (three, B5) — the
+# deterministic two-run byte-identical generation over scratch goldens (24 pairs, clean side
+# byte-equal to the golden, the injection actually happening), the planted raw-preferred pair
+# emitted with raw == clean, and the loud rejections (unknown class directory exits 2 naming it,
+# an empty goldens tree exits 1, neither creating an output directory).
+#
+# The same aspect raises it to 949: the provisional targets and the latency gate (six, B5/B6) —
+# the stand-in corpus cleaning under the provisional p50 budget, the seeded-slow rule genuinely
+# failing the gate (a gate that cannot fail proves nothing), the gate consuming the provisional
+# table, the table's own existence and values, the real run consuming the preference minimum,
+# and the single-source scan pinning `0.80` to the named table and its pinning test.
+#
+# The same aspect raises it to 954: the headless stand-in run (four, B3) — the whole-corpus
+# score with the recovery guarantee (every non-planted pair cleaned, the per-class tallies
+# covering all six classes, the percentage equal to the scorer's arithmetic), the planted pair
+# counted as a loss through the real engine, the two-run determinism, and the printed record
+# (exact percentage, seed, per-class lines) — plus the eval-family no-`URLSession` lint row in
+# ModelDownloaderSeamTests (one), the family's empty-permitted-set confinement.
+#
+# The same aspect raises it to 958: the env-gated real run (four, B4) — the missing-pairs-
+# directory loud failure naming VOCCA_CLEANUP_EVAL and the smoke step, the ballot-and-verdict
+# flow (verdicts follow the comparator's mapping for the printed seed, the run records and
+# never gates on a losing ballot), the missing/unknown-answers loud failures, and the
+# env-gated test itself (visible skip without the variable, hard failure with a broken
+# directory, wav-sidecar engine-attribution guard, recorded comparison line when complete).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=836
+MINIMUM_EXECUTED_TESTS=958
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

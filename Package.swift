@@ -87,9 +87,14 @@ let package = Package(
             url: "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-v1.9.2-xcframework.zip",
             checksum: "af74fed13ea7f2d5ca2a39d9f58ec177713fafd7cab63aef4e27b79f3ceca80b"
         ),
+        // An adapter, not a leaf: it implements a seam VoccaCore owns (the CleanupProvider's
+        // RulesCleanup — the deterministic rules engine), so it depends on VoccaCore and
+        // VoccaCore does not depend on it. The move happened with the rules engine, whose
+        // vocabulary is the seam's own ReplacementRule. See ModuleBoundaryTests' rule 3 for why
+        // the arrow points this way and what still constrains it.
         .target(
             name: "VoccaText",
-            dependencies: [],
+            dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // An adapter, not a leaf: it implements a seam VoccaCore owns (the TextInjector), so it
@@ -123,6 +128,7 @@ let package = Package(
                 "VoccaHotkey",
                 "VoccaASR",
                 "VoccaInject",
+                "VoccaText",
                 "VoccaUI",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
