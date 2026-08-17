@@ -129,10 +129,15 @@ public struct FileSystemDictionaryStore: Sendable {
     // MARK: - Encoding
 
     /// Encode the rules the way ``save(_:)`` writes them: strict `JSONEncoder` over the whole
-    /// array. In-memory rules are trusted — save only ever writes a state the app itself
-    /// produced (`spec.md:72-74`).
+    /// array with **sorted keys**, so the bytes are stable across calls and processes — a
+    /// hand-editable, version-controllable file must not re-order itself between runs
+    /// (synthesized `Codable` containers are not key-order-stable on their own). In-memory
+    /// rules are trusted — save only ever writes a state the app itself produced
+    /// (`spec.md:72-74`).
     public static func encode(_ rules: [ReplacementRule]) throws -> Data {
-        try JSONEncoder().encode(rules)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(rules)
     }
 
     /// Decode the file the way ``load()`` reads it: element-wise tolerant.
