@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
 import VoccaASR
 import VoccaCore

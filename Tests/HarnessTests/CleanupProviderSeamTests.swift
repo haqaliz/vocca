@@ -118,7 +118,7 @@ final class CleanupProviderSeamTests: XCTestCase {
 
         _ = try await provider.clean(transcript("identity survives the drive"), context: context(mode: .dictation, dictionary: []))
 
-        let carried = await provider.identity
+        let carried = provider.identity
         XCTAssertEqual(carried, identity)
         XCTAssertEqual(carried.id, identity.id)
         XCTAssertEqual(carried.displayName, identity.displayName)
