@@ -100,7 +100,10 @@ rules, zero network, no badge. The opt-in never happens silently and never re-en
   **Off by default**; the key is never re-readable from anywhere but the Keychain store. The
   **key-hygiene acceptance**: a stub with a sentinel key runs every failure path and asserts
   the sentinel never appears in captured logs, error descriptions, or crash surfaces
-  (`CAPABILITY_ROADMAP.md:142`).
+  (`CAPABILITY_ROADMAP.md:142`). **Failure taxonomy extended to the key's own failure modes:**
+  key absent, keychain locked/unreadable, and 401/403 from the endpoint are each first-class
+  paths that throw — never a prompt, never a silent disable, never a retry loop — and land in
+  the same "chain falls back to the rules output" degrade as every other LLM failure.
 - **M5 — The Keychain seam.** A `SystemKeychain`-shaped adapter — the **one file in
   `Sources/` permitted to name the `Security`/`SecItem`/`kSec` family** — plus a new
   one-file-per-seam row in the H7 shape (`InjectionSeamBoundaryTests`). The BYOK provider
@@ -178,6 +181,19 @@ rules, zero network, no badge. The opt-in never happens silently and never re-en
   doctrine: "at P1 the default is rules, and if an LLM is opted into, the user has knowingly
   bought latency" (`ARCHITECTURE.md:322`). The chain (M6) keeps rules first so the degrade is
   to *cleaned* text, not raw, whenever the LLM stage fails.
+- **The latency tradeoff for opted-in users, stated plainly:** with an LLM rung active, every
+  dictation waits up to the 5 s budget before text lands, with the widget holding its
+  existing TRANSCRIBING state (and, when `requiresNetwork`, the badge) meanwhile. The P2
+  loop-level latency targets (`ROADMAP.md:171`) apply to the default rules path; an opted-in
+  LLM user is consciously outside them for as long as the rung is on. This is accepted at the
+  review gate, not papered over — the escape hatch is the config file and Esc, both of which
+  exist before this unit ships.
+- **LLM rewrite quality is unmeasured, and this unit must not imply otherwise.** The eval
+  harness scores rules-over-raw (`ProvisionalCleanupTargets`; `eval-harness` aspect); there is
+  no harness for LLM-over-rules output, and no claim "LLM > rules" is made or tested here. The
+  rung ships because the roadmap defines rung 2's value proposition ("tone, rewriting, reflow",
+  `CAPABILITY_ROADMAP.md:134`), and the founder's real Ollama run (smoke step) is the first
+  judgment of it — recorded honestly as a smoke observation, not a gate number.
 - **Network discipline (unchanged, load-bearing):** `ARCHITECTURE.md:296` — a provider cannot
   make a network call without declaring `requiresNetwork == true`, because the interposer
   fails the build if one with `false` opens a socket. Both new providers declare `true`; the
