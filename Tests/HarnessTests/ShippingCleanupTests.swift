@@ -47,6 +47,19 @@ final class ShippingCleanupTests: XCTestCase {
                 + "zero-network invariant is keyed on the declaration, not a convention")
     }
 
+    /// **B10b — the rules provider declares its 10 ms budget.** The shipped provider states its
+    /// budget explicitly (the declared-not-defaulted B10 contract), so the pipeline races the
+    /// rules number itself rather than inheriting it — a future conformer that declares more
+    /// changes only its own line, never the rules path.
+    func testTheRulesProviderDeclaresItsTenMillisecondBudget() {
+        let provider = ShippingCleanup.make(
+            store: FileSystemDictionaryStore(directory: Self.tempDirectory()))
+
+        XCTAssertEqual(
+            provider.budget, .milliseconds(10),
+            "the rules provider declares its 10 ms budget — declared, not defaulted (B10)")
+    }
+
     /// **B10b — the identity is non-optional and stable.** The machine key is the name the
     /// ``ProviderIdentity`` documentation reserves for the rules engine; the display name is
     /// human-readable; and the identity's `Hashable` equality survives driving a clean call —

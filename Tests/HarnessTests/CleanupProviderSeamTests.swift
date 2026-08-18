@@ -106,6 +106,20 @@ final class CleanupProviderSeamTests: XCTestCase {
         XCTAssertTrue(networked.requiresNetwork)
     }
 
+    // MARK: - B2b: the budget default
+
+    /// A conformer that declares no `budget` inherits exactly `.milliseconds(10)` — the C5
+    /// number, pinned by the extension default so a conformer that says nothing costs the shipped
+    /// rules budget (`spec.md` B1). The pipeline races this declared value, never a constant.
+    func testBudgetDefaultsToTenMilliseconds() {
+        let provider = DefaultOfflineCleanupProvider(
+            identity: ProviderIdentity(id: "rules-cleanup", displayName: "Rules Cleanup"))
+
+        XCTAssertEqual(
+            provider.budget, .milliseconds(10),
+            "a conformer that declares no budget inherits the shipped 10 ms default")
+    }
+
     // MARK: - B3: attribution is non-optional
 
     /// `identity: ProviderIdentity` is required and non-optional: a conformer must name itself
