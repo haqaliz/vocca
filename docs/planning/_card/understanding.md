@@ -1,111 +1,100 @@
-# Understanding — deterministic-cleanup (C5)
+# Understanding — llm-cleanup (C6)
 
-> Phase 2 output of `vbf feat deterministic-cleanup`. Sources: code map (agent, file:line cited),
-> doc map (agent, file:line cited), `docs/planning/_card/issue.md`.
+Phase P1 · Layer: AI cleanup (`CleanupProvider`, rungs 2–3) · `docs/technical/CAPABILITY_ROADMAP.md:132-146`
 
-## What the work really is
+## What the work is really asking
 
-C5 ("Deterministic cleanup + custom dictionary", `docs/technical/CAPABILITY_ROADMAP.md:114-128`,
-phase P1) is four things, in build order:
+Complete P1's cleanup ladder: give `CleanupProvider` a **second and third implementation** —
+`OllamaCleanup` (local HTTP to an Ollama instance) and `BYOKCleanup` (user's own cloud endpoint,
+key in the Keychain) — plus the **egress badge** (`PRODUCT_SPEC.md:250-264`) that makes the
+privacy promise visible at the moment text would leave the machine. This is the roadmap's
+"two real implementations, not one implementation and a promise" rule applied to the cleanup
+seam (`ROADMAP.md:28`), and the BYOK rung is the working proof that a hosted provider slots
+into the seam (`ROADMAP.md:285-290`).
 
-1. **The `CleanupProvider` seam in VoccaCore** — per ARCHITECTURE.md:273-277: `identity`,
-   `requiresNetwork` (false for rules; the hook the zero-network invariant and the C6 egress badge
-   key on), and `clean(_:context:) async throws -> String` with `CleanupContext { target, mode,
-   dictionary: [ReplacementRule], budget: Duration }` (ARCHITECTURE.md:220-225).
-2. **The `RulesCleanup` implementation in VoccaText** — a pure function over
-   `(String, [ReplacementRule]) -> String` (ARCHITECTURE.md:511): filler removal (frequency-tuned,
-   not blanket), sentence segmentation + terminal punctuation, capitalization, spoken-punctuation
-   commands ("new line", "period"), number/unit normalization, then user-dictionary rules in
-   declared order. Plus the user dictionary as hand-editable JSON in Application Support
-   (ARCHITECTURE.md:513).
-3. **Pipeline wiring with the timeout policy** — cleanup runs between ASR and injection inside
-   `DictationPipeline.transcribeAndInject` (insertion point between `Sources/VoccaCore/DictationPipeline.swift:238`
-   and `:240`); budget is enforced by the caller via `Task` cancellation, never trusted to the
-   provider (ARCHITECTURE.md:509); any failure/timeout degrades silently to the raw transcript —
-   I5 and custody-before-cleanup (ARCHITECTURE.md:476) make cleanup structurally incapable of
-   losing text.
-4. **The eval harness** — held-out raw→clean pairs scored by blind pairwise preference, the number
-   the P1 gate is judged on (ROADMAP.md:137, CAPABILITY_ROADMAP.md:124).
+## What already exists (shipped, git-backed)
 
-## What the code says (wins over prose)
+- The seam is C6-ready: `CleanupProvider` with `requiresNetwork` (default `false`,
+  `Sources/VoccaCore/CleanupProvider.swift:45-65`), `CleanupContext` (target/mode/dictionary/budget),
+  `ProviderIdentity` with `"ollama-cleanup"`/`"byok-cleanup"` machine keys **already reserved**
+  (`Sources/VoccaCore/ProviderIdentity.swift:31`), and a seam doc that names C6 as the plan
+  (`CleanupProvider.swift:15-21`).
+- `ARCHITECTURE.md` I2 names **the BYOK client as the second permitted network type** ("unnamed
+  here", `ARCHITECTURE.md:16`); `:296` makes `requiresNetwork` load-bearing for the badge;
+  `:257` lists `OllamaCleanup`/`BYOKCleanup` in the seam table; §11's diagram is
+  **rules-always-then-optional-LLM** (`ARCHITECTURE.md:506-512`) — the "fallback to rules"
+  acceptance is structurally the chain design, not a post-hoc fallback.
+- `ARCHITECTURE.md:322` settles the budget doctrine in advance: "at P1 the default is rules,
+  and if an LLM is opted into, the user has knowingly bought latency."
+- The pipeline already enforces the budget race, routes any throw/timeout to raw (never loses
+  text), re-checks cancellation post-cleanup, records the cleanup span on every answer, and
+  passes `dictionary: []` by design (`Sources/VoccaCore/DictationPipeline.swift:316-367`).
+- Composition root wires `cleanup: ShippingCleanup.make()` hardwired
+  (`Sources/VoccaBootstrap/AppBootstrap.swift:294-303`); **no selection mechanism exists**
+  (the ASR picker's own state is in-memory and unwired; zero `UserDefaults`/`AppStorage`
+  anywhere in the repo; persistence is deferred to C14).
+- Enforcement that must not break: the H8 lint lets exactly **one** file name `URLSession`
+  (`Tests/HarnessTests/ModelDownloaderSeamTests.swift:61-69` — a second file needs a reviewed
+  table edit, per the FileManager per-module precedent); the zero-network probe's module
+  coverage cross-check requires anything new to be driven from `exerciseDefaultConfiguration()`
+  (`ZeroNetworkTests.swift:578-592`); **loopback counts as a network connection** — an Ollama
+  call on the default path fails the build (`interposer.c:70-73`); test floor 958 must be
+  raised in the same commit as new tests (`Scripts/test-with-floor.sh:963`).
+- No Keychain usage exists in `Sources/` anywhere — a `Security` family would be the first,
+  needing a one-file seam row in the H7 shape. No `LLM/` directory in `VoccaText` yet, but
+  `ARCHITECTURE.md:128` plans it. No smoke steps for Ollama/BYOK/badge exist.
 
-- **The insertion point is real and small**: `transcribeAndInject` (DictationPipeline.swift:190-262);
-  cleanup consumes the `Transcript` at line 238 and yields the string handed to `injector.inject`
-  at line 240. **Esc-cancellation interacts**: the post-transcribe guard at lines 228-231
-  ("a cancelled transcription must never inject") means a cleanup `await` must re-check
-  `Task.isCancelled` before injecting — a timeout yielding raw must not fire after Esc cancelled
-  the session, or the never-inject-on-cancel invariant breaks (AppBootstrap.swift:1029-1041).
-- **The latency vocabulary already anticipates C5**: `LatencySpan.cleanup` exists as a `notPresent`
-  state (`Sources/VoccaCore/LatencySpan.swift:27-29, 69-71`); the pipeline records a real span
-  (`recordCleanupSpan` beside `recordASRSpan`, DictationPipeline.swift:267-272); `describe()` needs
-  no change. `SessionOutcomeClass` and `PipelineSurface` are closed sets and survive unchanged —
-  raw injection on timeout is still `delivered`/`failsafeHeld`.
-- **VoccaText is a leaf module with a placeholder** (`Sources/VoccaText/Placeholder.swift`).
-  Making it implement a seam is a deliberate module move: `leafModules` → `adapterModules` in
-  `Tests/HarnessTests/ModuleBoundaryTests.swift:72-74 → 99-101` + a `VoccaCore` dependency in
-  Package.swift. The rules engine itself is stdlib-pure (vocabulary-only core, CoreBoundaryTests
-  empty import list) — but dictionary persistence (JSON + FileManager) cannot live in VoccaCore.
-- **The zero-network invariant forces the probe to drive VoccaText**: the coverage guard
-  (ZeroNetworkTests.swift:1032-1059) fails on any module the probe never runs; the placeholder
-  witness `VoccaTextPlaceholder.self` (VoccaNetworkProbe.swift:276) becomes a real type minted by
-  a drive call, and `DictationCycleDrive.buildDictationCycle()` (line 388-390) wires the provider.
-  The probe's `"1 2 3"` input must pass through cleanup unchanged (identity on that input) or the
-  cycle report breaks. **ZeroNetworkTests.swift:561-567 asserts the latency payload does NOT
-  contain "cleanup" — that assertion flips the day C5 records a span.**
-- **VoccaBootstrap does not depend on VoccaText** (Package.swift:118-129) — a `ShippingCleanup`
-  factory in VoccaText (following `ShippingLadder`/`ShippingPasteboard` precedent) requires adding
-  the dependency to the composition root.
-- **Test floor lags**: `Scripts/test-with-floor.sh:908` pins 836; the suite actually runs 876
-  (latency-instrumentation shipped 40 tests without raising it — a review finding). C5 raises it.
-- **SMOKE_CHECKLIST verbatim assumptions**: steps 62-68 and the matrix assert injected text is
-  "verbatim" (e.g. :1011, :356); benchmark step 71 says "cleanup is never recorded, C5 unbuilt"
-  (:1189-1191). Both need C5-qualified edits.
+## Design tensions to resolve (open questions for the PRD)
 
-## What the docs add (the requirements)
+1. **The 10 ms budget vs an LLM round-trip.** `cleanupBudget = .milliseconds(10)` is a private
+   constant in the pipeline (`DictationPipeline.swift:108-113`) and the provider is cancelled at
+   expiry. An LLM stage needs seconds. The architecture's own answer is "the user knowingly
+   bought latency" (`ARCHITECTURE.md:322`); the PRD must pick the mechanism: a provider-declared
+   budget, or a pipeline rule (network provider ⇒ larger budget). The chain shape (§11) means
+   rules output is produced first and survives LLM failure, so the fallback is cheap.
+2. **Selection mechanism with the settings surface deferred.** The Cleanup tab ships later
+   (`deterministic-cleanup/prd.md:216-217`); the card's acceptance has no selection-UI item.
+   Both rungs must be off by default. Options: a hand-edited JSON config in Application Support
+   (the `dictionary.json`/`config.json` precedent, `ARCHITECTURE.md:554`) resolved once at
+   launch (the `DictationEngineResolver` resolve-once shape), or test/smoke-only wiring until
+   settings. Must not contradict "never silently re-enabled" (`ROADMAP.md:131`).
+3. **Badge plumbing.** The widget store exists (`WidgetStateStore`/`WidgetStateReducer`); the
+   badge is a static-per-launch property of the configured provider's `requiresNetwork`
+   (`ARCHITECTURE.md:296`), rendered in the recording pill as ☁︎ with hover copy naming the
+   endpoint (`PRODUCT_SPEC.md:250-264`), non-dismissable, reducer-tested with copy pinned
+   byte-for-byte (the `EnginePickerCopy` precedent). No mechanism currently pushes the provider
+   into the widget store.
+4. **Ollama surface.** Default `http://localhost:11434`; model discovery (`/api/tags`) vs a
+   configured model name; tuned cleanup prompt; streaming disabled (`CAPABILITY_ROADMAP.md:137`).
+5. **Keychain.** BYOK key lives in the Keychain (`issue.md:11`); a `Security` one-file seam +
+   lint row is new surface; ARCHITECTURE.md §13 storage list has no Keychain entry and should
+   be amended in this unit.
 
-- Rung-1 scope (ROADMAP.md:122, CAPABILITY_ROADMAP.md:120): fillers (frequency-tuned, not blanket),
-  segmentation + terminal punctuation, capitalization, spoken-punctuation commands, number/unit
-  normalization, user dictionary (ordered, case-sensitive, word-boundary-controlled, JSON,
-  hand-editable/version-controllable).
-- Metrics (ROADMAP.md:137-140): blind pairwise preference ≥80% cleaned-over-raw (rung 1);
-  rules-path latency **<10 ms** (ARCHITECTURE.md:310 budget — the ROADMAP ladder's "<5 ms" at
-  :118/:116 is a drift to resolve; ARCHITECTURE is authoritative, 10 ms); zero-network default
-  test (a release blocker forever); 100% of timeouts/failures still inject raw.
-- Eval harness: ROADMAP.md:132 says "run in CI" but repo discipline (C2/C3 precedent) is TTS
-  stand-ins in CI + env-gated real scoring on the founder's machine; the held-out set is the
-  **F2 founder recordings** — nothing in the docs links F2 to C5's harness; the PRD must claim it.
-- Seam-count tension: I4 / guardrail 7 demand two implementations, but C5 ships only RulesCleanup;
-  the second (Ollama) is C6 — the PRD states I4 completion is C6's job, matching the C2→C3
-  "proven rather than asserted" precedent.
-- PRODUCT_SPEC: Cleanup tab (:232-240), egress badge for `requiresNetwork` (:250-264, C6),
-  settings-as-JSON/no-account (:304); silent on timeout UX, per-mode selection, spoken punctuation,
-  dictionary-editing mechanics — C5 has freedom, bounded by "no nested panels" (:219).
+## Affected areas
 
-## Open questions for the interview
+`VoccaCore` (budget mechanism if pipeline changes), `VoccaText` (new `LLM/` dir: Ollama
+provider, BYOK provider, chain, HTTP transport, Keychain store), `VoccaUI` (badge state +
+copy), `VoccaBootstrap` (selection + wiring), `VoccaNetworkProbe` (drive the new surface with
+fakes; zero-network must stay), seam lints (URLSession table amendment, new Keychain row),
+`SMOKE_CHECKLIST.md` (new founder steps), test floor raise.
 
-1. **Default-on at merge?** ROADMAP.md:48 says rules are the cleanup default; but the P0 gate
-   (7-day daily-use log, ROADMAP.md:100-104) is still running, and cleanup changing injected text
-   mid-gate muddies the gate's observations. Build default-on (per roadmap) or default-off until
-   the gate verdict? (PRD position to confirm with founder.)
-2. **Dictionary edit surface**: settings UI doesn't exist yet (deferred per CLAUDE.md). C5 should
-   ship JSON as the first-class edit surface (matches PRODUCT_SPEC no-account/settings-as-JSON);
-   the Cleanup-tab UI comes with the settings surface later. Confirm scope.
-3. **Eval harness posture**: CI via TTS stand-ins + env-gated real scoring against F2 recordings,
-   provisional ≥80% until the founder's real recordings land. Confirm the founder will record F2
-   (it is the same corpus the WER tolerances already await).
-4. **Latency number**: settle on 10 ms (ARCHITECTURE.md:310) and note the <5 ms drift.
-5. **Bounded ITN scope**: number/unit normalization stays a bounded rule set (twelve → 12, known
-   units), not a full inverse-text-normalization system — confirm.
+## Ambiguities / contradictions flagged (not papered over)
 
-## Contradictions flagged (not papered over)
+- C5's PRD says the seam's `dictionary` field is "declared, not read" and the pipeline passes
+  `[]` — an LLM rung will not receive the user dictionary through `CleanupContext`; decide
+  whether the chain passes it to the rules stage only (its own store) and the LLM stage stays
+  dictionary-free.
+- `CAPABILITY_ROADMAP.md:140` lists per-mode provider selection as a C6 deliverable, but the
+  C5 PRD (written after) defers it to C6/C11 — with `SessionMode` currently `.dictation`-only
+  in the pipeline's usage, per-mode selection is best deferred to C11; flag it as an explicit
+  scope cut in the PRD.
+- The H8 lint's "one entry, nothing else ever joins it" comment predates I2's amendment naming
+  the BYOK client; the table edit is therefore a reviewed amendment (the FileManager precedent),
+  not a weakening — the PRD must say so.
+- No dependency needed: Foundation `URLSession` on macOS 15 suffices; no new package.
 
-- `<5 ms` (ROADMAP.md:118, CAPABILITY_ROADMAP.md:116) vs `<10 ms` (ROADMAP.md:138, ARCHITECTURE.md:310,503).
-- "Two implementations at ship" (guardrail 7) vs C5's single implementation (C6 completes it).
-- Eval "run in CI" (ROADMAP.md:132) vs repo WER discipline (stand-ins + env-gated real runs).
-- SMOKE_CHECKLIST verbatim/never-recorded-cleanup assertions vs C5 wiring.
+## Phase / scope placement
 
-## Placement
-
-Layer: AI cleanup (`CleanupProvider`). Phase: P1. Local-only, macOS-only, dictation-first — no
-guardrail violations; the zero-network default is preserved (rules are local by construction) and
-the probe keeps asserting it.
+Phase P1 (week 6–7 slot). Dictation-first, local-first, open-core: Ollama is local; BYOK is
+opt-in, Keychain-stored, badged, off by default; nothing cripples the local core; the
+zero-network release blocker stays green.
