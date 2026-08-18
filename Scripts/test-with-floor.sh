@@ -960,7 +960,7 @@ set -euo pipefail
 # directory, wav-sidecar engine-attribution guard, recorded comparison line when complete).
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=958
+MINIMUM_EXECUTED_TESTS=963
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
