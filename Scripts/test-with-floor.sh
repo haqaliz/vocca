@@ -1003,8 +1003,15 @@ set -euo pipefail
 # ollama/byok resolution rows, and the two loud degrades), plus the FileManager seam table's
 # exact-three-seams pin (one, B6 — the config row joined the table).
 #
+# The egress-badge aspect raises it to 1048: the egress badge's reducer contract (seven, B1-B3,
+# B5 — the .none default, the active-state endpoint, the egressChanged set, the no-other-action-
+# touches-egress enumeration, the no-dismissal enumeration, the wiring's explicit clear, and the
+# survives-a-full-session fold), the store's setEgress fold (one), and the badge copy's
+# byte-fidelity (three, B4 — the U+2601+U+FE0F glyph, the spec-pinned hover template, and the
+# endpoint interpolation).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1037
+MINIMUM_EXECUTED_TESTS=1048
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

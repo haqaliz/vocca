@@ -88,7 +88,10 @@ public struct WidgetView: View {
                     .fill(.primary)
                     .frame(width: 6, height: 6)
             case .opening(let targetAppName):
-                Text(WidgetCopy.openingLabel(targetAppName: targetAppName))
+                HStack(spacing: 4) {
+                    Text(WidgetCopy.openingLabel(targetAppName: targetAppName))
+                    egressMarker
+                }
             case .recording, .transcribing:
                 // One branch on purpose: the waveform's @State must survive RECORDING →
                 // TRANSCRIBING (the freeze is a pause, not a reset — see LevelWaveformView).
@@ -110,10 +113,23 @@ public struct WidgetView: View {
                     } else {
                         Text(WidgetCopy.transcribingProgress)
                     }
+                    egressMarker
                 }
             case .delivered(let targetAppName):
                 Text(WidgetCopy.deliveredLabel(targetAppName: targetAppName))
             }
+        }
+    }
+
+    /// The egress marker (`PRODUCT_SPEC.md:250-264`): the ☁︎ glyph while an active cleanup
+    /// provider sends text off the machine, with the hover copy stating where it goes. Rendered
+    /// in the opening/recording/transcribing branches only — DELIVERED is deliberately excluded
+    /// (the text has left by then, `egress-badge` B1). Display-only: the pill never becomes key.
+    @ViewBuilder
+    private var egressMarker: some View {
+        if case .active(let endpoint) = store.state.egress {
+            Text(BadgeCopy.egressGlyph)
+                .help(BadgeCopy.egressHoverText(endpoint: endpoint))
         }
     }
 
