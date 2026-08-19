@@ -55,30 +55,33 @@ final class CleanupResolverTests: XCTestCase {
         for _ in 0..<2000 where await fileSystem.fileExistsCalls == 0 {
             try? await Task.sleep(for: .milliseconds(1))
         }
+        let parkedCalls = await fileSystem.fileExistsCalls
         XCTAssertEqual(
-            await fileSystem.fileExistsCalls, 1,
+            parkedCalls, 1,
             "the first resolve must be parked in the file read before the second arrives")
 
         let second = Task { try? await resolver.resolve() }
         try? await Task.sleep(for: .milliseconds(50))
+        let concurrentCalls = await fileSystem.fileExistsCalls
         XCTAssertEqual(
-            await fileSystem.fileExistsCalls, 1,
+            concurrentCalls, 1,
             "the second resolve must share the first's build, not re-read the file")
 
         await gate.release()
-        let a = try await unwrap(first.value)
-        let b = try await unwrap(second.value)
+        let a = try Self.unwrap(await first.value)
+        let b = try Self.unwrap(await second.value)
         XCTAssertEqual(a.identity.id, "rules-cleanup")
         XCTAssertEqual(
             a.identity, b.identity,
             "both concurrent callers receive the same provider")
 
-        let third = try await unwrap(try? await resolver.resolve())
+        let third = try Self.unwrap(try? await resolver.resolve())
         XCTAssertEqual(
             third.identity, a.identity,
             "a resolve after success returns the cached provider")
+        let finalCalls = await fileSystem.fileExistsCalls
         XCTAssertEqual(
-            await fileSystem.fileExistsCalls, 1,
+            finalCalls, 1,
             "the file must never be re-read once resolved")
     }
 
@@ -183,7 +186,7 @@ final class CleanupResolverTests: XCTestCase {
                 atomically: true, encoding: .utf8)
         }
         return CleanupResolver(
-            store: CleanupConfigStore(directory: directory, log: { _ in }),
+            store: CleanupConfigStore(directory: directory, log: log),
             transport: {
                 StubLLMTransport(mode: .happyPath(response: LLMResponse(statusCode: 200, body: Data())))
             },

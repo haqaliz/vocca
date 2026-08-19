@@ -993,8 +993,18 @@ set -euo pipefail
 # returning a stale rules result), the identity/network/budget propagation from the LLM stage,
 # and the never-empty rule (an empty or whitespace rules output skips the LLM stage entirely).
 #
+# The cleanup-config aspect raises it to 1037: the config types' decode table (nine, B1-B2 —
+# the kind round-trip with pinned raw values, the unknown-kind loud degrade, the valid full
+# config with unknown keys tolerated, the silent rules config, the ollama-without-model, the
+# byok-without-endpoint, the wrong-typed field, the non-dialable endpoint, and the never-throws
+# sweep), the store's load contract (three, B3 — the silent missing-file default, the valid-file
+# decode, the corrupt-file loud degrade that never rewrites the file), the resolver's resolve-once
+# and decision table (seven, B4-B5 — the single-flight no-re-read proof, the absent-file/rules/
+# ollama/byok resolution rows, and the two loud degrades), plus the FileManager seam table's
+# exact-three-seams pin (one, B6 — the config row joined the table).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1017
+MINIMUM_EXECUTED_TESTS=1037
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

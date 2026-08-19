@@ -72,7 +72,7 @@ final class CleanupConfigStoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let corrupt = Data("definitely not json".utf8)
         let fileURL = directory.appendingPathComponent("cleanup-config.json")
-        try corrupt.write(to: fileURL, atomically: true)
+        try corrupt.write(to: fileURL)
         let logs = LogCollector()
         let store = CleanupConfigStore(directory: directory, log: { logs.append($0) })
 

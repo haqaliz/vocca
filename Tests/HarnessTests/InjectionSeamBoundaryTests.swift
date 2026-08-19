@@ -1146,22 +1146,41 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     private static let filesPermittedToNameFileManagerIdentifiersBySeam: [String: Set<String>] = [
         "journal": ["Journal/FileSystemJournalStore.swift"],
         "dictionary": ["Dictionary/FileSystemDictionaryStore.swift"],
+        "config": ["Cleanup/CleanupConfigStore.swift"],
     ]
 
     /// The module root each FileManager seam scans, keyed by the same seam names as
     /// ``filesPermittedToNameFileManagerIdentifiersBySeam``. The table's paths are
     /// module-relative, so each row needs its own root: the journal row scans `VoccaInject`,
-    /// the dictionary row scans `VoccaText` — the per-seam claim actually reaches the module
-    /// that owns each seam, and stops at it.
+    /// the dictionary and config rows scan `VoccaText` — the per-seam claim actually reaches the
+    /// module that owns each seam, and stops at it.
     private static let fileManagerSeamModuleRoots: [String: String] = [
         "journal": "VoccaInject",
         "dictionary": "VoccaText",
+        "config": "VoccaText",
     ]
 
     /// The FileManager table flattened — every permitted file in every seam. The module-wide
     /// scan is aimed at this set.
     private static var filesPermittedToNameFileManagerIdentifiers: Set<String> {
         Set(filesPermittedToNameFileManagerIdentifiersBySeam.values.flatMap { $0 })
+    }
+
+    /// The FileManager permitted files grouped by module — the per-module union the escape scan
+    /// aims at. VoccaText owns two FileManager seams (`dictionary` + `config`), so the union is
+    /// what "within this module, only the seam adapters name the family" means.
+    private static func fileManagerFilesPermittedByModule() -> [String: Set<String>] {
+        var byModule: [String: Set<String>] = [:]
+        for seam in filesPermittedToNameFileManagerIdentifiersBySeam.keys {
+            guard
+                let module = fileManagerSeamModuleRoots[seam],
+                let files = filesPermittedToNameFileManagerIdentifiersBySeam[seam]
+            else {
+                continue
+            }
+            byModule[module, default: []].formUnion(files)
+        }
+        return byModule
     }
 
     /// The identifier prefixes that constitute the FileManager family: the one type, whole.
@@ -1185,26 +1204,24 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         }
     }
 
-    /// The per-seam scans, aimed at the FileManager table: within each seam's own module, no
-    /// `FileManager` identifier is named outside that seam's one permitted file.
+    /// The per-module scans, aimed at the FileManager table: within each module that owns a
+    /// FileManager seam, no `FileManager` identifier is named outside that module's permitted
+    /// files.
     ///
-    /// The seam's whole point is that its decisions run headless over an injected seam; a
-    /// second file naming the family in the same module is a decision that moved into the half
-    /// CI cannot reach — the same shape as the other scans above, for the family
-    /// `FileSystemJournalStore` and `FileSystemDictionaryStore` are the one file each for. The
-    /// scan root is each seam's module, resolved per seam (`fileManagerSeamModuleRoots`), not
-    /// the tree, because the family's claim is per-seam within its module (see the table's note).
+    /// The permit set is the **union of the module's seam files**, not one seam's row: since the
+    /// `cleanup-config` aspect, VoccaText owns two FileManager seams (`dictionary` +
+    /// `config`), and each adapter is the other's "outside" unless the module's union is the
+    /// permit set. The seam's whole point is that its decisions run headless over an injected
+    /// seam; a file naming the family in the same module beyond the seam table is a decision
+    /// that moved into the half CI cannot reach — the same shape as the other scans above, for
+    /// the family the journal, dictionary and config adapters are the one file each for. The
+    /// scan root is each seam's module (`fileManagerSeamModuleRoots`), grouped per module.
     func testNoFileManagerIdentifierEscapesTheFileManagerSeamTable() throws {
         let sources = try sourcesRoot()
-        for seam in Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted() {
-            guard
-                let files = Self.filesPermittedToNameFileManagerIdentifiersBySeam[seam],
-                let module = Self.fileManagerSeamModuleRoots[seam]
-            else {
-                continue
-            }
+        let permittedByModule = Self.fileManagerFilesPermittedByModule()
+        for (module, permitted) in permittedByModule.sorted(by: { $0.key < $1.key }) {
             let root = sources.appendingPathComponent(module)
-            for relativePath in files {
+            for relativePath in permitted {
                 let directory = root.appendingPathComponent(relativePath)
                     .deletingLastPathComponent()
                 guard FileManager.default.fileExists(atPath: directory.path) else {
@@ -1214,16 +1231,17 @@ final class InjectionSeamBoundaryTests: XCTestCase {
 
             let sightings = try Self.sightings(
                 under: root,
-                permitting: files,
+                permitting: permitted,
                 identifiersIn: Self.fileManagerIdentifiers)
 
             XCTAssertEqual(
                 sightings, [],
                 """
-                FileManager is named outside the \(seam) seam's permitted file: \
+                FileManager is named outside \(module)'s permitted FileManager files: \
                 \(sightings.map(\.description).joined(separator: "; ")). Every decision about the \
-                \(seam) must live above the one-file adapter, where a headless suite can drive it; \
-                a second naming file in \(module) is a decision that escaped CI forever.
+                file system must live above the one-file-per-seam adapters, where a headless suite \
+                can drive it; a file naming the family in \(module) beyond the seam table is a \
+                decision that escaped CI forever.
                 """)
         }
     }
