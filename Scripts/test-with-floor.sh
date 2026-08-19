@@ -972,8 +972,21 @@ set -euo pipefail
 # JSON, missing response key, empty and whitespace-only responses), and the two pinned prompts'
 # byte-fidelity.
 #
+# The byok-provider aspect raises it to 1010: the BYOK cleanup provider's contract tests
+# (nineteen, B1-B8) — the identity/network/budget declarations, the request shape over the stub's
+# ledger (the configured endpoint, the `Authorization: Bearer <key>` header, the chat-completions
+# body with the pinned system instruction), the nil-model omission, the happy path, the key
+# absent ⇒ `.keyUnavailable` and key-throws rethrow rows (both with no recorded request), the
+# 401/403 ⇒ `.unauthorized` mapping (exactly one request — never a retry — and no key in the
+# error), the seven remaining failure modes throwing (unreachable/serverStatus(500)/
+# invalidResponse passed through, malformed JSON, missing choices, empty choices, empty and
+# whitespace-only content), and the B8 key-hygiene sweep (the sentinel rides the wire and
+# appears in none of the error descriptions across every failure path) — plus the six-test
+# Security seam row (tree-wide scan, one-file-per-seam, two-sided pin, planted-identifier
+# negative control, the planted-tree "another file" control, comment-strip control).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=985
+MINIMUM_EXECUTED_TESTS=1010
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

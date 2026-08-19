@@ -1060,6 +1060,38 @@ final class InjectionSeamBoundaryTests: XCTestCase {
             """)
     }
 
+    /// The Security family's planted-tree negative control: a `SecItem` planted in another file
+    /// is caught by the real tree-wide walk.
+    ///
+    /// The real check's own walk (`sightings(under:permitting:identifiersIn:)`) is run against
+    /// a fabricated tree with a planted `SecItemCopyMatching` call in a file outside the
+    /// permitted one — the B9 "a planted `SecItem` in any other `Sources/` file is detected"
+    /// claim, run rather than assumed. The permitted file is deliberately not present, so
+    /// `permitting: []` scans the whole tree and the planted file must surface.
+    func testTheSecurityScanSeesAPlantedIdentifierInAnotherFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-security-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("VoccaOther"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try "let status = SecItemCopyMatching(query, &result)\n".write(
+            to: root.appendingPathComponent("VoccaOther/Leaky.swift"), atomically: true,
+            encoding: .utf8)
+
+        let sightings = try Self.sightings(
+            under: root, permitting: [], identifiersIn: Self.securityIdentifiers)
+
+        XCTAssertEqual(
+            sightings,
+            [EventTypeSighting(file: "VoccaOther/Leaky.swift", identifier: "SecItemCopyMatching")],
+            """
+            The tree-wide Security scan must report a SecItem planted in another file: got \
+            \(sightings.map(\.description).joined(separator: "; ")). A scan that misses it \
+            permits a Keychain read to escape the seam's one file.
+            """)
+    }
+
     /// Comments are stripped before the scan, and that is load-bearing rather than incidental:
     /// the one-file adapter's documentation has to be able to name the family it translates
     /// (`SystemKeychainKeyProvider`'s does, at length, and should).
