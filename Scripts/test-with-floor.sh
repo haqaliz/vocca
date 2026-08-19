@@ -965,8 +965,15 @@ set -euo pipefail
 # every failure mode, the default POST method, the recorded request's URL/method/headers/body,
 # and the hang mode parking a call at the gate until release.
 #
+# The ollama-provider aspect raises it to 985: the Ollama cleanup provider's contract tests
+# (fourteen, B1-B5) — the identity/network/budget declarations, the request shape over the stub's
+# ledger (`api/generate`, the JSON body, the pinned prompt prefix), the happy path, the seven
+# failure modes throwing (unreachable/serverStatus/invalidResponse passed through, malformed
+# JSON, missing response key, empty and whitespace-only responses), and the two pinned prompts'
+# byte-fidelity.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=971
+MINIMUM_EXECUTED_TESTS=985
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
