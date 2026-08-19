@@ -1262,6 +1262,24 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         }
     }
 
+    /// **The FileManager seam table names exactly the three shipped seams** — the `cleanup-config`
+    /// aspect's B6 pin: `journal` (VoccaInject), `dictionary` (VoccaText), and the config store
+    /// the `cleanup-config` aspect adds (VoccaText). An exact-set pin, so a seam that moves
+    /// without its row — or a row that appears without a seam — fails here rather than in the
+    /// review.
+    func testTheFileManagerSeamTableNamesExactlyTheThreeShippedSeams() {
+        XCTAssertEqual(
+            Set(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys),
+            ["journal", "dictionary", "config"],
+            """
+            The FileManager seam table must name exactly the three shipped seams: journal, \
+            dictionary, config. Got \
+            \(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted().joined(separator: ", ")). \
+            A seam whose adapter moved without its row, or a row without a seam, is a leak the \
+            other pins cannot see.
+            """)
+    }
+
     /// **Every permitted FileManager file actually names its family** — the two-sided pin, in
     /// the same shape as ``testEachPermittedFileActuallyNamesItsFamily``.
     ///
