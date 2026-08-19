@@ -3,7 +3,8 @@
 This file orients a coding agent working in this repository. Read it first.
 
 > **Status:** the **C1 skeleton, the C2 ASR half, the C3 second ASR engine, the C4 injection
-> ladder, the P0 dictation loop and the C5 deterministic-cleanup unit** exist; the product
+> ladder, the P0 dictation loop, the C5 deterministic-cleanup unit and the C6 llm-cleanup
+> unit** exist; the product
 > does not. C1 (audio
 > capture + global hotkey) merged 2026-08-12; C2 (local ASR) merged 2026-08-09; C3
 > (second-asr-engine) landed 2026-08-11; C4 (the
@@ -344,6 +345,53 @@ This file orients a coding agent working in this repository. Read it first.
 > - **The env-gated real run has not run.** It skips visibly in CI; step 73 is its first
 >   execution, and F2 is still ownerless beyond that step (the same open item the ASR tolerances
 >   already await).
+>
+> **The `llm-cleanup` unit landed 2026-08-19 — C6, the Ollama and BYOK rungs of the cleanup
+> ladder, behind the same seam.** All eight aspects shipped (in order: `provider-budget`,
+> `llm-transport`, `ollama-provider`, `byok-provider`, `cleanup-chain`, `cleanup-config`,
+> `egress-badge`, `root-wiring`; each planned in `docs/planning/llm-cleanup/<aspect>/`). The
+> cleanup seam now has **three real implementations** (rules, Ollama, BYOK — the roadmap's
+> "two real implementations, not one implementation and a promise"): `OllamaCleanupProvider`
+> (`VoccaText/LLM/`) posts `/api/generate` at the configured endpoint/model, `BYOKCleanupProvider`
+> speaks OpenAI-compatible chat completions with `Authorization: Bearer <key>` and maps 401/403
+> to a first-class `unauthorized` (never retried, the key-hygiene sweep pins the sentinel out of
+> every error), and **`DefaultLLMTransport` is the second named network type** —
+> `ARCHITECTURE.md:16`'s BYOK client, the second file permitted to name `URLSession` (H8 lint,
+> reviewed amendment). The degrade is structural, not post-hoc: `ChainedCleanupProvider`
+> (`cleanup-chain`) runs rules first, rewrites the rules output, and on any LLM throw or
+> empty answer returns the rules output — rethrowing only `CancellationError` when the task is
+> cancelled, so a cancelled session never injects a stale result. The opt-in mechanism is a
+> hand-edited `cleanup-config.json` in Application Support (`CleanupProviderKind` + tolerant
+> decode, absent/invalid ⇒ rules with a loud log), read once by the `CleanupResolver` actor
+> (resolve-once, single-flight, the `DictationEngineResolver` shape), with the rules dictionary
+> store derived from the same directory — and `CleanupConfigStore` is the third `FileManager`
+> seam row. The egress badge (`egress-badge`) is reducer state, not view state: `WidgetEgressState`
+> (`.none`/`.active(endpoint:)`), the closed `WidgetAction` set gains `egressChanged`, the
+> never-auto-dismiss rule holds (no action but the wiring's launch fold touches it), and
+> `BadgeCopy` pins `PRODUCT_SPEC.md:250-264` byte-for-byte (the ☁︎ U+2601 U+FE0F glyph, the
+> "Cleanup runs on <endpoint>. Your text is sent there." hover). The composition root
+> (`AppBootstrap.configure`) builds the resolver (real `DefaultLLMTransport` +
+> `SystemKeychainKeyProvider`), resolves in `pipelineAssembly`, and folds the badge from the
+> resolved provider's `requiresNetwork` + endpoint in a launch task; the zero-network probe
+> wires the resolver with fakes over an absent config and its cycle report now carries
+> `egress=none` — zero `connect(2)` unchanged, `cleanup.engine=rules-cleanup` unchanged.
+> `SMOKE_CHECKLIST.md` steps 74–76 are the LLM rungs' first execution (Ollama live and stopped,
+> the BYOK real run with the key in the Keychain, and the badge both directions). S2
+> (ledger cleanup attribution) and N1 (configurable LLM budget) were deliberately skipped as
+> the plan's "only if cheap" gates; `ARCHITECTURE.md` §11 now says "provider-declared" and §13
+> names `cleanup-config.json` + the Keychain item. Test floor: 1052.
+>
+> **What the llm-cleanup unit is NOT, and must not be claimed:**
+> - **No real LLM cleanup runs in CI.** The providers are executed over stub transports; the
+>   Keychain adapter (`SystemKeychainKeyProvider`) is translation-only, executed by nothing (the
+>   tap-adapter precedent); `SMOKE_CHECKLIST.md` steps 74–76 are the real runs' only execution.
+> - **LLM rewrite quality is unmeasured, and this unit must not imply otherwise.** There is no
+>   harness for LLM-over-rules output and no claim "LLM > rules"; the founder's real Ollama run
+>   is a smoke observation, not a gate number (`prd.md` "quality not implied").
+> - **The 5 s LLM budget is unmeasured** — a declared ceiling, cancelable by Esc, tuned from the
+>   founder's real run, not a measured number.
+> - **S2 and N1 were skipped** as the plan's "only if cheap" gates: the ledger cannot yet say
+>   *which* cleanup ran, and the LLM budget is not user-configurable.
 >
 > **What C4 is NOT, and must not be claimed:**
 > - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
