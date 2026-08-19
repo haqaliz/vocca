@@ -959,8 +959,14 @@ set -euo pipefail
 # env-gated test itself (visible skip without the variable, hard failure with a broken
 # directory, wav-sidecar engine-attribution guard, recorded comparison line when complete).
 #
+# The llm-transport aspect raises it to 971: the LLM transport seam's contract tests (eight,
+# B1/B3/B4) — the seam round-trip through the stub, the `Sendable` existential compile pin, the
+# closed-and-distinct error vocabulary, `serverStatus` carrying its code, the stub emitting
+# every failure mode, the default POST method, the recorded request's URL/method/headers/body,
+# and the hang mode parking a call at the gate until release.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=963
+MINIMUM_EXECUTED_TESTS=971
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

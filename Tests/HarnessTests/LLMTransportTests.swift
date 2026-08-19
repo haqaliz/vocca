@@ -143,7 +143,8 @@ final class LLMTransportTests: XCTestCase {
         for _ in 0..<1000 where await gate.parkedCount == 0 {
             try await Task.sleep(for: .microseconds(100))
         }
-        XCTAssertEqual(await gate.parkedCount, 1, "the hang mode must park the call until released")
+        let parked = await gate.parkedCount
+        XCTAssertEqual(parked, 1, "the hang mode must park the call until released")
 
         await gate.release()
         let completed = try await task.value
