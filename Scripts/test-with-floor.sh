@@ -985,8 +985,16 @@ set -euo pipefail
 # Security seam row (tree-wide scan, one-file-per-seam, two-sided pin, planted-identifier
 # negative control, the planted-tree "another file" control, comment-strip control).
 #
+# The cleanup-chain aspect raises it to 1017: the rules-then-LLM cleanup chain's contract tests
+# (seven, B1-B7) — the rules-only passthrough (identity/network/budget from the rules provider),
+# the chain composition (the LLM stub receives the rules output as its transcript, its result
+# returned), the LLM-throws degrade to the rules output, the empty/whitespace LLM output degrade,
+# the cancellation rethrow (a genuinely-cancelled task rethrows CancellationError rather than
+# returning a stale rules result), the identity/network/budget propagation from the LLM stage,
+# and the never-empty rule (an empty or whitespace rules output skips the LLM stage entirely).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1010
+MINIMUM_EXECUTED_TESTS=1017
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
