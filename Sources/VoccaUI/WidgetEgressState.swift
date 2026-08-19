@@ -32,4 +32,17 @@ public enum WidgetEgressState: Equatable, Sendable {
     case none
     /// A `requiresNetwork == true` provider is active; text is sent to `endpoint`.
     case active(endpoint: String)
+
+    /// The wiring's fold from a resolved cleanup provider (`root-wiring`): `.active(endpoint:)`
+    /// when the provider declares the network, `.none` otherwise. The one call the composition
+    /// root makes at launch (resolve-once) — extracted here so the headless suite asserts the
+    /// exact fold the root uses. `endpoint` is the resolver's ``egressEndpoint()``; the fallback
+    /// is dead-but-honest (a `requiresNetwork` provider always has a validated endpoint), never
+    /// the key.
+    public static func fromResolvedProvider(
+        requiresNetwork: Bool,
+        endpoint: String?
+    ) -> WidgetEgressState {
+        requiresNetwork ? .active(endpoint: endpoint ?? "unknown endpoint") : .none
+    }
 }

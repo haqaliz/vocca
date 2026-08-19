@@ -270,6 +270,20 @@ public enum AppBootstrap {
             liveLevel = SilentLevelSource()
         }
 
+        // MARK: The cleanup resolver
+        //
+        // The one cleanup provider for the process, resolved once at launch from the hand-edited
+        // `cleanup-config.json` (`cleanup-config` M7): absent file ⇒ rules (the zero-network
+        // default); `ollama`/`byok` ⇒ a rules-then-LLM chain behind the same `CleanupProvider`
+        // seam. The real transport and keychain adapters are wired here; the egress badge is
+        // folded into the widget store from the resolved provider's `requiresNetwork` + endpoint
+        // below (`egress-badge`, `root-wiring`).
+        let cleanupStore = CleanupConfigStore()
+        let cleanupResolver = CleanupResolver(
+            store: cleanupStore,
+            transport: { DefaultLLMTransport() },
+            keyProvider: { SystemKeychainKeyProvider() })
+
         // MARK: The root
         //
         // The pipeline is assembled after the engine is prepared (it needs a *prepared* engine),
@@ -299,7 +313,7 @@ public enum AppBootstrap {
                 return DictationPipeline(
                     engine: engine, injector: custody.ladder, holder: custody.holder,
                     recorder: ledger, clock: clock,
-                    cleanup: ShippingCleanup.make())
+                    cleanup: try await cleanupResolver.resolve())
             },
             downloadSession: downloadSession,
             recorder: ledger,
@@ -312,6 +326,20 @@ public enum AppBootstrap {
             widgetClock: MainRunLoopTimer(),
             liveLevel: liveLevel)
         rootBox.value = root
+
+        // The egress fold: the resolved provider's `requiresNetwork` + endpoint, folded into the
+        // widget store exactly once at launch (resolve-once — a mid-session provider swap is
+        // structurally impossible). `configure` is synchronous and the resolver is async, so the
+        // fold runs on the main actor in a launch task, the `custodyTask` precedent. The default
+        // path folds `.none` — also the reducer's default — so the zero-network probe's
+        // `egress=none` is byte-for-byte correct before this task lands.
+        Task {
+            guard let cleanup = try? await cleanupResolver.resolve() else { return }
+            let egress = WidgetEgressState.fromResolvedProvider(
+                requiresNetwork: cleanup.requiresNetwork,
+                endpoint: await cleanupResolver.egressEndpoint())
+            root.widgetStore.setEgress(egress)
+        }
         return root
     }
 

@@ -65,6 +65,11 @@ public actor CleanupResolver {
     /// The one provider this process resolved — set once, returned forever after.
     private var resolved: (any CleanupProvider)?
 
+    /// The endpoint of the resolved provider's selected block — the egress badge's hover source
+    /// (`root-wiring`): the Ollama/BYOK endpoint when an LLM rung is selected, `nil` for rules.
+    /// Stored with the provider in ``build()``.
+    private var resolvedEndpoint: String?
+
     /// The build currently in flight, if any — the one-flight guard.
     private var inFlight: Task<any CleanupProvider, Never>?
 
@@ -111,6 +116,13 @@ public actor CleanupResolver {
         return provider
     }
 
+    /// The endpoint the resolved provider sends text to — `nil` when rules is selected (or
+    /// before a resolve). The composition root folds the egress badge from this
+    /// (`WidgetEgressState/fromResolvedProvider(requiresNetwork:end point:)`); never the key.
+    public func egressEndpoint() async -> String? {
+        resolvedEndpoint
+    }
+
     /// Build the provider from the config — never throws; invalid blocks degrade to rules.
     private func build() async -> any CleanupProvider {
         let config = await store.load()
@@ -119,6 +131,7 @@ public actor CleanupResolver {
 
         switch config.provider {
         case .rules:
+            resolvedEndpoint = nil
             return rulesProvider
         case .ollama:
             guard let ollama = config.ollama,
@@ -126,8 +139,10 @@ public actor CleanupResolver {
                 let endpoint = URL(string: ollama.endpoint)
             else {
                 log("cleanup-config: cannot resolve the ollama block; using the rules provider")
+                resolvedEndpoint = nil
                 return rulesProvider
             }
+            resolvedEndpoint = ollama.endpoint
             return ChainedCleanupProvider(
                 rules: rulesProvider,
                 llm: OllamaCleanupProvider(
@@ -138,8 +153,10 @@ public actor CleanupResolver {
                 let endpoint = URL(string: byok.endpoint)
             else {
                 log("cleanup-config: cannot resolve the byok block; using the rules provider")
+                resolvedEndpoint = nil
                 return rulesProvider
             }
+            resolvedEndpoint = byok.endpoint
             return ChainedCleanupProvider(
                 rules: rulesProvider,
                 llm: BYOKCleanupProvider(

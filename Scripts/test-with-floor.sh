@@ -1010,8 +1010,14 @@ set -euo pipefail
 # byte-fidelity (three, B4 — the U+2601+U+FE0F glyph, the spec-pinned hover template, and the
 # endpoint interpolation).
 #
+# The root-wiring aspect raises it to 1052: the composition root's cleanup wiring contract
+# (four, B4 — the fromResolvedProvider fold for a network provider and for an offline provider,
+# the absent-config resolve ⇒ rules ⇒ .none fold through the widget store, and the ollama-config
+# resolve ⇒ requiresNetwork ⇒ .active(endpoint:) fold through the widget store), while the
+# zero-network probe's own cycle report now carries `egress=none` on the default path.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1048
+MINIMUM_EXECUTED_TESTS=1052
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

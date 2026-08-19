@@ -79,9 +79,9 @@ final class AppBootstrapWiringTests: XCTestCase {
         XCTAssertTrue(
             cleanup.requiresNetwork,
             "the resolved Ollama chain must declare the network — the badge keys on it")
-        let endpoint = try XCTUnwrap(await resolver.egressEndpoint())
+        let endpointValue = await resolver.egressEndpoint()
+        let endpoint = try XCTUnwrap(endpointValue)
         XCTAssertEqual(endpoint, "http://localhost:11434")
-
         let egress = WidgetEgressState.fromResolvedProvider(
             requiresNetwork: cleanup.requiresNetwork, endpoint: endpoint)
         XCTAssertEqual(egress, .active(endpoint: "http://localhost:11434"))
