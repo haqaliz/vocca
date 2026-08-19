@@ -274,6 +274,10 @@ final class ZeroNetworkTests: XCTestCase {
         // key is reported with it. `injected` below carries the cleaned text, terminal
         // punctuation included.
         "cleanup.engine=rules-cleanup",
+        // The egress badge's fold: the resolved provider is rules (absent config — the default
+        // path), so the widget carries no ☁︎ marker. `egress=none` is the byte-for-byte surface
+        // the shipped rules path must show (`egress-badge`, `root-wiring` B1).
+        "egress=none",
         // The cleaned text reached the injector — the digits untouched, the terminal period the
         // rules engine appends to any unpunctuated utterance included — and the ladder stopped
         // at the clipboard rung with the trace to match: a delivery, not a fall-through.
@@ -897,6 +901,11 @@ final class ZeroNetworkTests: XCTestCase {
             try value("cleanup.engine"), "rules-cleanup",
             "The asserted full-cycle post-condition no longer names the shipped rules cleanup "
             + "provider — a constant that dropped the cleanup fact must fail here.")
+        XCTAssertEqual(
+            try value("egress"), "none",
+            "The asserted full-cycle post-condition no longer folds the egress badge to none on "
+            + "the default (rules) path — a constant that dropped the badge fact, or one that "
+            + "claimed a badge where the default shows none, must fail here.")
 
         // The same text reached the injector and was delivered through a real rung, with the
         // trace to match — `widgetFailsafe` here would mean the drive's one claimed delivery
