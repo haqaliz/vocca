@@ -173,7 +173,7 @@ failed step.
 ### Build and identity
 
 1. `./Scripts/dev-identity.sh` if this machine has no stable identity yet, then build Release:
-   `xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release -derivedDataPath .build/xcode-release build`
+   `xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release -derivedDataPath .build/xcode-release ARCHS=arm64 build`
 
    If `dev-identity.sh` refuses because the keychain is in a partial state (a certificate imported
    by an earlier run that failed or was interrupted before it was trusted), reset it rather than

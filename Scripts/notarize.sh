@@ -31,7 +31,7 @@
 #   `Scripts/sign.sh` before this script signs one bundle and notarizes a different one. Pass the
 #   path:
 #     xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release \
-#                -derivedDataPath .build/xcode-release build
+#                -derivedDataPath .build/xcode-release ARCHS=arm64 build
 #     Scripts/sign.sh .build/xcode-release/Build/Products/Release/Vocca.app
 #     Scripts/notarize.sh
 #
@@ -66,7 +66,7 @@ To configure them:
        --apple-id "you@example.com" --team-id TEAMID --password "app-specific-password"
   3. Build Release, then sign it with that identity:
        xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release \\
-                  -derivedDataPath .build/xcode-release build
+                  -derivedDataPath .build/xcode-release ARCHS=arm64 build
        VOCCA_DEV_IDENTITY_NAME="Developer ID Application: ..." \\
          Scripts/sign.sh "$BUNDLE_PATH"
      then rerun this script.
@@ -129,7 +129,7 @@ fi
 Scripts/sign.sh defaults to the DEBUG bundle, so the Release path has to be passed to it \
 explicitly:
   xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release \\
-             -derivedDataPath .build/xcode-release build
+             -derivedDataPath .build/xcode-release ARCHS=arm64 build
   Scripts/sign.sh \"$BUNDLE_PATH\"
   Scripts/notarize.sh"
 

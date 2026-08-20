@@ -101,8 +101,10 @@ jobs:
       - name: Build Vocca.app (Release)
         run: |
           set -euo pipefail
+          # ARCHS=arm64 on the build request, for the reason ci.yml states: the setting has to be
+          # here to reach the SPM dependencies' generated projects, and Vocca ships Apple-Silicon-only.
           xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release \
-            -derivedDataPath .build/xcode-release build
+            -derivedDataPath .build/xcode-release ARCHS=arm64 build
 
       - name: Sign with the imported identity
         if: steps.signing.outputs.available == 'true'

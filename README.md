@@ -98,7 +98,7 @@ development:
 ```sh
 ./Scripts/dev-identity.sh          # once: creates a stable, local, self-signed "Vocca Development" identity
 xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \
-    -derivedDataPath .build/xcode build
+    -derivedDataPath .build/xcode ARCHS=arm64 build
 ./Scripts/sign.sh                  # re-signs .build/xcode/Build/Products/Debug/Vocca.app with it
 ```
 
