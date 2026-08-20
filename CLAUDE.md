@@ -44,7 +44,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   module to depend on `VoccaCore` (see `ARCHITECTURE.md` §2 — the graph points inward to the core,
 >   amended in that commit). `VoccaASR`, `VoccaInject` and `VoccaUI` have since shipped behind their
 >   seams (recorded below); `VoccaAudio`, `VoccaText` and `VoccaSpeech` — `VoccaAudio` has since
->   shipped behind its seam (recorded below); `VoccaText` and `VoccaSpeech` remain placeholders, and
+>   shipped behind its seam and `VoccaText` has since become the cleanup adapter module —
+>   deterministic rules in C5, the LLM providers in C6 (both recorded below); `VoccaSpeech` is the
+>   one module still a placeholder, and
 >   **the loop is wired** — `AppBootstrap.configure` composes tap → session machine → `MicrophoneSource`
 >   → engine → ladder → failsafe → widget, driven end to end by the zero-network probe. The C1 acceptance (100 cycles, 100 started,
 >   100 ended, 0 overlapping, 0 orphaned) runs over the `HotkeyEventSource` seam with a fake source
@@ -239,10 +241,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   downloaded first) are the loop's only real run, exactly as steps 22–35 were the adapters'.
 > - **CONVERSING and the settings surface are out of scope** (P3, C11); the toggle machine is
 >   wired and tested but has no visible control yet; sounds are deferred to a settings surface.
-> - **C5 shipped in full except its settings surface (the rules engine, the dictionary store,
->   the pipeline wiring and the eval harness, below); the rest of C5 (the Cleanup-tab settings
->   UI) and C8 (strategy memory) remain unbuilt.**
->   The ladder does not learn.
+> - **C5 and C6 shipped in full except their settings surface** (C5: the rules engine, the
+>   dictionary store, the pipeline wiring and the eval harness; C6: the Ollama and BYOK rungs,
+>   opted into by a hand-edited `cleanup-config.json` — both recorded below). **The Cleanup-tab
+>   settings UI and C8 (strategy memory) remain unbuilt.** The ladder does not learn.
 >
 > **The `latency-instrumentation` unit landed 2026-08-14 — C7's first slice: the loop's
 > numbers, measured and gated.** `VoccaCore` now owns the local-only vocabulary the loop
@@ -400,8 +402,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   adapters' and the panel's only execution.
 > - **The loop is wired** (the `dictation-loop` unit above); CONVERSING and the settings surface
 >   are out of scope (only the FAILSAFE and the five live states ship); C8 (strategy
->   memory) remains unbuilt; C5 shipped in full except its settings surface — the rules
->   dictionary is JSON-editable, the Cleanup tab waits for the deferred settings surface; C7's
+>   memory) remains unbuilt; C5 and C6 shipped in full except their settings surface — the
+>   rules dictionary and the cleanup-provider choice are JSON-editable, the Cleanup tab waits
+>   for the deferred settings surface; C7's
 >   latency-instrumentation slice shipped
 >   (below), its warm-start and widget-streaming halves did not.
 >
