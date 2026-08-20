@@ -986,6 +986,71 @@ final class DictationPipelineTests: XCTestCase {
             "the cleanup span carries the measured delta between the pipeline's two clock reads — "
                 + "never a fabricated zero")
     }
+
+    /// **B9a — a declared budget, not the constant, is enforced: the provider is given its 5 s.**
+    /// The double declares a 5 s budget and returns at the 2 s mark (the shared clock advanced by
+    /// 2 s inside `clean`). Under the old 10 ms constant the watcher would already have fired and
+    /// the result degraded to raw; with the declared budget the result is used — the injected
+    /// clock's 2 s sits inside the 5 s deadline, so the cleaned text reaches the injector
+    /// (`spec.md` B3).
+    func testADeclaredFiveSecondBudgetLetsAPastTenMsProviderReturnBeInjected() async {
+        let clock = TableClock()
+        let provider = ScriptedCleanupProvider(
+            behavior: .returns("cleaned"), clock: clock, advance: .seconds(2),
+            budget: .seconds(5))
+        let (pipeline, injector, _, _) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            cleanup: provider,
+            clock: clock)
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target())
+
+        XCTAssertEqual(surface, .idle)
+        let calls = await injector.calls
+        XCTAssertEqual(
+            calls.map(\.text), ["cleaned"],
+            "a provider declaring 5 s is given 5 s — its result at the 2 s mark is injected, "
+                + "not degraded to raw")
+    }
+
+    /// **B9b — a declared budget degrades at the declared deadline.** A provider declaring 5 s
+    /// and still hanging at the 5 s mark (the double advances the clock past it) degrades to raw,
+    /// with the cleanup span recorded — the shipped degrade shape, just fired at the provider's
+    /// declared deadline rather than the constant (`spec.md` B3).
+    func testADeclaredFiveSecondBudgetStillDegradesAtItsDeadline() async {
+        let clock = TableClock()
+        let provider = ScriptedCleanupProvider(
+            behavior: .hangs(clock: clock, budget: .seconds(5)),
+            budget: .seconds(5))
+        let (pipeline, injector, _, ledger) = makeCleanupPipeline(
+            engine: StubEngine.parakeet(),
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: .zero),
+            cleanup: provider,
+            clock: clock)
+        let sessionID = await ledger.beginSession()
+
+        let surface = await pipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target(), sessionID: sessionID)
+
+        XCTAssertEqual(surface, .idle)
+        let calls = await injector.calls
+        XCTAssertEqual(
+            calls.map(\.text), ["1 2 3"],
+            "a provider still running at its declared 5 s deadline degrades to the raw text")
+        let records = await ledger.snapshot()
+        let cleanupSpan = records.first?.spans.first { $0.name == .cleanup }
+        XCTAssertNotNil(
+            cleanupSpan,
+            "the degraded provider's cleanup span is recorded on the timed-out path")
+    }
 }
 
 /// What a scripted transcription failure is, for the throw row of the table. The specific error
@@ -1115,18 +1180,27 @@ private actor ScriptedCleanupProvider: CleanupProvider {
         id: "scripted-cleanup", displayName: "Scripted cleanup")
     nonisolated var requiresNetwork: Bool { false }
 
+    /// The declared budget the B9 pair races: a double that needs seconds declares them here
+    /// (`spec.md` B3). Defaults to the shipped 10 ms so the B1–B8 rows are untouched.
+    nonisolated var budget: Duration { declaredBudget }
+
     private let behavior: ScriptedCleanupBehavior
     private let clock: TableClock?
     private let advance: Duration
+    private let declaredBudget: Duration
 
     private(set) var cleanCalls = 0
     private(set) var receivedContext: CleanupContext?
     private(set) var cleanStarted = false
 
-    init(behavior: ScriptedCleanupBehavior, clock: TableClock? = nil, advance: Duration = .zero) {
+    init(
+        behavior: ScriptedCleanupBehavior, clock: TableClock? = nil,
+        advance: Duration = .zero, budget: Duration = .milliseconds(10)
+    ) {
         self.behavior = behavior
         self.clock = clock
         self.advance = advance
+        self.declaredBudget = budget
     }
 
     func clean(_ transcript: Transcript, context: CleanupContext) async throws -> String {

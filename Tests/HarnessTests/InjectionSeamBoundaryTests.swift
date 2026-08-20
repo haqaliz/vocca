@@ -166,12 +166,13 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// list is keyed on that path, so the failure is a lint that names files nobody can find and
     /// silently stops matching its own allow-list.
     ///
-    /// The identifier matcher is a parameter because the file hosts five families now — the
+    /// The identifier matcher is a parameter because the file hosts six families now — the
     /// CoreGraphics event types (``eventTypeIdentifiers(inSource:)``), the pasteboard's
     /// `NSPasteboard` family (``pasteboardIdentifiers(inSource:)``), the Accessibility family
     /// (``accessibilityIdentifiers(inSource:)``), the Secure Input read
-    /// (``secureInputIdentifiers(inSource:)``) and the journal's `FileManager` family
-    /// (``fileManagerIdentifiers(inSource:)``) — and the walk must be one
+    /// (``secureInputIdentifiers(inSource:)``), the journal's `FileManager` family
+    /// (``fileManagerIdentifiers(inSource:)``) and the Keychain's `SecItem`/`kSec` family
+    /// (``securityIdentifiers(inSource:)``) — and the walk must be one
     /// implementation, not five copies that could drift apart in the direction that matters (the
     /// subdirectory walk). The default keeps the earlier call sites unchanged.
     private static func sightings(
@@ -890,6 +891,234 @@ final class InjectionSeamBoundaryTests: XCTestCase {
             """)
     }
 
+    // MARK: - The Security family (byok-provider)
+
+    /// Files allowed to name a `Security`/`SecItem`/`kSec` identifier, relative to `Sources/`,
+    /// keyed by seam.
+    ///
+    /// **One file per seam, and nothing else ever joins a seam's entry** — the H7 rule, stated
+    /// for the Keychain family, the first `Security` code in the repo. `SystemKeychainKeyProvider`
+    /// is the adapter: one `SecItemCopyMatching` read of the `dev.vocca.Vocca.byok-key` generic
+    /// password, in raw `Security` terms, with every decision (absent vs locked vs unreadable,
+    /// what a nil key *means*) above it in `BYOKCleanupProvider` over the injected ``KeyProvider``
+    /// seam (`plan_20260818.md` §1.1). The family is tree-wide: no other `Sources/` file names
+    /// `Security` today, so no per-module scoping is needed (unlike `FileManager`).
+    private static let filesPermittedToNameSecurityIdentifiersBySeam: [String: Set<String>] = [
+        "keychain": ["VoccaText/LLM/SystemKeychainKeyProvider.swift"],
+    ]
+
+    /// The Security table flattened — every permitted file in every seam. The tree-wide scan
+    /// is aimed at this set.
+    private static var filesPermittedToNameSecurityIdentifiers: Set<String> {
+        Set(filesPermittedToNameSecurityIdentifiersBySeam.values.flatMap { $0 })
+    }
+
+    /// The identifier prefixes that constitute the Security family. `SecItem` covers
+    /// `SecItemCopyMatching` and every other member of the item half by construction; `kSec`
+    /// covers the query constants (`kSecClassGenericPassword`, `kSecAttrService`, `kSecReturnData`,
+    /// `kSecMatchLimit`, ...); `SecKeychain` covers the older keychain handle half — the three
+    /// spellings a Keychain read needs and the only ones that matter.
+    private static let securityIdentifierPrefixes = ["SecItem", "kSec", "SecKeychain"]
+
+    /// Every occurrence of a Security identifier in `source`, comments removed first.
+    ///
+    /// A pure function over a string, so it can be run against source that violates the rule —
+    /// which is the only way to know it would catch one. See
+    /// ``testTheSecurityLintDetectsAPlantedIdentifier``.
+    private static func securityIdentifiers(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let pattern = "\\b(" + securityIdentifierPrefixes.joined(separator: "|")
+            + ")[A-Za-z0-9_]*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// The tree-wide scan, aimed at the Security table: no `SecItem`/`kSec` identifier is named
+    /// outside the family's one permitted file.
+    ///
+    /// The BYOK provider's whole point is that its decisions run headless over the injected
+    /// ``KeyProvider`` seam; a second file naming the family is a decision (or, worse, a leaked
+    /// key path) that moved into the half CI cannot reach — the same shape as the other scans
+    /// above, for the family `SystemKeychainKeyProvider` is the one file for.
+    func testNoSecurityIdentifierEscapesTheSecuritySeamTable() throws {
+        let root = try sourcesRoot()
+        for seam in Self.filesPermittedToNameSecurityIdentifiersBySeam.keys.sorted() {
+            guard let files = Self.filesPermittedToNameSecurityIdentifiersBySeam[seam] else {
+                continue
+            }
+            for relativePath in files {
+                let directory = root.appendingPathComponent(relativePath)
+                    .deletingLastPathComponent()
+                guard FileManager.default.fileExists(atPath: directory.path) else {
+                    throw InjectionSeamTestError.seamDirectoryMissing(expectedAt: directory.path)
+                }
+            }
+        }
+
+        let sightings = try Self.sightings(
+            under: root,
+            permitting: Self.filesPermittedToNameSecurityIdentifiers,
+            identifiersIn: Self.securityIdentifiers)
+
+        XCTAssertEqual(
+            sightings, [],
+            """
+            A Security identifier is named outside its seam's permitted file: \
+            \(sightings.map(\.description).joined(separator: "; ")). Every decision about the \
+            BYOK key must live above the one-file adapter, where a headless suite can drive it; \
+            a second naming file is a key path that escaped CI forever.
+            """)
+    }
+
+    /// The "one file per seam" claim for the Security family, enforced rather than asserted in
+    /// a comment — the sibling of ``testEachSeamPermitsExactlyOneFile``, for the family table.
+    func testEachSecuritySeamPermitsExactlyOneFile() {
+        XCTAssertFalse(
+            Self.filesPermittedToNameSecurityIdentifiersBySeam.isEmpty,
+            """
+            The Security seam table must not be empty — an empty table passes "no file names the \
+            family" vacuously, and a seam with no file is a seam whose adapter has moved without \
+            the amendment noticing.
+            """)
+        for seam in Self.filesPermittedToNameSecurityIdentifiersBySeam.keys.sorted() {
+            XCTAssertEqual(
+                Self.filesPermittedToNameSecurityIdentifiersBySeam[seam]?.count, 1,
+                """
+                The Security family permits one file per seam. The \(seam) seam permits \
+                \(Self.filesPermittedToNameSecurityIdentifiersBySeam[seam]?.sorted().joined(separator: ", ") ?? "none"). \
+                A second entry means a Keychain decision has moved below the seam, where no CI run \
+                can reach it.
+                """)
+        }
+    }
+
+    /// **Every permitted Security file actually names its family** — the two-sided pin, in the
+    /// same shape as ``testEachPermittedFileActuallyNamesItsFamily``.
+    ///
+    /// Two independent claims, because either one failing alone still passes a one-sided check:
+    /// "no other file names the family" passes if the permitted file *also* lost its
+    /// implementation (the family used everywhere else — vacuous), and "the permitted file names
+    /// the family" passes if several do (the seam has sprung a leak). The exact-set half walks
+    /// the whole tree with `permitting: []`, so the set of sighting-bearing files must be
+    /// exactly the table's union.
+    func testEachPermittedSecurityFileActuallyNamesItsFamily() throws {
+        let root = try sourcesRoot()
+        let permitted = Self.filesPermittedToNameSecurityIdentifiers
+        XCTAssertFalse(
+            permitted.isEmpty,
+            "the permitted set must not be empty — an empty set passes 'no file names it' vacuously")
+
+        for relativePath in permitted.sorted() {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+            XCTAssertFalse(
+                Self.securityIdentifiers(inSource: source).isEmpty,
+                """
+                \(relativePath) is permitted to name the Security family, but names none. A \
+                permitted file that does not name its family means the family moved somewhere else \
+                and the lint cannot see it.
+                """)
+        }
+
+        let allSightings = try Self.sightings(
+            under: root, permitting: [], identifiersIn: Self.securityIdentifiers)
+        XCTAssertEqual(
+            Set(allSightings.map(\.file)), permitted,
+            """
+            exactly the permitted set may name the Security family: \
+            \(permitted.sorted().joined(separator: ", ")), got \
+            \(Set(allSightings.map(\.file)).sorted().joined(separator: ", ")). A file outside the \
+            table with a sighting is a leak; a permitted file without one is a vacuous pin.
+            """)
+    }
+
+    /// The Security family's negative control: planted source is caught, across the three
+    /// identifier halves the prefix rule exists to cover.
+    func testTheSecurityLintDetectsAPlantedIdentifier() {
+        XCTAssertEqual(
+            Self.securityIdentifiers(
+                inSource: "let status = SecItemCopyMatching(query, &result)"),
+            ["SecItemCopyMatching"],
+            "The item read is the family's front door — the leak that matters most.")
+
+        XCTAssertEqual(
+            Self.securityIdentifiers(
+                inSource: "query[kSecClass as String] = kSecClassGenericPassword"),
+            ["kSecClass", "kSecClassGenericPassword"],
+            "The kSec query constants are the whole of what the Keychain read is built from.")
+
+        XCTAssertEqual(
+            Self.securityIdentifiers(
+                inSource: "var keychainRef: SecKeychain? = nil"),
+            ["SecKeychain"],
+            """
+            The older keychain-handle half must be covered too — the adapter does not name it \
+            today, which is exactly why the prefix rule guards it rather than a list of members.
+            """)
+    }
+
+    /// The Security family's planted-tree negative control: a `SecItem` planted in another file
+    /// is caught by the real tree-wide walk.
+    ///
+    /// The real check's own walk (`sightings(under:permitting:identifiersIn:)`) is run against
+    /// a fabricated tree with a planted `SecItemCopyMatching` call in a file outside the
+    /// permitted one — the B9 "a planted `SecItem` in any other `Sources/` file is detected"
+    /// claim, run rather than assumed. The permitted file is deliberately not present, so
+    /// `permitting: []` scans the whole tree and the planted file must surface.
+    func testTheSecurityScanSeesAPlantedIdentifierInAnotherFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-security-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("VoccaOther"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try "let status = SecItemCopyMatching(query, &result)\n".write(
+            to: root.appendingPathComponent("VoccaOther/Leaky.swift"), atomically: true,
+            encoding: .utf8)
+
+        let sightings = try Self.sightings(
+            under: root, permitting: [], identifiersIn: Self.securityIdentifiers)
+
+        XCTAssertEqual(
+            sightings,
+            [EventTypeSighting(file: "VoccaOther/Leaky.swift", identifier: "SecItemCopyMatching")],
+            """
+            The tree-wide Security scan must report a SecItem planted in another file: got \
+            \(sightings.map(\.description).joined(separator: "; ")). A scan that misses it \
+            permits a Keychain read to escape the seam's one file.
+            """)
+    }
+
+    /// Comments are stripped before the scan, and that is load-bearing rather than incidental:
+    /// the one-file adapter's documentation has to be able to name the family it translates
+    /// (`SystemKeychainKeyProvider`'s does, at length, and should).
+    func testTheSecurityLintIgnoresIdentifiersInComments() {
+        XCTAssertEqual(
+            Self.securityIdentifiers(
+                inSource: """
+                    /// The one file permitted to name SecItemCopyMatching and the kSec constants.
+                    let provider = SystemKeychainKeyProvider()
+                    """),
+            [],
+            "A doc comment naming the family must not trip the lint.")
+
+        XCTAssertEqual(
+            Self.securityIdentifiers(
+                inSource: """
+                    /// The one file permitted to name SecItemCopyMatching.
+                    let status = SecItemCopyMatching(query, &result)
+                    """),
+            ["SecItemCopyMatching"],
+            """
+            ...but stripping comments must not make the lint blind to real code beside them. \
+            Without this, the previous assertion could be satisfied by a scan that gives up on any \
+            file containing a comment.
+            """)
+    }
+
     // MARK: - The FileManager family (Phase A of failsafe-surface)
 
     /// Files allowed to name `FileManager`, relative to **each seam's own module root**, keyed by
@@ -917,22 +1146,41 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     private static let filesPermittedToNameFileManagerIdentifiersBySeam: [String: Set<String>] = [
         "journal": ["Journal/FileSystemJournalStore.swift"],
         "dictionary": ["Dictionary/FileSystemDictionaryStore.swift"],
+        "config": ["Cleanup/CleanupConfigStore.swift"],
     ]
 
     /// The module root each FileManager seam scans, keyed by the same seam names as
     /// ``filesPermittedToNameFileManagerIdentifiersBySeam``. The table's paths are
     /// module-relative, so each row needs its own root: the journal row scans `VoccaInject`,
-    /// the dictionary row scans `VoccaText` — the per-seam claim actually reaches the module
-    /// that owns each seam, and stops at it.
+    /// the dictionary and config rows scan `VoccaText` — the per-seam claim actually reaches the
+    /// module that owns each seam, and stops at it.
     private static let fileManagerSeamModuleRoots: [String: String] = [
         "journal": "VoccaInject",
         "dictionary": "VoccaText",
+        "config": "VoccaText",
     ]
 
     /// The FileManager table flattened — every permitted file in every seam. The module-wide
     /// scan is aimed at this set.
     private static var filesPermittedToNameFileManagerIdentifiers: Set<String> {
         Set(filesPermittedToNameFileManagerIdentifiersBySeam.values.flatMap { $0 })
+    }
+
+    /// The FileManager permitted files grouped by module — the per-module union the escape scan
+    /// aims at. VoccaText owns two FileManager seams (`dictionary` + `config`), so the union is
+    /// what "within this module, only the seam adapters name the family" means.
+    private static func fileManagerFilesPermittedByModule() -> [String: Set<String>] {
+        var byModule: [String: Set<String>] = [:]
+        for seam in filesPermittedToNameFileManagerIdentifiersBySeam.keys {
+            guard
+                let module = fileManagerSeamModuleRoots[seam],
+                let files = filesPermittedToNameFileManagerIdentifiersBySeam[seam]
+            else {
+                continue
+            }
+            byModule[module, default: []].formUnion(files)
+        }
+        return byModule
     }
 
     /// The identifier prefixes that constitute the FileManager family: the one type, whole.
@@ -956,26 +1204,24 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         }
     }
 
-    /// The per-seam scans, aimed at the FileManager table: within each seam's own module, no
-    /// `FileManager` identifier is named outside that seam's one permitted file.
+    /// The per-module scans, aimed at the FileManager table: within each module that owns a
+    /// FileManager seam, no `FileManager` identifier is named outside that module's permitted
+    /// files.
     ///
-    /// The seam's whole point is that its decisions run headless over an injected seam; a
-    /// second file naming the family in the same module is a decision that moved into the half
-    /// CI cannot reach — the same shape as the other scans above, for the family
-    /// `FileSystemJournalStore` and `FileSystemDictionaryStore` are the one file each for. The
-    /// scan root is each seam's module, resolved per seam (`fileManagerSeamModuleRoots`), not
-    /// the tree, because the family's claim is per-seam within its module (see the table's note).
+    /// The permit set is the **union of the module's seam files**, not one seam's row: since the
+    /// `cleanup-config` aspect, VoccaText owns two FileManager seams (`dictionary` +
+    /// `config`), and each adapter is the other's "outside" unless the module's union is the
+    /// permit set. The seam's whole point is that its decisions run headless over an injected
+    /// seam; a file naming the family in the same module beyond the seam table is a decision
+    /// that moved into the half CI cannot reach — the same shape as the other scans above, for
+    /// the family the journal, dictionary and config adapters are the one file each for. The
+    /// scan root is each seam's module (`fileManagerSeamModuleRoots`), grouped per module.
     func testNoFileManagerIdentifierEscapesTheFileManagerSeamTable() throws {
         let sources = try sourcesRoot()
-        for seam in Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted() {
-            guard
-                let files = Self.filesPermittedToNameFileManagerIdentifiersBySeam[seam],
-                let module = Self.fileManagerSeamModuleRoots[seam]
-            else {
-                continue
-            }
+        let permittedByModule = Self.fileManagerFilesPermittedByModule()
+        for (module, permitted) in permittedByModule.sorted(by: { $0.key < $1.key }) {
             let root = sources.appendingPathComponent(module)
-            for relativePath in files {
+            for relativePath in permitted {
                 let directory = root.appendingPathComponent(relativePath)
                     .deletingLastPathComponent()
                 guard FileManager.default.fileExists(atPath: directory.path) else {
@@ -985,16 +1231,17 @@ final class InjectionSeamBoundaryTests: XCTestCase {
 
             let sightings = try Self.sightings(
                 under: root,
-                permitting: files,
+                permitting: permitted,
                 identifiersIn: Self.fileManagerIdentifiers)
 
             XCTAssertEqual(
                 sightings, [],
                 """
-                FileManager is named outside the \(seam) seam's permitted file: \
+                FileManager is named outside \(module)'s permitted FileManager files: \
                 \(sightings.map(\.description).joined(separator: "; ")). Every decision about the \
-                \(seam) must live above the one-file adapter, where a headless suite can drive it; \
-                a second naming file in \(module) is a decision that escaped CI forever.
+                file system must live above the one-file-per-seam adapters, where a headless suite \
+                can drive it; a file naming the family in \(module) beyond the seam table is a \
+                decision that escaped CI forever.
                 """)
         }
     }
@@ -1031,6 +1278,24 @@ final class InjectionSeamBoundaryTests: XCTestCase {
                 run can reach it.
                 """)
         }
+    }
+
+    /// **The FileManager seam table names exactly the three shipped seams** — the `cleanup-config`
+    /// aspect's B6 pin: `journal` (VoccaInject), `dictionary` (VoccaText), and the config store
+    /// the `cleanup-config` aspect adds (VoccaText). An exact-set pin, so a seam that moves
+    /// without its row — or a row that appears without a seam — fails here rather than in the
+    /// review.
+    func testTheFileManagerSeamTableNamesExactlyTheThreeShippedSeams() {
+        XCTAssertEqual(
+            Set(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys),
+            ["journal", "dictionary", "config"],
+            """
+            The FileManager seam table must name exactly the three shipped seams: journal, \
+            dictionary, config. Got \
+            \(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted().joined(separator: ", ")). \
+            A seam whose adapter moved without its row, or a row without a seam, is a leak the \
+            other pins cannot see.
+            """)
     }
 
     /// **Every permitted FileManager file actually names its family** — the two-sided pin, in

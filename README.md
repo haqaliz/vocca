@@ -16,9 +16,10 @@ Your audio never has to leave your Mac.
 >
 > **The P0 dictation loop is wired and tested: hold `⌥Space`, talk, release, and the words are
 > transcribed locally and typed into the focused app** — capture, hotkey, two ASR engines
-> (Parakeet via FluidAudio and whisper.cpp), the injection ladder with its failsafe, and the
-> live widget are all shipped behind tested seams, and the zero-network probe drives a full
-> dictation cycle end to end. There is still **no release**: no real-machine execution has
+> (Parakeet via FluidAudio and whisper.cpp), deterministic cleanup, the injection ladder with
+> its failsafe, and the live widget are all shipped behind tested seams, and the zero-network
+> probe drives a full dictation cycle end to end. Cleanup by a local Ollama model or a BYOK
+> endpoint ships too, opt-in behind a hand-edited config file and badged whenever it is on. There is still **no release**: no real-machine execution has
 > happened (CI structurally cannot — no microphone, no Accessibility grant, no window server),
 > so the first real dictation is yours, per `docs/SMOKE_CHECKLIST.md` steps 62–68.
 >
@@ -65,7 +66,7 @@ That combination is the open lane, and it's what Vocca is for.
 | ASR (second) | [whisper.cpp large-v3-turbo](https://github.com/ggml-org/whisper.cpp) | **Shipped** — a real second implementation behind `ASREngine`: proves the seam and hedges ecosystem risk. Real-engine WER not yet measured (founder run, [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) step 19) |
 | TTS | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Small, fast time-to-first-audio, Apache-2.0 |
 | VAD / turn-taking | Silero VAD + Parakeet EOU 120M | Frame-level VAD alone doesn't do turn-taking |
-| Cleanup | Rules → Ollama → BYOK | Rules by default: ~0 MB, <5 ms, no network |
+| Cleanup | Rules → Ollama → BYOK | **Shipped** — rules by default (~0 MB, <5 ms, no network); Ollama and BYOK are opt-in, degrade to the rules output on any failure, and are badged at point of use. LLM rewrite quality is unmeasured |
 | Actions | MCP | The action layer, gated on confirmation and an audit log |
 
 Platform: **macOS on Apple Silicon.** No Windows or Linux until the Mac experience is genuinely good.
@@ -97,7 +98,7 @@ development:
 ```sh
 ./Scripts/dev-identity.sh          # once: creates a stable, local, self-signed "Vocca Development" identity
 xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \
-    -derivedDataPath .build/xcode build
+    -derivedDataPath .build/xcode ARCHS=arm64 build
 ./Scripts/sign.sh                  # re-signs .build/xcode/Build/Products/Debug/Vocca.app with it
 ```
 

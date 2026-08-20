@@ -49,7 +49,7 @@ fail() {
 }
 
 [ -d "$BUNDLE_PATH" ] || fail "No app bundle at $BUNDLE_PATH. Build it first, e.g.:
-  xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug -derivedDataPath .build/xcode build"
+  xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug -derivedDataPath .build/xcode ARCHS=arm64 build"
 
 # Best-effort: if this is our own dev keychain and it has relocked (e.g. after a reboot), unlock
 # it with the password we stashed when we created it. A no-op for any other identity/keychain.

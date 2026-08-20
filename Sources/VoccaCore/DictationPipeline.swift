@@ -105,13 +105,6 @@ public struct DictationPipeline: Sendable {
     private let clock: (any MonotonicClock & Sendable)?
     private let cleanup: (any CleanupProvider)?
 
-    /// The cleanup stage's budget, caller-enforced (`ARCHITECTURE.md:316`): the pipeline races
-    /// the provider's `clean` against this deadline and routes to raw when it expires. The
-    /// provider is handed the same value in ``CleanupContext/budget`` as information only —
-    /// enforcement lives here, never with the provider. Recorded, not gated: no test asserts this
-    /// number, it is the product target in one named place.
-    private static let cleanupBudget: Duration = .milliseconds(10)
-
     /// - Parameters:
     ///   - engine: The prepared engine, resolved once at launch by the composition root's engine
     ///     lifecycle (``DictationEngineResolver``). Non-optional: an unprepared engine refuses
@@ -323,11 +316,15 @@ public struct DictationPipeline: Sendable {
             // `start` is unwrapped here so the group's closures capture a non-optional `Duration`
             // (`clock.now - start` must typecheck) — the `let start` binding is the measured
             // start, and the unwrap is the seam's "no measurement, no race".
+            // `budget` is read once, up front, and is the same value both the race and the
+            // context carry: the provider's declared deadline, enforced here (caller-enforced,
+            // `ARCHITECTURE.md:515`) and handed back as information only.
+            let budget = provider.budget
             cleaned = try? await withThrowingTaskGroup(of: String.self) { group in
                 group.addTask {
                     try await provider.clean(transcript, context: CleanupContext(
                         target: target, mode: .dictation, dictionary: [],
-                        budget: Self.cleanupBudget))
+                        budget: budget))
                 }
                 group.addTask {
                     // `!Task.isCancelled` is what makes the watcher a cooperative group member:
@@ -335,7 +332,7 @@ public struct DictationPipeline: Sendable {
                     // cancels the remaining children at scope exit and awaits them — a watcher
                     // that only exits on the deadline would spin on `Task.yield()` forever, and
                     // the scope exit would never complete.
-                    while (clock.now - start) < Self.cleanupBudget, !Task.isCancelled {
+                    while (clock.now - start) < budget, !Task.isCancelled {
                         await Task.yield()
                     }
                     throw CleanupBudgetExpired()
@@ -354,7 +351,7 @@ public struct DictationPipeline: Sendable {
         } else {
             cleaned = try? await provider.clean(transcript, context: CleanupContext(
                 target: target, mode: .dictation, dictionary: [],
-                budget: Self.cleanupBudget))
+                budget: provider.budget))
         }
         await recordCleanupSpan(from: start, sessionID: sessionID)
         // Never-empty: a clean result that is empty or whitespace-only falls back to the raw text.

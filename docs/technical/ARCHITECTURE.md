@@ -13,7 +13,7 @@ Every structural decision below traces to one of these. If a design choice doesn
 | # | Invariant | How the architecture enforces it |
 |---|-----------|----------------------------------|
 | **I1** | **A transcript is never lost** | `TranscriptCustody` (§10) owns every transcript from ASR completion to confirmed delivery. Nothing can drop it, including a crash. |
-| **I2** | **Zero network in the default config** | Network access is confined to two named types: **`ModelDownloader`** (the model store's download machinery, `VoccaASR/Models/`, which owns the only file permitted to name `URLSession` — asserted by a lint, H8) and the BYOK client (C6, unnamed here). A CI interposer asserts zero connections on the default path (§14). |
+| **I2** | **Zero network in the default config** | Network access is confined to two named types: **`ModelDownloader`** (the model store's download machinery, `VoccaASR/Models/`, which owns the first file permitted to name `URLSession` — asserted by a lint, H8) and **`DefaultLLMTransport`** (`VoccaText/LLM/`, the second `URLSession`-naming file, named by `llm-transport` as C6's BYOK client — the H8 lint confines both, and a third file never joins them). A CI interposer asserts zero connections on the default path (§14). |
 | **I3** | **Latency is budgeted per span** | The dictation pipeline (§6) has an explicit per-stage budget; every stage reports its own timing. |
 | **I4** | **Every seam has ≥2 implementations** | §5 lists them. A seam with one implementation is an assertion, not a seam. |
 | **I5** | **Cleanup and context can never break dictation** | Both are architecturally *optional* stages that degrade to pass-through on any failure or timeout. |
@@ -506,13 +506,19 @@ actor TranscriptCustody {
 Transcript ──► [custody taken] ──► RulesCleanup ──► optional LLM ──► String
                      │                   │               │
                      │              always runs     opt-in only
-                     │              (<10 ms)        budget-capped
+                     │              (<10 ms)        provider-declared budget,
+                     │                              caller-enforced
                      │
                      └── on ANY failure or timeout at any stage:
                          the raw transcript proceeds to injection (I5)
 ```
 
-The budget lives in `CleanupContext`, is enforced by the caller (`SessionActor`) with `Task` cancellation rather than trusted to the provider, and expiry is not an error the user sees — it's a silent degrade to raw text, counted in local metrics.
+The budget lives in `CleanupContext` and is **provider-declared**: each provider declares its own
+`budget` (`CleanupProvider.budget`, 10 ms for rules, 5 s for an LLM rung), the caller
+(`SessionActor`) races the *declared* number with `Task` cancellation rather than trusting the
+provider, and expiry is not an error the user sees — it's a silent degrade to raw text, counted
+in local metrics. At P1 the default is rules, and if an LLM is opted into, the user has knowingly
+bought latency (`prd.md` M1).
 
 `RulesCleanup` is a pure function over `(String, [ReplacementRule]) -> String`: filler removal, sentence segmentation and terminal punctuation, capitalization, spoken-punctuation commands, number/unit normalization, then user dictionary rules in declared order. Pure means table-driven tests, and table-driven tests mean the rule set can grow safely.
 
@@ -552,11 +558,17 @@ The user dictionary is plain JSON in Application Support — hand-editable and v
 ~/Library/Application Support/Vocca/
   models/<engine-id>/<version>/     # downloaded, checksum-verified, resumable
   config.json                       # settings
+  cleanup-config.json               # cleanup provider selection — hand-editable (llm-cleanup)
   dictionary.json                   # user replacement rules — hand-editable
   strategies.json                   # per-app injection memory
   recovery/                         # transcript journal (bounded, purged)
   metrics.sqlite                    # local-only latency/success — never sent
 ```
+
+The BYOK cleanup rung's key lives **not here but in the login Keychain**, as
+`dev.vocca.Vocca.byok-key` (app-only access, `byok-provider`): the key is never readable from the
+config file, a log, or a crash surface — the file names the endpoint and the model, never the
+secret.
 
 **Permissions matrix.** Each is requested *at the moment it's first needed*, with copy explaining what we do and don't do — never in a first-run wall of dialogs:
 

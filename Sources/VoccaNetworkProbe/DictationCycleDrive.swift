@@ -22,6 +22,7 @@ import VoccaCore
 import VoccaHotkey
 import VoccaInject
 import VoccaText
+import VoccaUI
 
 // The probe's half of the zero-network invariant for `VoccaAudio` and `VoccaASR`.
 //
@@ -387,16 +388,21 @@ extension VoccaNetworkProbe {
             clock: clock)
         let injectorLedger = ProbeInjectorLedger(inner: ladder)
 
-        // The cleanup stage: the real shipped rules provider over an isolated throwaway
-        // directory whose missing `dictionary.json` is an empty rule set — the founder's real
-        // `~/Library/Application Support/Vocca/dictionary.json` is never read or written by CI,
-        // and the cycle's `"1 2 3"` passes through the empty-dictionary rules path with only
-        // the terminal punctuation the engine appends. `requiresNetwork == false` is the hook
-        // the zero-network invariant keys on.
-        let cleanup = ShippingCleanup.make(
-            store: FileSystemDictionaryStore(
-                directory: FileManager.default.temporaryDirectory.appendingPathComponent(
-                    "vocca-probe-\(UUID().uuidString)")))
+        // The cleanup stage: the real resolver over an isolated throwaway directory whose absent
+        // `cleanup-config.json` is the default configuration (rules, zero network) — the
+        // founder's real Application Support is never read or written by CI, and the rules
+        // provider's dictionary store is derived from the same temp directory, so `dictionary.json`
+        // reads stay isolated too. The resolver's transport and key slots are probe fakes (never
+        // reached on the default path). `requiresNetwork == false` is the hook the zero-network
+        // invariant keys on.
+        let probeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-probe-\(UUID().uuidString)")
+        let cleanupResolver = CleanupResolver(
+            store: CleanupConfigStore(directory: probeDirectory, log: { _ in }),
+            transport: { ProbeLLMTransport() },
+            keyProvider: { ProbeKeyProvider() },
+            log: { _ in })
+        let cleanup = try! await cleanupResolver.resolve()
 
         // The pipeline, injected — the `DictationLoopTests` shape: the root takes the assembled
         // pipeline and the drive opens the readiness gate itself, which is what makes the cycle
@@ -447,6 +453,16 @@ extension VoccaNetworkProbe {
         // open the microphone and the router may route the ended session into the injected
         // pipeline.
         root.markEnginePrepared()
+
+        // The egress fold: the resolved provider's `requiresNetwork` + endpoint, folded into the
+        // widget store exactly as the composition root does. The default path (absent config)
+        // resolves rules ⇒ `.none`, so the report's `egress=none` asserts the byte-for-byte
+        // surface the shipped rules path shows — no ☁︎ marker over a default dictation
+        // (`egress-badge`, `root-wiring` B1).
+        let egress = WidgetEgressState.fromResolvedProvider(
+            requiresNetwork: cleanup.requiresNetwork,
+            endpoint: await cleanupResolver.egressEndpoint())
+        root.widgetStore.setEgress(egress)
 
         // MARK: The cycle
 
@@ -525,6 +541,7 @@ extension VoccaNetworkProbe {
             "engine.transcribes=\(transcribeCalls)",
             "manifest.engine=\(manifest.engineID)",
             "cleanup.engine=\(cleanup.identity.id)",
+            "egress=\(describe(root.widgetStore.state.egress))",
             "injected=\(spell(observation?.text ?? ""))",
             "rung=\(describe(observation?.result.rung))",
             "attempted=\(describe(observation?.result.attempted))",
@@ -608,6 +625,13 @@ extension VoccaNetworkProbe {
         }
     }
 
+    private static func describe(_ egress: WidgetEgressState) -> String {
+        switch egress {
+        case .none: return "none"
+        case .active: return "active"
+        }
+    }
+
     /// One keyboard event carrying the configured chord — plain data, as `RawKeyEvent`
     /// documents: no `CGEvent`, no event tap and no Accessibility grant is involved.
     private static func keyEvent(
@@ -619,5 +643,23 @@ extension VoccaNetworkProbe {
             modifiers: configuration.modifiers,
             isAutorepeat: false,
             timestamp: timestamp)
+    }
+}
+
+/// The resolver's transport slot in the probe — a fake the default (rules) path never reaches.
+/// The probe's composition must never dial a real endpoint, so this conformer throws on any
+/// call: if a wiring bug routes an LLM call into the default path, this throw (and the
+/// interposer's `connect(2)` observation) fails the build, never a silent network dial.
+struct ProbeLLMTransport: LLMTransport {
+    func complete(_ request: LLMRequest) async throws -> LLMResponse {
+        throw LLMTransportError.unreachable
+    }
+}
+
+/// The resolver's key slot in the probe — a fake the default (rules) path never reaches, and a
+/// real Keychain read would be a permission the probe must not ask for.
+struct ProbeKeyProvider: KeyProvider {
+    func key() throws -> String? {
+        nil
     }
 }

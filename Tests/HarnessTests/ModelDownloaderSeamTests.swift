@@ -38,8 +38,10 @@ private enum ModelDownloaderSeamTestError: Error, CustomStringConvertible {
     }
 }
 
-/// Acceptance H8 (this capability's seam lint, `prd.md` M14): **exactly one file in `Sources/`
-/// may name `URLSession` — the model downloader's transport.**
+/// Acceptance H8 (this capability's seam lint, `prd.md` M14): **exactly the two files in `Sources/`
+/// `ARCHITECTURE.md:16` names may name `URLSession` — the model downloader's transport and the LLM
+/// transport.** The second entry is the `llm-transport` aspect's reviewed amendment; the
+/// planted-violation control below still fails on any third file.
 ///
 /// The zero-network claim (`ARCHITECTURE.md:16`, amended by this capability to name
 /// ``ModelDownloader`` as the first of the two network-permitted types) is only as strong as its
@@ -60,12 +62,16 @@ final class ModelDownloaderSeamTests: XCTestCase {
 
     /// Files allowed to name `URLSession`, relative to `Sources/`.
     ///
-    /// **One entry, and nothing else ever joins it.** A second means the zero-network claim has
+    /// **Exactly the two network types `ARCHITECTURE.md:16` names, and nothing else ever joins
+    /// them.** ``DefaultModelTransport`` is the model downloader's transport (C2); the second entry
+    /// is the LLM transport (C6, `llm-transport`) — the BYOK client's adapter, which this
+    /// capability added as a reviewed amendment. A third would mean the zero-network claim has
     /// sprung a leak and the network decision that leaked with it is now somewhere CI cannot reach.
     /// The prefix rule covers `URLSessionConfiguration`, `URLSessionTask` and every other member of
     /// the family by construction.
     private static let filesPermittedToNameURLSession: Set<String> = [
-        "VoccaASR/Models/DefaultModelTransport.swift"
+        "VoccaASR/Models/DefaultModelTransport.swift",
+        "VoccaText/LLM/DefaultLLMTransport.swift",
     ]
 
     /// The identifier prefix that constitutes the seam.
@@ -184,7 +190,7 @@ final class ModelDownloaderSeamTests: XCTestCase {
     /// The cleanup eval-harness family may not name `URLSession` anywhere — the scorer, the
     /// loader, the runs and their tests (B3): the harness is part of the default
     /// configuration's CI surface, and the default configuration makes zero network calls. The
-    /// permitted set is **empty** — unlike the transport lint's one-file set, nothing in this
+    /// permitted set is **empty** — unlike the transport lint's two-file set, nothing in this
     /// family may speak the network half of the zero-network claim, ever.
     ///
     /// The vacuity guards run in both directions: the fixed file list is non-empty, and every

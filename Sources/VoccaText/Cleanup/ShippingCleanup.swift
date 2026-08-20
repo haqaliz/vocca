@@ -40,6 +40,12 @@ public struct ShippingRulesCleanupProvider: CleanupProvider {
     /// Declared, not defaulted — the B10 contract (`spec.md` B10a).
     public var requiresNetwork: Bool { false }
 
+    /// Declared, not defaulted — the B10b contract: the rules path is raced at exactly the 10 ms
+    /// number, so a change to the protocol default cannot silently re-measure the shipped rules
+    /// path. The rules provider is the one that declares 10 ms; a provider that needs seconds
+    /// declares them.
+    public var budget: Duration { .milliseconds(10) }
+
     /// Clean one transcript: load the dictionary, run the six fixed stages. Never throws — a
     /// missing dictionary is empty, and the rules themselves are pure.
     public func clean(_ transcript: Transcript, context: CleanupContext) async throws -> String {

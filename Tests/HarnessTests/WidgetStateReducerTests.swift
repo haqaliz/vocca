@@ -252,6 +252,8 @@ final class WidgetStateReducerTests: XCTestCase {
             (.projection(.notice(.captureUnavailable)), "project notice"),
             (.timerFired(.recording), "recording timer"),
             (.timerFired(.deliveredCollapse), "collapse timer"),
+            (.egressChanged(.none), "egress none"),
+            (.egressChanged(.active(endpoint: "http://localhost:11434")), "egress active"),
         ]
         let nows: [Duration] = [.zero, .milliseconds(599), .seconds(2), .seconds(3), .seconds(110)]
 

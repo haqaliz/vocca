@@ -50,6 +50,14 @@ public protocol CleanupProvider: Sendable {
     /// conformer that needs the network declares `true` and earns the egress badge.
     var requiresNetwork: Bool { get }
 
+    /// The deadline the caller enforces on one ``clean(_:context:)`` call, in the caller's clock
+    /// (`ARCHITECTURE.md:515`). The provider declares how long it may take; the pipeline races it
+    /// and routes a slow provider to raw. Defaults to `.milliseconds(10)` (see the extension); a
+    /// conformer that needs seconds — an LLM round-trip — declares them here. The provider reads
+    /// ``CleanupContext/budget`` as information only; enforcement lives with the caller, never
+    /// here.
+    var budget: Duration { get }
+
     /// Cleans one transcript into the text to inject.
     ///
     /// Reads ``Transcript/text`` and returns the polished text, or throws when the cleanup cannot
@@ -63,4 +71,9 @@ extension CleanupProvider {
     /// ``requiresNetwork`` is offline by construction, and the default configuration makes zero
     /// network calls. The first conformer (the rules engine) stays silent here on purpose.
     public var requiresNetwork: Bool { false }
+
+    /// The shipped cleanup budget default (`ARCHITECTURE.md:515`): a provider that declares
+    /// nothing is raced at 10 ms — the C5 number, pinned so a conformer that says nothing costs
+    /// the rules budget. A conformer that needs more declares it.
+    public var budget: Duration { .milliseconds(10) }
 }

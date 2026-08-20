@@ -959,8 +959,65 @@ set -euo pipefail
 # env-gated test itself (visible skip without the variable, hard failure with a broken
 # directory, wav-sidecar engine-attribution guard, recorded comparison line when complete).
 #
+# The llm-transport aspect raises it to 971: the LLM transport seam's contract tests (eight,
+# B1/B3/B4) — the seam round-trip through the stub, the `Sendable` existential compile pin, the
+# closed-and-distinct error vocabulary, `serverStatus` carrying its code, the stub emitting
+# every failure mode, the default POST method, the recorded request's URL/method/headers/body,
+# and the hang mode parking a call at the gate until release.
+#
+# The ollama-provider aspect raises it to 985: the Ollama cleanup provider's contract tests
+# (fourteen, B1-B5) — the identity/network/budget declarations, the request shape over the stub's
+# ledger (`api/generate`, the JSON body, the pinned prompt prefix), the happy path, the seven
+# failure modes throwing (unreachable/serverStatus/invalidResponse passed through, malformed
+# JSON, missing response key, empty and whitespace-only responses), and the two pinned prompts'
+# byte-fidelity.
+#
+# The byok-provider aspect raises it to 1010: the BYOK cleanup provider's contract tests
+# (nineteen, B1-B8) — the identity/network/budget declarations, the request shape over the stub's
+# ledger (the configured endpoint, the `Authorization: Bearer <key>` header, the chat-completions
+# body with the pinned system instruction), the nil-model omission, the happy path, the key
+# absent ⇒ `.keyUnavailable` and key-throws rethrow rows (both with no recorded request), the
+# 401/403 ⇒ `.unauthorized` mapping (exactly one request — never a retry — and no key in the
+# error), the seven remaining failure modes throwing (unreachable/serverStatus(500)/
+# invalidResponse passed through, malformed JSON, missing choices, empty choices, empty and
+# whitespace-only content), and the B8 key-hygiene sweep (the sentinel rides the wire and
+# appears in none of the error descriptions across every failure path) — plus the six-test
+# Security seam row (tree-wide scan, one-file-per-seam, two-sided pin, planted-identifier
+# negative control, the planted-tree "another file" control, comment-strip control).
+#
+# The cleanup-chain aspect raises it to 1017: the rules-then-LLM cleanup chain's contract tests
+# (seven, B1-B7) — the rules-only passthrough (identity/network/budget from the rules provider),
+# the chain composition (the LLM stub receives the rules output as its transcript, its result
+# returned), the LLM-throws degrade to the rules output, the empty/whitespace LLM output degrade,
+# the cancellation rethrow (a genuinely-cancelled task rethrows CancellationError rather than
+# returning a stale rules result), the identity/network/budget propagation from the LLM stage,
+# and the never-empty rule (an empty or whitespace rules output skips the LLM stage entirely).
+#
+# The cleanup-config aspect raises it to 1037: the config types' decode table (nine, B1-B2 —
+# the kind round-trip with pinned raw values, the unknown-kind loud degrade, the valid full
+# config with unknown keys tolerated, the silent rules config, the ollama-without-model, the
+# byok-without-endpoint, the wrong-typed field, the non-dialable endpoint, and the never-throws
+# sweep), the store's load contract (three, B3 — the silent missing-file default, the valid-file
+# decode, the corrupt-file loud degrade that never rewrites the file), the resolver's resolve-once
+# and decision table (seven, B4-B5 — the single-flight no-re-read proof, the absent-file/rules/
+# ollama/byok resolution rows, and the two loud degrades), plus the FileManager seam table's
+# exact-three-seams pin (one, B6 — the config row joined the table).
+#
+# The egress-badge aspect raises it to 1048: the egress badge's reducer contract (seven, B1-B3,
+# B5 — the .none default, the active-state endpoint, the egressChanged set, the no-other-action-
+# touches-egress enumeration, the no-dismissal enumeration, the wiring's explicit clear, and the
+# survives-a-full-session fold), the store's setEgress fold (one), and the badge copy's
+# byte-fidelity (three, B4 — the U+2601+U+FE0F glyph, the spec-pinned hover template, and the
+# endpoint interpolation).
+#
+# The root-wiring aspect raises it to 1052: the composition root's cleanup wiring contract
+# (four, B4 — the fromResolvedProvider fold for a network provider and for an offline provider,
+# the absent-config resolve ⇒ rules ⇒ .none fold through the widget store, and the ollama-config
+# resolve ⇒ requiresNetwork ⇒ .active(endpoint:) fold through the widget store), while the
+# zero-network probe's own cycle report now carries `egress=none` on the default path.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=958
+MINIMUM_EXECUTED_TESTS=1052
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -72,14 +72,22 @@ public struct WidgetReducerState: Equatable, Sendable {
     /// ``WatchdogPolicy/warningThreshold(before:`` ``WidgetReducerState/ceiling```)`.
     public var showsCeilingWarning: Bool
 
+    /// The egress badge's state (`egress-badge` M8): `.none` unless a `requiresNetwork == true`
+    /// cleanup provider is active, in which case the pill carries the ☁︎ marker
+    /// (`PRODUCT_SPEC.md:250-264`). Launch-derived and non-dismissable: only the wiring's own
+    /// ``WidgetAction/egressChanged(_:)`` touches it, folded exactly once at launch — no timer
+    /// and no session effect can clear an `.active` state (`WidgetEgressState` documents why).
+    public var egress: WidgetEgressState
+
     /// The resting state: IDLE, no notice, no timer bookkeeping, the shipped session ceiling.
     ///
     /// The composition root passes the machine's own `ceiling` (`SessionMachine.ceiling`) so a
     /// configured ceiling moves its own warning; `SessionCeiling.default` is what a caller gets
-    /// for not saying so.
+    /// for not saying so. `egress` defaults `.none` — the rules path is byte-for-byte today.
     public init(
         state: WidgetState = .idle,
-        ceiling: Duration = SessionCeiling.default
+        ceiling: Duration = SessionCeiling.default,
+        egress: WidgetEgressState = .none
     ) {
         self.state = state
         self.ceiling = ceiling
@@ -89,6 +97,7 @@ public struct WidgetReducerState: Equatable, Sendable {
         self.showsEscapeHint = false
         self.showsCeilingWarning = false
         self.notice = nil
+        self.egress = egress
     }
 }
 
@@ -111,16 +120,20 @@ public enum WidgetTimer: Equatable, Sendable, CaseIterable {
 /// The intents and injected answers the live widget offers the reducer.
 ///
 /// **The set is closed**: the Core projection's verdict on one machine effect or pipeline event
-/// (``WidgetAction/projection(_:)``), and a due timer (``WidgetAction/timerFired(_:)``). There is
-/// no other input, so the exhaustive switch in ``WidgetStateReducer`` cannot hide a transition no
-/// action can carry — and the fold's `now` is consulted only by the timer action, which is the
-/// structural pin on "no time-based transition without a clock event".
+/// (``WidgetAction/projection(_:)``), a due timer (``WidgetAction/timerFired(_:)``), and the
+/// wiring's egress fold (``WidgetAction/egressChanged(_:)``). There is no other input, so the
+/// exhaustive switch in ``WidgetStateReducer`` cannot hide a transition no action can carry — and
+/// the fold's `now` is consulted only by the timer action, which is the structural pin on "no
+/// time-based transition without a clock event".
 public enum WidgetAction: Equatable, Sendable {
     /// The Core projection's verdict — ``WidgetProjection/project(effect:targetAppName:)`` or
     /// ``WidgetProjection/project(event:)`` folded by the composition root, exactly as produced.
     case projection(WidgetProjectionResult)
     /// A due timer fired, carrying the injected clock's reading at the fire.
     case timerFired(WidgetTimer)
+    /// The wiring's egress fold — the resolved cleanup provider's `requiresNetwork` + endpoint,
+    /// sent exactly once at launch (resolve-once). The only action that touches egress.
+    case egressChanged(WidgetEgressState)
 }
 
 /// The plan's time constants (`widget-live-states` Task 2), in exactly one place each.
@@ -172,7 +185,10 @@ public enum WidgetStateReducer {
             case .state(let projected):
                 return adopting(projected, in: state, at: now)
             case .notice(let notice):
-                var next = WidgetReducerState(state: .idle, ceiling: state.ceiling)
+                // A fresh IDLE — but the egress badge is launch-derived and must survive a
+                // session notice, so the new state carries it forward (WidgetEgressState).
+                var next = WidgetReducerState(
+                    state: .idle, ceiling: state.ceiling, egress: state.egress)
                 next.notice = notice
                 return next
             }
@@ -183,6 +199,12 @@ public enum WidgetStateReducer {
             case .deliveredCollapse:
                 return collapseTick(state, now: now)
             }
+        case .egressChanged(let egress):
+            // The badge's only writer — folded once at launch (resolve-once). Nothing else
+            // touches it; see WidgetEgressState's non-dismissable note.
+            var next = state
+            next.egress = egress
+            return next
         }
     }
 

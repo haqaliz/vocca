@@ -70,4 +70,11 @@ public final class WidgetStateStore: ObservableObject {
         state = WidgetStateReducer.reduce(
             state, action: .timerFired(timer), now: clock.now)
     }
+
+    /// The wiring's egress fold — the resolved cleanup provider's `requiresNetwork` + endpoint,
+    /// sent exactly once at launch (resolve-once). The only path that changes ``egress``.
+    public func setEgress(_ egress: WidgetEgressState) {
+        state = WidgetStateReducer.reduce(
+            state, action: .egressChanged(egress), now: clock.now)
+    }
 }

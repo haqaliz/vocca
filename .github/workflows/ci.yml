@@ -203,9 +203,16 @@ jobs:
       - name: Build Vocca.app (${{ matrix.configuration }})
         run: |
           set -euo pipefail
+          # ARCHS=arm64 is passed here, on the build request, and not only set in the project:
+          # a project-level ARCHS / ONLY_ACTIVE_ARCH / EXCLUDED_ARCHS does not reach the
+          # generated projects of SPM dependencies, which otherwise build every standard arch.
+          # Vocca is Apple-Silicon-only (Parakeet runs on the ANE), so an x86_64 slice is a slice
+          # nothing can run — and FluidAudio's newer sources do not compile for it at all
+          # ('Float16' is unavailable on macOS x86_64).
           xcodebuild -project Vocca.xcodeproj -scheme Vocca \
                      -configuration ${{ matrix.configuration }} \
-                     -derivedDataPath ${{ matrix.derived_data }} build
+                     -derivedDataPath ${{ matrix.derived_data }} \
+                     ARCHS=arm64 build
 
       - name: Report what was actually signed
         run: |

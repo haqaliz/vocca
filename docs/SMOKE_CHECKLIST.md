@@ -173,7 +173,7 @@ failed step.
 ### Build and identity
 
 1. `./Scripts/dev-identity.sh` if this machine has no stable identity yet, then build Release:
-   `xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release -derivedDataPath .build/xcode-release build`
+   `xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Release -derivedDataPath .build/xcode-release ARCHS=arm64 build`
 
    If `dev-identity.sh` refuses because the keychain is in a partial state (a certificate imported
    by an earlier run that failed or was interrupted before it was trusted), reset it rather than
@@ -1293,6 +1293,77 @@ step is the number the P1 gate is judged on (`ROADMAP.md:137`), recorded not gat
     missing answers), the seed is not printed, or the percentage is presented as a verdict.
     Until this step has been run once, everything this repository says about cleanup quality is
     a claim about mechanism, not about measurement.
+
+---
+
+## The LLM cleanup rungs — Ollama and BYOK, their first execution
+
+*(Added 2026-08-19, `llm-cleanup`.)* The LLM rungs' decisions are CI-covered — the providers'
+request shaping and failure modes over stub transports, the rules-then-LLM chain's degrade, the
+config's tolerant decode, the resolver's resolve-once, the egress badge's reducer — but **no
+part of a live LLM cleanup runs in CI**: a real Ollama server, a real remote endpoint, a real
+Keychain, a real window-server badge. These steps are the rungs' first execution, on the
+founder's machine, exactly as steps 22-35 were the adapters' and 62-68 the loop's. The
+configured file is `~/Library/Application Support/Vocca/cleanup-config.json`
+(`cleanup-config`); the key lives in the login Keychain under `dev.vocca.Vocca.byok-key`
+(entered with the `security` command, never written to the file:
+`security add-generic-password -a vocca -s dev.vocca.Vocca.byok-key -w '<key>'`).
+
+74. **The Ollama rung — a real local LLM, live and then stopped.** The shipped provider against
+    a real Ollama server: the endpoint live, the model selected, and the rewrite *observed* —
+    the first judgment of whether the LLM rung's value ("tone, rewriting, reflow",
+    `CAPABILITY_ROADMAP.md:134`) is real, recorded as a smoke observation, never a gate number
+    (`prd.md` "quality not implied").
+
+    *Gesture:* hand-edit `cleanup-config.json` to
+    `{"provider": "ollama", "ollama": {"endpoint": "http://localhost:11434", "model": "<a real model>"}}`
+    (step 3's path, the file is `~/Library/Application Support/Vocca/cleanup-config.json`),
+    restart Vocca, dictate a sentence that benefits from rewriting — a false start, a filler,
+    a flat reflow — and watch the injected text. Then stop Ollama and dictate again.
+
+    *Pass:* with Ollama up, the injected text is a genuine rewrite of the rules output (tone
+    and reflow, not just fillers) within the 5 s budget; **with Ollama stopped, dictation still
+    lands the rules output** — the degrade is structural, never a lost dictation
+    (`ROADMAP.md:140`). The cleanup span in the ledger (step 70's surface) reflects the LLM's
+    time with the rung active.
+
+    *Failure:* with Ollama stopped, a dictation loses text or hangs past the budget race; or
+    the rung silently dials an endpoint that is not `cleanup-config.json`'s.
+
+75. **The BYOK rung — a real endpoint, the key in the Keychain.** The shipped provider against
+    the user's own endpoint: the key read from the Keychain (never from the file), the rewrite
+    observed, and the badge visible while the rung is active. The key-entry one-liner above is
+    the whole setup — there is no other path into the key.
+
+    *Gesture:* hand-edit `cleanup-config.json` to
+    `{"provider": "byok", "byok": {"endpoint": "<chat-completions URL>", "model": "<model or omit>"}}`,
+    enter the key with the `security add-generic-password` one-liner, restart Vocca, dictate.
+
+    *Pass:* the injected text is the endpoint's rewrite within the 5 s budget; the ☁︎ marker
+    shows while the rung is active (step 76); a **wrong or absent key** degrades to the rules
+    output — the key is never prompted for, never silently skipped, never retried in a loop
+    (`byok-provider` B6), and **never appears in any log or error**.
+
+    *Failure:* a key error surfaces as something other than the rules-output degrade; or the
+    key appears in a log, the config file, or a crash report.
+
+76. **The badge, both directions — visible while a network provider is active, gone when rules
+    is selected.** The egress marker's first appearance (`PRODUCT_SPEC.md:250-264`): the widget
+    pill carries the ☁︎ glyph while an LLM rung is active and shows nothing on the default rules
+    path — a user must always be able to see, at a glance, whether their text is leaving the
+    machine.
+
+    *Gesture:* with an `ollama` or `byok` rung selected (steps 74-75's config), dictate and
+    watch the pill through OPENING/RECORDING/TRANSCRIBING; hover the glyph and read the copy.
+    Then set `"provider": "rules"` (or delete the file), restart, and dictate again.
+
+    *Pass:* the glyph is present during the three states while an LLM rung is active — with the
+    hover copy stating plainly "Cleanup runs on <endpoint>. Your text is sent there." — and
+    **absent** (the pill is byte-for-byte the shipped rules surface) when rules is selected. The
+    marker cannot be dismissed while active: no click, no key, no timer removes it mid-session.
+
+    *Failure:* the badge appears on the rules path, is absent while an LLM rung is active, is
+    dismissable, or its hover copy names anything other than the configured endpoint.
 
 ---
 
