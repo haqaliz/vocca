@@ -349,10 +349,10 @@ final class ZeroNetworkTests: XCTestCase {
         // consumed `stream()`, which is the whole point of the drive.
         "engine.prepares=0",
         "engine.transcribes=0",
-        // The quiet surfaces: nothing held and no download session started — the same happy
+        // The quiet surfaces: no download session started and nothing held — the same happy
         // path the batch cycle asserts, on the streaming route.
-        "holds=0",
         "download.starts=0",
+        "holds=0",
         // The latency ledger closed exactly one record: the streaming route's own finalize
         // row — the minted id the drive handed it, closed once.
         "records=1",
