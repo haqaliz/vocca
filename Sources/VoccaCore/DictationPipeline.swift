@@ -104,6 +104,7 @@ public struct DictationPipeline: Sendable {
     private let recorder: (any LatencyRecorder)?
     private let clock: (any MonotonicClock & Sendable)?
     private let cleanup: (any CleanupProvider)?
+    private let partialSink: (any PartialTranscriptSink)?
 
     /// - Parameters:
     ///   - engine: The prepared engine, resolved once at launch by the composition root's engine
@@ -122,13 +123,18 @@ public struct DictationPipeline: Sendable {
     ///   - cleanup: The optional cleanup stage between transcribe and inject; `nil` (the
     ///     default) keeps the pipeline exactly as it was — the raw text is injected, and no
     ///     cleanup span is recorded.
+    ///   - partialSink: The widget-only destination for streaming partial transcripts; `nil`
+    ///     (the default) keeps the pipeline exactly as it was — no partial is ever presented,
+    ///     and ``routeStreaming(chunks:target:sessionID:)``'s final still routes through the
+    ///     same decision table.
     public init(
         engine: any ASREngine,
         injector: any TextInjector,
         holder: any TranscriptHolder,
         recorder: (any LatencyRecorder)? = nil,
         clock: (any MonotonicClock & Sendable)? = nil,
-        cleanup: (any CleanupProvider)? = nil
+        cleanup: (any CleanupProvider)? = nil,
+        partialSink: (any PartialTranscriptSink)? = nil
     ) {
         self.engine = engine
         self.injector = injector
@@ -136,6 +142,7 @@ public struct DictationPipeline: Sendable {
         self.recorder = recorder
         self.clock = clock
         self.cleanup = cleanup
+        self.partialSink = partialSink
     }
 
     /// Routes one session effect through the dictation loop and answers what the widget should
@@ -168,6 +175,83 @@ public struct DictationPipeline: Sendable {
         case .ended(let outcome):
             return await route(outcome, target: target, sessionID: sessionID)
         }
+    }
+
+    /// Routes a **stream** of transcripts (C7's streaming shape) through the dictation loop and
+    /// answers what the widget should present.
+    ///
+    /// The seam's ``ASREngine/stream(_:)`` is consumed **unconditionally**: a streaming engine
+    /// yields partials (`isFinal == false`) then exactly one final transcript, and a batch
+    /// engine's default implementation yields exactly one final — both shapes terminate the
+    /// same way, so this route is written once and the degradation is the seam's default, not a
+    /// caller branch (`ASREngine.swift:35-38`).
+    ///
+    /// Every partial's text is emitted to the injected ``partialSink`` — the widget-only
+    /// destination, by construction: a partial must never reach the injector, and the guard
+    /// below is what makes that true rather than assumed. The one final transcript routes
+    /// through the exact decision table of the batch route's ``transcribeAndInject(_:target:sessionID:)``
+    /// half — the same cancellation re-checks, the same empty-text guard, the same cleanup
+    /// stage and the same failsafe routing (`routeFinal(_:target:sessionID:)`).
+    ///
+    /// The ASR span wraps the whole stream consumption — measured with the injected clock and
+    /// recorded on *every* answer, including the throwing one — and every row of the streaming
+    /// table finalizes exactly one record, exactly as the batch route's does.
+    ///
+    /// - Parameters:
+    ///   - chunks: The captured audio as a stream of buffers; the live mic feed is the C7
+    ///     capture half, scripted everywhere this route is exercised.
+    ///   - target: The focused application as it was at key-down; unused on every path that
+    ///     does not inject.
+    ///   - sessionID: The record ``LatencyRecorder/beginSession()`` minted for this session,
+    ///     `nil` (the default) when no recording is wired.
+    public func routeStreaming(
+        chunks: AsyncStream<AudioBuffer>, target: TargetContext,
+        sessionID: SessionRecord.ID? = nil
+    ) async -> PipelineSurface {
+        let start = clock?.now
+        var finalTranscript: Transcript?
+        do {
+            for try await transcript in engine.stream(chunks) {
+                // A cancellation that landed while the stream was producing (Esc): a discard —
+                // the stream is stopped here, the final is never captured and nothing is
+                // presented after this point.
+                guard !Task.isCancelled else { break }
+                if transcript.isFinal {
+                    finalTranscript = transcript
+                    break
+                }
+                // Provisional by construction: `isFinal == false` is the boundary the widget
+                // renders behind (`Transcript.swift:43-44`); the injector never sees it.
+                partialSink?.presentPartial(transcript.text)
+            }
+            await recordASRSpan(from: start, sessionID: sessionID)
+        } catch is CancellationError {
+            // The stream observed the route's cancellation and surfaced it as the engine's own
+            // CancellationError — a discard, exactly like the batch route's transcribe throwing
+            // one (`DictationPipelineTests`' engine-throws-CancellationError row).
+            await recordASRSpan(from: start, sessionID: sessionID)
+            await finalize(sessionID: sessionID, outcome: .aborted, engine: engine.identity)
+            return .idle
+        } catch {
+            // PRD R5: a failed stream is a reason-only notice — nothing was ever produced, so
+            // nothing is held and nothing is lost.
+            await recordASRSpan(from: start, sessionID: sessionID)
+            await finalize(sessionID: sessionID, outcome: .failed, engine: engine.identity)
+            return .reasonOnly(.transcriptionFailed)
+        }
+
+        // The seam promises exactly one final. A stream that ended without one and was not
+        // cancelled is a broken engine: nothing was produced, so the failure is the whole
+        // surface. A cancelled route that broke out of the loop above is a discard.
+        guard let finalTranscript else {
+            if Task.isCancelled {
+                await finalize(sessionID: sessionID, outcome: .aborted, engine: engine.identity)
+                return .idle
+            }
+            await finalize(sessionID: sessionID, outcome: .failed, engine: engine.identity)
+            return .reasonOnly(.transcriptionFailed)
+        }
+        return await routeFinal(finalTranscript, target: target, sessionID: sessionID)
     }
 
     /// The ended-session half of the table, over the outcome's two fates.
@@ -230,9 +314,27 @@ public struct DictationPipeline: Sendable {
         }
         await recordASRSpan(from: start, sessionID: sessionID)
 
-        // A cancellation that landed *after* the transcribe returned: the engine finished, but
-        // the user's Escape was earlier than the injection decision. **A cancelled transcription
-        // must never inject** (`PRODUCT_SPEC.md:129`).
+        return await routeFinal(transcript, target: target, sessionID: sessionID)
+    }
+
+    /// Routes a produced transcript through the injection half of the decision table — the
+    /// post-transcribe rows both routes share.
+    ///
+    /// The batch route calls this after ``transcribeAndInject(_:target:sessionID:)`` measured
+    /// its ASR span; the streaming route calls it after ``routeStreaming(chunks:target:sessionID:)``
+    /// consumed the stream (and captured the one final transcript out of it). What follows is
+    /// the same for both: a cancellation that landed after the ASR answered is a discard
+    /// (`PRODUCT_SPEC.md:129` — a cancelled transcription must never inject), the engine's own
+    /// empty answer is never pasted and never held, the cleanup stage (when wired) degrades but
+    /// never blocks or loses, and the delivery rungs and the failsafe surface are decided here,
+    /// exactly once per transcript.
+    private func routeFinal(
+        _ transcript: Transcript, target: TargetContext, sessionID: SessionRecord.ID?
+    ) async -> PipelineSurface
+    {
+        // A cancellation that landed *after* the transcript was produced: the engine finished,
+        // but the user's Escape was earlier than the injection decision. **A cancelled
+        // transcription must never inject** (`PRODUCT_SPEC.md:129`).
         guard !Task.isCancelled else {
             await finalize(sessionID: sessionID, outcome: .aborted, engine: transcript.engine)
             return .idle

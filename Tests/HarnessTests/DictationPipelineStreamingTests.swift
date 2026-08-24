@@ -73,7 +73,7 @@ final class DictationPipelineStreamingTests: XCTestCase {
         return (
             DictationPipeline(
                 engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
-                partialSink: sink, cleanup: cleanup),
+                cleanup: cleanup, partialSink: sink),
             injector,
             sink)
     }
@@ -216,9 +216,10 @@ final class DictationPipelineStreamingTests: XCTestCase {
             engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
             partialSink: sink)
         let target = target()
+        let chunks = streamOf([buffer([1, 2, 3])])
 
         let task = Task {
-            await pipeline.routeStreaming(chunks: streamOf([buffer([1, 2, 3])]), target: target)
+            await pipeline.routeStreaming(chunks: chunks, target: target)
         }
         await waitUntil { await engine.parkedStreams == 1 }
         task.cancel()
@@ -290,9 +291,10 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let (pipeline, injector, _) = makeStreamingPipeline(
             partials: ["hel"], finalText: "hello world", cleanup: provider)
         let target = target()
+        let chunks = streamOf([buffer([1, 2, 3])])
 
         let task = Task {
-            await pipeline.routeStreaming(chunks: streamOf([buffer([1, 2, 3])]), target: target)
+            await pipeline.routeStreaming(chunks: chunks, target: target)
         }
         var turns = 0
         while !(await provider.cleanStarted) && turns < 20_000 {
