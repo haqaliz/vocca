@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import VoccaASR
 import VoccaAudio
 import VoccaBootstrap
 import VoccaCore
@@ -67,6 +68,15 @@ final class LatencyBenchmarkTests: XCTestCase {
         captureClose: .milliseconds(50),
         asr: .milliseconds(50),
         inject: .milliseconds(10))
+
+    /// W4's span table: deliberately permissive — the whole-second seeded ASR costs (the exact-IEEE-
+    /// division discipline, so the recorded ratio is asserted exactly) would blow a millisecond
+    /// table, and this verdict's subject is the warm-start row, not the spans: the spans must pass
+    /// so the warm-start row is the only thing that can fail the verdict.
+    private static let warmStartThresholds = BenchmarkThresholds(
+        captureClose: .seconds(60),
+        asr: .seconds(60),
+        inject: .seconds(60))
 
     // MARK: - B1: the span contract over fixture-derived cycles
 
@@ -190,6 +200,149 @@ final class LatencyBenchmarkTests: XCTestCase {
             "the verdict names the 10 ms threshold it blew")
     }
 
+    // MARK: - W4: the gate's warm-start verdict
+
+    /// **W4, the failing half — the warm-start row's load-bearing test.** A stub engine whose
+    /// first-after-launch transcribe costs twice its steady-state transcribe must make the gate
+    /// **fail**, and the verdict must name the measured ratio and the bound it blew. The span
+    /// table is deliberately permissive so the spans pass: the warm-start row is the *only* thing
+    /// that can fail this verdict — a gate that cannot fail on a cold first transcription proves
+    /// nothing.
+    func testTheWarmStartVerdictFailsWhenTheFirstTranscribeIsTwiceTheSteadyState() async throws {
+        let fixtures = try Self.fixtureCases()
+        let clock = BenchmarkClock()
+        let engine = WarmStartRecordingEngine(
+            clock: clock, firstCost: .seconds(20), steadyCost: .seconds(10))
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            engine: engine,
+            injectAdvance: Self.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runCycle(samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let records = await harness.ledger.snapshot()
+        let verdict = LatencyBenchmarkGate.evaluate(
+            records,
+            thresholds: Self.warmStartThresholds,
+            warmStartFirstAfterLaunch: await engine.timing.samples(for: .firstAfterLaunch),
+            warmStartSteadyState: await engine.timing.samples(for: .warmTranscribe))
+        XCTAssertTrue(
+            verdict.spans.allSatisfy(\.passed),
+            "the spans pass — the warm-start row alone must fail this verdict")
+        XCTAssertEqual(
+            verdict.warmStart,
+            .exceedsBound(
+                ratio: 2.0, bound: WarmStartTargets.maxFirstAfterLaunchMultiple),
+            "a 2x first transcription names the measured ratio and the bound it blew")
+        XCTAssertFalse(
+            verdict.passed,
+            "a cold first transcription at 2x steady state must fail the gate — a gate that "
+                + "cannot fail proves nothing")
+    }
+
+    /// **W4, the passing half.** A first transcription at 1.1x steady state passes the gate, and
+    /// the verdict's warm-start row carries the measured ratio.
+    func testTheWarmStartVerdictPassesWithinTheBound() async throws {
+        let fixtures = try Self.fixtureCases()
+        let clock = BenchmarkClock()
+        let engine = WarmStartRecordingEngine(
+            clock: clock, firstCost: .seconds(11), steadyCost: .seconds(10))
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            engine: engine,
+            injectAdvance: Self.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runCycle(samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let records = await harness.ledger.snapshot()
+        let verdict = LatencyBenchmarkGate.evaluate(
+            records,
+            thresholds: Self.warmStartThresholds,
+            warmStartFirstAfterLaunch: await engine.timing.samples(for: .firstAfterLaunch),
+            warmStartSteadyState: await engine.timing.samples(for: .warmTranscribe))
+        guard case .withinBound(let ratio) = verdict.warmStart else {
+            return XCTFail("1.1x steady state must be within the bound, got \(verdict.warmStart)")
+        }
+        XCTAssertEqual(ratio, 1.1, "the verdict carries the measured ratio")
+        XCTAssertTrue(
+            verdict.passed,
+            "a first transcription within 20% of steady state must pass the gate")
+    }
+
+    /// **W4, the insufficient row.** An engine that never records a first-after-launch sample
+    /// (the ``LatencySpan/Presence/notPresent`` shape) leaves the warm-start row **recorded as
+    /// insufficient** — neither a pass nor a fail: the spans alone decide, and no ratio is
+    /// fabricated.
+    func testTheWarmStartVerdictIsInsufficientWithNoSamples() async throws {
+        let fixtures = try Self.fixtureCases()
+        let clock = BenchmarkClock()
+        let engine = WarmStartRecordingEngine(
+            clock: clock, firstCost: .seconds(20), steadyCost: .seconds(10),
+            recordsFirstAfterLaunch: false)
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            engine: engine,
+            injectAdvance: Self.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runCycle(samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let records = await harness.ledger.snapshot()
+        let firstAfterLaunchSamples = await engine.timing.samples(for: .firstAfterLaunch)
+        let verdict = LatencyBenchmarkGate.evaluate(
+            records,
+            thresholds: Self.warmStartThresholds,
+            warmStartFirstAfterLaunch: firstAfterLaunchSamples,
+            warmStartSteadyState: await engine.timing.samples(for: .warmTranscribe))
+        XCTAssertEqual(
+            firstAfterLaunchSamples, [],
+            "the engine never recorded a first-after-launch sample")
+        XCTAssertEqual(
+            verdict.warmStart, .insufficientSamples,
+            "no first-after-launch sample is recorded as insufficient — never a fabricated ratio")
+        XCTAssertTrue(
+            verdict.passed,
+            "an insufficient warm-start row is neither a pass nor a fail — the spans alone decide")
+    }
+
+    /// **The guard-the-guard test.** The seeded-slow stub must genuinely produce a ratio past the
+    /// bound — the 2x seed is verified against the engine's own recorded samples, through the
+    /// shipped evaluator, before the failing-gate test's claim is worth anything. A gate that
+    /// cannot fail proves nothing; a seed that does not fail it proves nothing either.
+    func testTheSeededSlowFirstTranscribeGenuinelyExceedsTheBound() async throws {
+        let fixtures = try Self.fixtureCases()
+        let clock = BenchmarkClock()
+        let engine = WarmStartRecordingEngine(
+            clock: clock, firstCost: .seconds(20), steadyCost: .seconds(10))
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            engine: engine,
+            injectAdvance: Self.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runCycle(samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let firstAfterLaunch = await engine.timing.samples(for: .firstAfterLaunch)
+        let steadyState = await engine.timing.samples(for: .warmTranscribe)
+        XCTAssertEqual(firstAfterLaunch, [.seconds(20)], "the first transcribe is the seeded 20 s")
+        XCTAssertEqual(steadyState, [.seconds(10), .seconds(10)], "the rest are the seeded 10 s")
+        let ratio = WarmStartRatio.evaluate(
+            firstAfterLaunch: firstAfterLaunch, steadyState: steadyState)
+        guard case .exceedsBound(let measured, _) = ratio else {
+            return XCTFail("the seeded-slow stub must produce a ratio past the bound, got \(ratio)")
+        }
+        XCTAssertGreaterThan(
+            measured, WarmStartTargets.maxFirstAfterLaunchMultiple,
+            "the 2x seed must genuinely exceed the 20% bound — a gate that cannot fail proves "
+                + "nothing")
+    }
+
     // MARK: - B4: the provisional tolerances, in one place and consumed
 
     /// **B4.** The provisional p50/p95 table (`ROADMAP.md:171`) is a single named constant set in
@@ -246,8 +399,28 @@ final class LatencyBenchmarkTests: XCTestCase {
                 stopAdvance: stopAdvance,
                 engine: ClockAdvancingEngine(clock: clock, advance: asrAdvance),
                 injectAdvance: injectAdvance,
+clock: clock,
+            drainBudget: 20_000)
+        }
+
+        /// The caller-built-engine composition (W4): any engine the test constructs, over a fresh
+        /// shared clock — the warm-start gate tests build the recording engine themselves so they
+        /// hold the ``EngineTiming`` handle the verdict is judged on.
+        init(
+            ringCapacity: Int,
+            stopAdvance: Duration,
+            engine: any ASREngine,
+            injectAdvance: Duration,
+            drainBudget: Int = 20_000
+        ) throws {
+            let clock = BenchmarkClock()
+            try self.init(
+                ringCapacity: ringCapacity,
+                stopAdvance: stopAdvance,
+                engine: engine,
+                injectAdvance: injectAdvance,
                 clock: clock,
-                drainBudget: 20_000)
+                drainBudget: drainBudget)
         }
 
         /// The real-engine composition (spec B3, Phase 2): the *same* harness, with the real engine
@@ -596,6 +769,61 @@ private actor ClockAdvancingEngine: ASREngine {
 
     func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
         clock.now += advance
+        return try await inner.transcribe(buffer)
+    }
+}
+
+/// The W4 engine with the clock in the loop: its first `transcribe` costs ``firstCost`` and
+/// records ``EngineTiming/Kind/firstAfterLaunch``; every later one costs ``steadyCost`` and
+/// records ``EngineTiming/Kind/warmTranscribe`` — the cross-session samples the warm-start
+/// verdict is judged on, produced by the same harness the spans come from. The whole-second
+/// seeds make the recorded ratio an exact IEEE division (the ``WarmStartRatioTests``
+/// discipline), so the verdict's ratio is asserted exactly.
+///
+/// ``recordsFirstAfterLaunch`` is the insufficient-samples row: `false` records no
+/// first-after-launch sample at all — the ``LatencySpan/Presence/notPresent`` shape, never a
+/// fabricated ratio.
+private actor WarmStartRecordingEngine: ASREngine {
+    let identity: EngineIdentity
+    let supportsStreaming = false
+    /// The cross-session timing ledger the verdict is judged on — the tests read it back.
+    let timing: EngineTiming
+    private let inner: StubEngine
+    private let clock: BenchmarkClock
+    private let firstCost: Duration
+    private let steadyCost: Duration
+    private let recordsFirstAfterLaunch: Bool
+    private var transcribes = 0
+
+    init(
+        clock: BenchmarkClock,
+        firstCost: Duration,
+        steadyCost: Duration,
+        recordsFirstAfterLaunch: Bool = true
+    ) {
+        self.inner = StubEngine.parakeet()
+        self.identity = inner.identity
+        self.timing = EngineTiming()
+        self.clock = clock
+        self.firstCost = firstCost
+        self.steadyCost = steadyCost
+        self.recordsFirstAfterLaunch = recordsFirstAfterLaunch
+    }
+
+    func prepare() async throws {
+        try await inner.prepare()
+    }
+
+    func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+        transcribes += 1
+        let isFirst = transcribes == 1
+        let cost = isFirst ? firstCost : steadyCost
+        clock.now += cost
+        if isFirst && recordsFirstAfterLaunch {
+            await timing.record(.firstAfterLaunch, elapsed: cost)
+        } else {
+            await timing.record(.warmTranscribe, elapsed: cost)
+        }
         return try await inner.transcribe(buffer)
     }
 }
