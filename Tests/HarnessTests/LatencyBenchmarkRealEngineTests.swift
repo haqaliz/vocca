@@ -133,6 +133,70 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
             "no row may carry an unreadable suppression state as an answer — an unreadable state "
                 + "is a void run, not a row")
     }
+
+    /// **W3, the warm-start record.** The env-gated real run also prints the engine's
+    /// `firstAfterLaunch` and `warmTranscribe` samples, the ratio, and the suppression state
+    /// beside it — **recorded, never gated**: this test asserts the record's shape, never its
+    /// value. Exactly one first-after-launch sample (the run's first cycle), every later cycle a
+    /// warm transcribe, a measured ratio (never n/a when both sides have samples), and no
+    /// unreadable suppression state beside it — the `measure-timers.sh` discipline, so a
+    /// throttled number is recorded as throttled, never presented as clean.
+    func testTheRealEngineBenchmarkRecordsTheWarmStartRatioWithSuppressionState() async throws {
+        guard ProcessInfo.processInfo.environment["VOCCA_LATENCY_BENCH"] != nil else {
+            throw XCTSkip(
+                "set VOCCA_LATENCY_BENCH=1 to run the real-engine latency benchmark — the model "
+                    + "cannot reach a hosted runner, so CI runs the skip path")
+        }
+        guard
+            let modelDir = ProcessInfo.processInfo.environment["VOCCA_MODEL_DIR"]
+        else {
+            throw XCTSkip(
+                "set VOCCA_MODEL_DIR to a store-shaped version directory — see "
+                    + "Scripts/provision-asr-fixtures.sh")
+        }
+        let modelDirectory = URL(fileURLWithPath: modelDir)
+
+        let manifestURL = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json")
+        let manifest = try ModelManifest.load(from: Data(contentsOf: manifestURL))
+        let store = ModelStore(
+            rootURL: modelDirectory
+                .deletingLastPathComponent()
+                .deletingLastPathComponent())
+        let timing = EngineTiming()
+        let engine = ParakeetEngine(
+            store: store,
+            manifest: manifest,
+            transport: DefaultModelTransport(
+                baseURL: URL(string: "https://unused.invalid")!),
+            clock: ContinuousMonotonicClock(),
+            timing: timing)
+        try await engine.prepare()
+
+        let fixtures = try LatencyBenchmarkTests.fixtureCases()
+        let result = try await RealEngineLatencyBenchmark.run(
+            engine: engine,
+            fixtures: fixtures,
+            stopAdvance: LatencyBenchmarkTests.captureCloseAdvance,
+            injectAdvance: LatencyBenchmarkTests.fastInjectAdvance,
+            timing: timing)
+
+        XCTAssertEqual(
+            result.warmStart.firstAfterLaunch.count, 1,
+            "exactly one first-after-launch sample — the run's first cycle is the cold one")
+        XCTAssertEqual(
+            result.warmStart.steadyState.count, fixtures.count - 1,
+            "every later cycle is a warm transcribe")
+        if case .insufficientSamples = result.warmStart.verdict {
+            XCTFail(
+                "the driven real run records a measured ratio — both sides have samples, never n/a")
+        }
+        if case .unreadable = result.warmStart.suppression {
+            XCTFail(
+                "no unreadable suppression state beside the ratio — an unreadable state is a void "
+                    + "record, not a row")
+        }
+    }
 }
 
 // MARK: - The real-engine benchmark runner
