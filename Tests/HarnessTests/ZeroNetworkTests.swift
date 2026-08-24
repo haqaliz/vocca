@@ -332,15 +332,16 @@ final class ZeroNetworkTests: XCTestCase {
         // batch route's delivered row is.
         "surface=idle",
         // The two halves of "partials reach the widget store": every partial the pipeline
-        // presented reached the sink (the count), and the store carries the newest one (the
-        // text — the reducer's S3 rule, shown while RECORDING/TRANSCRIBING).
+        // presented reached the sink (the count), and the store carries the newest one — the
+        // script's last partial, `"hello "` (the final transcript is never a partial, by the
+        // seam's own contract; the reducer's S3 rule shows the text while RECORDING/TRANSCRIBING).
         "partials=2",
-        "partial.last=hello-world",
-        // The cleaned final reached the injector — the terminal punctuation the rules engine
-        // appends to any unpunctuated utterance included — and the ladder stopped at the
-        // clipboard rung with the trace to match: the streaming final travels the same
-        // decision table the batch final does.
-        "injected=hello-world.",
+        "partial.last=hello-",
+        // The cleaned final reached the injector — the rules engine capitalizes the utterance
+        // and appends the terminal punctuation, exactly as it does for the batch cycle's
+        // `1 2 3.` — and the ladder stopped at the clipboard rung with the trace to match: the
+        // streaming final travels the same decision table the batch final does.
+        "injected=Hello-world.",
         "rung=clipboardPaste",
         "attempted=clipboardPaste",
         // The streaming engine's ledgers: never prepared (preparation is the launch path's

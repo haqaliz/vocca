@@ -395,9 +395,11 @@ extension VoccaNetworkProbe {
             chunks: chunks, target: target, sessionID: sessionID)
 
         // The sink's folds land on the main actor fire-and-forget; drain until the store
-        // carries the last partial — the observable landing point of every dispatched fold.
+        // carries the **last partial** — the final transcript is never a partial, by the
+        // seam's own contract (`isFinal == false` is the boundary the sink renders behind), so
+        // the store's carried text settles on the script's last partial, not on the final.
         var turns = 0
-        while root.widgetStore.state.partialText != Self.streamingFinalText && turns < 20_000 {
+        while root.widgetStore.state.partialText != Self.streamingPartials.last && turns < 20_000 {
             await Task.yield()
             turns += 1
         }

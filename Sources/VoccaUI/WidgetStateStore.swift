@@ -77,4 +77,17 @@ public final class WidgetStateStore: ObservableObject {
         state = WidgetStateReducer.reduce(
             state, action: .egressChanged(egress), now: clock.now)
     }
+
+    /// The widget-streaming sink's fold — one streaming partial from the pipeline's widget-only
+    /// sink (``PartialTranscriptSink``), folded into the reducer's bounded partial state.
+    ///
+    /// The composition root wires the pipeline's `partialSink` to this method — the *only*
+    /// destination a partial may reach, by the seam's own construction
+    /// (`PartialTranscriptSink.swift:19-24`). The reducer owns the decisions (kept only while
+    /// RECORDING/TRANSCRIBING, truncated at ``WidgetTiming/maxPartialCharacters``); this is the
+    /// entry point, the `setEgress` shape, with the clock's reading as the fold's `now`.
+    public func presentPartial(_ partial: String) {
+        state = WidgetStateReducer.reduce(
+            state, action: .partial(partial), now: clock.now)
+    }
 }
