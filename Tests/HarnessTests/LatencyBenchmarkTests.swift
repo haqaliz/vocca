@@ -642,11 +642,22 @@ struct BenchmarkGateVerdict {
         }
     }
 
+    /// **The W4 warm-start verdict row** — the named contract decision: the closed four-span
+    /// session record is unchanged, no new span name; the ratio is cross-session and lives in
+    /// ``EngineTiming`` samples, and this row carries the judgment over them, consumed from the
+    /// shipped ``WarmStartRatio`` evaluator (never duplicated here). `.insufficientSamples` is
+    /// **recorded, neither a pass nor a fail** — the ``LatencySpan/Presence/notPresent``
+    /// precedent — so it cannot move ``passed`` either way; only `.exceedsBound` fails it.
+    let warmStart: WarmStartRatio.Verdict
+
     let spans: [SpanVerdict]
     let contractFailures: [String]
 
     var passed: Bool {
-        contractFailures.isEmpty && spans.allSatisfy(\.passed)
+        guard contractFailures.isEmpty else { return false }
+        guard spans.allSatisfy(\.passed) else { return false }
+        if case .exceedsBound = warmStart { return false }
+        return true
     }
 }
 
@@ -674,8 +685,15 @@ enum LatencyBenchmarkGate {
 
     /// Checks every record against the table: every record must carry exactly the closed span set
     /// in order with no `cleanup`, and every recorded span's elapsed must sit under its budget.
+    /// The warm-start verdict (W4) is judged over the engine's cross-session ``EngineTiming``
+    /// samples — the first-after-launch vs steady-state ratio through the shipped evaluator —
+    /// defaulting to `.insufficientSamples` (recorded, neither a pass nor a fail) for a run that
+    /// recorded none.
     static func evaluate(
-        _ records: [SessionRecord], thresholds: BenchmarkThresholds
+        _ records: [SessionRecord],
+        thresholds: BenchmarkThresholds,
+        warmStartFirstAfterLaunch: [Duration] = [],
+        warmStartSteadyState: [Duration] = []
     ) -> BenchmarkGateVerdict {
         var contractFailures: [String] = []
         if records.isEmpty {
@@ -700,7 +718,11 @@ enum LatencyBenchmarkGate {
                     threshold: thresholds.budget(for: span)))
             }
         }
-        return BenchmarkGateVerdict(spans: spans, contractFailures: contractFailures)
+        let warmStart = WarmStartRatio.evaluate(
+            firstAfterLaunch: warmStartFirstAfterLaunch,
+            steadyState: warmStartSteadyState)
+        return BenchmarkGateVerdict(
+            warmStart: warmStart, spans: spans, contractFailures: contractFailures)
     }
 }
 
