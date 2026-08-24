@@ -68,6 +68,7 @@ struct VoccaNetworkProbe {
         case defaultConfiguration = "default-configuration"
         case deliberateConnect = "deliberate-connection"
         case deliberateConnectx = "deliberate-connectx"
+        case streamingCycle = "streaming-cycle"
 
         /// Whether deferred egress is possible in this mode, and so whether the process must be
         /// held open after the work returns.
@@ -76,6 +77,14 @@ struct VoccaNetworkProbe {
             case .defaultConfiguration:
                 // Arbitrary product code, nearly all of it asynchronous. This is the whole reason
                 // the window exists.
+                return true
+            case .streamingCycle:
+                // The same composed-root machinery as the default configuration: root
+                // construction, the latency ledger, the widget store's folds — and the streaming
+                // drive dispatches its partial folds to the main actor fire-and-forget. The drain
+                // makes their observable effects land before the report is read, but the window
+                // stays the bounded answer to "deferred egress is possible in this mode", exactly
+                // as the default-configuration rationale says.
                 return true
             case .deliberateConnect, .deliberateConnectx:
                 // One synchronous connection, recorded before the call returns. A window here
@@ -98,6 +107,9 @@ struct VoccaNetworkProbe {
             // Reported so the test can assert every module in the package was actually driven
             // through here, rather than trusting a comment to stay true.
             print("PROBE-MODULES\t\(modules.joined(separator: ","))")
+        case .streamingCycle:
+            let stream = exerciseStreamingCycle()
+            print("PROBE-STREAM\t\(stream.report)")
         case .deliberateConnect:
             guard exerciseDeliberateConnect() else {
                 fputs("PROBE-FAILED\t\(mode.rawValue)\terrno=\(errno)\n", stderr)

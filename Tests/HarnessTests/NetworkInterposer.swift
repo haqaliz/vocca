@@ -155,6 +155,11 @@ enum ProbeMode: String {
     /// The same connection via `connectx(2)` — the call `URLSession` and `Network.framework`
     /// actually use, and therefore the hook whose coverage matters most.
     case deliberateConnectx = "deliberate-connectx"
+    /// One streaming dictation cycle: the composed root over a streaming stub engine and a
+    /// scripted chunk source, with the pipeline's partial sink folded into the widget store.
+    /// The invariant asserts this observes nothing either — the streaming route adds no network
+    /// name, and the widget fold is the store's own.
+    case streamingCycle = "streaming-cycle"
 }
 
 // MARK: - Observations
@@ -281,6 +286,23 @@ struct NetworkObservation {
         for line in probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-CYCLE\t") {
             return String(line.dropFirst("PROBE-CYCLE\t".count))
+        }
+        return nil
+    }
+
+    /// The streaming-cycle post-condition the probe observed after driving one streaming
+    /// dictation cycle through the composed root, or `nil` if the probe never reported one.
+    ///
+    /// The sixth effect-not-reference post-condition, and it exists for the same reason as the
+    /// others: this payload is a line of `key=value` fields the probe can only produce by running
+    /// the widget-streaming wiring — the partials folded into the widget store, the final's
+    /// cleaned text reaching the injector, the streaming engine's ledgers (prepares and
+    /// transcribes), and the quiet download session. Deleting the drive takes the whole line with
+    /// it and the assertion fails on `nil`.
+    var reportedStreamingCycle: String? {
+        for line in probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-STREAM\t") {
+            return String(line.dropFirst("PROBE-STREAM\t".count))
         }
         return nil
     }
