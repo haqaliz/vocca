@@ -335,6 +335,20 @@ Note that this is separate from, and does not contradict, the **model** warm-sta
 
 Every stage emits a span into a **local-only** `LatencyRecorder`. Never transmitted, inspectable in settings, and the CI benchmark asserts against it so a regression names its own culprit.
 
+**The C7 remainder, as shipped (2026-08-25, `warm-start-streaming`).** The warm-start hook is
+pinned and gated: launch runs `prepareIfNeeded()` exactly once (never on the session path),
+`EngineTiming`'s `.firstAfterLaunch`-vs-`.warmTranscribe` samples feed a pure
+`WarmStartRatio` evaluator against the 1.2 bound (`WarmStartTargets`, in exactly one file),
+and the benchmark gate carries the verdict as a row — the closed four-span session record is
+unchanged. The widget-only streaming *mechanism* ships behind a new Core seam
+(`PartialTranscriptSink`): `DictationPipeline.routeStreaming` consumes `stream(_:)`
+unconditionally (the seam's batch default is the degradation — no caller branches on
+`supportsStreaming`), partials reach the widget store only, and the zero-injection-before-
+final guard is a permanent test. **What is not shipped and must not be implied:** no real
+engine streams yet (both `supportsStreaming == false`), the speculative pre-key-up feed is
+deferred, and open question 2 below stands exactly as written — the widget guard and the
+record are the claims, never a latency number CI did not produce.
+
 ---
 
 ## 7. Threading and concurrency

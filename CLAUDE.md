@@ -274,6 +274,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   table, recorded not gated, until the founder's first run re-baselines them.
 > - **Warm start and widget-only streaming partials remain unbuilt** (the rest of C7), and
 >   speculative-ASR correctness under revision is still `ARCHITECTURE.md` open question 2.
+>   *(Amended by the `warm-start-streaming` unit, landed 2026-08-25: the warm-start launch
+>   preload is pinned and gated, and the widget-only streaming *mechanism* shipped — the real
+>   streaming adapters and the speculative feed remain deferred, recorded below.)*
 > - **The ledger is in-memory**: no persistence, no UI surface, nothing ever transmitted.
 >
 > **The `rules-engine` aspect landed 2026-08-15 — C5's first slice: the deterministic cleanup,
@@ -395,6 +398,50 @@ This file orients a coding agent working in this repository. Read it first.
 > - **S2 and N1 were skipped** as the plan's "only if cheap" gates: the ledger cannot yet say
 >   *which* cleanup ran, and the LLM budget is not user-configurable.
 >
+> **The `warm-start-streaming` unit landed 2026-08-25 — the C7 remainder, built as the
+> mechanism the seam was waiting for.** `VoccaCore` owns the two new pieces of vocabulary:
+> `WarmStartTargets.maxFirstAfterLaunchMultiple` (the 1.2 bound, `ROADMAP.md:174`'s "within
+> 20% of steady-state", in exactly one place and pinned by a single-source scan) and the pure
+> `WarmStartRatio` evaluator (`.withinBound`/`.exceedsBound`/`.insufficientSamples` — an empty
+> side is never fabricated into a ratio, the `notPresent` precedent; the steady-state
+> representative is the median, the p50 discipline). The launch preload was already wired
+> (`startEnginePreparation` → `prepareIfNeeded` once, never on the session path) — it is now
+> pinned by test rather than asserted by comment, including that `configure` itself never
+> prepares (`WarmStartLaunchTests`). The benchmark gate gained a warm-start verdict *row*, not
+> a span: the closed four-span session record is unchanged, the ratio is cross-session in
+> `EngineTiming` samples, and a seeded-slow stub whose first transcription is 2× steady-state
+> genuinely fails the gate (a gate that cannot fail proves nothing). The env-gated real run
+> (`VOCCA_LATENCY_BENCH` + `VOCCA_MODEL_DIR`) prints the ratio with the suppression state
+> beside it and **records, never gates** (`tolerances_20260825.md`). The streaming half ships
+> as the mechanism, honestly scoped: `PartialTranscriptSink` (a new Core seam, stdlib-only,
+> widget-only by construction), `DictationPipeline.routeStreaming(chunks:target:sessionID:)`
+> consuming `engine.stream(_:)` **unconditionally** — the seam's batch default is the
+> degradation, and no caller branches on `supportsStreaming` anywhere (the no-branch pin is a
+> test) — with the **permanent guard** pinned across the closed route set: zero `TextInjector`
+> calls before the final, cancellation at every boundary finalizes `.aborted` and injects
+> nothing, and a pipeline built without a sink is byte-for-byte today's pipeline. The widget
+> gained bounded provisional text (`partialText`, a new closed-set `WidgetAction.partial`,
+> truncated at a named cap, cleared on every state adoption, never surviving into DELIVERED,
+> Reduce Motion → the view stays static). The probe gained a `streaming-cycle` mode driving
+> the route through the composed root with a stub engine under the interposer — zero
+> `connect(2)`, partials folded into the store — and the default configuration's
+> `PROBE-CYCLE`/`PROBE-LATENCY` strings are unchanged. Test floor: 1087.
+>
+> **What the warm-start-streaming unit is NOT, and must not be claimed:**
+> - **No real engine streams.** Both engines still report `supportsStreaming == false`; the
+>   widget's partial text is unobservable with a real model until the streaming adapters land.
+>   `ARCHITECTURE.md:630` open question 2 (speculative final-vs-batch equivalence) is
+>   untouched — no latency number is claimed from this mechanism, and the recorded p50/p95
+>   budget is still post-key-up only.
+> - **The real warm-start ratio is unmeasured.** CI proves the mechanism (the gate can fail);
+>   the founder's env-gated run (`SMOKE_CHECKLIST.md` steps 77) produces the first measured
+>   number and re-baselines the 1.2 bound via the record's measure → margin → founder-signed
+>   procedure, in exactly one file (`WarmStartRatio.swift`).
+> - **The speculative pre-key-up feed, the real streaming adapters, and re-warm-after-idle
+>   remain deferred** (the live capture→chunk source, the `supportsStreaming == true`
+>   implementations, and the idle policy the resolver's sticky-`isPrepared` has no counterpart
+>   for).
+>
 > **What C4 is NOT, and must not be claimed:**
 > - **The adapters and the window are executed by nothing in CI** (the tap-adapter precedent): no
 >   Accessibility or Automation grant, no real pasteboard session, no window server on a hosted
@@ -406,7 +453,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   rules dictionary and the cleanup-provider choice are JSON-editable, the Cleanup tab waits
 >   for the deferred settings surface; C7's
 >   latency-instrumentation slice shipped
->   (below), its warm-start and widget-streaming halves did not.
+>   (below), its warm-start and widget-streaming halves did not — the `warm-start-streaming`
+>   unit shipped the warm-start pin and gate plus the widget-streaming mechanism (above); the
+>   real streaming adapters and the speculative feed remain deferred.
 >
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no
