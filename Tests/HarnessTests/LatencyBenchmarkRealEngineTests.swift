@@ -106,20 +106,24 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
             rootURL: modelDirectory
                 .deletingLastPathComponent()
                 .deletingLastPathComponent())
+        let timing = EngineTiming()
         let engine = ParakeetEngine(
             store: store,
             manifest: manifest,
             transport: DefaultModelTransport(
                 baseURL: URL(string: "https://unused.invalid")!),
-            clock: ContinuousMonotonicClock())
+            clock: ContinuousMonotonicClock(),
+            timing: timing)
         try await engine.prepare()
 
-        let rows = try await RealEngineLatencyBenchmark.run(
+        let result = try await RealEngineLatencyBenchmark.run(
             engine: engine,
             fixtures: try LatencyBenchmarkTests.fixtureCases(),
             stopAdvance: LatencyBenchmarkTests.captureCloseAdvance,
-            injectAdvance: LatencyBenchmarkTests.fastInjectAdvance)
+            injectAdvance: LatencyBenchmarkTests.fastInjectAdvance,
+            timing: timing)
 
+        let rows = result.rows
         XCTAssertEqual(
             rows.map(\.span), [.captureClose, .asr, .inject],
             "one printed row per closed span, in order")
@@ -219,6 +223,23 @@ enum RealEngineLatencyBenchmark {
         let suppression: DarwinSuppression
     }
 
+    /// The run's full answer: the per-span rows plus the W3 warm-start record.
+    struct Result {
+        let rows: [Row]
+        let warmStart: WarmStartRecord
+    }
+
+    /// **The W3 warm-start record**: the real engine's cross-session ``EngineTiming`` samples,
+    /// the ratio verdict consumed from the shipped ``WarmStartRatio`` evaluator (recorded, never
+    /// gated here), and the suppression state read beside it. The founder re-baselines
+    /// (`tolerances_20260825.md`) from this row; the test asserts its shape, never its value.
+    struct WarmStartRecord {
+        let firstAfterLaunch: [Duration]
+        let steadyState: [Duration]
+        let verdict: WarmStartRatio.Verdict
+        let suppression: DarwinSuppression
+    }
+
     /// The nearest-rank percentile over sorted samples (`p` in (0, 1]); no samples is `nil` — a
     /// row prints n/a, never a fabricated number.
     static func percentile(_ values: [Duration], _ percentile: Double) -> Duration? {
@@ -230,15 +251,18 @@ enum RealEngineLatencyBenchmark {
 
     /// Drives the real engine through the benchmark harness over `fixtures` — the same route the
     /// headless half drives, only the engine differs — and prints one row per closed span with the
-    /// suppression state beside it. The provisional-tolerance verdict is **printed, never thrown**:
-    /// the numbers are recorded (B4), and the founder re-baselines before anything gates on them.
+    /// suppression state beside it, plus the W3 warm-start record (the first-after-launch vs
+    /// steady-state samples, the ratio, and the suppression state beside it). The provisional
+    /// verdicts are **printed, never thrown**: the numbers are recorded (B4/W3), and the founder
+    /// re-baselines before anything gates on them.
     @MainActor
     static func run(
         engine: any ASREngine,
         fixtures: [ASRFixtureCase],
         stopAdvance: Duration,
-        injectAdvance: Duration
-    ) async throws -> [Row] {
+        injectAdvance: Duration,
+        timing: EngineTiming
+    ) async throws -> Result {
         let harness = try LatencyBenchmarkTests.BenchmarkHarness(
             ringCapacity: LatencyBenchmarkTests.ringCapacity(for: fixtures),
             stopAdvance: stopAdvance,
@@ -297,7 +321,33 @@ enum RealEngineLatencyBenchmark {
                 "\(mark) \(String(describing: spanVerdict.span)): \(measured) "
                     + "vs \(milliseconds(spanVerdict.threshold)) ms budget")
         }
-        return rows
+
+        let firstAfterLaunch = await timing.samples(for: .firstAfterLaunch)
+        let steadyState = await timing.samples(for: .warmTranscribe)
+        let warmStartRecord = WarmStartRecord(
+            firstAfterLaunch: firstAfterLaunch,
+            steadyState: steadyState,
+            verdict: WarmStartRatio.evaluate(
+                firstAfterLaunch: firstAfterLaunch, steadyState: steadyState),
+            suppression: darwinSuppressionState())
+        print("")
+        print("== Warm-start ratio (first transcription after launch vs steady state) ==")
+        print(
+            "firstAfterLaunch samples: "
+                + firstAfterLaunch.map { "\(milliseconds($0)) ms" }.joined(separator: ", "))
+        print(
+            "steadyState samples:      "
+                + steadyState.map { "\(milliseconds($0)) ms" }.joined(separator: ", "))
+        switch warmStartRecord.verdict {
+        case .insufficientSamples:
+            print("ratio: INSUFFICIENT SAMPLES — recorded, neither pass nor fail")
+        case .withinBound(let ratio):
+            print("ratio: \(ratio)x (WITHIN the \(WarmStartTargets.maxFirstAfterLaunchMultiple)x bound)")
+        case .exceedsBound(let ratio, let bound):
+            print("ratio: \(ratio)x (EXCEEDS the \(bound)x bound — RECORDED, not gated)")
+        }
+        print("darwin suppression state at record: \(describeSuppression(warmStartRecord.suppression))")
+        return Result(rows: rows, warmStart: warmStartRecord)
     }
 }
 
