@@ -28,7 +28,10 @@ import XCTest
 /// is **derived** from the configured session ceiling via
 /// ``WatchdogPolicy/warningThreshold(before:)`` — `SessionWatchdog.swift:118-128` forbids
 /// hard-coding 110 s anywhere but the one place the number lives, so a configured ceiling moves
-/// its own warning.
+/// its own warning. A third, the streaming partial's (``widget-streaming`` S3): **provisional
+/// text rides only over RECORDING/TRANSCRIBING** — a ``WidgetAction/partial(_:)`` fold is dropped
+/// anywhere else and every other adoption clears the field, so the widget can never be asked to
+/// render provisional text over a state that must not show it.
 final class WidgetStateReducerTests: XCTestCase {
 
     private func fold(
@@ -223,12 +226,126 @@ final class WidgetStateReducerTests: XCTestCase {
         XCTAssertNil(replaced.notice, "the next press clears the notice")
     }
 
+    // MARK: - The streaming partial (widget-streaming S3)
+
+    /// A streaming partial folds into the state during RECORDING: the reducer stores the
+    /// provisional text so the view can render it.
+    func testAPartialFoldsIntoTheStateDuringRecording() {
+        let state = fold([
+            (.projection(.state(.recording)), .zero),
+            (.partial("the quick brown fox"), .zero),
+        ])
+        XCTAssertEqual(state.partialText, "the quick brown fox")
+    }
+
+    /// The same fold works during TRANSCRIBING — the final has not arrived, so the provisional
+    /// text the session has produced so far stays presentable.
+    func testAPartialFoldsIntoTheStateDuringTranscribing() {
+        let state = fold([
+            (.projection(.state(.recording)), .zero),
+            (.projection(.state(.transcribing)), .zero),
+            (.partial("still provisional"), .zero),
+        ])
+        XCTAssertEqual(state.partialText, "still provisional")
+    }
+
+    /// A partial at the named cap is stored whole; one over it is truncated to exactly the cap —
+    /// truncation is the reducer's answer to an unbounded stream, in exactly one place
+    /// (``WidgetTiming/maxPartialCharacters``).
+    func testAPartialIsTruncatedAtTheNamedCharacterCap() {
+        let atCap = String(repeating: "x", count: WidgetTiming.maxPartialCharacters)
+        let at = fold([
+            (.projection(.state(.recording)), .zero),
+            (.partial(atCap), .zero),
+        ])
+        XCTAssertEqual(at.partialText, atCap)
+
+        let over = fold([
+            (.projection(.state(.recording)), .zero),
+            (.partial(atCap + "y"), .zero),
+        ])
+        XCTAssertEqual(
+            over.partialText, atCap,
+            "a partial past the cap must be truncated to exactly the named cap")
+    }
+
+    /// Every adoption that ends the provisional display clears it: IDLE, DELIVERED and a notice
+    /// never carry text.
+    func testAdoptingIdleDeliveredOrANoticeClearsThePartial() {
+        let streaming = fold([
+            (.projection(.state(.recording)), .zero),
+            (.partial("provisional"), .zero),
+        ])
+        XCTAssertNil(fold([(.projection(.state(.idle)), .zero)], from: streaming).partialText)
+        XCTAssertNil(
+            fold([(.projection(.state(.delivered(targetAppName: "Slack"))), .zero)], from: streaming).partialText)
+        XCTAssertNil(
+            fold([(.projection(.notice(.captureUnavailable)), .zero)], from: streaming).partialText)
+    }
+
+    /// The two states that may show partials keep them across adoption — the final has not
+    /// arrived while the session is still RECORDING or TRANSCRIBING.
+    func testRecordingAndTranscribingAdoptionsKeepThePartial() {
+        let partial = fold([
+            (.projection(.state(.recording)), .zero),
+            (.partial("provisional"), .zero),
+        ])
+        let transcribing = fold([(.projection(.state(.transcribing)), .zero)], from: partial)
+        XCTAssertEqual(transcribing.partialText, "provisional",
+            "TRANSCRIBING adoption must keep the partial — the final may still stream")
+        let reRecording = fold([(.projection(.state(.recording)), .zero)], from: transcribing)
+        XCTAssertEqual(reRecording.partialText, "provisional",
+            "RECORDING adoption must keep the partial")
+    }
+
+    /// Partials never survive into DELIVERED: the injected final is the only text that matters
+    /// there, and the state carries none — the widget must never imply finality.
+    func testPartialsNeverSurviveIntoDelivered() {
+        let delivered = fold([
+            (.projection(.state(.recording)), .zero),
+            (.partial("provisional"), .zero),
+            (.partial("still provisional"), .zero),
+            (.projection(.state(.delivered(targetAppName: "Slack"))), .zero),
+        ])
+        XCTAssertNil(delivered.partialText,
+            "nothing provisional may ride into DELIVERED")
+        XCTAssertEqual(delivered.state, .delivered(targetAppName: "Slack"))
+    }
+
+    /// Reduce Motion: the reducer stores the partial regardless — the *view* renders statically
+    /// under reduce motion. Pinned here: the state carries the text so the view can choose.
+    func testTheStateCarriesThePartialTextSoTheViewCanRenderStaticUnderReduceMotion() {
+        let state = fold([
+            (.projection(.state(.recording)), .zero),
+            (.partial("provisional text"), .zero),
+        ])
+        XCTAssertEqual(state.partialText, "provisional text")
+    }
+
+    /// A partial folded outside RECORDING/TRANSCRIBING is dropped: the state can never carry
+    /// provisional text over a state that must not show it — the closed-set invariant, driven
+    /// here as its own row.
+    func testAPartialIsDroppedOutsideRecordingAndTranscribing() {
+        let resting: [WidgetReducerState] = [
+            WidgetReducerState(),
+            fold([(.projection(.state(.opening(targetAppName: "Slack"))), .zero)]),
+            fold([(.projection(.state(.delivered(targetAppName: "Slack"))), .zero)]),
+            fold([(.projection(.notice(.captureUnavailable)), .zero)]),
+        ]
+        for state in resting {
+            let next = WidgetStateReducer.reduce(state, action: .partial("provisional"), now: .zero)
+            XCTAssertNil(next.partialText,
+                "a partial folded over \(next.state) must be dropped, not stored")
+        }
+    }
+
     // MARK: - The closed set
 
     /// The closed event set folds from every state: totality (every action × state × clock reading
     /// answers), and the bookkeeping invariants the fold must hold at every step — the time
-    /// anchors exist exactly while their states do, the surfaces belong only to RECORDING, and a
-    /// notice never rides over a live state.
+    /// anchors exist exactly while their states do, the surfaces belong only to RECORDING, a
+    /// notice never rides over a live state, and provisional text rides only over
+    /// RECORDING/TRANSCRIBING (the streaming partial's contract, S3).
     func testTheClosedEventSetFoldsFromEveryState() {
         let base = WidgetReducerState()
         let states: [(WidgetReducerState, String)] = [
@@ -254,6 +371,7 @@ final class WidgetStateReducerTests: XCTestCase {
             (.timerFired(.deliveredCollapse), "collapse timer"),
             (.egressChanged(.none), "egress none"),
             (.egressChanged(.active(endpoint: "http://localhost:11434")), "egress active"),
+            (.partial("a provisional partial"), "partial"),
         ]
         let nows: [Duration] = [.zero, .milliseconds(599), .seconds(2), .seconds(3), .seconds(110)]
 
@@ -305,8 +423,9 @@ final class WidgetStateReducerTests: XCTestCase {
     // MARK: - Invariant probes
 
     /// The invariants every fold must hold: the time anchors exist exactly while their states do,
-    /// the time-derived surfaces belong only to RECORDING, and a notice never rides over a live
-    /// state. Returns the first violation as a message, or `nil`.
+    /// the time-derived surfaces belong only to RECORDING, a notice never rides over a live
+    /// state, and provisional text rides only over RECORDING/TRANSCRIBING. Returns the first
+    /// violation as a message, or `nil`.
     private func invariantViolation(
         in state: WidgetReducerState,
         when actionName: String,
@@ -324,11 +443,18 @@ final class WidgetStateReducerTests: XCTestCase {
             if state.notice != nil { return "a notice riding over DELIVERED" }
             if state.elapsed != nil { return "an elapsed reading riding over DELIVERED" }
             if state.showsEscapeHint || state.showsCeilingWarning { return "recording surfaces riding over DELIVERED" }
-        case .idle, .opening, .transcribing:
+            if state.partialText != nil { return "a provisional partial riding over DELIVERED" }
+        case .transcribing:
             if state.recordingStartedAt != nil { return "a recording anchor over \(state.state)" }
             if state.deliveredAt != nil { return "a delivery anchor over \(state.state)" }
             if state.elapsed != nil { return "an elapsed reading over \(state.state)" }
             if state.showsEscapeHint || state.showsCeilingWarning { return "recording surfaces over \(state.state)" }
+        case .idle, .opening:
+            if state.recordingStartedAt != nil { return "a recording anchor over \(state.state)" }
+            if state.deliveredAt != nil { return "a delivery anchor over \(state.state)" }
+            if state.elapsed != nil { return "an elapsed reading over \(state.state)" }
+            if state.showsEscapeHint || state.showsCeilingWarning { return "recording surfaces over \(state.state)" }
+            if state.partialText != nil { return "a provisional partial over \(state.state)" }
         }
         return nil
     }
