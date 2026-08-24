@@ -101,3 +101,139 @@ actor StubEngine: ASREngine {
         samples.map { String(Int($0)) }.joined(separator: " ")
     }
 }
+
+/// **The ASR engine, with streaming in it** — the widget-streaming route's double: a scripted
+/// sequence of partial transcripts (`isFinal == false`), then exactly one final transcript, in
+/// the shape the seam promises a streaming engine yields (`ASREngine.swift:62-69`).
+///
+/// It is the opposite half of ``StubEngine``'s claim: the stub proves a conformer without
+/// `stream` still satisfies the protocol (the batch default exists), and this one implements
+/// `stream` itself so the route has somewhere to run — partials exist only here, never in the
+/// batch shape. The script is the test's ground truth: the partials and the final are the
+/// strings the tests write their expectations by hand against, never read back from the engine.
+///
+/// The engine drains the chunks it is fed before yielding anything, so the caller's chunk
+/// producer terminates honestly — the shape of the batch default, minus the buffering; the
+/// streaming override is free to consume differently, and this double's timing is scripted.
+///
+/// `error` is the throwing row: the stream finishes with the error **before yielding
+/// anything**, so a test can pin that the sink stays untouched on the failure path.
+///
+/// `gated` is the cancellation row's gate: the stream parks before the final until the test
+/// opens it, so the route is *held before the final* and the cancellation lands
+/// deterministically — the ``TableEngine`` gate precedent
+/// (`DictationPipelineTests.swift:1250-1301`).
+actor StreamingStubEngine: ASREngine {
+    let identity: EngineIdentity
+    /// `true` — this is the streaming half of the story; the batch default is ``StubEngine``'s,
+    /// and both shapes must terminate the same way: partials, then exactly one final.
+    let supportsStreaming = true
+
+    /// The scripted partials, yielded in order before the final.
+    private let partials: [String]
+    /// The scripted final transcript's text, yielded after the partials.
+    private let finalText: String
+    /// When set, the stream finishes with this error before yielding anything.
+    private let error: Error?
+    /// When `true`, the stream parks before the final until ``openGate()``.
+    private let gated: Bool
+    private var gate: CheckedContinuation<Void, Never>?
+    private(set) var transcribeCalls = 0
+    private(set) var prepareCount = 0
+    /// How many streams are parked at the gate — the cancellation test's synchronisation.
+    private(set) var parkedStreams = 0
+
+    init(
+        identity: EngineIdentity, partials: [String], finalText: String,
+        error: Error? = nil, gated: Bool = false
+    ) {
+        self.identity = identity
+        self.partials = partials
+        self.finalText = finalText
+        self.error = error
+        self.gated = gated
+    }
+
+    func prepare() async throws {
+        prepareCount += 1
+    }
+
+    func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+        transcribeCalls += 1
+        return Transcript(
+            text: finalText, segments: [], engine: identity, isFinal: true,
+            audioDuration: buffer.audioDuration)
+    }
+
+    /// `nonisolated` because the seam's `stream` is a synchronous requirement (it returns the
+    /// stream; the producer task carries the asynchrony): an actor-isolated witness would
+    /// cross into actor-isolated code from a nonisolated requirement. The producer hops to the
+    /// actor for the scripted body, which is where the mutable state (the gate) lives.
+    nonisolated func stream(
+        _ chunks: AsyncStream<AudioBuffer>
+    ) -> AsyncThrowingStream<Transcript, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                await self.runStream(chunks, continuation: continuation)
+            }
+            // A consumer that stops early must not leave the scripted task pending: the caller's
+            // chunks producer would keep the seam alive past the caller's interest in it (the
+            // batch default's shape).
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+
+    /// Resumes the parked stream — the cancellation test's gate, ``TableEngine/openGate()``'s
+    /// shape.
+    func openGate() {
+        gate?.resume()
+        gate = nil
+    }
+
+    /// The scripted stream body: drain the chunks, yield the partials, park if gated, then
+    /// yield the final (or finish with the scripted error). Every stop observes cancellation —
+    /// a cancelled stream finishes by throwing ``CancellationError``, so the route's discard
+    /// path is exercised honestly rather than by a stream that silently ends.
+    private func runStream(
+        _ chunks: AsyncStream<AudioBuffer>,
+        continuation: AsyncThrowingStream<Transcript, Error>.Continuation
+    ) async {
+        for await _ in chunks {
+            guard !Task.isCancelled else {
+                continuation.finish(throwing: CancellationError())
+                return
+            }
+        }
+        guard !Task.isCancelled else {
+            continuation.finish(throwing: CancellationError())
+            return
+        }
+        if let error {
+            continuation.finish(throwing: error)
+            return
+        }
+        for partial in partials {
+            guard !Task.isCancelled else {
+                continuation.finish(throwing: CancellationError())
+                return
+            }
+            continuation.yield(Transcript(
+                text: partial, segments: [], engine: identity, isFinal: false,
+                audioDuration: 0))
+        }
+        if gated {
+            // No suspension between the counter and the parked continuation's storage, so a
+            // test that observes `parkedStreams == 1` is guaranteed to find the gate set — the
+            // ``TableEngine`` synchronisation, by construction.
+            parkedStreams += 1
+            await withCheckedContinuation { self.gate = $0 }
+        }
+        guard !Task.isCancelled else {
+            continuation.finish(throwing: CancellationError())
+            return
+        }
+        continuation.yield(Transcript(
+            text: finalText, segments: [], engine: identity, isFinal: true, audioDuration: 0))
+        continuation.finish()
+    }
+}
