@@ -5,8 +5,8 @@
   "files": [
     {
       "name": "config.json",
-      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "byteCount": 2
+      "sha256": "97f19ecccd0fdc730d76fb918090fa8bc64bce8ea4ad43715d5e9c2c7350db66",
+      "byteCount": 475
     },
     {
       "name": "parakeet_vocab.json",
