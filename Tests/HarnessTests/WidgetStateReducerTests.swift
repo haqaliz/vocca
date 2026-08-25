@@ -96,15 +96,26 @@ final class WidgetStateReducerTests: XCTestCase {
         XCTAssertTrue(at.showsEscapeHint, "the escape hint must surface exactly at 2 s")
     }
 
-    /// The elapsed timer surfaces only after 3 s (`PRODUCT_SPEC.md:87`) — the value carried is the
-    /// full elapsed reading at the clock event, so the view never invents time between fires.
-    func testTheElapsedTimerSurfacesOnlyAfterThreeSeconds() {
+    /// The elapsed timer surfaces from 0:00 (`PRODUCT_SPEC.md:87`, amended 2026-08-26) — the value
+    /// carried is the full elapsed reading at the clock event, so the view never invents time
+    /// between fires.
+    ///
+    /// It waited 3 s until the founder's first real sessions, where the counter appearing
+    /// mid-utterance and starting at 0:03 read as the widget being late rather than restrained.
+    func testTheElapsedTimerSurfacesFromTheFirstMoment() {
         let recording = fold([(.projection(.state(.recording)), .zero)])
+        XCTAssertEqual(
+            recording.elapsed, .zero,
+            "the counter is there on adoption, not at the first tick")
+
         let atTwoNine = WidgetStateReducer.reduce(
             recording, action: .timerFired(.recording),
             now: .seconds(2) + .milliseconds(900))
-        XCTAssertNil(atTwoNine.elapsed, "no elapsed before 3 s, even with a hint showing")
+        XCTAssertEqual(
+            atTwoNine.elapsed, .seconds(2) + .milliseconds(900),
+            "the reading is the real elapsed, not withheld until a threshold")
         XCTAssertTrue(atTwoNine.showsEscapeHint)
+
         let atThree = WidgetStateReducer.reduce(
             recording, action: .timerFired(.recording), now: .seconds(3))
         XCTAssertEqual(atThree.elapsed, .seconds(3))
@@ -112,6 +123,19 @@ final class WidgetStateReducerTests: XCTestCase {
             recording, action: .timerFired(.recording),
             now: .seconds(5) + .milliseconds(500))
         XCTAssertEqual(atFiveFive.elapsed, .seconds(5) + .milliseconds(500))
+    }
+
+    /// The escape hint keeps its own 2 s delay: the elapsed counter starting at zero must not drag
+    /// the hint forward with it. They read the same clock and are two separate decisions — the
+    /// widget should not shout "esc to cancel" at a user who has been recording for 200 ms.
+    func testTheEscapeHintKeepsItsOwnDelayNowThatElapsedStartsAtZero() {
+        let recording = fold([(.projection(.state(.recording)), .zero)])
+        XCTAssertFalse(recording.showsEscapeHint, "no hint on adoption, though the counter shows")
+
+        let atOne = WidgetStateReducer.reduce(
+            recording, action: .timerFired(.recording), now: .seconds(1))
+        XCTAssertEqual(atOne.elapsed, .seconds(1), "the counter runs from the start")
+        XCTAssertFalse(atOne.showsEscapeHint, "the hint still waits for its own 2 s")
     }
 
     /// The ceiling warning is **derived**, not hard-coded: against the shipped 120 s ceiling it
@@ -160,7 +184,13 @@ final class WidgetStateReducerTests: XCTestCase {
         let lateRecording = WidgetStateReducer.reduce(
             WidgetReducerState(), action: .projection(.state(.recording)), now: .seconds(200))
         XCTAssertEqual(lateRecording.state, .recording)
-        XCTAssertNil(lateRecording.elapsed, "no clock event, no elapsed surface, however late the fold")
+        // The surface starts at 0:00 now that `elapsedSurfaceDelay` is zero, and *that is the
+        // assertion*: a fold handed `now: 200 s` must read zero, because the session began at this
+        // fold. The failure this guards is `.seconds(200)` — elapsed computed from the clock the
+        // projection happened to arrive on, rather than from the recording's own start.
+        XCTAssertEqual(
+            lateRecording.elapsed, .zero,
+            "a late projection fold starts the clock, it does not inherit it")
         XCTAssertFalse(lateRecording.showsEscapeHint)
         XCTAssertFalse(lateRecording.showsCeilingWarning)
 

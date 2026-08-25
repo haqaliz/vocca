@@ -52,15 +52,44 @@ final class WaveformMappingTests: XCTestCase {
             "the flat meter over an empty history is silent too, never a crash on `last`")
     }
 
-    /// **The point of the whole mapping**: each bar is one reading, in order, verbatim. The bars
-    /// plot level against time — that is what makes `PRODUCT_SPEC.md:41-47`'s irregular
-    /// `▁▃▅█▆▃▁▂▅█▇▄▂` possible at all.
+    /// **The point of the whole mapping**: each bar is one reading, in order — one bar, one
+    /// moment, never a blend of its neighbours. The bars plot level against time, which is what
+    /// makes `PRODUCT_SPEC.md:41-47`'s irregular `▁▃▅█▆▃▁▂▅█▇▄▂` possible at all.
     func testEachBarIsItsOwnReadingInOrder() {
         let history: [Float] = [0, 0.25, 0.5, 1, 0.75, 0.5, 0.25]
         XCTAssertEqual(
             WaveformMapping.barHeights(levels: history, barCount: 7, reduceMotion: false),
-            history,
-            "the history is plotted as given — nothing is shaped, smoothed or enveloped")
+            history.map(WaveformMapping.height(for:)),
+            "each bar is its own reading on the display curve — no smoothing, no averaging")
+    }
+
+    /// The display curve cannot misrepresent the input, which is the whole licence for having one.
+    ///
+    /// Strictly increasing on 0...1 means no two levels can swap places and nothing quiet can be
+    /// made to look loud; the fixed points mean silence still draws silence and a clipping input
+    /// still draws full height. What the curve moves is only the middle.
+    func testTheDisplayCurveIsStrictlyIncreasingAndPinnedAtBothEnds() {
+        XCTAssertEqual(WaveformMapping.height(for: 0), 0, "silence stays silence")
+        XCTAssertEqual(WaveformMapping.height(for: 1), 1, "a clipping input stays full height")
+
+        let samples = stride(from: Float(0), through: 1, by: 0.02).map { $0 }
+        for (lower, higher) in zip(samples, samples.dropFirst()) {
+            XCTAssertLessThan(
+                WaveformMapping.height(for: lower), WaveformMapping.height(for: higher),
+                "\(lower) must draw strictly shorter than \(higher)")
+        }
+    }
+
+    /// The curve earns its keep where speech actually lives: a raw peak amplitude of 0.05...0.3
+    /// draws in the bottom third linearly, and across a usable span once curved. These are the
+    /// numbers the "I still don't see the change" report was about.
+    func testOrdinarySpeechLevelsReachAVisiblePortionOfTheStrip() {
+        XCTAssertGreaterThan(
+            WaveformMapping.height(for: 0.05), 0.2,
+            "quiet speech must clear the noise floor visually, not hug it")
+        XCTAssertGreaterThan(
+            WaveformMapping.height(for: 0.3), 0.5,
+            "ordinary speech must use more than half the strip")
     }
 
     /// The regression test for the defect this mapping was rewritten to fix.
@@ -92,8 +121,9 @@ final class WaveformMappingTests: XCTestCase {
     /// instead of opening on a full-width shape it has measured nothing for.
     func testAShortHistoryIsRightAlignedAndPaddedWithSilence() {
         XCTAssertEqual(
-            WaveformMapping.barHeights(levels: [0.5, 1], barCount: 5, reduceMotion: false),
-            [0, 0, 0, 0.5, 1])
+            WaveformMapping.barHeights(levels: [0.25, 1], barCount: 5, reduceMotion: false),
+            [0, 0, 0, 0.5, 1],
+            "0.25 draws at 0.5 on the curve; the three silent bars are older than both readings")
     }
 
     /// More readings than bars keeps the **newest**: the waveform scrolls, and what scrolls off
@@ -101,8 +131,9 @@ final class WaveformMappingTests: XCTestCase {
     func testALongHistoryKeepsTheNewestReadings() {
         XCTAssertEqual(
             WaveformMapping.barHeights(
-                levels: [0.125, 0.25, 0.375, 0.5, 0.75, 1], barCount: 3, reduceMotion: false),
-            [0.5, 0.75, 1])
+                levels: [0.125, 0.25, 0.375, 0.5, 0.0625, 1], barCount: 3, reduceMotion: false),
+            [WaveformMapping.height(for: 0.5), 0.25, 1],
+            "0.0625 draws at 0.25; the oldest three readings scrolled off the left")
     }
 
     /// Levels are clamped into 0...1: the source's contract is 0...1
@@ -110,8 +141,9 @@ final class WaveformMappingTests: XCTestCase {
     /// rather than drawing out of range.
     func testLevelsAreClampedIntoTheValidRange() {
         XCTAssertEqual(
-            WaveformMapping.barHeights(levels: [-1, 0.5, 2], barCount: 3, reduceMotion: false),
-            [0, 0.5, 1])
+            WaveformMapping.barHeights(levels: [-1, 0.25, 2], barCount: 3, reduceMotion: false),
+            [0, 0.5, 1],
+            "out-of-range readings clamp before the curve, never after")
         XCTAssertEqual(
             WaveformMapping.barHeights(levels: [0.5, 7], barCount: 3, reduceMotion: true),
             [1, 1, 1],
@@ -123,8 +155,10 @@ final class WaveformMappingTests: XCTestCase {
     /// spared (`PRODUCT_SPEC.md:289`).
     func testReduceMotionProducesAStaticFlatMeterOverTheNewestReading() {
         let bars = WaveformMapping.barHeights(
-            levels: [0, 0.25, 1, 0.5], barCount: 4, reduceMotion: true)
-        XCTAssertEqual(bars, [0.5, 0.5, 0.5, 0.5], "every bar is the newest reading, flat")
+            levels: [0, 0.5, 1, 0.25], barCount: 4, reduceMotion: true)
+        XCTAssertEqual(
+            bars, [0.5, 0.5, 0.5, 0.5],
+            "every bar is the newest reading (0.25 → 0.5 on the curve), flat")
         XCTAssertEqual(Set(bars).count, 1, "a flat meter has exactly one height, by definition")
     }
 
@@ -132,11 +166,11 @@ final class WaveformMappingTests: XCTestCase {
     /// history in one bar, and nothing to shape it with.
     func testASingleBarIsTheNewestReading() {
         XCTAssertEqual(
-            WaveformMapping.barHeights(levels: [0.25, 0.75], barCount: 1, reduceMotion: false),
-            [0.75])
+            WaveformMapping.barHeights(levels: [0.75, 0.25], barCount: 1, reduceMotion: false),
+            [0.5])
         XCTAssertEqual(
-            WaveformMapping.barHeights(levels: [0.25, 0.75], barCount: 1, reduceMotion: true),
-            [0.75])
+            WaveformMapping.barHeights(levels: [0.75, 0.25], barCount: 1, reduceMotion: true),
+            [0.5])
     }
 
     /// Every bar stays within 0...1 for any input, so the view can multiply a height by its frame

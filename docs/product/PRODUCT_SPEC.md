@@ -95,7 +95,12 @@ t=0…n    user speaks
            word and a sentence drew the same picture at different
            heights. A waveform that cannot tell a rise from a fall is
            the same lie as a canned one, only harder to catch.
-         · elapsed timer after 3s
+         · elapsed timer from 0:00. It waited 3s originally, so the
+           counter appeared mid-utterance having already missed the
+           start, and its first act was to jump to 0:03 - which reads
+           as the widget being late rather than restrained. Amended
+           2026-08-26. The `esc to cancel` hint keeps its own 2s delay;
+           they read one clock but are two decisions.
          · at 110s: subtle warning that the 120s ceiling approaches
 
 t=n      ⌥Space up

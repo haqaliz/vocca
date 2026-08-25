@@ -160,8 +160,17 @@ public enum WidgetAction: Equatable, Sendable {
 public enum WidgetTiming {
     /// The "esc to cancel" hint appears at 2 s of recording (`PRODUCT_SPEC.md:129`).
     public static let escapeHintDelay: Duration = .seconds(2)
-    /// The elapsed timer surfaces at 3 s of recording (`PRODUCT_SPEC.md:87`).
-    public static let elapsedSurfaceDelay: Duration = .seconds(3)
+    /// The elapsed timer surfaces immediately (`PRODUCT_SPEC.md:87`, amended 2026-08-26).
+    ///
+    /// It waited 3 s originally, on the reasoning that a short dictation never needs a clock and
+    /// the pill should stay quiet. In use that reads as the widget being *late* rather than
+    /// restrained: the counter appears mid-utterance, having already missed the beginning, and the
+    /// first thing it does is jump to 0:03. Starting at 0:00 makes the number mean "this is how
+    /// long I have been listening" for the whole session instead of only after three seconds.
+    ///
+    /// Kept as a named constant rather than inlined: the surface rule reads the same in the
+    /// adoption and the tick, and `.zero` here must keep both honest.
+    public static let elapsedSurfaceDelay: Duration = .zero
     /// The DELIVERED confirmation collapses to IDLE after 600 ms (`PRODUCT_SPEC.md:50,98`).
     public static let deliveredCollapseDelay: Duration = .milliseconds(600)
     /// The longest stored streaming partial (`widget-streaming` S3), in characters: a partial
@@ -251,7 +260,11 @@ public enum WidgetStateReducer {
         case .recording:
             next.recordingStartedAt = now
             next.deliveredAt = nil
-            next.elapsed = nil
+            // The same surface rule the tick applies, evaluated at zero elapsed — so a zero delay
+            // shows 0:00 on adoption rather than at the first tick, and a non-zero one still shows
+            // nothing yet. Writing `nil` here unconditionally is what made "start from 0s" mean
+            // "start from the first timer fire".
+            next.elapsed = Self.surfacedElapsed(.zero)
             next.showsEscapeHint = false
             next.showsCeilingWarning = false
         case .transcribing:
@@ -293,9 +306,15 @@ public enum WidgetStateReducer {
         let elapsed = max(.zero, now - started)
         var next = state
         next.showsEscapeHint = elapsed >= WidgetTiming.escapeHintDelay
-        next.elapsed = elapsed >= WidgetTiming.elapsedSurfaceDelay ? elapsed : nil
+        next.elapsed = Self.surfacedElapsed(elapsed)
         next.showsCeilingWarning = elapsed >= WatchdogPolicy.warningThreshold(before: state.ceiling)
         return next
+    }
+
+    /// Whether an elapsed reading is surfaced yet — the one place the rule lives, so the adoption
+    /// and the tick cannot disagree about when the counter appears.
+    static func surfacedElapsed(_ elapsed: Duration) -> Duration? {
+        elapsed >= WidgetTiming.elapsedSurfaceDelay ? elapsed : nil
     }
 
     /// The collapse timer's fire: end DELIVERED exactly at the deadline.
