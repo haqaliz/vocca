@@ -288,7 +288,9 @@ The irony of an inaccessible accessibility-adjacent tool is not lost on us.
 - Every mode/state distinction carries **shape and text**, never color alone.
 - Respects Reduce Motion (waveform → static level meter) and Increase Contrast.
 - Every action reachable by keyboard; the failsafe is fully keyboard-operable.
-- Hotkeys fully rebindable, including to single keys or non-modifier combinations, for users who can't hold chords. **Hold-to-talk always has a toggle alternative** for users who can't hold a key — this is a real accessibility need, not a preference, and it's the one place the toggle model earns its keep.
+- Hotkeys fully rebindable, including to single keys or non-modifier combinations, for users who can't hold chords. **Hold-to-talk always has a toggle alternative** for users who can't hold a key — this is a real accessibility need, not a preference.
+
+  **Amended 2026-08-25: toggle is now the shipped default, and hold-to-talk is the alternative.** The two swap roles; neither is removed, and the accessibility requirement above is satisfied a fortiori — the mode a user "can't hold a key" needs is now the one they get without asking. The change came from the first real dictation, where the hold gesture's failure mode showed up immediately: a press too brief to capture the 0.3 s the ASR engine needs, which is easy to do when the key must be held for a whole utterance, and which surfaced as a "Voice processing failed" notice. Toggle removes the class of press that is accidentally short, because neither end of the session is a release the user has to sustain. Note what this costs, since `ROADMAP.md:46` is explicit about it: toggle has no finger-as-ground-truth, so a session is bounded by the 120 s ceiling, the tap-disabled stop and the system triggers instead.
 
 ---
 

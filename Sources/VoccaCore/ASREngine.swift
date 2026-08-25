@@ -25,9 +25,16 @@
 ///
 /// - **The engine is never nil on a transcript.** Attribution is invariant I1; every transcript a
 ///   conformer returns must carry ``identity``, which is *this* engine's identity.
-/// - **An empty buffer is a legitimate answer.** `transcribe(AudioBuffer(samples: [], ...))` must
-///   return a valid empty `Transcript` (`text == ""`, actual `audioDuration`), never throw — a
-///   20 ms press captures almost nothing, and silence is a transcript, not an error (PRD M3).
+/// - **A buffer too short to transcribe is a legitimate answer, empty or not.**
+///   `transcribe(AudioBuffer(samples: [], ...))` must return a valid empty `Transcript`
+///   (`text == ""`, actual `audioDuration`), never throw — a 20 ms press captures almost nothing,
+///   and silence is a transcript, not an error (PRD M3). **The same holds for any buffer below
+///   whatever minimum the conformer needs**, and that half is load-bearing rather than pedantic:
+///   a 20 ms press is 320 samples, *not zero*, so an engine honouring only the literal empty case
+///   fails the very example this contract is written around. Parakeet did exactly that —
+///   FluidAudio's guard throws below 0.3 s, and the throw reached the user as
+///   `.transcriptionFailed`, "Voice processing failed", for a quick tap of the hotkey. A conformer
+///   whose backend refuses short audio must answer empty above it, as `ParakeetEngine` now does.
 /// - **Engines own the prepare policy.** ``prepare()`` is the warm-start hook; a conformer may
 ///   require it before ``transcribe(_:)``, or load lazily, or not at all. The seam does not call
 ///   ``prepare()`` on a caller's behalf — it cannot know when a caller wanted the warm-start cost

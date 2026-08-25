@@ -562,6 +562,8 @@ The user dictionary is plain JSON in Application Support — hand-editable and v
 
 **Hold-to-talk remains available forever** as the escape hatch. When endpointing misjudges, the user must always have a mode where their finger is the ground truth.
 
+That is unchanged by the 2026-08-25 amendment making **toggle the shipped default** (`ROADMAP.md`, `PRODUCT_SPEC.md`): "available forever" is a statement about the mode existing, not about it being the default. Both configurations of the machine are constructed and owned at every launch; `DictationLoopRoot.defaultMode` decides only which one the tap's events reach, and `setActiveMode(_:)` moves that route. The escape hatch this paragraph is about is therefore still there, and the endpointing argument it rests on is untouched — it concerns P3's VAD, which P0 does not run in either mode.
+
 ---
 
 ## 13. Models, storage, and permissions

@@ -492,6 +492,37 @@ This file orients a coding agent working in this repository. Read it first.
 >   and such a bundle must never reach `Scripts/notarize.sh`. A Developer ID identity removes
 >   the need for the flag entirely.
 >
+> **The `short-press-toggle` change landed 2026-08-25 — the first real dictation's two findings.**
+> Pressing the hotkey produced *"Voice processing failed. Nothing was lost — you can try again."*
+> The cause was not the model: FluidAudio's transcribe guard throws `ASRError.invalidAudioData`
+> below **0.3 s** (4 800 samples at 16 kHz), `ParakeetEngine` mapped that to
+> `.transcriptionFailed`, and the pipeline surfaced it — so **a quick tap of ⌥Space showed a
+> failure notice**, while a press capturing *exactly zero* samples skipped cleanly. The seam had
+> already promised otherwise in as many words: `ASREngine`'s contract says "a 20 ms press captures
+> almost nothing, and silence is a transcript, not an error", and a 20 ms press is **320 samples,
+> not zero** — its own worked example was the failing case. The engine now answers empty below the
+> SDK's minimum, read live from `ASRConstants` rather than copied, with the decision lifted into
+> `ParakeetEngine.isBelowSDKMinimum` so a test can reach it (the adapter itself is executed by
+> nothing in CI). `WhisperCppEngine` deliberately gained **no** guard: whisper.cpp is understood to
+> pad rather than refuse, which is reasoning about the C library and not a measurement, and a
+> guessed threshold would answer empty for audio whisper would have transcribed. Second, **toggle
+> became the shipped default** (`DictationLoopRoot.defaultMode`) — the founder's call, since
+> holding a key for a whole utterance is what produces accidentally-short presses. Both machines
+> are still constructed and owned; only the tap's route changed, and `activeMode` now derives from
+> the same constant as the routing sink's initial target, because they are two assignments in one
+> initializer and a root reporting a mode its events do not reach is a hotkey driving the wrong
+> machine. Test floor: 1088.
+>
+> **What that change does NOT prove, and must not be claimed:**
+> - **The dictation loop still has not delivered text end to end.** The failure notice proves the
+>   tap, the microphone, the session machine and the pipeline all ran; it proves nothing about
+>   injection. `SMOKE_CHECKLIST.md` steps 62–68 remain unexecuted.
+> - **The 0.3 s boundary is FluidAudio's, measured on this machine** (4 799 samples threw, 4 800
+>   transcribed) — not a Vocca constant, and not verified for whisper, whose first real run is
+>   still step 19.
+> - **Toggle's cost is now paid by default**: it has no finger-as-ground-truth, so a forgotten
+>   session runs to the 120 s ceiling. That was an opt-in cost when hold-to-talk was the default.
+>
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no
 >   Apple Developer ID and no `notarytool` credential. Only its credential-detect-and-skip path
@@ -615,9 +646,13 @@ Decided in the planning session after a research pass on current local macOS ASR
 - **ASR:** **Parakeet TDT 0.6B v3 via FluidAudio** (CoreML/ANE) as default, **whisper.cpp
   large-v3-turbo shipped as a real second engine** behind `ASREngine` — not promised later.
 - **VAD/endpointing:** Silero VAD + **Parakeet EOU 120M** for turn detection. **Deferred to
-  P3** — P0 has no endpointing at all. Hold-to-talk is the default, where the user's finger is
-  the endpointer; a **toggle alternative ships alongside it** (`PRODUCT_SPEC.md:257` makes it an
-  accessibility requirement), bounded by the 120 s ceiling rather than by a finger.
+  P3** — P0 has no endpointing at all. **Toggle is the default** since 2026-08-25 (⌥Space to
+  start, ⌥Space to stop), bounded by the 120 s ceiling, the tap-disabled stop and the system
+  triggers rather than by a finger; **hold-to-talk ships alongside it** as the mode where the
+  user's finger is the endpointer, and remains an accessibility requirement rather than a
+  preference (`PRODUCT_SPEC.md`). The two swapped roles after the hold gesture's short-press
+  failure showed up on the first real dictation; neither was removed, and both machines are
+  constructed at every launch.
 - **TTS:** **Kokoro-82M** (Apache-2.0) behind `SpeechSynthesizer`, with macOS
   `AVSpeechSynthesizer` as the shipped second implementation.
 - **Cleanup:** deterministic rules by default (~0 MB, <5 ms, no network); Ollama and BYOK

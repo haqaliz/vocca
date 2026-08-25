@@ -603,7 +603,31 @@ public final class DictationLoopRoot {
     /// It receives the tap's events only while it is the active mode.
     public let toggle: Wiring
     /// Which configuration currently receives the tap's events.
-    public private(set) var activeMode: DictationMode = .holdToTalk
+    ///
+    /// **`.toggle` is the shipped default**: ⌥Space starts listening, ⌥Space again stops it. The
+    /// founder chose it over hold-to-talk after the hold gesture's failure mode showed up on the
+    /// first real dictation — a press too brief to capture 0.3 s of audio, which is easy to do
+    /// when the key must be held for the whole utterance. Toggle removes the class of press that
+    /// is accidentally short, because neither end of the session is a release the user has to
+    /// sustain.
+    ///
+    /// It does not *replace* the sub-minimum guard, and must not be read as having fixed it: a
+    /// press and an immediate second press still capture almost nothing. That case answers empty
+    /// in the engine (`ASREngine`'s contract) rather than being made unreachable here.
+    ///
+    /// Hold-to-talk remains fully wired and is one `setActiveMode(_:)` away; the control that
+    /// offers the choice is still the settings surface's, which is why this is a default rather
+    /// than a preference.
+    ///
+    /// Read from ``defaultMode`` rather than written here, because this property and the routing
+    /// sink's initial `active` must name the same wiring: set independently, `activeMode` would
+    /// report a mode the tap's events were not going to, and `setActiveMode(_:)` would then refuse
+    /// the very switch that would repair it (`mode != activeMode` is already false).
+    public private(set) var activeMode: DictationMode = DictationLoopRoot.defaultMode
+
+    /// The mode a freshly constructed root starts in — the one place the shipped default is
+    /// written, read by both ``activeMode`` and the routing sink's initial target.
+    public static let defaultMode: DictationMode = .toggle
     /// The watchdog's timer, exposed so a test can turn it.
     public let watchdogTimer: any RepeatingTimer
     /// The ~1 s tap-health poll's timer.
@@ -775,8 +799,16 @@ public final class DictationLoopRoot {
         // reached through a weak box filled at the end of this initializer: the graph is circular
         // by construction (the root owns the sink, the sink routes back to the root), and the
         // box is the pattern `configure` uses for exactly this shape.
+        // Derived from the same `defaultMode` as `activeMode`, never named directly: the two are
+        // one fact, and a root whose reported mode and actual route disagree is a hotkey that
+        // silently drives the wrong machine.
+        let initialRoute: ScheduledWatchdog<AudioBuffer>
+        switch Self.defaultMode {
+        case .holdToTalk: initialRoute = holdToTalk.scheduledWatchdog
+        case .toggle: initialRoute = toggle.scheduledWatchdog
+        }
         let modeRouting = ModeRoutingSink(
-            active: holdToTalk.scheduledWatchdog,
+            active: initialRoute,
             sessionCancelKey: { [weak cancelRouterBox] event in
                 cancelRouterBox?.value?.handleSessionCancelKey(event) ?? .passThrough
             })

@@ -151,6 +151,17 @@ public actor WhisperCppEngine: ASREngine {
             throw VoccaError.modelUnavailable(
                 identity, reason: "the model is not loaded; call prepare() first")
         }
+        // Empty only, deliberately — no sub-minimum guard like `ParakeetEngine`'s.
+        //
+        // The seam requires a too-short buffer to answer empty rather than throw, and whisper.cpp
+        // is understood to satisfy that by padding its input to the 30 s window and returning zero
+        // segments (which maps to empty text) rather than refusing, so no threshold applies here.
+        //
+        // **That is reasoning about the C library, not a measurement**: no whisper model has run
+        // on this machine, and `SMOKE_CHECKLIST.md` step 19 is still the engine's first real
+        // execution. A guessed threshold would be worse than none — it would answer empty for
+        // audio whisper would have transcribed — so if step 19 shows whisper *does* refuse short
+        // audio, the fix is its own measured constant here, mirroring Parakeet's.
         if buffer.samples.isEmpty {
             return WhisperTranscriptMapper.map(
                 segments: [], duration: buffer.audioDuration,

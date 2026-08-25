@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import VoccaASR
+@testable import VoccaASR
 import VoccaCore
 import XCTest
 
@@ -66,6 +66,32 @@ final class ParakeetCoreTests: XCTestCase {
         XCTAssertEqual(
             transcript.missingSampleCount, 0,
             "the mapper defaults to complete; the bridge's count overrides it")
+    }
+
+    /// The sub-minimum guard: FluidAudio's transcribe guard refuses anything shorter than
+    /// 0.3 s (4 800 samples at 16 kHz) with `ASRError.invalidAudioData`, so the adapter answers
+    /// empty above it instead of letting that throw reach the user as "Voice processing failed".
+    ///
+    /// The boundary is asserted at concrete sample counts rather than against the SDK constant
+    /// the implementation reads, so that a change in the SDK's own guard fails here loudly rather
+    /// than being silently tracked — the numbers below were measured against the real engine
+    /// (4 799 threw, 4 800 transcribed), not read off the header.
+    func testTheSDKMinimumGuardMatchesTheMeasuredBoundary() {
+        XCTAssertTrue(
+            ParakeetEngine.isBelowSDKMinimum(buffer([])),
+            "the empty buffer is below the minimum, as it always was")
+        XCTAssertTrue(
+            ParakeetEngine.isBelowSDKMinimum(buffer(Array(repeating: 0.1, count: 320))),
+            "a 20 ms press — the seam contract's own worked example — is 320 samples, not zero")
+        XCTAssertTrue(
+            ParakeetEngine.isBelowSDKMinimum(buffer(Array(repeating: 0.1, count: 4_799))),
+            "4 799 samples is the last count the SDK refuses")
+        XCTAssertFalse(
+            ParakeetEngine.isBelowSDKMinimum(buffer(Array(repeating: 0.1, count: 4_800))),
+            "4 800 samples (0.3 s) is the first count the SDK accepts — never answer empty here")
+        XCTAssertFalse(
+            ParakeetEngine.isBelowSDKMinimum(buffer(Array(repeating: 0.1, count: 32_000))),
+            "ordinary speech-length audio is never short-circuited")
     }
 
     /// Empty text — the SDK's answer to near-silent audio — maps to a valid empty transcript,

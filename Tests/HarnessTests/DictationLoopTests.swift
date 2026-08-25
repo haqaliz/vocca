@@ -429,6 +429,13 @@ final class DictationLoopTests: XCTestCase {
             sessionBox: sessionBox,
             graph: graph)
 
+        // Explicit, because this test's setup and its cancellation reach the machine by two
+        // different routes: `pressAndRecord()` drives `holdToTalk.scheduledWatchdog` directly,
+        // while `cancel()` follows `activeMode`. They agreed silently while hold-to-talk was the
+        // default; with `.toggle` shipping they must be made to agree on purpose, or the session
+        // starts on one machine and the cancellation lands on the other.
+        harness.root.setActiveMode(.holdToTalk)
+
         harness.pressAndRecord()
         await harness.drain(
             until: { sessionBox.sessionID != nil },
@@ -545,6 +552,13 @@ final class DictationLoopTests: XCTestCase {
                 rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
                 elapsed: .zero))
 
+        // Explicit, because this test's setup and its cancellation reach the machine by two
+        // different routes: `pressAndRecord()` drives `holdToTalk.scheduledWatchdog` directly,
+        // while `cancel()` follows `activeMode`. They agreed silently while hold-to-talk was the
+        // default; with `.toggle` shipping they must be made to agree on purpose, or the session
+        // starts on one machine and the cancellation lands on the other.
+        harness.root.setActiveMode(.holdToTalk)
+
         harness.pressAndRecord()
         XCTAssertEqual(harness.source.beginCount, 1, "the session is recording")
         _ = harness.root.cancel()
@@ -575,6 +589,12 @@ final class DictationLoopTests: XCTestCase {
             injectorResult: InjectionResult(
                 rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
                 elapsed: .zero))
+
+        // Explicit for the same reason as the cancellation tests above: `pressAndRecord()` starts
+        // the session on `holdToTalk` directly, while the tap's Escape is routed through
+        // `activeMode`. Only the active machine can hold a session on a real machine, so the two
+        // must be pointed at the same one here.
+        harness.root.setActiveMode(.holdToTalk)
 
         harness.pressAndRecord()
         XCTAssertEqual(harness.source.beginCount, 1, "the session is recording")
@@ -708,34 +728,30 @@ final class DictationLoopTests: XCTestCase {
 
     // MARK: - The toggle configuration (R6)
 
-    /// The active mode defaults to hold-to-talk, and the tap's route follows the switch: a press
-    /// through the tap starts the hold-to-talk machine's microphone and leaves the toggle
+    /// The active mode defaults to **toggle**, and the tap's route follows the switch: a press
+    /// through the tap starts the toggle machine's microphone and leaves the hold-to-talk
     /// machine's untouched; after the switch, the same press does the opposite.
-    func testTheActiveModeDefaultsToHoldToTalkAndTheSinkFollowsTheSwitch() async {
+    ///
+    /// The default half of this is the load-bearing half, and it is asserted through the *tap*
+    /// rather than by reading ``DictationLoopRoot/activeMode``. `activeMode` and the routing
+    /// sink's initial target are two separate assignments in the initializer, so reading the
+    /// property alone would pass while every real key event went to the other machine — which is
+    /// precisely the bug available when the default changed. The `beginCount` assertions below
+    /// are what distinguish the two.
+    func testTheActiveModeDefaultsToToggleAndTheSinkFollowsTheSwitch() async {
         let harness = Harness(
             engine: StubEngine.parakeet(),
             injectorResult: InjectionResult(
                 rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
                 elapsed: .zero))
 
-        XCTAssertEqual(harness.root.activeMode, .holdToTalk)
-
-        // Through the tap: the mode-routing sink forwards to the hold-to-talk wiring.
-        harness.keyboard.hold(Self.configuration)
-        _ = harness.tap.deliver(event(.keyDown, Self.configuration.keyCode, [.option]))
-        _ = harness.tap.deliver(event(.keyUp, Self.configuration.keyCode, [.option]))
-        harness.keyboard.release(Self.configuration.keyCode)
-        await harness.drain(
-            until: { await harness.injector.calls.count == 1 },
-            "the hold-to-talk session must deliver")
-        XCTAssertEqual(harness.source.beginCount, 1, "the hold-to-talk microphone opened")
-        XCTAssertEqual(
-            harness.toggleSource.beginCount, 0,
-            "the toggle machine is wired but not active — its microphone never opened")
-
-        harness.root.setActiveMode(.toggle)
         XCTAssertEqual(harness.root.activeMode, .toggle)
+        XCTAssertEqual(
+            DictationLoopRoot.defaultMode, .toggle,
+            "the shipped default is written in exactly one place")
 
+        // Through the tap: the mode-routing sink forwards to the toggle wiring. Press, then press
+        // again — the key-up in between does not end it, which is the mode's defining difference.
         harness.keyboard.hold(Self.toggleConfiguration)
         _ = harness.tap.deliver(event(.keyDown, Self.toggleConfiguration.keyCode, [.option]))
         _ = harness.tap.deliver(event(.keyUp, Self.toggleConfiguration.keyCode, [.option]))
@@ -743,12 +759,27 @@ final class DictationLoopTests: XCTestCase {
         _ = harness.tap.deliver(event(.keyUp, Self.toggleConfiguration.keyCode, [.option]))
         harness.keyboard.release(Self.toggleConfiguration.keyCode)
         await harness.drain(
-            until: { await harness.injector.calls.count == 2 },
+            until: { await harness.injector.calls.count == 1 },
             "the toggle session must deliver")
+        XCTAssertEqual(harness.toggleSource.beginCount, 1, "the toggle microphone opened")
         XCTAssertEqual(
-            harness.toggleSource.beginCount, 1,
-            "after the switch the toggle machine's microphone opened")
-        XCTAssertEqual(harness.source.beginCount, 1, "the hold-to-talk microphone stayed shut")
+            harness.source.beginCount, 0,
+            "the hold-to-talk machine is wired but not active — its microphone never opened")
+
+        harness.root.setActiveMode(.holdToTalk)
+        XCTAssertEqual(harness.root.activeMode, .holdToTalk)
+
+        harness.keyboard.hold(Self.configuration)
+        _ = harness.tap.deliver(event(.keyDown, Self.configuration.keyCode, [.option]))
+        _ = harness.tap.deliver(event(.keyUp, Self.configuration.keyCode, [.option]))
+        harness.keyboard.release(Self.configuration.keyCode)
+        await harness.drain(
+            until: { await harness.injector.calls.count == 2 },
+            "the hold-to-talk session must deliver")
+        XCTAssertEqual(
+            harness.source.beginCount, 1,
+            "after the switch the hold-to-talk machine's microphone opened")
+        XCTAssertEqual(harness.toggleSource.beginCount, 1, "the toggle microphone stayed shut")
     }
 
     /// The toggle configuration's composed cycle: press → runs (the key-up does **not** end it,

@@ -102,6 +102,22 @@ public actor ParakeetEngine: ASREngine {
         self.modelLoader = modelLoader ?? Self.defaultModelLoader
     }
 
+    /// Whether the SDK's own transcribe guard would refuse this buffer — the decision behind the
+    /// empty answer in ``transcribe(_:)``, lifted out so it is reachable by a test.
+    ///
+    /// `transcribe(_:)` itself is executed by nothing in CI (the adapter needs a real CoreML model
+    /// and a real ANE), and the guard sits *after* the not-loaded check, so nothing about it could
+    /// be asserted in place. This is the same move the tap adapter made: the decision moves above
+    /// the seam and is tested there, leaving translation behind.
+    ///
+    /// The threshold is the SDK's, read live rather than copied, so the two cannot drift into
+    /// disagreement — the failure mode of a copy is answering empty for audio FluidAudio would
+    /// happily have transcribed.
+    static func isBelowSDKMinimum(_ buffer: AudioBuffer) -> Bool {
+        buffer.samples.count
+            < ASRConstants.minimumRequiredSamples(forSampleRate: buffer.sampleRate)
+    }
+
     /// The real loader: manual `AsrModels.load(from:)` from the Vocca-managed directory, with
     /// the SDK's defaults (`.v3`, `.int8`) — never any download API (offline mode forbids it).
     private static let defaultModelLoader: @Sendable (URL) async throws -> AsrModels = { directory in
@@ -145,8 +161,20 @@ public actor ParakeetEngine: ASREngine {
 
     /// Transcribes one buffer of 16 kHz mono audio through the loaded manager.
     ///
-    /// - An empty buffer is a valid empty transcript, never an error (PRD M3) — kept above the
-    ///   SDK, whose answer to empty samples is not something this adapter should rely on.
+    /// - A buffer the SDK cannot process is a valid empty transcript, never an error (PRD M3) —
+    ///   kept above the SDK, whose answer to such a buffer is not something this adapter should
+    ///   rely on. That covers the empty buffer *and* the merely-too-short one: FluidAudio's
+    ///   transcribe guard throws `ASRError.invalidAudioData` below
+    ///   ``ASRConstants/minimumAudioDurationSeconds`` (0.3 s, 4 800 samples at 16 kHz), which
+    ///   reached the user as the `.transcriptionFailed` notice — "Voice processing failed" — for
+    ///   nothing worse than a quick tap of the hotkey. The seam's own worked example is that case:
+    ///   it promises "a 20 ms press captures almost nothing, and silence is a transcript, not an
+    ///   error", and a 20 ms press is 320 samples, not zero, so only the sub-minimum guard makes
+    ///   that sentence true.
+    ///
+    ///   The threshold is read from `ASRConstants` rather than written as 0.3 here, so it tracks
+    ///   the SDK's own guard instead of drifting from it — the two must agree or this returns
+    ///   empty for audio the SDK would have transcribed.
     /// - The completeness count travels with the buffer (``AudioBuffer/missingSampleCount``) and
     ///   is carried onto the transcript — short audio never masquerades as complete (I1).
     /// - Any SDK failure surfaces as ``VoccaError/transcriptionFailed(_:underlying:)`` —
@@ -156,7 +184,7 @@ public actor ParakeetEngine: ASREngine {
             throw VoccaError.modelUnavailable(
                 identity, reason: "the model is not loaded; call prepare() first")
         }
-        if buffer.samples.isEmpty {
+        if Self.isBelowSDKMinimum(buffer) {
             return ParakeetTranscriptMapper.transcript(
                 text: "", for: buffer, engine: identity,
                 missingSampleCount: buffer.missingSampleCount)
