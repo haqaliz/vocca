@@ -86,6 +86,15 @@ t≈42…122ms  the microphone opens
 t=0…n    user speaks
          · waveform tracks input level, not a canned animation.
            A fake waveform is a lie about whether the mic works.
+         · it plots level against TIME — one bar per recent reading,
+           scrolling left, which is what the irregular ▁▃▅█▆▃▁▂▅█▇▄▂
+           above is a picture of. Clarified 2026-08-25 because the
+           implementation had read that art as a symmetric ▁▃▅█▅▃▁ and
+           built one instant scaled by a fixed hump: it answered the
+           microphone, so it was not canned, but it had no shape — a
+           word and a sentence drew the same picture at different
+           heights. A waveform that cannot tell a rise from a fall is
+           the same lie as a canned one, only harder to catch.
          · elapsed timer after 3s
          · at 110s: subtle warning that the 120s ceiling approaches
 

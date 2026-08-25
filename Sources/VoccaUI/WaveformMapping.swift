@@ -15,51 +15,67 @@
 import Foundation
 import VoccaCore
 
-/// The level → bar-heights mapping the waveform view renders — a pure function, so the whole
-/// visual contract runs headless (`WaveformMappingTests`); the view is thin glue over it.
+/// The level-history → bar-heights mapping the waveform view renders — a pure function, so the
+/// whole visual contract runs headless (`WaveformMappingTests`); the view is thin glue over it.
 ///
-/// ## The two renderings
+/// ## The bars are a time history, not one instant shaped into a hump
 ///
-/// **The waveform** (`reduceMotion: false`): the level is clamped into 0...1 and shaped by a
-/// symmetric window — the edges of the bar set sit at a quarter of the level, the center carries
-/// it whole — which is the `PRODUCT_SPEC.md:49` art's `▁▃▅█▅▃▁` read. Each bar is `level × window`,
-/// so every bar is monotonic in the level (a waveform that shrank while the voice got louder would
-/// be a lie about the input), zero is silence exactly, and the center bar is the truth of the
-/// level.
+/// `PRODUCT_SPEC.md:41-47` draws the waveform, in both RECORDING and TRANSCRIBING, as
+/// `▁▃▅█▆▃▁▂▅█▇▄▂` — **thirteen bars, and irregular**. That irregularity is the whole content of
+/// the picture: it is what a level looks like *plotted against time*, one bar per past reading,
+/// scrolling left as new readings arrive. It is what makes the waveform "track input level, not a
+/// canned animation" (`PRODUCT_SPEC.md:88`) legible to a user — you can see your own speech in it.
+///
+/// This mapping originally read that art as `▁▃▅█▅▃▁`: seven bars, symmetric, every bar the *same*
+/// instant's level scaled by a fixed positional window. That renders a hump that only ever grows
+/// and shrinks as a whole — it does respond to the microphone, so it was not a canned animation,
+/// but it can never show *shape*, because there is only one number in it. Speaking a word and
+/// speaking a sentence produce the same picture at different heights. The symmetric spec art it
+/// was written against does not appear anywhere in `PRODUCT_SPEC.md`.
+///
+/// So the input is a **window of recent levels**, oldest first, newest last, and each bar is one
+/// reading. Nothing is shaped, smoothed or enveloped on the way through — the aspect spec's
+/// "waveform smoothing/audio processing beyond the level mapping" stays out of scope, and a bar is
+/// still exactly the level the microphone reported at that moment.
 ///
 /// **The static level meter** (`reduceMotion: true`, `PRODUCT_SPEC.md:289` — read from
 /// `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` by the view, injected here): every
-/// bar sits at the clamped level — a flat read of the input, never the moving windowed shape. A
-/// canned waveform is a spec violation (`PRODUCT_SPEC.md:88`), and a flat meter over a still level
+/// bar sits at the *newest* level — a flat read of the input, never a scrolling history, because
+/// a wave travelling across the widget is precisely the motion the setting asks to be spared. A
+/// canned waveform is a spec violation (`PRODUCT_SPEC.md:88`), and a flat meter over a live level
 /// is the honest Reduce Motion rendering of one.
 ///
 /// The input contract is 0...1 (`LiveLevelSource.swift`); the clamp defends the bars against a
 /// conformance that lies rather than drawing out of range, and keeps every bar in 0...1.
 public enum WaveformMapping {
 
-    /// The bar heights for one level reading.
+    /// The bar heights for a window of recent level readings.
     ///
     /// - Parameters:
-    ///   - level: the input level from ``LiveLevelSource/latestLevel()``; clamped into 0...1.
-    ///   - barCount: how many bars the view draws — the `PRODUCT_SPEC` art suggests 7; the view
-    ///     picks its own. Must be at least 1.
-    ///   - reduceMotion: render the static level meter instead of the windowed waveform
-    ///     (`PRODUCT_SPEC.md:289`).
+    ///   - levels: recent readings, **oldest first, newest last** — the view's history ring. Fewer
+    ///     than `barCount` readings are right-aligned and the missing older bars read as silence,
+    ///     so a freshly opened microphone fills from the right instead of jumping to a full-width
+    ///     shape it has no data for. More than `barCount` keeps the newest `barCount`.
+    ///   - barCount: how many bars the view draws — `PRODUCT_SPEC.md:41-47`'s art is thirteen; the
+    ///     view picks its own. Must be at least 1.
+    ///   - reduceMotion: render the static level meter over the newest reading instead of the
+    ///     scrolling history (`PRODUCT_SPEC.md:289`).
     /// - Returns: `barCount` heights, each in 0...1.
     public static func barHeights(
-        level: Float,
+        levels: [Float],
         barCount: Int,
         reduceMotion: Bool
     ) -> [Float] {
         precondition(barCount >= 1, "a waveform needs at least one bar")
-        let clamped = min(1, max(0, level))
+        let clamp = { (value: Float) in min(1, max(0, value)) }
+        // The newest reading is the meter's whole content, and an empty history is silence rather
+        // than a crash — the view asks for bars before the first refresh has run.
+        let newest = clamp(levels.last ?? 0)
         guard !reduceMotion else {
-            return [Float](repeating: clamped, count: barCount)
+            return [Float](repeating: newest, count: barCount)
         }
-        guard barCount > 1 else { return [clamped] }
-        return (0..<barCount).map { index in
-            let window = 0.25 + 0.75 * Float(sin(Double.pi * Double(index) / Double(barCount - 1)))
-            return clamped * window
-        }
+        let window = levels.suffix(barCount).map(clamp)
+        // Right-aligned: the padding is *older* than every real reading, so it goes in front.
+        return [Float](repeating: 0, count: barCount - window.count) + window
     }
 }
