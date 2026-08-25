@@ -17,9 +17,13 @@
 # itself, then verifies. Run Scripts/dev-identity.sh once beforehand — this script does not
 # create an identity, it only uses one.
 #
-# Usage: Scripts/sign.sh [path/to/Vocca.app]
+# Usage: Scripts/sign.sh [--local-dev] [path/to/Vocca.app]
 #   Defaults to .build/xcode/Build/Products/Debug/Vocca.app, matching the xcodebuild invocation
 #   documented in Tests/HarnessTests/BundleConfigurationTests.swift.
+#
+#   --local-dev additionally injects com.apple.security.cs.disable-library-validation into the
+#   signature — see LOCAL_DEV_INJECTED_ENTITLEMENT below. Required to launch a bundle signed by
+#   the self-signed "Vocca Development" identity; never use it for a bundle you intend to ship.
 #
 #   The default is the *Debug* bundle because that is the daily dev loop. A release build lives
 #   somewhere else and must be named explicitly — Scripts/notarize.sh defaults to the Release path
@@ -40,13 +44,31 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/signing-env.sh
 source "$SCRIPT_DIR/lib/signing-env.sh"
 
-BUNDLE_PATH="${1:-$REPO_ROOT/.build/xcode/Build/Products/Debug/Vocca.app}"
-
 log() { printf '%s\n' "$*"; }
 fail() {
     printf 'sign.sh: error: %s\n' "$*" >&2
     exit 1
 }
+
+# Plain scalars, not an array: under `set -u` bash 3.2 — the macOS default, and the shell this
+# script runs under — expanding an empty array is an "unbound variable" error. The same trap the
+# ${var[@]+"${var[@]}"} form works around in sign_one() below.
+LOCAL_DEV=0
+BUNDLE_ARG=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --local-dev) LOCAL_DEV=1 ;;
+        -*) fail "Unknown option '$1'. Usage: Scripts/sign.sh [--local-dev] [path/to/Vocca.app]" ;;
+        *)
+            [ -z "$BUNDLE_ARG" ] \
+                || fail "Too many arguments. Usage: Scripts/sign.sh [--local-dev] [path/to/Vocca.app]"
+            BUNDLE_ARG="$1"
+            ;;
+    esac
+    shift
+done
+
+BUNDLE_PATH="${BUNDLE_ARG:-$REPO_ROOT/.build/xcode/Build/Products/Debug/Vocca.app}"
 
 [ -d "$BUNDLE_PATH" ] || fail "No app bundle at $BUNDLE_PATH. Build it first, e.g.:
   xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug -derivedDataPath .build/xcode ARCHS=arm64 build"
@@ -87,6 +109,26 @@ APP_ENTITLEMENTS="$REPO_ROOT/App/Vocca.entitlements"
 # signed against a temporary copy of the entitlements with get-task-allow added.
 DEBUG_ONLY_INJECTED_ENTITLEMENT="com.apple.security.get-task-allow"
 
+# The --local-dev entitlement, and why it is a flag rather than a line in App/Vocca.entitlements.
+#
+# The hardened runtime enables Library Validation, which requires every embedded framework to be
+# signed with the *same Team ID* as the app. The self-signed "Vocca Development" identity has no
+# Team ID at all, so once the bundle embeds a third-party framework — whisper.framework, since the
+# second-asr-engine unit — dyld refuses to map it and the app dies at launch, before main():
+#
+#   Library not loaded: @rpath/whisper.framework/Versions/Current/whisper
+#   Reason: ... (non-platform) have different Team IDs
+#
+# It dies silently: Vocca is LSUIElement, so a user double-clicking it sees nothing happen at all.
+#
+# A real Developer ID makes this disappear on its own — the loop above re-signs the framework with
+# the same Team ID as the app, and Library Validation is satisfied. So the entitlement is a
+# property of *self-signed local builds*, not of Vocca, and it must not become a property of the
+# shipped bundle: App/Vocca.entitlements stays as it is, and BundleConfigurationTests keeps
+# asserting this entitlement absent from the checked-in set. Injecting it into a temp copy, the way
+# Debug injects get-task-allow, keeps the release posture untouched.
+LOCAL_DEV_INJECTED_ENTITLEMENT="com.apple.security.cs.disable-library-validation"
+
 bundle_build_configuration() {
     local plist="$BUNDLE_PATH/Contents/Info.plist"
     [ -f "$plist" ] || fail "No Contents/Info.plist inside $BUNDLE_PATH — that is not an app bundle this script built."
@@ -118,18 +160,35 @@ EFFECTIVE_ENTITLEMENTS="$APP_ENTITLEMENTS"
 TEMP_ENTITLEMENTS=""
 trap '[ -n "$TEMP_ENTITLEMENTS" ] && rm -f "$TEMP_ENTITLEMENTS"' EXIT
 
+# The two injections are independent: a Debug bundle gets get-task-allow, and --local-dev adds
+# disable-library-validation to *either* configuration. So the temp copy is made once if either
+# applies, and each key is added to it in turn — rather than one branch per combination.
+#
+# PlistBuddy, not `plutil -insert`: plutil treats `.` in a key path as a nesting separator, and
+# every entitlement name is dotted. PlistBuddy separates path components with `:`, so a dotted key
+# is addressed literally.
+inject_entitlement() {
+    local key="$1"
+    if [ -z "$TEMP_ENTITLEMENTS" ]; then
+        TEMP_ENTITLEMENTS="$(mktemp -t vocca-entitlements.XXXXXX)"
+        cp "$APP_ENTITLEMENTS" "$TEMP_ENTITLEMENTS"
+        EFFECTIVE_ENTITLEMENTS="$TEMP_ENTITLEMENTS"
+    fi
+    /usr/libexec/PlistBuddy -c "Add :$key bool true" "$TEMP_ENTITLEMENTS" >/dev/null \
+        || fail "Could not add $key to the temporary entitlements."
+}
+
 if [ "$BUILD_CONFIGURATION" = "Debug" ]; then
-    TEMP_ENTITLEMENTS="$(mktemp -t vocca-debug-entitlements.XXXXXX)"
-    cp "$APP_ENTITLEMENTS" "$TEMP_ENTITLEMENTS"
-    # PlistBuddy, not `plutil -insert`: plutil treats `.` in a key path as a nesting separator, and
-    # every entitlement name is dotted. PlistBuddy separates path components with `:`, so a dotted
-    # key is addressed literally.
-    /usr/libexec/PlistBuddy -c "Add :$DEBUG_ONLY_INJECTED_ENTITLEMENT bool true" "$TEMP_ENTITLEMENTS" >/dev/null \
-        || fail "Could not add $DEBUG_ONLY_INJECTED_ENTITLEMENT to the temporary Debug entitlements."
-    EFFECTIVE_ENTITLEMENTS="$TEMP_ENTITLEMENTS"
+    inject_entitlement "$DEBUG_ONLY_INJECTED_ENTITLEMENT"
     log "Debug bundle: signing with App/Vocca.entitlements + $DEBUG_ONLY_INJECTED_ENTITLEMENT (so a debugger can still attach)."
 else
     log "Release bundle: signing with App/Vocca.entitlements exactly — $DEBUG_ONLY_INJECTED_ENTITLEMENT is deliberately absent."
+fi
+
+if [ "$LOCAL_DEV" = "1" ]; then
+    inject_entitlement "$LOCAL_DEV_INJECTED_ENTITLEMENT"
+    log "--local-dev: also signing with $LOCAL_DEV_INJECTED_ENTITLEMENT."
+    log "  This bundle is for running on this machine only — do not ship or notarize it."
 fi
 
 sign_one() {
@@ -164,10 +223,10 @@ sign_one() {
 # Inner binaries before the bundle: codesign requires nested frameworks, XPC services, and
 # plug-ins to be signed before the outer bundle's seal is computed over them. The main executable
 # under Contents/MacOS is never signed separately — signing the bundle directory signs it as part
-# of the bundle's own signature. Vocca embeds none of these today —
-# BuiltBundleTests.testNoTestOnlyTargetLeakedIntoTheBundle pins Contents/MacOS to exactly one
-# executable and the app links no frameworks — but this is written to keep working the moment
-# that changes, rather than silently signing only the outer bundle.
+# of the bundle's own signature. This loop was written before anything was embedded, to keep
+# working the moment that changed; it now carries whisper.framework, which the second-asr-engine
+# unit embeds. Re-signing it here is what makes the framework's signature match the app's identity
+# — necessary but, for a self-signed identity, not sufficient: see LOCAL_DEV_INJECTED_ENTITLEMENT.
 for nested_dir in "Frameworks" "PlugIns" "XPCServices"; do
     dir="$BUNDLE_PATH/Contents/$nested_dir"
     [ -d "$dir" ] || continue

@@ -457,6 +457,41 @@ This file orients a coding agent working in this repository. Read it first.
 >   unit shipped the warm-start pin and gate plus the widget-streaming mechanism (above); the
 >   real streaming adapters and the speculative feed remain deferred.
 >
+> **The `fix/local-dev-launch` branch landed 2026-08-25 — three defects that made a locally
+> built Vocca unusable, none of them reachable by CI, two of them silent on the machine as
+> well.** They are worth recording together because they share one cause: the app is
+> `LSUIElement`, so **a failed launch and a successful one look exactly the same** — no window,
+> no Dock icon, no crash dialog. The symptom was "I clicked the app and nothing opened", which
+> is also what working looks like. (1) The Parakeet manifest declared `config.json` as 2 bytes
+> with the SHA-256 of the literal string `{}` — a placeholder, never a measurement — so
+> verification failed with `checksumMismatch(file: "config.json")`, the `verified` marker was
+> never committed, and **the default engine could not be provisioned on any machine** from
+> `ac381d0` until now; exactly one entry was wrong, the other twelve small files re-verified
+> clean. (2) The hardened runtime's Library Validation requires embedded frameworks to share the
+> app's Team ID, and the self-signed dev identity has none — so since C3 embedded
+> `whisper.framework`, `dyld` refused to map it and **every self-signed build died before
+> `main()`**; `Scripts/sign.sh --local-dev` now injects
+> `com.apple.security.cs.disable-library-validation` into a *temporary* copy of the
+> entitlements, exactly as Debug already injects `get-task-allow`, so `App/Vocca.entitlements`
+> is untouched and `BundleConfigurationTests` still asserts it absent from the checked-in set.
+> (3) `configure` read `setActivationPolicy(.accessory)`'s `false` as failure when it merely
+> means "made no change" — `LSUIElement` having already set the policy — so every launch logged
+> a focus-stealing failure that had not happened, while printing the correct policy in its own
+> message; the resulting policy is what is checked now. Test floor unchanged at 1087: no test
+> changed, and none of the three was catchable by one.
+>
+> **What that branch does NOT prove, and must not be claimed:**
+> - **Dictation still has not run.** The app launches, the tap delivers, the engine prepares —
+>   audio → transcript → injection remains unexercised, exactly as `SMOKE_CHECKLIST.md`
+>   steps 62–68 say.
+> - **The manifest digests are pinned to what the repository serves today**, the corrected entry
+>   included. The **whisper manifests were generated the same way and have still never been
+>   downloaded** — the same defect may be sitting in them.
+> - **`--local-dev` bundles are not release bundles.** They carry an entitlement the shipped
+>   bundle must not, so a smoke run using the flag is inspecting a different entitlement set,
+>   and such a bundle must never reach `Scripts/notarize.sh`. A Developer ID identity removes
+>   the need for the flag entirely.
+>
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no
 >   Apple Developer ID and no `notarytool` credential. Only its credential-detect-and-skip path

@@ -99,8 +99,36 @@ development:
 ./Scripts/dev-identity.sh          # once: creates a stable, local, self-signed "Vocca Development" identity
 xcodebuild -project Vocca.xcodeproj -scheme Vocca -configuration Debug \
     -derivedDataPath .build/xcode ARCHS=arm64 build
-./Scripts/sign.sh                  # re-signs .build/xcode/Build/Products/Debug/Vocca.app with it
+./Scripts/sign.sh --local-dev      # re-signs .build/xcode/Build/Products/Debug/Vocca.app with it
 ```
+
+**`--local-dev` is not optional for a self-signed build — without it the app does not start.**
+The hardened runtime enables Library Validation, which requires every embedded framework to carry
+the same Team ID as the app, and a self-signed identity has no Team ID at all. Since the bundle
+embeds `whisper.framework`, `dyld` refuses to map it and the process dies before `main()`:
+
+```
+Library not loaded: @rpath/whisper.framework/Versions/Current/whisper
+Reason: ... (non-platform) have different Team IDs
+```
+
+It dies *invisibly*: Vocca is `LSUIElement`, so there is no window, no Dock icon and no crash
+dialog — a failed launch and a successful one look exactly the same. The flag injects
+`com.apple.security.cs.disable-library-validation` into a temporary copy of the entitlements only,
+so `App/Vocca.entitlements` stays as it is and the shipped bundle is unaffected. A real Developer
+ID identity removes the need for it entirely: the framework is then re-signed with a matching Team
+ID and Library Validation is satisfied. Never pass it for a bundle you intend to ship or notarize.
+
+Because a launch is silent either way, check it the way the app reports on itself:
+
+```sh
+pgrep -lf "MacOS/Vocca"                                          # is it alive?
+log show --predicate 'subsystem == "dev.vocca.Vocca"' \
+    --last 5m --info --style compact                             # what does it say?
+```
+
+The loop logs its own readiness there — `the event tap is delivering` versus `no Accessibility
+grant — the hotkey is deaf until it is granted`, and any engine-preparation failure.
 
 `dev-identity.sh` is idempotent and wires the identity in via `Config/Signing.local.xcconfig`
 (git-ignored, host-local). Without it, `Config/Signing.xcconfig` falls back to `-` — a fresh clone
@@ -123,7 +151,8 @@ macOS keys your Microphone and Accessibility grants on.
 `Scripts/sign.sh` defaults to the **Debug** bundle. It reads `VoccaBuildConfiguration` out of the
 bundle and signs the two configurations differently — Debug additionally gets
 `com.apple.security.get-task-allow`, without which no debugger can attach; Release gets
-`App/Vocca.entitlements` and nothing else. For a release build, pass the path:
+`App/Vocca.entitlements` and nothing else. `--local-dev` is independent of that and adds its one
+entitlement to either configuration. For a release build, pass the path:
 `./Scripts/sign.sh .build/xcode-release/Build/Products/Release/Vocca.app`. The full release order is
 in [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md).
 

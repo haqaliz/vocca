@@ -80,13 +80,20 @@ public enum AppBootstrap {
     @discardableResult
     @MainActor
     public static func configure(_ application: NSApplication) -> DictationLoopRoot {
-        // The return value is checked rather than discarded because of what `false` would mean
-        // here. Vocca's named failure mode is "takes focus and types into the wrong field"; an
-        // application left in `.regular` does exactly that, and it does it silently — there is no
-        // exception, no crash, just a widget that steals the frontmost slot at the moment the user
-        // starts dictating. `ZeroNetworkTests` asserts the resulting policy through the probe, so
-        // this is caught in CI; the log is for the case where it happens on a user's machine.
-        if !application.setActivationPolicy(.accessory) {
+        // The *resulting policy* is checked, not the return value. Vocca's named failure mode is
+        // "takes focus and types into the wrong field"; an application left in `.regular` does
+        // exactly that, and it does it silently — there is no exception, no crash, just a widget
+        // that steals the frontmost slot at the moment the user starts dictating.
+        //
+        // `setActivationPolicy` answers `false` when it made no change, and with `LSUIElement` in
+        // `Info.plist` the process is *already* `.accessory` before `main` runs — so the shipped
+        // app takes that branch on every single launch and logged this error every time while the
+        // policy was correct all along. The return value does not distinguish "could not" from
+        // "did not need to"; the policy itself does, and it is the thing the comment above is
+        // actually about. `ZeroNetworkTests` asserts the same resulting policy through the probe,
+        // which is why CI stayed green while every real launch logged a failure.
+        _ = application.setActivationPolicy(.accessory)
+        if application.activationPolicy() != .accessory {
             logger.error(
                 """
                 Failed to enter the .accessory activation policy; the app is \

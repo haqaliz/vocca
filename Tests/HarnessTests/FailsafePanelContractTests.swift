@@ -21,7 +21,9 @@ import XCTest
 /// not chrome, driven headlessly — a fake ``TranscriptHolder``, the reducer, and the injected
 /// copy/retry handlers. The `FailsafeStateReducerTests` pattern, moved up one level: the window
 /// itself is glue "executed by nothing in CI" (its focus behaviour and key equivalents need a
-/// window server session — the smoke checklist's rows, `SMOKE_CHECKLIST.md:429-442`), so what is
+/// window server session — the smoke checklist's rows, `SMOKE_CHECKLIST.md` steps 30 and 32; by
+/// step number, not line range, because the line range this cited had already drifted off them),
+/// so what is
 /// asserted here is everything the panel decides *between* the user's intent and the seam.
 ///
 /// The class is `@MainActor` like the panel it drives (`ClipboardRungTests`' shape): the panel is
