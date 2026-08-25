@@ -163,6 +163,16 @@ Beyond those, each capability either makes the loop *more reliable* (injection, 
 
 **Dependencies:** C2, C4.
 
+*(Amended by the `latency-instrumentation` unit, 2026-08-14: the latency-histogram half
+shipped — spans, session records, the in-memory ledger, the benchmark harness with its
+regression gate, and the env-gated real run. Amended by the `warm-start-streaming` unit,
+2026-08-25: the warm-start launch preload is pinned and gated against the 20%-of-steady-state
+bound, and the widget-only streaming *mechanism* shipped — the pipeline streaming route, the
+widget-only partial sink, and the permanent zero-injection-before-final guard. What remains of
+C7: the speculative pre-key-up feed, the real `supportsStreaming == true` engine adapters
+(whisper.cpp batches; Parakeet streams), and re-warm-after-idle; `ARCHITECTURE.md` open
+question 2 (speculative final-vs-batch equivalence) stands unmeasured.)*
+
 ---
 
 ## C8. Injection matrix + per-app strategy memory · P2, weeks 9–11
