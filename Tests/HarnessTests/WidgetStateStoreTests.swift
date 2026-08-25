@@ -80,18 +80,18 @@ final class WidgetStateStoreTests: XCTestCase {
         let clock = TestClock()
         let store = WidgetStateStore(clock: clock)
         store.fold(.state(.recording))
-        XCTAssertNil(store.state.elapsed)
+        XCTAssertEqual(store.state.elapsed, .zero, "the counter starts at 0:00 on adoption")
         XCTAssertFalse(store.state.showsEscapeHint)
 
         clock.now = .seconds(1)
         store.timerFired(.recording)
-        XCTAssertNil(store.state.elapsed)
+        XCTAssertEqual(store.state.elapsed, .seconds(1))
         XCTAssertFalse(store.state.showsEscapeHint, "the hint appears at 2 s, not before")
 
         clock.now = .seconds(2)
         store.timerFired(.recording)
         XCTAssertTrue(store.state.showsEscapeHint)
-        XCTAssertNil(store.state.elapsed, "the elapsed surface appears at 3 s, not before")
+        XCTAssertEqual(store.state.elapsed, .seconds(2))
 
         clock.now = .seconds(5)
         store.timerFired(.recording)

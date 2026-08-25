@@ -34,9 +34,30 @@ import VoccaCore
 /// was written against does not appear anywhere in `PRODUCT_SPEC.md`.
 ///
 /// So the input is a **window of recent levels**, oldest first, newest last, and each bar is one
-/// reading. Nothing is shaped, smoothed or enveloped on the way through — the aspect spec's
+/// reading. Nothing is smoothed, enveloped or averaged on the way through — the aspect spec's
 /// "waveform smoothing/audio processing beyond the level mapping" stays out of scope, and a bar is
-/// still exactly the level the microphone reported at that moment.
+/// still exactly *one* reading, at its own moment, never a blend of its neighbours.
+///
+/// ## Why the height is not the amplitude
+///
+/// ``LiveLevelSource`` reports a **raw peak amplitude**, and speech into a Mac's own microphone
+/// peaks far below 1.0 — roughly 0.05...0.3 in ordinary use. Drawn linearly that is a bar between
+/// 3% and 30% of the strip, so the whole visible range sits in the bottom third and the waveform
+/// reads as a flat line that twitches. The first version of the time history shipped that way and
+/// was, correctly, reported as "I still don't see the change": the shape was there, and too small
+/// to see.
+///
+/// So the height is `sqrt(level)` — the square-root curve every audio meter uses for the same
+/// reason, and the reason meters are drawn in dB rather than in amplitude. It is a **display**
+/// transform, not audio processing: it is applied on the way to a rectangle's height and nowhere
+/// near the samples.
+///
+/// It cannot lie about the input, and that is worth being precise about rather than asserting:
+/// `sqrt` is strictly increasing on 0...1, so louder is always taller and quieter always shorter —
+/// no two levels can swap places, and no level can be made to look like silence. `sqrt(0)` is
+/// exactly 0, so silence stays silence and an idle microphone still draws nothing; `sqrt(1)` is
+/// exactly 1, so a clipping input still draws full height. What changes is only *where the middle
+/// goes*: 0.09 draws at 0.3 instead of 0.09, which is the point.
 ///
 /// **The static level meter** (`reduceMotion: true`, `PRODUCT_SPEC.md:289` — read from
 /// `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` by the view, injected here): every
@@ -67,15 +88,24 @@ public enum WaveformMapping {
         reduceMotion: Bool
     ) -> [Float] {
         precondition(barCount >= 1, "a waveform needs at least one bar")
-        let clamp = { (value: Float) in min(1, max(0, value)) }
         // The newest reading is the meter's whole content, and an empty history is silence rather
         // than a crash — the view asks for bars before the first refresh has run.
-        let newest = clamp(levels.last ?? 0)
+        let newest = height(for: levels.last ?? 0)
         guard !reduceMotion else {
             return [Float](repeating: newest, count: barCount)
         }
-        let window = levels.suffix(barCount).map(clamp)
+        let window = levels.suffix(barCount).map(height(for:))
         // Right-aligned: the padding is *older* than every real reading, so it goes in front.
         return [Float](repeating: 0, count: barCount - window.count) + window
+    }
+
+    /// One level's bar height: clamped into 0...1, then put on the square-root display curve.
+    ///
+    /// Separate and non-private so the curve's own contract — strictly increasing, 0 at 0, 1 at 1
+    /// — is asserted directly rather than inferred from bar arrays, which is what makes "it cannot
+    /// misrepresent the input" a test instead of a claim.
+    public static func height(for level: Float) -> Float {
+        let clamped = min(1, max(0, level))
+        return clamped.squareRoot()
     }
 }

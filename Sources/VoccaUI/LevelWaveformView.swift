@@ -69,6 +69,27 @@ public struct LevelWaveformView: View {
     /// word: long enough for the shape to read as *this* utterance rather than as a flicker.
     private static let barCount = 13
 
+    /// The strip's height, and the floor every bar keeps at silence.
+    ///
+    /// Raised from 14 pt: at that size a bar spanned 2...12 pt, and since the level is a raw peak
+    /// amplitude — 0.05...0.3 for ordinary speech even after ``WaveformMapping``'s curve pulls the
+    /// middle up — the visible swing was a few points on a strip narrower than the timer beside
+    /// it. The curve makes the range usable; this makes it big enough to read.
+    ///
+    /// The panel is not laid out around these numbers, so raising them is safe: `WidgetPanel`'s
+    /// `contentRect` is an *initial* rect, and every state fold calls
+    /// `setContentSize(contentView.fittingSize)` — the pill grows to whatever this measures.
+    private static let stripHeight: CGFloat = 22
+
+    /// The silent floor: a bar never vanishes, so thirteen dots still read as a waveform at rest
+    /// rather than as a widget that failed to draw.
+    private static let silentBarHeight: CGFloat = 2
+
+    /// One bar's rendered height, from ``WaveformMapping``'s 0...1 display height.
+    private static func barHeight(_ displayHeight: Float) -> CGFloat {
+        silentBarHeight + CGFloat(displayHeight) * (stripHeight - silentBarHeight)
+    }
+
     /// The refresh tick. Fires on the main run loop in `.common` modes and is harmless while
     /// frozen: `isLive` gates the read, not the timer — the timer is what makes the freeze cheap
     /// to lift.
@@ -100,12 +121,12 @@ public struct LevelWaveformView: View {
             reduceMotion: reduceMotion)
         return HStack(alignment: .bottom, spacing: 2) {
             ForEach(Array(bars.enumerated()), id: \.offset) { _, height in
-                RoundedRectangle(cornerRadius: 1)
+                RoundedRectangle(cornerRadius: 1.5)
                     .fill(.primary)
-                    .frame(width: 3, height: 2 + CGFloat(height) * 10)
+                    .frame(width: 3, height: LevelWaveformView.barHeight(height))
             }
         }
-        .frame(height: 14)
+        .frame(height: LevelWaveformView.stripHeight)
         .onReceive(refresh) { _ in
             guard isLive else { return }
             levels.append(level.latestLevel())

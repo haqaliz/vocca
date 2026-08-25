@@ -266,16 +266,20 @@ public enum AppBootstrap {
         // The pill's window is created **lazily** — `LiveWidget` constructs the panel on the
         // first non-IDLE state fold, so `configure` stays window-free (the probe's charter; the
         // window-server rows of SMOKE_CHECKLIST.md are smoke rows, not CI's). What is built here
-        // is the level source the waveform draws: the hold-to-talk graph's — the configuration
-        // the loop ships in, and the one whose microphone the widget must truthfully track
-        // (`PRODUCT_SPEC.md:87-88`). A Mac with no input device has no graph to read, and the
-        // honest answer is the same 0 a stopped graph publishes: silent bars, never a ghost.
-        let liveLevel: any LiveLevelSource
-        if let graph {
-            liveLevel = MicrophoneLevelSource(graph: graph)
-        } else {
-            liveLevel = SilentLevelSource()
-        }
+        // is the level source the waveform draws: **both** graphs', combined, because only the
+        // active mode's graph is ever started and the widget must track whichever that is
+        // (`PRODUCT_SPEC.md:87-88`).
+        //
+        // Naming one graph here is what broke the waveform when toggle became the default: the
+        // level stayed wired to the hold-to-talk graph, which no longer runs, so `latestLevel()`
+        // answered 0 for the whole session and the pill drew thirteen identical dashes over a
+        // working microphone. `CombinedLevelSource` removes the standing bet rather than moving
+        // it — see its header for why the maximum is the running graph's level.
+        //
+        // A Mac with no input device has no graph to read, and the honest answer is the same 0 a
+        // stopped graph publishes: silent bars, never a ghost.
+        let liveLevel: any LiveLevelSource = CombinedLevelSource(
+            [graph, toggleGraph].compactMap { $0 }.map { MicrophoneLevelSource(graph: $0) })
 
         // MARK: The cleanup resolver
         //
@@ -1456,16 +1460,6 @@ final class RefusingAudioSource: SessionAudioSource {
     func endCapture() -> AudioBuffer {
         AudioBuffer(samples: [], sampleRate: AudioBuffer.interchangeSampleRate)
     }
-}
-
-/// The live widget's level when no capture graph exists — a stopped graph's honest answer.
-///
-/// `configure`'s fallback for the same no-input-device shape `RefusingAudioSource` answers: there
-/// is no graph to run, so the honest level is the same `0` a stopped graph publishes
-/// (`MicrophoneLevelSource/latestLevel()` gates on the graph's `isRunning`), and the waveform
-/// draws silent bars rather than a ghost.
-private final class SilentLevelSource: LiveLevelSource {
-    func latestLevel() -> Float { 0 }
 }
 
 // MARK: - The deferred custody chain
