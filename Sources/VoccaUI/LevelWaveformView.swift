@@ -33,11 +33,16 @@ import VoccaCore
 /// would show silence over a session whose audio is in the pipeline's hands, which is the same lie
 /// as a canned waveform.
 ///
-/// ## Why the level is never held by this view
+/// ## What this view holds, and what it still does not
 ///
-/// The bars are recomputed from ``LiveLevelSource/latestLevel()`` on every refresh and nothing else
-/// is stored — no envelope, no smoothing (the aspect spec's "waveform smoothing/audio processing
-/// beyond the level mapping" is out of scope), and the source's 0...1 contract is enforced by
+/// It holds a **history**: the last `barCount` readings, so the bars can plot level against time
+/// the way `PRODUCT_SPEC.md:41-47`'s `▁▃▅█▆▃▁▂▅█▇▄▂` does. That is the one piece of state the
+/// waveform genuinely needs — a single reading cannot have a shape, and the earlier version, which
+/// held nothing and scaled a fixed hump by the current level, could only ever pulse as a whole.
+///
+/// It still holds no *processing*: readings go into the ring exactly as ``LiveLevelSource`` gave
+/// them, with no envelope and no smoothing (the aspect spec's "waveform smoothing/audio processing
+/// beyond the level mapping" remains out of scope), and the source's 0...1 contract is enforced by
 /// ``WaveformMapping``'s defensive clamp rather than trusted. The refresh runs on the main run loop
 /// in its common modes — the H10 lesson: a `.default`-mode timer delivers none of its fires through
 /// an event-tracking gesture, which is exactly when the user's finger is on the window.
@@ -52,15 +57,17 @@ public struct LevelWaveformView: View {
     /// Whether the waveform is live. `false` freezes the last reading — TRANSCRIBING's waveform.
     public let isLive: Bool
 
-    /// The bars being drawn: the last live reading's heights, or the frozen ones.
-    @State private var bars: [Float]
+    /// The readings behind the bars, oldest first — the last ``barCount`` of them. Frozen in
+    /// place when `isLive` is false, which is what holds TRANSCRIBING's waveform still.
+    @State private var levels: [Float] = []
 
     /// The level refresh cadence — the plan's ~60 ms (`spec.md` open question; plan-level).
     private static let refreshInterval: TimeInterval = 0.06
 
-    /// The number of bars — the `PRODUCT_SPEC.md:49` art's `▁▃▅█▅▃▁` is seven; the view picks its
-    /// own, per ``WaveformMapping``.
-    private static let barCount = 7
+    /// The number of bars — `PRODUCT_SPEC.md:41-47`'s art, `▁▃▅█▆▃▁▂▅█▇▄▂`, is thirteen. At the
+    /// refresh cadence below that is about 0.8 s of speech on screen at once, which is roughly a
+    /// word: long enough for the shape to read as *this* utterance rather than as a flicker.
+    private static let barCount = 13
 
     /// The refresh tick. Fires on the main run loop in `.common` modes and is harmless while
     /// frozen: `isLive` gates the read, not the timer — the timer is what makes the freeze cheap
@@ -81,13 +88,17 @@ public struct LevelWaveformView: View {
         self.level = level
         self.reduceMotion = reduceMotion
         self.isLive = isLive
-        self._bars = State(
-            initialValue: WaveformMapping.barHeights(
-                level: 0, barCount: LevelWaveformView.barCount, reduceMotion: reduceMotion))
+        // No initial reading: an empty history renders as silence, and the first refresh fills it
+        // from the right rather than opening on a full-width shape nothing measured.
+        self._levels = State(initialValue: [])
     }
 
     public var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
+        let bars = WaveformMapping.barHeights(
+            levels: levels,
+            barCount: LevelWaveformView.barCount,
+            reduceMotion: reduceMotion)
+        return HStack(alignment: .bottom, spacing: 2) {
             ForEach(Array(bars.enumerated()), id: \.offset) { _, height in
                 RoundedRectangle(cornerRadius: 1)
                     .fill(.primary)
@@ -97,10 +108,10 @@ public struct LevelWaveformView: View {
         .frame(height: 14)
         .onReceive(refresh) { _ in
             guard isLive else { return }
-            bars = WaveformMapping.barHeights(
-                level: level.latestLevel(),
-                barCount: LevelWaveformView.barCount,
-                reduceMotion: reduceMotion)
+            levels.append(level.latestLevel())
+            if levels.count > LevelWaveformView.barCount {
+                levels.removeFirst(levels.count - LevelWaveformView.barCount)
+            }
         }
     }
 }
