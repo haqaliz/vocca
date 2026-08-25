@@ -1367,6 +1367,46 @@ configured file is `~/Library/Application Support/Vocca/cleanup-config.json`
 
 ---
 
+## The warm-start run and the streaming mechanism — their first executions
+
+*(Added 2026-08-25, `warm-start-streaming`.)* The warm-start gate's mechanism and the
+streaming route's guard are CI-covered (the seeded-slow 2× first transcription must fail the
+benchmark gate; the zero-injection-before-final guard; the byte-for-byte batch default under
+the interposer). Nothing here is CI: the real ratio needs a real model, and the widget's
+partial text is unobservable until a real engine streams — which this unit deliberately does
+not ship.
+
+77. **The warm-start real run — the first measured ratio.** The env-gated runner
+    (`LatencyBenchmarkRealEngineTests`, the `VOCCA_LATENCY_BENCH` + `VOCCA_MODEL_DIR` WER
+    pattern) prints the real engine's `firstAfterLaunch` and `warmTranscribe` samples, the
+    ratio, and the process's suppression state beside every row.
+
+    *Gesture:* provision a model as in steps 17–18, then
+    `VOCCA_MODEL_DIR=<version_dir> VOCCA_LATENCY_BENCH=1 swift test --filter LatencyBenchmarkRealEngineTests`.
+
+    *Pass:* the run prints the ratio with the suppression column reading **not-suppressed
+    throughout** (a throttled run is voided, never recorded as clean — the step-52
+    discipline), and the measured row lands in
+    `docs/planning/warm-start-streaming/warm-start/tolerances_20260825.md` — **recorded, never
+    gated**: a ratio past the 1.2 bound is a record and a signal to fix the warm start, not a
+    gate failure. Until this run happens once, the 20%-of-steady-state claim is about
+    mechanism, not measurement.
+
+78. **The streaming mechanism, with its honest scope stated.** The probe's `streaming-cycle`
+    mode drives a full streaming cycle through the composed root with a stub engine: partials
+    fold into the widget store, exactly one final routes to the injector, zero `connect(2)`
+    under the interposer (`PROBE-STREAMING`).
+
+    *Pass:* the cycle prints its post-condition with zero network events, and the byte-for-byte
+    checks hold — the default configuration's `PROBE-CYCLE`/`PROBE-LATENCY` strings are
+    unchanged. **What is not here:** no real engine streams yet (both engines report
+    `supportsStreaming == false`), so the widget's partial text is unobservable with a real
+    model until the deferred streaming adapters land; `ARCHITECTURE.md:630` open question 2
+    (speculative final-vs-batch equivalence) is untouched, and no latency number is claimed
+    from this mechanism.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

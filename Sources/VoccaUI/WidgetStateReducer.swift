@@ -79,6 +79,14 @@ public struct WidgetReducerState: Equatable, Sendable {
     /// and no session effect can clear an `.active` state (`WidgetEgressState` documents why).
     public var egress: WidgetEgressState
 
+    /// The newest streaming partial (`widget-streaming` S3): provisional ASR text (`isFinal ==
+    /// false`), stored so the view can render it during RECORDING/TRANSCRIBING. Bounded to
+    /// ``WidgetTiming/maxPartialCharacters`` characters — truncation is the reducer's answer —
+    /// and `nil` outside the two states that may show it: every other adoption clears it and a
+    /// ``WidgetAction/partial(_:)`` fold outside them is dropped. Nothing provisional ever rides
+    /// into DELIVERED: the injected final is the only text there.
+    public var partialText: String?
+
     /// The resting state: IDLE, no notice, no timer bookkeeping, the shipped session ceiling.
     ///
     /// The composition root passes the machine's own `ceiling` (`SessionMachine.ceiling`) so a
@@ -98,6 +106,7 @@ public struct WidgetReducerState: Equatable, Sendable {
         self.showsCeilingWarning = false
         self.notice = nil
         self.egress = egress
+        self.partialText = nil
     }
 }
 
@@ -120,7 +129,8 @@ public enum WidgetTimer: Equatable, Sendable, CaseIterable {
 /// The intents and injected answers the live widget offers the reducer.
 ///
 /// **The set is closed**: the Core projection's verdict on one machine effect or pipeline event
-/// (``WidgetAction/projection(_:)``), a due timer (``WidgetAction/timerFired(_:)``), and the
+/// (``WidgetAction/projection(_:)``), a due timer (``WidgetAction/timerFired(_:)``), a streaming
+/// partial from the pipeline's widget-only sink (``WidgetAction/partial(_:)``), and the
 /// wiring's egress fold (``WidgetAction/egressChanged(_:)``). There is no other input, so the
 /// exhaustive switch in ``WidgetStateReducer`` cannot hide a transition no action can carry — and
 /// the fold's `now` is consulted only by the timer action, which is the structural pin on "no
@@ -131,12 +141,17 @@ public enum WidgetAction: Equatable, Sendable {
     case projection(WidgetProjectionResult)
     /// A due timer fired, carrying the injected clock's reading at the fire.
     case timerFired(WidgetTimer)
+    /// A streaming partial from the pipeline's widget-only sink — provisional ASR text
+    /// (`isFinal == false`), folded while the session is RECORDING or TRANSCRIBING and dropped
+    /// anywhere else.
+    case partial(String)
     /// The wiring's egress fold — the resolved cleanup provider's `requiresNetwork` + endpoint,
     /// sent exactly once at launch (resolve-once). The only action that touches egress.
     case egressChanged(WidgetEgressState)
 }
 
-/// The plan's time constants (`widget-live-states` Task 2), in exactly one place each.
+/// The plan's constants (`widget-live-states` Task 2's times and `widget-streaming` S3's partial
+/// cap), in exactly one place each.
 ///
 /// The ceiling warning is *not* here: it is derived from the configured ceiling via
 /// ``WatchdogPolicy/warningThreshold(before:)`` — against the shipped 120 s ceiling that number is
@@ -149,6 +164,9 @@ public enum WidgetTiming {
     public static let elapsedSurfaceDelay: Duration = .seconds(3)
     /// The DELIVERED confirmation collapses to IDLE after 600 ms (`PRODUCT_SPEC.md:50,98`).
     public static let deliveredCollapseDelay: Duration = .milliseconds(600)
+    /// The longest stored streaming partial (`widget-streaming` S3), in characters: a partial
+    /// past this cap is truncated to it — the reducer's answer to an unbounded stream.
+    public static let maxPartialCharacters = 200
 }
 
 /// The live widget's transition table: a pure fold over `(state, action, now)`.
@@ -164,6 +182,10 @@ public enum WidgetTiming {
 ///   the escape hint at ``WidgetTiming/escapeHintDelay``, the elapsed surface at
 ///   ``WidgetTiming/elapsedSurfaceDelay`` and the derived ceiling warning. The collapse timer ends
 ///   DELIVERED exactly at ``WidgetTiming/deliveredCollapseDelay`` after ``deliveredAt``.
+/// - ``WidgetAction/partial(_:)`` stores the streaming partial, bounded at
+///   ``WidgetTiming/maxPartialCharacters``, while the state is RECORDING or TRANSCRIBING — and is
+///   dropped anywhere else. Adopting IDLE, OPENING or DELIVERED clears the stored partial;
+///   adopting RECORDING or TRANSCRIBING keeps it, because the final has not arrived.
 ///
 /// The DELIVERED collapse cannot drop a concurrently-presented FAILSAFE, and it does not need a
 /// transition-table row to say so: the FAILSAFE is ``FailsafeStateReducer``'s state machine, a
@@ -205,6 +227,14 @@ public enum WidgetStateReducer {
             var next = state
             next.egress = egress
             return next
+        case .partial(let partial):
+            // Partials belong only to a live session's display: dropped outside RECORDING or
+            // TRANSCRIBING, so the state can never carry provisional text over a state that
+            // must not show it (the closed-set invariant).
+            guard state.state == .recording || state.state == .transcribing else { return state }
+            var next = state
+            next.partialText = String(partial.prefix(WidgetTiming.maxPartialCharacters))
+            return next
         }
     }
 
@@ -224,18 +254,28 @@ public enum WidgetStateReducer {
             next.elapsed = nil
             next.showsEscapeHint = false
             next.showsCeilingWarning = false
+        case .transcribing:
+            // TRANSCRIBING keeps the partial — the final has not arrived while the session is
+            // still streaming — but clears the RECORDING-only surfaces and anchors.
+            next.recordingStartedAt = nil
+            next.deliveredAt = nil
+            next.elapsed = nil
+            next.showsEscapeHint = false
+            next.showsCeilingWarning = false
         case .delivered:
             next.deliveredAt = now
             next.recordingStartedAt = nil
             next.elapsed = nil
             next.showsEscapeHint = false
             next.showsCeilingWarning = false
-        case .idle, .opening, .transcribing:
+            next.partialText = nil
+        case .idle, .opening:
             next.recordingStartedAt = nil
             next.deliveredAt = nil
             next.elapsed = nil
             next.showsEscapeHint = false
             next.showsCeilingWarning = false
+            next.partialText = nil
         }
         return next
     }

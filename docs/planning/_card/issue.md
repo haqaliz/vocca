@@ -1,40 +1,25 @@
-# Issue Card — llm-cleanup
+# Issue card — warm-start-streaming
 
-> No GitHub issue exists for this unit of work (invoked by slug via `vbf feat llm-cleanup`).
-> Source of truth is the inline brief below, which comes from the `vocca-next` recommendation
-> (handoff prompt) and the repo's own planning docs.
+**Source:** inline brief (no GitHub issue exists; `gh issue list` is empty; the id is a
+descriptive slug, per `vocca-begin-fast`).
+
+**Type:** `feat` · **Branch:** `feat/warm-start-streaming/aliz`
 
 ## Brief
 
-Build C6 from `docs/technical/CAPABILITY_ROADMAP.md:132` — the Ollama and BYOK rungs behind the
-existing `CleanupProvider` seam (rules is the only implementation today, and `ROADMAP.md:28`
-requires two). Both rungs are opt-in: Ollama talks to a local endpoint with graceful fallback to
-rules on absent/cold/slow/malformed responses; BYOK stores the key in the Keychain, is off by
-default, never logs the key, and gains a persistent, non-dismissable egress badge in the widget
-the moment text would leave the machine.
+Build the deferred C7 remainder: warm start (ASR model pre-warmed at launch and after idle
+via the `ASREngine.prepare()` hook, so first-dictation-after-launch lands within 20% of
+steady-state) plus widget-only streaming partials (partials rendered in the widget only, the
+target app untouched until final injection, zero `TextInjector` calls before key-up). The
+first slice is warm start; widget streaming is the second in the same unit.
 
-Caveats to respect:
+Acceptance tests first: a warm-start test asserting first-dictation-after-launch within 20%
+of steady-state over an injected clock; a streaming test asserting zero injection calls
+before key-up across the closed route set; a seam test asserting `ASREngine`'s optional
+`supportsStreaming` degrades gracefully (whisper batches, Parakeet streams) with no caller
+branching on engine identity.
 
-- The P0/P1 gates (`docs/ROADMAP.md:100-104`, `docs/ROADMAP.md:142-146`) are running calendar
-  gates, not cleared — this is the roadmap's own week-6/7 slot, so the 7-day daily-use log and
-  the F2 recordings (`SMOKE_CHECKLIST.md` step 73) stay in parallel, unaffected.
-- Zero network in the default configuration must be preserved: both new rungs are opt-in, and
-  the zero-network dictation-cycle probe (permanent release blocker, `docs/ROADMAP.md:139`)
-  must still pass.
-- The real Ollama run and the badge's first appearance are smoke-check items on the founder's
-  machine — CI is stub-only.
-
-Acceptance tests come first, per the repo's test-first rule (`docs/technical/CAPABILITY_ROADMAP.md:13`):
-
-1. A stubbed Ollama endpoint asserting correct request shape, timeout, and fallback to rules on
-   every failure mode (absent, cold, slow, malformed response).
-2. A BYOK stub asserting the key never appears in logs or crash reports.
-3. The egress badge: a persistent, non-dismissable widget indicator whenever a cloud provider
-   is active — appearing at the moment text would leave the machine, with a tested state
-   reducer (no time-based dismissal).
-4. The permanent release blocker: a full dictation cycle in the default configuration with a
-   network interposer asserting zero outbound connections.
-
-Phase: P1. Layer: AI cleanup (`CleanupProvider`, rungs 2–3). Scope: macOS-only, local-first,
-dictation-first, open-core — BYOK is opt-in + badged + off by default; nothing cripples the
-local core.
+**Caveat:** `ARCHITECTURE.md:630` open question 2 — speculative final-vs-batch equivalence
+is unmeasured, so keep the streaming slice's correctness claim to the widget guard and
+record, never claim a latency number CI didn't produce; the real numbers wait for the
+founder's `VOCCA_LATENCY_BENCH` run (`SMOKE_CHECKLIST.md` steps 71–72).

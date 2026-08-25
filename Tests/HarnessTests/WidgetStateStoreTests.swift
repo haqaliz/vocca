@@ -142,4 +142,23 @@ final class WidgetStateStoreTests: XCTestCase {
         store.timerFired(.deliveredCollapse)
         XCTAssertEqual(store.state.state, .recording, "the collapse timer does nothing in RECORDING")
     }
+
+    /// The store's partial fold — the `widget-streaming` sink's landing point: every partial
+    /// the pipeline presents is folded into the reducer's bounded partial state, with the
+    /// clock's reading as the fold's `now` (the `setEgress` shape — the reducer owns the
+    /// decision, the store is the entry point).
+    func testPresentPartialFoldsIntoTheStoresReducerState() {
+        let clock = TestClock()
+        let store = WidgetStateStore(clock: clock)
+        store.fold(.state(.recording))
+
+        store.presentPartial("hel")
+        XCTAssertEqual(store.state.partialText, "hel")
+
+        store.presentPartial("hello world")
+        XCTAssertEqual(
+            store.state.partialText, "hello world",
+            "each fold replaces the carried partial — the store keeps the newest, the reducer "
+                + "bounds it")
+    }
 }

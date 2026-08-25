@@ -302,6 +302,62 @@ final class ZeroNetworkTests: XCTestCase {
         "records=1",
     ].joined(separator: " ")
 
+    /// **The streaming-cycle post-condition**: what the probe must report after driving one
+    /// streaming dictation cycle through the composed root — a streaming stub engine in the
+    /// resolver's slot, a scripted chunk source handed to `routeStreaming`, each partial folded
+    /// into the widget store, and the one final routed through cleanup → inject — and what
+    /// ``testStreamingCycleDeliversPartialsToTheWidgetStoreWithZeroNetworkCalls`` asserts
+    /// wholesale.
+    ///
+    /// Asserted as an *effect* for the same reason the other post-conditions are. Every field
+    /// below is a fact the probe can only produce by running the `widget-streaming` wiring: the
+    /// route's surface (idle — the delivered final has nothing for the widget to present); the
+    /// sink's presentation count and the store's carried partial (the two halves of "partials
+    /// reach the widget store" — the store keeps only the newest, so the count is the witness
+    /// that *each* partial reached the wiring); the cleaned final that reached the injector
+    /// with the clipboard rung and its trace; the streaming engine's ledgers (never prepared —
+    /// preparation is the launch path's job — and never asked to transcribe, so the route
+    /// consumed `stream()`); and the surfaces that must stay quiet (no hold, no download
+    /// started, exactly one latency record closed).
+    ///
+    /// This is deliberately **not** a golden string to be regenerated when it fails.
+    /// ``testTheAssertedStreamingCyclePostConditionStillDescribesAStreamingCycle`` reads it
+    /// back and refuses a version that no longer describes a cycle which streamed, folded
+    /// partials into the widget store, delivered the final through a real rung, and never
+    /// prepared or downloaded — so weakening the probe and pasting in whatever it now prints
+    /// does not restore a green suite.
+    private static let expectedStreamingCycleLifecycle = [
+        // The route's answer: the delivered final has nothing for the widget to present — the
+        // DELIVERED fold is the projection's, and the streaming route is `.idle` exactly as the
+        // batch route's delivered row is.
+        "surface=idle",
+        // The two halves of "partials reach the widget store": every partial the pipeline
+        // presented reached the sink (the count), and the store carries the newest one — the
+        // script's last partial, `"hello "` (the final transcript is never a partial, by the
+        // seam's own contract; the reducer's S3 rule shows the text while RECORDING/TRANSCRIBING).
+        "partials=2",
+        "partial.last=hello-",
+        // The cleaned final reached the injector — the rules engine capitalizes the utterance
+        // and appends the terminal punctuation, exactly as it does for the batch cycle's
+        // `1 2 3.` — and the ladder stopped at the clipboard rung with the trace to match: the
+        // streaming final travels the same decision table the batch final does.
+        "injected=Hello-world.",
+        "rung=clipboardPaste",
+        "attempted=clipboardPaste",
+        // The streaming engine's ledgers: never prepared (preparation is the launch path's
+        // job — the warm-start aspect's pin) and never asked to transcribe — the route
+        // consumed `stream()`, which is the whole point of the drive.
+        "engine.prepares=0",
+        "engine.transcribes=0",
+        // The quiet surfaces: no download session started and nothing held — the same happy
+        // path the batch cycle asserts, on the streaming route.
+        "download.starts=0",
+        "holds=0",
+        // The latency ledger closed exactly one record: the streaming route's own finalize
+        // row — the minted id the drive handed it, closed once.
+        "records=1",
+    ].joined(separator: " ")
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -592,6 +648,65 @@ final class ZeroNetworkTests: XCTestCase {
             A module the probe never reaches is a module the zero-network invariant says nothing \
             about. Drive it from VoccaNetworkProbe.exerciseDefaultConfiguration() — including its \
             default-configuration start-up work, not just a reference to one of its types.
+            \(observation.diagnosticSummary)
+            """)
+    }
+
+    // MARK: - Test B2: the streaming invariant
+
+    /// Asserts the widget-streaming wiring makes zero network calls too.
+    ///
+    /// The streaming route is the same default-configuration story told one level further:
+    /// `routeStreaming` adds no network name (the `CoreBoundaryTests` rule — no
+    /// Foundation/Dispatch/Darwin in `VoccaCore`), and the fold the partials land in is the
+    /// widget store's own, so a probe that drives the streaming cycle end to end must observe
+    /// exactly what the batch cycle does: nothing.
+    ///
+    /// It shares the batch cycle's ``runProbe`` machinery — same binary, same interposer — and
+    /// asserts the same two zeroes plus the streaming post-condition, so the invariant now
+    /// covers both routes through the composed root.
+    func testStreamingCycleDeliversPartialsToTheWidgetStoreWithZeroNetworkCalls() throws {
+        let observation = try runProbe(mode: .streamingCycle)
+
+        XCTAssertEqual(
+            observation.networkConnectionCount, 0,
+            """
+            The widget-streaming wiring must make zero network calls. The probe contacted:
+            \(observation.networkConnectionDescriptions.joined(separator: "\n"))
+            Fix the code. Do not weaken this test.
+            \(observation.diagnosticSummary)
+            """)
+
+        XCTAssertEqual(
+            observation.nameResolutionCount, 0,
+            """
+            The widget-streaming wiring must resolve no hostnames. The probe resolved:
+            \(observation.nameResolutionDescriptions.joined(separator: "\n"))
+            \(observation.diagnosticSummary)
+            """)
+
+        // The streaming-cycle post-condition. The sixth effect-not-reference check: the
+        // `widget-streaming` wiring stopped being a promise and became a probe-driven fact —
+        // the partial sink folded into the widget store, exercised end to end. Deleting the
+        // drive removes this line from the output entirely, so the comparison fails against
+        // `nil` rather than quietly covering less.
+        XCTAssertEqual(
+            observation.reportedStreamingCycle, Self.expectedStreamingCycleLifecycle,
+            """
+            The probe did not report driving a streaming dictation cycle through the composed \
+            root.
+              expected: \(Self.expectedStreamingCycleLifecycle)
+              observed: \(observation.reportedStreamingCycle ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseStreamingCycle() was not called in the \
+            streaming-cycle mode — in which case the sink→store wiring is outside this \
+            invariant — or the streaming route no longer behaves as written. Both matter, and \
+            the second more: the fields cover the widget-store fold (partials reached the \
+            store and the store carries the newest), the injection (the cleaned final through \
+            a real rung), and the surfaces that must stay quiet (never prepared, never \
+            transcribed through the batch call, no download, no hold, exactly one record).
+            Do not fix this by deleting the call, and do not fix it by pasting in whatever the \
+            probe now prints — see \
+            testTheAssertedStreamingCyclePostConditionStillDescribesAStreamingCycle.
             \(observation.diagnosticSummary)
             """)
     }
@@ -954,6 +1069,93 @@ final class ZeroNetworkTests: XCTestCase {
         XCTAssertEqual(
             try value("records"), "1",
             "The asserted full-cycle post-condition does not close exactly one latency record.")
+    }
+
+    // MARK: - Test F: the streaming post-condition is still worth asserting
+
+    /// **Guards the guard.** ``expectedStreamingCycleLifecycle`` must keep describing a
+    /// streaming dictation cycle — partials folded into the widget store, the cleaned final
+    /// delivered through a real rung, the stream consumed rather than the batch call, and every
+    /// quiet surface quiet — the same protection the other guard-the-guard tests give their
+    /// constants, for the same reason: a constant that appears in a failing diff gets
+    /// regenerated, and regenerating `expectedStreamingCycleLifecycle` to whatever the probe
+    /// now prints is the realistic way this gate rots.
+    ///
+    /// It costs no probe run: the constant is what is under test, not the process.
+    func testTheAssertedStreamingCyclePostConditionStillDescribesAStreamingCycle() throws {
+        let fields = try Self.parseFields(of: Self.expectedStreamingCycleLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        // The route delivered and came to rest: `.idle` is the delivered final's answer — the
+        // DELIVERED fold is the projection's, and a `reasonOnly` or `transcriptHeld` here would
+        // be a cycle that never delivered through a rung.
+        XCTAssertEqual(
+            try value("surface"), "idle",
+            "The asserted streaming post-condition no longer ends the route idle.")
+
+        // Partials reached the store — both halves: the count witnesses that each partial
+        // reached the wiring, and the carried text witnesses the fold itself. A `partials=0` or
+        // an empty `partial.last` would be a sink that never folded, wearing a green suite.
+        let partialCount = Int(try value("partials")) ?? 0
+        XCTAssertGreaterThanOrEqual(
+            partialCount, 1,
+            "The asserted streaming post-condition never presents a partial to the sink.")
+        let lastPartial = try value("partial.last")
+        XCTAssertFalse(
+            lastPartial.isEmpty || lastPartial == "none",
+            "The asserted streaming post-condition carries no partial text in the widget store.")
+
+        // The final reached the injector through a real rung, with the trace to match —
+        // `widgetFailsafe` here would mean the drive's one claimed delivery never happened.
+        let injected = try value("injected")
+        XCTAssertFalse(
+            injected.isEmpty,
+            "The asserted streaming post-condition's cleaned final never reached the injector.")
+        let rung = try value("rung")
+        XCTAssertNotEqual(
+            rung, "widgetFailsafe",
+            "The asserted streaming post-condition's cycle never delivered — it ended in the "
+                + "widget failsafe, so the happy path is not being asserted at all.")
+        XCTAssertTrue(
+            try value("attempted").split(separator: ",").contains(Substring(rung)),
+            "The asserted streaming post-condition did not record the rung it claims won in its "
+                + "attempted trace.")
+
+        // The streaming engine's ledgers: never prepared — preparation is the launch path's job
+        // (the warm-start aspect's pin) — and never asked to transcribe, which is the fact that
+        // the route consumed `stream()`. A non-zero `transcribes` would be a drive that fell
+        // back to the batch call, asserting nothing about the streaming route.
+        XCTAssertEqual(
+            try value("engine.prepares"), "0",
+            "The asserted streaming post-condition tolerates a prepare on the streaming path — "
+                + "preparation is the launch path's job, and the engine's prepareCount must stay "
+                + "observable at zero.")
+        XCTAssertEqual(
+            try value("engine.transcribes"), "0",
+            "The asserted streaming post-condition tolerates the batch transcribe call on the "
+                + "streaming path — the route must consume stream(), not fall back.")
+
+        // The quiet surfaces: nothing held and no download started — each a separate way the
+        // constant could stop describing the happy path while still looking like one.
+        XCTAssertEqual(
+            try value("holds"), "0",
+            "The asserted streaming post-condition tolerates a held transcript on the happy path.")
+        XCTAssertEqual(
+            try value("download.starts"), "0",
+            "The asserted streaming post-condition tolerates a model download starting during "
+                + "the probe run.")
+
+        // The latency ledger closed exactly one record: the streaming route's own finalize row.
+        XCTAssertEqual(
+            try value("records"), "1",
+            "The asserted streaming post-condition does not close exactly one latency record.")
     }
 
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the

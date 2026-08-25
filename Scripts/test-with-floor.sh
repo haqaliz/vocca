@@ -1016,8 +1016,24 @@ set -euo pipefail
 # resolve ⇒ requiresNetwork ⇒ .active(endpoint:) fold through the widget store), while the
 # zero-network probe's own cycle report now carries `egress=none` on the default path.
 #
+# The widget-streaming aspect's Phase 2 raises it to 1068: the widget reducer's streaming-partial
+# contract (WidgetStateReducerTests, eight) — the partial fold into RECORDING and TRANSCRIBING,
+# the truncation at exactly `WidgetTiming.maxPartialCharacters` (the cap pinned both directions
+# from the one named constant), the clearing rows (adopting IDLE/DELIVERED/a notice), the keeping
+# rows (adopting RECORDING/TRANSCRIBING), the never-into-DELIVERED pin, the state-carries-the-
+# text pin for the view's Reduce Motion choice, the dropped-outside-the-live-states row, and the
+# closed-set fold's new `.partial` action under the invariant that provisional text rides only
+# over RECORDING/TRANSCRIBING.
+#
+# The warm-start aspect's Phase 1 raises it to 1060: the warm-start ratio evaluator's contract
+# table (WarmStartRatioTests, eight) — the within / exactly-the-bound-inclusive / exceeds-with-
+# the-bound-named rows of the decision table, the two insufficient-samples rows (an empty side
+# is never fabricated into a ratio, the `notPresent` precedent), the median pin for the
+# steady-state side (the p50 discipline), the target's own value pin, and the single-source
+# scan that keeps the bound's literal in exactly the named table and its pinning test.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1052
+MINIMUM_EXECUTED_TESTS=1087
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
