@@ -41,6 +41,40 @@ import XCTest
 @MainActor
 final class FailsafePanelContractTests: XCTestCase {
 
+    // MARK: - The custody line
+
+    /// A held transcript promises custody; a reason-only notice promises nothing, because there is
+    /// nothing held. "Your words are safe here" over an empty panel would be the cruellest
+    /// sentence in the app.
+    func testTheCustodyLineIsPresentOnlyWhenSomethingIsHeld() {
+        let held = heldTranscript(reason: .exhausted, appName: "Notes")
+        for state in [
+            FailsafeState.presenting(held), .retrying(held), .copied(held),
+        ] {
+            let line = FailsafeCopy.custodyLine(for: state)
+            XCTAssertFalse(line.isEmpty, "\(state) holds a transcript and must say so")
+            XCTAssertTrue(
+                line.contains("safe"),
+                "the line's whole job is to answer \"have I lost it?\"")
+        }
+        XCTAssertEqual(
+            FailsafeCopy.custodyLine(for: .reasonOnly(.transcriptionFailed)), "",
+            "nothing is held, so nothing may be promised")
+        XCTAssertEqual(FailsafeCopy.custodyLine(for: .reasonOnly(.modelUnavailable)), "")
+    }
+
+    /// The line states the no-timeout guarantee, which is otherwise an invisible property of the
+    /// reducer — it has no time-based transition at all — and therefore something a user has no
+    /// way to discover before deciding whether to hurry.
+    func testTheCustodyLineStatesTheNoTimeoutGuarantee() {
+        let held = heldTranscript(appName: nil)
+        let line = FailsafeCopy.custodyLine(for: .presenting(held))
+        XCTAssertTrue(
+            line.contains("until you dismiss it"),
+            "a panel that never times out must say so, or the user assumes it does")
+    }
+
+
     // MARK: - The fakes
 
     /// The fake holder every test drives — `FakeTranscriptHolder`'s shape from `HeldTranscriptTests`,

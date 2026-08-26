@@ -1033,7 +1033,7 @@ set -euo pipefail
 # scan that keeps the bound's literal in exactly the named table and its pinning test.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1112
+MINIMUM_EXECUTED_TESTS=1114
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

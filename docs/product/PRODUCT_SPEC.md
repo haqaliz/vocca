@@ -58,8 +58,25 @@ FAILSAFE        ·  persists until dismissed. THE critical state.
                    │  here, fully selectable    │
                    │  ─────────────────────────  │
                    │  Couldn't type into Slack. │
+                   │  Your words are safe here. │
+                   │  This stays open until you │
+                   │  dismiss it.               │
                    │  ⌘C to copy    ⏎ retry   ✕ │
                    └────────────────────────────┘
+
+                   The custody line was added 2026-08-26. The reason
+                   sentences above it are unchanged and still verbatim;
+                   what none of them said is the thing the user most
+                   needs at that moment, which is that their words still
+                   exist. This panel is the visible half of "a transcript
+                   is never lost", and it was stating the failure without
+                   ever stating the guarantee. The no-timeout half is
+                   equally load-bearing: the panel has no time-based
+                   transition anywhere in its reducer, and a user who
+                   does not know that will hurry, or paste somewhere
+                   temporary just in case. A reason-only notice shows
+                   neither line — nothing is held, so nothing may be
+                   promised.
 
 CONVERSING      ·  visually distinct from RECORDING — see §5
                    ┌────────────────────────────┐
