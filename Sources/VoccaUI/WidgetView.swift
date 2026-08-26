@@ -64,15 +64,35 @@ public struct WidgetView: View {
 
     public var body: some View {
         content
-            .font(.caption)
+            .font(VoccaTheme.Text.panel)
             .foregroundStyle(isRecording ? Color.white : Color.primary)
             .lineLimit(1)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(
-                isRecording ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.black.opacity(0.25)),
-                in: Capsule())
-            .opacity(isIdle ? 0.3 : 1)
+            .padding(.horizontal, VoccaTheme.Panel.horizontalPadding)
+            .frame(height: VoccaTheme.Panel.height)
+            .background(background, in: Capsule())
+            // A hairline over the fill. The pill floats over arbitrary wallpaper, so it cannot
+            // borrow a window's edge — without this it dissolves into a light desktop exactly
+            // where it is most needed.
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
+            .opacity(panelOpacity)
+    }
+
+    /// The pill's fill: the recording accent, or a neutral vibrancy for every other state.
+    private var background: AnyShapeStyle {
+        isRecording
+            ? AnyShapeStyle(VoccaTheme.State.recording)
+            : AnyShapeStyle(.regularMaterial)
+    }
+
+    /// Idle sits at 68% and no lower here.
+    ///
+    /// The design drops it to 28% after ten seconds of no interaction, but **never to zero** —
+    /// "the panel does not disappear, it is always findable". The timed step is the reducer's to
+    /// drive and is not wired yet; what this must not do in the meantime is what the old value
+    /// did, which was render idle at 30% permanently and call it a resting state.
+    private var panelOpacity: Double {
+        isIdle ? VoccaTheme.Panel.idleOpacity : 1
     }
 
     /// The state-dependent content. The notice wins over everything — a terminal notice is the
@@ -84,9 +104,11 @@ public struct WidgetView: View {
         } else {
             switch store.state.state {
             case .idle:
-                Circle()
-                    .fill(.primary)
-                    .frame(width: 6, height: 6)
+                // A microphone, not an anonymous dot: idle is the state a user is most likely to
+                // see without context, and it should say which app is sitting there.
+                Image(systemName: "mic")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
             case .opening(let targetAppName):
                 HStack(spacing: 4) {
                     Text(WidgetCopy.openingLabel(targetAppName: targetAppName))
@@ -102,7 +124,10 @@ public struct WidgetView: View {
                         isLive: isRecording)
                     if isRecording {
                         if let elapsed = store.state.elapsed {
+                            // Monospaced digits: the timer counts every second, and proportional
+                            // figures make the whole pill twitch as the width changes under them.
                             Text(WidgetCopy.elapsedText(elapsed))
+                                .font(VoccaTheme.Text.panelTimer)
                         }
                         if store.state.showsEscapeHint {
                             Text(WidgetCopy.escapeHint)
@@ -116,7 +141,12 @@ public struct WidgetView: View {
                     egressMarker
                 }
             case .delivered(let targetAppName):
-                Text(WidgetCopy.deliveredLabel(targetAppName: targetAppName))
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(VoccaTheme.State.delivered)
+                    Text(WidgetCopy.deliveredLabel(targetAppName: targetAppName))
+                }
             }
         }
     }
@@ -125,11 +155,28 @@ public struct WidgetView: View {
     /// provider sends text off the machine, with the hover copy stating where it goes. Rendered
     /// in the opening/recording/transcribing branches only — DELIVERED is deliberately excluded
     /// (the text has left by then, `egress-badge` B1). Display-only: the pill never becomes key.
+    ///
+    /// ## Why it is amber, and why a rule separates it
+    ///
+    /// The design's rationale, kept because it is right: amber is distinct from every state colour
+    /// — the accent is opening, red is recording, green is delivered — so the badge can never be
+    /// misread as a phase. It is not a state at all; it is a different *category* of fact sharing
+    /// one pill, and the hairline divider says so before the colour does.
+    ///
+    /// Its presence is the whole message. When cleanup runs on-device the badge is absent, so
+    /// **showing at all means text is leaving this machine** — which is why nothing here has a
+    /// subtler variant for "a little bit of network".
     @ViewBuilder
     private var egressMarker: some View {
         if case .active(let endpoint) = store.state.egress {
-            Text(BadgeCopy.egressGlyph)
-                .help(BadgeCopy.egressHoverText(endpoint: endpoint))
+            HStack(spacing: VoccaTheme.Panel.itemSpacing - 3) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.18))
+                    .frame(width: 0.5, height: 12)
+                Text(BadgeCopy.egressGlyph)
+                    .foregroundStyle(VoccaTheme.egress)
+                    .help(BadgeCopy.egressHoverText(endpoint: endpoint))
+            }
         }
     }
 

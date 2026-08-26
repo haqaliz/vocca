@@ -70,6 +70,12 @@ public struct FailsafeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                // Under the reason, above the keys: the reassurance is the answer to "have I
+                // lost it?", which is the question the reason line provokes and never settles.
+                Text(FailsafeCopy.custodyLine(for: state))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 HStack {
                     Text(FailsafeCopy.affordancesLine(for: state))
                         .font(.caption)

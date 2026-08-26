@@ -58,6 +58,31 @@ public enum FailsafeCopy {
         }
     }
 
+    /// The custody line: that the transcript is safe, and that nothing will take it away.
+    ///
+    /// Added 2026-08-26 from the design pass. The spec's reason sentences say what went wrong and
+    /// which key to press; what none of them said is the thing the user most needs to hear at that
+    /// moment, which is that **their words still exist**. The failsafe is the visible half of the
+    /// invariant "a transcript is never lost", and it was stating the failure without ever stating
+    /// the guarantee.
+    ///
+    /// The second half matters as much as the first. The panel has no timeout anywhere in it — no
+    /// time-based transition exists in its reducer at all — and a user who does not know that will
+    /// hurry, or copy somewhere temporary just in case. Saying it converts a silent design
+    /// property into something they can rely on.
+    ///
+    /// Empty for a reason-only notice, on the same rule that empties the legend: nothing is held,
+    /// so there is nothing to promise about, and "your words are safe" over an empty panel would
+    /// be the cruellest sentence in the app.
+    public static func custodyLine(for state: FailsafeState) -> String {
+        switch state {
+        case .reasonOnly:
+            return ""
+        case .hidden, .presenting, .retrying, .copied:
+            return "Your words are safe here. This stays open until you dismiss it."
+        }
+    }
+
     /// The affordances legend, `PRODUCT_SPEC.md:54` verbatim: what ⌘C, ⏎ and ✕ do.
     ///
     /// A reason-only notice renders an **empty** legend (PRD R5): no text is held, so ⌘C and ⏎
