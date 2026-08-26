@@ -1058,8 +1058,11 @@ step 64, which was the blocked step.
     holds the cleaned transcript, which for a clean phrase is the raw text itself.** PRD metric 1.
 
     *Gesture:* with the model present and the launch-time prepare completed (a trial press starts
-    a session), focus a new note in Notes, press `⌥Space`, speak a fixed 10-second utterance, and
-    release on the beat. Select all, copy, and compare with `pbpaste` **byte for byte** — the
+    a session), focus a new note in Notes, press `⌥Space` to start, speak a fixed 10-second
+    utterance, and press `⌥Space` again to end — **toggle is the shipped default since
+    2026-08-25**, so both ends of the session are a press, not a hold and a release. To run this
+    row in hold-to-talk, switch the mode first; the gesture is then press, speak, release.
+    Select all, copy, and compare with `pbpaste` **byte for byte** — the
     steps 22-35 discipline, against the transcript Vocca produced, not against your intention
     (an ASR mishearing is step 18's matter; a byte difference against what the engine produced is
     an injection matter). Repeat in TextEdit (`⌘⇧T` — rich text reflows and defeats the byte
@@ -1067,12 +1070,14 @@ step 64, which was the blocked step.
 
     *Pass:* the field holds the transcript **cleaned by the shipped rules, which for a clean
     phrase is the transcript itself** verbatim in both apps, no failsafe appears, and the
-    orange mic indicator (step 58's discipline) is out within a watchdog tick of the release. The
+    orange mic indicator (step 58's discipline) is out within a watchdog tick of the second
+    press. The
     cycle the machine executes is the plan's sequence — OPENING → RECORDING → TRANSCRIBING →
     DELIVERED → IDLE (`PRODUCT_SPEC.md:77-103`): `.opening` shows the target label with **no
     waveform yet** (`:33-38`), `.started` begins the live waveform — the "it heard me" signal
     (`:84`), tracking real input level, never a canned animation (`:87-88`) — with `esc to
-    cancel` after 2 s (`:129`) and the elapsed timer after 3 s (`:89`); TRANSCRIBING freezes the
+    cancel` after 2 s (`:129`) and the elapsed timer **from 0:00** (`:89`, amended 2026-08-26 —
+    it waited 3 s until the counter was seen appearing mid-utterance); TRANSCRIBING freezes the
     waveform with the `○○○` progress (`:93-95`); DELIVERED shows `✓ → Notes` before the ~600 ms
     collapse to IDLE (`:50`, `:98`). The sequence is store-folded and CI-pinned, and the pill's
     window is wired: `LiveWidget` constructs it on the store's first non-IDLE fold, it
@@ -1083,7 +1088,7 @@ step 64, which was the blocked step.
 
     *Failure:* the field does not hold the transcript **cleaned by the shipped rules, which for a
     clean phrase is the transcript itself** verbatim; the failsafe appears with a reason instead
-    of a delivery; or the mic indicator stays lit after the release. A transcribe
+    of a delivery; or the mic indicator stays lit after the closing press. A transcribe
     failure surfaces the `.transcriptionFailed` reason-only notice — **"Voice processing failed.
     Nothing was lost — you can try again."** (`FailsafeCopy.swift:54-55`, PRD R5) — never a
     silent idle pretending the text landed.
@@ -1111,7 +1116,8 @@ step 64, which was the blocked step.
 64. **Esc during RECORDING and during TRANSCRIBING.** PRD metric 1.
 
     *Gesture:* press `⌥Space`, speak, and press Esc **during RECORDING** (the live waveform is
-    drawing). In a second cycle, release the key and press Esc **during TRANSCRIBING** (the
+    drawing). In a second cycle, press `⌥Space` again to end the capture and press Esc
+    **during TRANSCRIBING** (the
     waveform is frozen behind the `○○○` progress, `PRODUCT_SPEC.md:93-95`). Do both over an empty
     Notes field, and watch the field and the mic indicator (step 58's discipline).
 
@@ -1135,20 +1141,36 @@ step 64, which was the blocked step.
     notice; the mic indicator stays lit after the Esc (the discard did not close the microphone);
     or a second dictation cannot start immediately after (a stuck session).
 
-65. **Short press (~80 ms) — returns to IDLE, no injector call.** PRD metric 1.
+65. **The shortest possible session — returns to IDLE, no injector call.** PRD metric 1.
 
-    *Gesture:* with the model present, tap `⌥Space` briefly (~80 ms) over an empty Notes field,
-    in a silent room, and watch the field.
+    *Gesture:* **toggle (the shipped default):** press `⌥Space` and press it again immediately
+    (~80 ms apart) over an empty Notes field, in a silent room, and watch the field. A single tap
+    does *not* end a toggle session — it starts one that runs until the next press or the
+    ceiling — so the two-press gesture is what "short press" means in the shipped mode.
+    **Hold-to-talk:** the original gesture, a single ~80 ms tap of the chord.
 
-    *Pass:* the press returns the widget to IDLE with **no text in the field and no failsafe**.
+    Both produce the same thing: a capture far shorter than any utterance.
+
+    *Pass:* the gesture returns the widget to IDLE with **no text in the field and no failsafe**.
     The shipped guarantees that make this the honest expectation: a key-up that lands while the
     microphone is opening is held and applied the instant the session exists
     (`SessionMachine.swift:240`, the deferred-stop funnel); the empty-buffer policy decides
     *before* the engine — `samples.isEmpty` means the press never asks the engine, and empty
-    text is never pasted (`DictationPipeline.swift:142-148, 166-170`). One bound to state rather
-    than hide: the buffer is the opening window's audio (~42-114 ms, `PRODUCT_SPEC.md:105-127`),
-    so in a *noisy* room the buffer may not be empty and a real transcript can land — the pass is
-    "no text, no failsafe, back to IDLE", not "guaranteed silent".
+    text is never pasted (`DictationPipeline.swift:142-148, 166-170`); and a buffer that is
+    non-empty but **shorter than the engine's 0.3 s minimum** answers empty in the adapter rather
+    than throwing (`ParakeetEngine.isBelowSDKMinimum`, added 2026-08-25).
+
+    That last guarantee is why this row is worth running rather than assuming. Until it existed,
+    this exact gesture produced the failsafe's **"Voice processing failed. Nothing was lost — you
+    can try again."**: the capture was too brief for FluidAudio's guard, which threw
+    `invalidAudioData`, which surfaced as `.transcriptionFailed`. A capture of *exactly* zero
+    samples skipped cleanly while one of a few hundred raised an alarm — so a quick tap of the
+    hotkey looked like a failure. This row is that bug's regression test on real hardware.
+
+    One bound to state rather than hide: the buffer is the opening window's audio (~42-114 ms,
+    `PRODUCT_SPEC.md:105-127`), so in a *noisy* room the buffer may not be empty and a real
+    transcript can land — the pass is "no text, no failsafe, back to IDLE", not "guaranteed
+    silent".
 
     *Failure:* a failsafe appears (a transcript was captured and the ladder failed — a real
     injector call), text lands, or the widget is stuck in any state past its window.
@@ -1176,17 +1198,21 @@ step 64, which was the blocked step.
 67. **A toggle session runs and ends via its triggers (ceiling / tap-disabled / system).**
     PRD metric 5.
 
-    *Not yet performable on this build — record as **not performed**.* The toggle wiring ships:
+    **Performable since 2026-08-25, when toggle became the shipped default** — no mode-selection
+    control is needed to reach it any more, because it is the mode a fresh launch is already in.
+    (The paragraph below was written when it was the unreachable alternative; it is kept because
+    the wiring it describes is unchanged, and because hold-to-talk is now the half that needs
+    `setActiveMode` to reach.) The toggle wiring ships:
     the second configuration of the same machine, `activation: .toggle`, constructed and owned
     (`AppBootstrap.swift:273-278, 656-670`), with the machine's toggle end vocabulary — the next
     matching press (`.toggledOff`), the 120 s ceiling (`.ceilingReached`), a dead tap
     (`.tapDisabled`), and the system triggers (`EndReason.swift:50-88`) — and the composed
     toggle cycle is CI-driven over fakes (press → runs → ended via `.toggledOff` / ceiling /
     tap-disabled). What does not ship is the mode-selection control: it belongs to the settings
-    surface (`PRODUCT_SPEC.md:291` — "Hold-to-talk always has a toggle alternative"), and
-    `setActiveMode` is a wiring seam that refuses a switch while a session is in flight
-    (`AppBootstrap.swift:700-719`). When the control ships, the gesture is: switch to toggle,
-    press `⌥Space`, release, talk, press again to end — the transcript lands; and the backstops:
+    surface (`PRODUCT_SPEC.md:291`, amended — the two modes swapped roles and neither was
+    removed), and `setActiveMode` is a wiring seam that refuses a switch while a session is in
+    flight (`AppBootstrap.swift:700-719`). The gesture, in the mode a fresh launch is already in:
+    press `⌥Space`, talk, press again to end — the transcript lands; and the backstops:
     unplug the input device (the one system trigger wired today, `.audioConfigurationChanged`,
     `AppBootstrap.swift:207-222`) and hold a session past the ceiling — the mic indicator must
     go out within a watchdog tick of each stop (step 51's discipline).
@@ -1195,11 +1221,12 @@ step 64, which was the blocked step.
     (invariant I1), with metric 1's "no crash and no stuck session across 20 cycles" clause.
 
     *Gesture:* with the model present, dictate 20 cycles into Notes — a mix of ~5-10 s utterances
-    and the short presses of step 65. Between sessions, watch the mic indicator continuously
+    and the shortest-possible sessions of step 65. Between sessions, watch the mic indicator
+    continuously
     (step 58's discipline, not a glance at the end), and after resolving any failsafe, list
     `~/Library/Application Support/Vocca/recovery/` (step 35's check).
 
-    *Pass:* every cycle ends — the mic indicator goes out within a watchdog tick of each release
+    *Pass:* every cycle ends — the mic indicator goes out within a watchdog tick of each stop
     and stays dark between sessions (a session that does not end keeps it lit: the hot-mic class);
     no crash; and **zero transcript loss** — every spoken utterance either landed in the field
     **cleaned or raw** verbatim or is held and copyable in the failsafe, the two halves of
