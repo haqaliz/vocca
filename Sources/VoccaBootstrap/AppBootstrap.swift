@@ -398,12 +398,7 @@ public enum AppBootstrap {
                     break
                 }
             },
-            onOpenSettings: {
-                // The settings window is the design's next surface and does not exist yet. Doing
-                // nothing is the honest placeholder: a menu item that opened an empty window would
-                // be worse than one that is visibly not wired.
-                logger.info("Settings was chosen, but the settings window has not shipped yet")
-            },
+            onOpenSettings: { [weak root] in root?.showSettings() },
             onQuit: { NSApplication.shared.terminate(nil) })
         root.menuBarItem = item
         root.onMenuBarConditionsChanged = { [weak item] conditions in
@@ -728,6 +723,38 @@ public final class DictationLoopRoot {
     /// The widget-store observation that keeps the menu bar's phase in step. Retained here so it
     /// outlives `attachMenuBarItem`.
     public var menuBarPhaseObservation: AnyCancellable?
+
+    /// The settings window, built on first use and kept for the process's lifetime.
+    ///
+    /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
+    /// zero-network probe and may create nothing a window server is needed for.
+    private var settingsWindow: SettingsWindow?
+
+    /// Opens settings, building the window and its bindings the first time.
+    ///
+    /// The bindings are closures over what the root already holds, so the window never learns
+    /// about the loop and the loop never learns about SwiftUI.
+    public func showSettings() {
+        if settingsWindow == nil {
+            settingsWindow = SettingsWindow(
+                bindings: SettingsBindings(
+                    isToggleMode: { [weak self] in self?.activeMode == .toggle },
+                    setToggleMode: { [weak self] isToggle in
+                        // `setActiveMode` refuses mid-session and logs; the window does not need to
+                        // know that, and a user who changes this while dictating gets the change on
+                        // their next press rather than a broken session.
+                        self?.setActiveMode(isToggle ? .toggle : .holdToTalk)
+                    },
+                    hotkeyDisplayName: AppBootstrap.shippedHotkeyDisplayName,
+                    engineDisplayName: { EngineSelection.defaultSelection.tier.engine.displayName },
+                    cleanupSummary: { ("Built-in rules", nil) },
+                    // The same store the rules engine reads from, so an edit here is an edit the
+                    // next dictation applies — not a second copy of the file that drifts from it.
+                    loadDictionary: { await FileSystemDictionaryStore().load() },
+                    saveDictionary: { try await FileSystemDictionaryStore().save($0) }))
+        }
+        settingsWindow?.show()
+    }
 
     /// The status item, retained for the process's lifetime once `main()` has made one. `nil`
     /// under the probe and in every headless test, which is what keeps `configure` window-free.
