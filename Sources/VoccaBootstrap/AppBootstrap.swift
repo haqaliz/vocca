@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import Combine
 import OSLog
 import VoccaASR
 import VoccaAudio
@@ -367,9 +368,90 @@ public enum AppBootstrap {
     public static func main() {
         let application = NSApplication.shared
         let root = configure(application)
+        attachMenuBarItem(to: root)
         root.startEnginePreparation()
         application.run()
     }
+
+    /// Creates the status item and binds it to the root's conditions.
+    ///
+    /// **In `main()`, never in `configure`.** `NSStatusBar.system` is a window-server object, and
+    /// `configure` is what the zero-network probe drives — the same rule that keeps `LiveWidget`'s
+    /// panel lazy. A hosted runner has no menu bar to attach to, so nothing below this line runs
+    /// in CI; every decision it would make was taken above the seam in `MenuBarStateReducer` and
+    /// `MenuBarCopy`, which are tested there.
+    ///
+    /// The item is retained by the root for the process's lifetime. A status item that is
+    /// deallocated silently vanishes from the menu bar — which is precisely the disappearance this
+    /// surface exists to end.
+    @MainActor
+    private static func attachMenuBarItem(to root: DictationLoopRoot) {
+        let item = MenuBarItem(
+            hotkey: shippedHotkeyDisplayName,
+            onAction: { state in
+                switch state {
+                case .noAccessibility:
+                    openSystemSettings(at: accessibilityPanePath)
+                case .noMicrophone:
+                    openSystemSettings(at: microphonePanePath)
+                case .downloadingModel, .ready, .listening, .transcribing, .secureInput:
+                    break
+                }
+            },
+            onOpenSettings: {
+                // The settings window is the design's next surface and does not exist yet. Doing
+                // nothing is the honest placeholder: a menu item that opened an empty window would
+                // be worse than one that is visibly not wired.
+                logger.info("Settings was chosen, but the settings window has not shipped yet")
+            },
+            onQuit: { NSApplication.shared.terminate(nil) })
+        root.menuBarItem = item
+        root.onMenuBarConditionsChanged = { [weak item] conditions in
+            item?.apply(MenuBarStateReducer.state(for: conditions))
+        }
+        item.apply(MenuBarStateReducer.state(for: root.menuBarConditions))
+
+        // The session's phase, taken from the widget's own store rather than tracked a second
+        // time — so the icon and the pill can never disagree about whether Vocca is listening.
+        // OPENING counts as capturing: the microphone is coming up and the system indicator is
+        // about to light, and an icon still saying "ready" would be a beat behind the hardware.
+        root.menuBarPhaseObservation = root.widgetStore.$state.sink { [weak root] state in
+            MainActor.assumeIsolated {
+                root?.updateMenuBarConditions { conditions in
+                    switch state.state {
+                    case .opening, .recording:
+                        conditions.isCapturing = true
+                        conditions.isTranscribing = false
+                    case .transcribing:
+                        conditions.isCapturing = false
+                        conditions.isTranscribing = true
+                    case .idle, .delivered:
+                        conditions.isCapturing = false
+                        conditions.isTranscribing = false
+                    }
+                }
+            }
+        }
+    }
+
+    /// Opens a System Settings pane by its `x-apple.systempreferences` path.
+    @MainActor
+    private static func openSystemSettings(at path: String) {
+        guard let url = URL(string: path) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// The Accessibility pane — where the user must add Vocca themselves, because macOS will not
+    /// prompt for this grant on an app's behalf.
+    private static let accessibilityPanePath =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+
+    /// The Microphone pane.
+    private static let microphonePanePath =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+
+    /// The shipped chord, in the form a person reads.
+    public static let shippedHotkeyDisplayName = "⌥Space"
 
     // MARK: - The shipped numbers
 
@@ -632,6 +714,41 @@ public final class DictationLoopRoot {
     /// The mode a freshly constructed root starts in — the one place the shipped default is
     /// written, read by both ``activeMode`` and the routing sink's initial target.
     public static let defaultMode: DictationMode = .toggle
+
+    // MARK: - The menu bar's conditions
+
+    /// What the menu bar item should be saying, recomputed whenever any input to it changes.
+    ///
+    /// Held here rather than in `VoccaUI` because this is the only object that can see all of the
+    /// inputs at once: the tap's health, the engine's readiness, and the widget store's phase.
+    /// The *reduction* is `MenuBarStateReducer`'s and is tested headlessly; this is only the
+    /// gathering.
+    public private(set) var menuBarConditions = MenuBarConditions(isEnginePrepared: false)
+
+    /// The widget-store observation that keeps the menu bar's phase in step. Retained here so it
+    /// outlives `attachMenuBarItem`.
+    public var menuBarPhaseObservation: AnyCancellable?
+
+    /// The status item, retained for the process's lifetime once `main()` has made one. `nil`
+    /// under the probe and in every headless test, which is what keeps `configure` window-free.
+    public var menuBarItem: MenuBarItem?
+
+    /// Called on every change to ``menuBarConditions``. `main()` connects the status item here;
+    /// `configure` leaves it nil, which is what keeps the composition root window-free for the
+    /// zero-network probe — `NSStatusBar` is a window-server object like any panel.
+    public var onMenuBarConditionsChanged: ((MenuBarConditions) -> Void)?
+
+    /// Applies a change to the conditions and notifies, if anything actually moved.
+    ///
+    /// The guard matters: the health poll runs about once a second for as long as Vocca does, and
+    /// an unconditional notify would rebuild the menu under a user who has it open.
+    public func updateMenuBarConditions(_ mutate: (inout MenuBarConditions) -> Void) {
+        var next = menuBarConditions
+        mutate(&next)
+        guard next != menuBarConditions else { return }
+        menuBarConditions = next
+        onMenuBarConditionsChanged?(next)
+    }
     /// The watchdog's timer, exposed so a test can turn it.
     public let watchdogTimer: any RepeatingTimer
     /// The ~1 s tap-health poll's timer.
@@ -833,8 +950,15 @@ public final class DictationLoopRoot {
         self.disablementObserver = disablementObserver
         let tapHealth = TapHealthTimer(
             policy: policy, timer: healthTimer, retaining: disablementObserver,
-            reportHealth: { health in
+            reportHealth: { [weak cancelRouterBox] health in
                 Self.logTapHealth(health)
+                // The translation from `TapHealth` to the menu's plain facts lives here, in the
+                // one place that already knows both the tap and the widget. `VoccaUI` stays free
+                // of any dependency on `VoccaHotkey` for it.
+                cancelRouterBox?.value?.updateMenuBarConditions { conditions in
+                    conditions.isHotkeyDeafForPermission = health == .permissionMissing
+                    conditions.isBlockedBySecureInput = health == .blockedBySecureInput
+                }
             })
         self.tapHealth = tapHealth
 
@@ -889,6 +1013,7 @@ public final class DictationLoopRoot {
     /// calls it directly after constructing the root with an injected pipeline.
     public func markEnginePrepared() {
         readiness.markReady()
+        updateMenuBarConditions { $0.isEnginePrepared = true }
     }
 
     /// The launch half of the engine lifecycle: `prepare` in the background, then assemble the
