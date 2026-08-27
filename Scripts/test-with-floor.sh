@@ -1059,8 +1059,26 @@ set -euo pipefail
 # (MicrophoneAuthorizationTests, three). The A2/A3 floor raise lands in one integrator
 # commit after both aspects, because both agents shared the floor line.
 #
+# The first-run-permissions aspect A4 (try-it-target) raises it to 1186: the
+# onboarding injector's full-cycle contract (OnboardingInjectorTests, eight) — the
+# completed session's transcript delivered into the sink with a *delivered* record
+# (the vocabulary-artifact rung pinned, never a failsafe hold and never a fabricated
+# failure), the cancelled-during-TRANSCRIBING row (nothing delivered, record
+# `.aborted`, the asked engine attributed), the two empty-skip rows (empty captured
+# buffer decided before transcribe, the engine's own empty answer — the sink is never
+# asked on either), the resolve row (delivery reaches the sink regardless of the
+# focused-app read — nothing focused and Secure Input included, so none of the
+# ladder's rung-0 refusals leak into the onboarding path), the honest-failure row (a
+# refusing sink surfaces `.reasonOnly(.exhausted)` and finalizes `.failed` — never a
+# fabricated delivered), and the composition pins (`injectorComposition`: complete ⇒
+# ladder — the onboarding injector is never reachable when the flag is set —
+# incomplete ⇒ onboarding sink). The probe's `PROBE-CYCLE` post-condition is
+# byte-identical by construction: it is produced by the probe's own cycle drive
+# composing its own `LadderInjector` (`DictationCycleDrive.swift:379-389`), which A4
+# does not touch.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1178
+MINIMUM_EXECUTED_TESTS=1186
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -296,6 +296,34 @@ public enum AppBootstrap {
             transport: { DefaultLLMTransport() },
             keyProvider: { SystemKeychainKeyProvider() })
 
+        // MARK: The injector composition (A4 — try-it-target)
+        //
+        // The one decision about the loop's injector, taken **once, here, at composition**:
+        // onboarding incomplete ⇒ the onboarding sink — TRY IT's dictation lands in the
+        // window's own field, not through the system-wide ladder (prd.md M6, whose allowlist is
+        // seeded with three apps, not Vocca); complete ⇒ the shipping ladder, today's behavior.
+        //
+        // The flag is read exactly once, synchronously, before the pipeline assembly exists (the
+        // `main()` precedent — a scalar read the root composition may make). A flag set later
+        // (TRY IT success) changes nothing for this process: the choice is captured here, the
+        // assembly closure below only consults the captured value — the resolve-once doctrine,
+        // `DictationEngineResolver`'s shape. The next launch composes the ladder.
+        //
+        // The probe stays green by construction: `PROBE-CYCLE`'s post-condition is produced by
+        // the probe's own cycle drive composing its own `LadderInjector` over probe rung fakes
+        // (`DictationCycleDrive.swift:379-389`) — the probe never routes a session through this
+        // root (it holds the root only to read its activation policy for `PROBE-BOOTSTRAP`), so
+        // whichever branch the flag selects here, the probe's `PROBE-CYCLE`/`PROBE-LATENCY`
+        // strings are byte-identical. No caller branches on the choice at session time.
+        let injectorComposition = Self.injectorComposition(
+            completionFlag: CompletionFlagStore().isComplete())
+
+        // The onboarding delivery destination, owned by this composition. The TRY IT field's
+        // binding (A5) conforms to the seam and delivery appends to the field; until that window
+        // ships, this pending sink holds the latest transcript in memory — a transcript is never
+        // swallowed by a new path (G6), and claiming the held text is A5's.
+        let onboardingSink = PendingOnboardingSink()
+
         // MARK: The root
         //
         // The pipeline is assembled after the engine is prepared (it needs a *prepared* engine),
@@ -322,8 +350,15 @@ public enum AppBootstrap {
                 guard let engine = await resolver.engineIfReady() else {
                     throw PipelineAssemblyError.engineNotPrepared
                 }
+                let injector: any TextInjector
+                switch injectorComposition {
+                case .ladder:
+                    injector = custody.ladder
+                case .onboarding:
+                    injector = OnboardingInjector(sink: onboardingSink)
+                }
                 return DictationPipeline(
-                    engine: engine, injector: custody.ladder, holder: custody.holder,
+                    engine: engine, injector: injector, holder: custody.holder,
                     recorder: ledger, clock: clock,
                     cleanup: try await cleanupResolver.resolve())
             },
@@ -509,6 +544,47 @@ public enum AppBootstrap {
         /// `prepare` reported success but the resolver answered no engine — unreachable by
         /// construction (`prepareIfNeeded` sets `prepared` only after the engine answers).
         case engineNotPrepared
+    }
+
+    /// The A4 composition decision — which injector the loop is composed with, chosen exactly
+    /// once in ``configure(_:)`` (the resolve-once doctrine): the only branch about the
+    /// injector that exists, so no caller checks completion state at session time.
+    ///
+    /// Pinned by `OnboardingInjectorTests` in both directions — including that the onboarding
+    /// injector is never reachable when the flag is set, which is the half the zero-network
+    /// probe's green run rests on: the probe's `PROBE-CYCLE` post-condition asserts the *real*
+    /// ladder delivered (`ZeroNetworkTests.expectedCycleLifecycle`), and that report is
+    /// produced by the probe's own drive composing its own ``LadderInjector`` — this decision
+    /// cannot reach it, and the completed-machine direction below keeps the decision itself
+    /// honest.
+    public enum InjectorComposition: Sendable, Equatable {
+        /// Onboarding incomplete: the loop's injector is the onboarding sink — TRY IT's
+        /// dictation lands in the window's own field (prd.md M6).
+        case onboarding
+        /// Onboarding complete: the shipping ladder — today's behavior, byte for byte.
+        case ladder
+    }
+
+    /// Maps the persisted completion flag (A3) to the injector composition. Pure — the one
+    /// decision, taken once, at composition, in ``configure(_:)``.
+    public static func injectorComposition(completionFlag: Bool) -> InjectorComposition {
+        completionFlag ? .ladder : .onboarding
+    }
+}
+
+/// The A4 stand-in for the TRY IT field's binding (A5): the window's field conforms to
+/// ``OnboardingTranscriptSink`` and delivery appends to the field; until that window ships, this
+/// sink holds the latest delivered transcript in memory — the transcript-loss invariant (G6)
+/// holds across the gap (nothing is swallowed; the text is retained for the binding to claim),
+/// and the sink is a window-free object, so `configure` stays window-free (the probe's charter).
+@MainActor
+private final class PendingOnboardingSink: OnboardingTranscriptSink {
+    /// The latest delivered transcript, or `nil` before the first delivery. Single slot — the
+    /// window's field is the destination of one dictation at a time.
+    private(set) var latest: String?
+
+    func deliver(_ transcript: String) async throws {
+        latest = transcript
     }
 }
 
