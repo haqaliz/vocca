@@ -95,7 +95,9 @@ final class ModuleBoundaryTests: XCTestCase {
     /// deliberately still a leaf while it imported nothing ("moving it now would loosen a rule that
     /// currently holds for free"); the import is the reason to move, not the move's cost. The
     /// AVFoundation expected-importer lint in `AudioFormatConverterTests` keeps the framework
-    /// confined to the two graph/conversion files regardless.
+    /// confined to the graph/conversion files and the microphone-permission adapter regardless —
+    /// three files since the `first-run-permissions` A2 aspect, whose permission reads (prd.md
+    /// M5/M5b) are the reviewed third row, R6's amendment planned rather than discovered.
     ///
     /// `VoccaText` joined in the deterministic-cleanup capability: it implements the `CleanupProvider`
     /// seam (the rules engine, `RulesCleanup`). The move is what lets it import `VoccaCore` — the

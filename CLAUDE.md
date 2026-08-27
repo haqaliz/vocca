@@ -534,6 +534,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   and is not teaches a user the app is broken.
 > - **First run and permissions do not exist.** The highest-value surface in the design direction
 >   is still unbuilt, and a fresh install still meets the same three silent gates.
+>   *(Amended by the `first-run-permissions` unit, landed 2026-08-27: the five-step onboarding
+>   window exists and presents the three gates one at a time; a fresh install no longer meets them
+>   silently — recorded below.)*
 > - **No colour, type or spacing was copied from a prototype's canned rendering.** Both prototypes'
 >   waveforms are hardcoded arrays with no level input — the bar geometry was taken and nothing
 >   else, because a canned waveform is the one thing `PRODUCT_SPEC.md:88` forbids outright.
@@ -543,6 +546,45 @@ This file orients a coding agent working in this repository. Read it first.
 >   shipping a feature nobody decided on.
 > - **None of it has been seen in motion.** The pill renders only during a dictation, and
 >   dictation has still never been observed delivering text end to end.
+>
+> **The `first-run-permissions` unit landed 2026-08-27 — the three silent gates, given a surface
+> that presents them.** The five-step onboarding window (`Sources/VoccaUI/Onboarding/` —
+> `OnboardingWindow`, `OnboardingView`, `OnboardingStore`, `OnboardingCopy`,
+> `OnboardingDeliverySink`) walks a fresh install WELCOME → PERMISSIONS → MODEL → TRY IT → DONE
+> (`PRODUCT_SPEC.md:207-244`), with the flow's decisions in a Core-owned pure reducer
+> (`VoccaCore/Onboarding/`, the house pattern) over injected permission-status reads
+> (`OnboardingPermissionReads`): the Accessibility row renders the M5c three states — *not
+> granted / granted, restart to arm / armed* — with [Restart Vocca] on the middle one; the
+> Microphone row fires `requestAccess` on its own appear (M5b's one-at-a-time, never a wall); and
+> the MODEL step embeds its own progress (`ModelDownloadSession` + `DownloadState`) with Skip. The
+> permission-read, pane and relaunch adapters are A2's set: `SystemSettingsPane` (the two frozen
+> pane URLs, lifted from `AppBootstrap`), `AppRelaunch` (terminate + relaunch), the third
+> AVFoundation-naming file in `VoccaAudio` — `MicrophoneAuthorization` — and the existing
+> `AXSource.isProcessTrusted()`. Completion is the `onboarding.complete` flag behind its one-file
+> UserDefaults seam (`CompletionFlagStore`), read synchronously for the `main()` show decision
+> (window-server rule: `main()` shows, `configure` never constructs a window) and written only by
+> TRY IT success (R4, reducer-pinned). TRY IT is a dedicated delivery sink — a real session
+> through the composed pipeline with only the delivery end swapped, a one-decision composition
+> (`injectorComposition(completionFlag:)`: the ladder once complete, the onboarding sink until
+> then) — so words land in the window's field, never through the allowlist ladder, with the M7
+> model-unavailable state honest when the model was skipped and DONE still reachable. The menu bar
+> gains the "Welcome…" reopen item. Test floor: 1208.
+>
+> **What the first-run-permissions unit is NOT, and must not be claimed:**
+> - **The window is executed by nothing in CI** (the window-server precedent): the reducer, the
+>   copy pins and the permission-read decisions are the tested half; `SMOKE_CHECKLIST.md` steps
+>   81–86 are the window's, the adapters' and the TCC paths' only execution.
+> - **No TCC prompt can be granted in CI, and none ever has been** — the smoke rows are the
+>   execution: the fresh-install run, the grant → restart → dictate path, the denial rows and the
+>   reopen are first executions, not re-checks.
+> - **Dictation still has never delivered text end to end.** TRY IT is the first place words could
+>   land in a window Vocca owns; `SMOKE_CHECKLIST.md` steps 62–68 remain unexecuted, and the
+>   loop's real-machine execution is still the founder's machine.
+> - **`DownloadWindow.present` remains uncalled** — the MODEL step embeds its own progress, so the
+>   shipped download window still has no caller.
+> - **`restartDismissed` has no view control yet** — the state exists in the reducer's vocabulary
+>   (`OnboardingState`), and the UI that leads to it is not built.
+> - **Settings has no permission-status display** (N1, deferred).
 >
 > > **The `short-press-toggle` change landed 2026-08-25 — the first real dictation's two findings.**
 > Pressing the hotkey produced *"Voice processing failed. Nothing was lost — you can try again."*

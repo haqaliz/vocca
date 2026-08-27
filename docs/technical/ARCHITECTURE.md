@@ -95,7 +95,8 @@ Sources/
   VoccaUI/
     Widget/                  # the floating pill + its states
     Settings/
-    Onboarding/
+    Onboarding/              # the five-step first-run flow (shipped `first-run-permissions`,
+                             #   2026-08-27)
   VoccaCore/
     Session/                 # DictationSession, ConverseSession, SessionMode
     Custody/                 # TranscriptCustody — I1 lives here
@@ -586,13 +587,35 @@ The BYOK cleanup rung's key lives **not here but in the login Keychain**, as
 config file, a log, or a crash surface — the file names the endpoint and the model, never the
 secret.
 
+**The onboarding completion flag is `UserDefaults`, behind a one-file seam.** `CompletionFlagStore`
+(`VoccaUI/Onboarding/`) is the repository's first UserDefaults-naming file (the seam table's
+reviewed amendment), key `onboarding.complete`. The read is synchronous because `main()` decides
+whether to show the onboarding window on it (window-server rule: `main()` shows, `configure` never
+constructs a window); only TRY IT success writes it (R4, reducer-pinned).
+
 **Permissions matrix.** Each is requested *at the moment it's first needed*, with copy explaining what we do and don't do — never in a first-run wall of dialogs:
 
 | Permission | Needed for | Requested at | If denied |
 |-----------|------------|--------------|-----------|
-| Microphone | All capture | First dictation attempt | Hard block, with a direct link to the settings pane |
-| **Accessibility** | **Global hotkey tap** + AX injection + context | **First launch** | **Hard block — no hotkey, no product** |
+| Microphone | All capture | The onboarding flow's PERMISSIONS step (`requestAccess` on the row's appear — one at a time, never a wall) | Hard block, with a direct link to the settings pane |
+| **Accessibility** | **Global hotkey tap** + AX injection + context | **First launch** — the pane button is its prompt (no request API exists) | **Hard block — no hotkey, no product** |
 | Automation (per-app) | Some AX targets | Per app, on demand | That app drops to clipboard rung |
+
+> **Amended (`first-run-permissions`, 2026-08-27).** The matrix's prompts are now presented by the
+> five-step onboarding window (`VoccaUI/Onboarding/`), one at a time, never a wall: the Microphone
+> row calls `MicrophoneAuthorization.requestAccess` as it appears — `MicrophoneAuthorization` is
+> the third AVFoundation-naming file in `VoccaAudio` (the expected-set lint's reviewed amendment)
+> — and the Accessibility row's pane button is its prompt, per the note below. The reads feeding
+> the live ✓/✗ are `MicrophoneAuthorization.authorizationStatus()` and
+> `AXSource.isProcessTrusted()`. `SystemSettingsPane` (the two frozen pane URLs, lifted from
+> `AppBootstrap`) and `AppRelaunch` (terminate + relaunch — executed by nothing in CI, the
+> tap-adapter precedent) are the AppKit glue files in `VoccaUI`. The onboarding window is the
+> **second focus-taking window**, following the `SettingsWindow` activation-policy dance exactly
+> (`.regular` on show, `.accessory` on close). TRY IT's transcript lands through a dedicated
+> delivery sink (`OnboardingDeliverySink`) — the composed pipeline with only the delivery end
+> swapped, a one-decision composition (`injectorComposition(completionFlag:)`: the ladder once
+> `onboarding.complete`, the onboarding sink until then). The real-machine rows are
+> `SMOKE_CHECKLIST.md` steps 81–86.
 
 **The hotkey needs Accessibility, not Input Monitoring.** This table previously assigned Input Monitoring to the global hotkey tap. That is wrong, and it is wrong in the direction that would have shipped a broken product. `CGEvent.h:274-279`: event taps "may only receive key up and down events if access for assistive devices is enabled … If the tap is not permitted to monitor these events when the tap is created, then the appropriate bits in the mask are cleared. If that results in an empty mask, then NULL is returned."
 

@@ -120,6 +120,24 @@ public final class AXSource: FocusedAppReading, AccessibilityInserting, Sendable
         }
     }
 
+    // MARK: - The permission read (first-run-permissions A2)
+
+    /// The one raw grant fact, as bare as the C call: whether this process is trusted by
+    /// Accessibility (`AXIsProcessTrusted()`). Translation only — no policy: what the `Bool`
+    /// *means* for the flow (the M5c three states) is mapped above the seam, in
+    /// ``OnboardingPermissionReads`` (`Sources/VoccaCore/Onboarding/OnboardingPermissionReads.swift`),
+    /// where the wiring folds in the tap-armed fact (`TapHealth != .permissionMissing`).
+    ///
+    /// Unlike the calls above, this read does not run on ``callQueue``: it never talks to
+    /// another application's UI, so the per-call timeout that queue exists for has nothing to
+    /// bound — the trust flag is the process's own, read in one call.
+    ///
+    /// Executed by nothing in CI (an Accessibility grant cannot be granted on a hosted runner);
+    /// the mapping is the tested half.
+    public func isProcessTrusted() -> Bool {
+        AXIsProcessTrusted()
+    }
+
     // MARK: - Raw helpers (translation only)
 
     /// One attribute copy, as raw as the C call: `.success` → the value, anything else → `nil`.

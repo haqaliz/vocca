@@ -1032,8 +1032,80 @@ set -euo pipefail
 # steady-state side (the p50 discipline), the target's own value pin, and the single-source
 # scan that keeps the bound's literal in exactly the named table and its pinning test.
 #
+# The first-run-permissions aspect A1 (flow-reducer) raises it to 1153: the onboarding
+# flow's decision table (OnboardingReducerTests, 26) and its pinned copy
+# (OnboardingCopyTests, 13). The reducer tests that justify the raise are the resume
+# matrix (begin/windowClosed folded from every step × every status combination, the S3
+# "resume at the first incomplete step" rule pinned in both directions), the M5c
+# restart-offer invariant (restartOffered is only reachable from grantedNotArmed, driven
+# over the whole closed set), the M4 completion pin (tryItSucceeded is the only transition
+# that sets completed, swept over the closed set), the model state's terminality
+# (straggler rejection after skipped/committed/failed with M7's fresh-download door), the
+# M7 refusal rows (absent/failed/skipped refuse with .modelUnavailable, committed/in-
+# flight are ready), and the closed-set totality fold over representative states at every
+# step. The copy tests pin §6 byte-for-byte (PRODUCT_SPEC.md:211-244), including the ⌥
+# (U+2325) and ≈ (U+2248) characters as-is, plus the two NEW-COPY surfaces (the M5c
+# three-state line and the M7 model-unavailable line) to their documented sources.
+#
+# The first-run-permissions aspects A2 (permission-reads) and A3 (completion-store)
+# raise it to 1178: A3's completion flag store (CompletionFlagStoreTests, six — absent →
+# false, markComplete → true, idempotency, Boolean-under-key storage, cross-instance
+# persistence, the frozen-key pin) plus its UserDefaults seam family (six seam-table
+# rows: the two-sided pin, the exactly-one-file test, the tree-wide escape scan, the
+# planted-identifier negative controls, the comments-stripped test), and A2's
+# permission-read mapping (OnboardingPermissionReadsTests, five — the (trusted,
+# tapArmed) three-state accessibility table and the microphone 4→3 mapping), the pane
+# URL pins (SystemSettingsPaneTests, five) and the microphone-authorization translation
+# (MicrophoneAuthorizationTests, three). The A2/A3 floor raise lands in one integrator
+# commit after both aspects, because both agents shared the floor line.
+#
+# The first-run-permissions aspect A4 (try-it-target) raises it to 1186: the
+# onboarding injector's full-cycle contract (OnboardingInjectorTests, eight) — the
+# completed session's transcript delivered into the sink with a *delivered* record
+# (the vocabulary-artifact rung pinned, never a failsafe hold and never a fabricated
+# failure), the cancelled-during-TRANSCRIBING row (nothing delivered, record
+# `.aborted`, the asked engine attributed), the two empty-skip rows (empty captured
+# buffer decided before transcribe, the engine's own empty answer — the sink is never
+# asked on either), the resolve row (delivery reaches the sink regardless of the
+# focused-app read — nothing focused and Secure Input included, so none of the
+# ladder's rung-0 refusals leak into the onboarding path), the honest-failure row (a
+# refusing sink surfaces `.reasonOnly(.exhausted)` and finalizes `.failed` — never a
+# fabricated delivered), and the composition pins (`injectorComposition`: complete ⇒
+# ladder — the onboarding injector is never reachable when the flag is set —
+# incomplete ⇒ onboarding sink). The probe's `PROBE-CYCLE` post-condition is
+# byte-identical by construction: it is produced by the probe's own cycle drive
+# composing its own `LadderInjector` (`DictationCycleDrive.swift:379-389`), which A4
+# does not touch.
+#
+# The first-run-permissions aspect A5 (onboarding-window) raises it to 1208: the
+# onboarding store's fold contract (OnboardingStoreTests, eleven) — the WELCOME
+# opening state, the closed-set route through the reducer, the injected-read
+# refresh with the armed-fact feed's three-state mapping (`TapHealth !=
+# .permissionMissing` → armed input, M5c), the mic read through the pure seam, the
+# no-reads-on-fold pin (the store never calls a system API), the completion write's
+# exactly-once and no-other-writer pins (R4), and the advance rule's rows
+# (permissions-met → MODEL, committed → TRY IT, never at WELCOME, never over the
+# M7 refusal, close-resumes-and-never-uncompletes) — and the onboarding window's
+# headless contracts (OnboardingWindowContractTests, ten) — lazy construction
+# (built only on show — `configure` stays window-free), the activation-policy
+# dance routed through the seam (.regular on show, .accessory on every close, S2),
+# close-folds-resume (S3), canBecomeKey (the focus-taking window — TRY IT's field
+# needs the keyboard), restart single-fire per presentation with the re-arm on
+# re-show (M3/R2), the stray-restart no-op, and the TRY IT delivery wiring
+# (delivered text appends to the field and completes — G5; a second delivery
+# appends; a delivery with no registered destination fails honestly — the A4
+# refusal, tryItFailed folded, never a fabricated success; and a delivery to a
+# **closed** window refuses — the A4 "binding is gone" shape, completion never lands
+# behind a closed window). The A4 stand-in
+# (`PendingOnboardingSink`) is gone: the real sink is the window's field binding,
+# registered at window construction. The zero-network probe stays green by
+# construction: `configure` builds the window-free store and sink, the model-
+# presence fold is a disk read, and the window itself is never constructed by
+# `configure` or `main` (M9 — the download starts only from the window's MODEL
+# step, user-initiated).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1114
+MINIMUM_EXECUTED_TESTS=1208
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

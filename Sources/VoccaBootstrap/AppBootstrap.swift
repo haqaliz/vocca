@@ -296,6 +296,71 @@ public enum AppBootstrap {
             transport: { DefaultLLMTransport() },
             keyProvider: { SystemKeychainKeyProvider() })
 
+        // MARK: The injector composition (A4 — try-it-target)
+        //
+        // The one decision about the loop's injector, taken **once, here, at composition**:
+        // onboarding incomplete ⇒ the onboarding sink — TRY IT's dictation lands in the
+        // window's own field, not through the system-wide ladder (prd.md M6, whose allowlist is
+        // seeded with three apps, not Vocca); complete ⇒ the shipping ladder, today's behavior.
+        //
+        // The flag is read synchronously here, once, before the pipeline assembly exists (the
+        // `main()` precedent — a scalar read the root composition may make); `main()` reads the
+        // same key again for its own, separate decision — whether the window auto-shows (M4).
+        // A flag set later (TRY IT success) changes nothing for this process: the choice is
+        // captured here, the assembly closure below only consults the captured value — the
+        // resolve-once doctrine, `DictationEngineResolver`'s shape. The next launch composes
+        // the ladder.
+        //
+        // The probe stays green by construction: `PROBE-CYCLE`'s post-condition is produced by
+        // the probe's own cycle drive composing its own `LadderInjector` over probe rung fakes
+        // (`DictationCycleDrive.swift:379-389`) — the probe never routes a session through this
+        // root (it holds the root only to read its activation policy for `PROBE-BOOTSTRAP`), so
+        // whichever branch the flag selects here, the probe's `PROBE-CYCLE`/`PROBE-LATENCY`
+        // strings are byte-identical. No caller branches on the choice at session time.
+        let injectorComposition = Self.injectorComposition(
+            completionFlag: CompletionFlagStore().isComplete())
+
+        // MARK: The onboarding flow (A5 — onboarding-window)
+        //
+        // The store and its delivery sink are **window-free objects** built here, so `configure`
+        // stays window-free (the probe's charter): the store folds the flow over injected reads,
+        // the sink is the TRY IT delivery end the loop's injector holds (A4), and the *window*
+        // is lazy on the root — the `settingsWindow` shape — constructed only by `showOnboarding()`.
+        //
+        // The reads are A2's adapters plus the root's tap health: the AX trust `Bool`
+        // (`AXSource.isProcessTrusted`), the armed fact (`TapHealth != .permissionMissing`,
+        // read from the root's latest poll answer — the health poll is the live channel that
+        // flips the ✓ the moment a grant lands, S1), and the raw mic status
+        // (`MicrophoneAuthorization.authorizationStatus`). The completion write is A3's store,
+        // the same key the `main()` show decision and the composition decision read.
+        let onboardingStore = OnboardingStore(
+            accessibilityTrusted: { AXSource().isProcessTrusted() },
+            tapArmed: {
+                guard let health = rootBox.value?.latestTapHealth else { return false }
+                return health != .permissionMissing
+            },
+            microphoneStatus: { MicrophoneAuthorization.authorizationStatus() },
+            markComplete: { CompletionFlagStore().markComplete() })
+
+        // The model-presence read (S3's third input, fed asynchronously — the
+        // `installedState(_:)` house pattern): `ModelStore.isPresent` is an actor read, so the
+        // wiring answers it in a launch task, and a present model folds `.committed` — the flow
+        // then resumes past the MODEL step. Disk-only: the zero-network probe stays green.
+        if let manifest = try? ShippedModelManifest.load(for: EngineSelection.defaultSelection.tier) {
+            Task {
+                if await store.isPresent(engineID: manifest.engineID, version: manifest.version) {
+                    onboardingStore.fold(.modelStatusChanged(.committed))
+                }
+            }
+        }
+
+        // The onboarding delivery destination, owned by this composition (A5): the window's
+        // field binding registers into it on construction (`OnboardingWindow.init`), so TRY
+        // IT's real dictation lands in the window's own field — not through the system-wide
+        // ladder (prd.md M6). A delivery with no registered destination fails honestly (the
+        // window closed mid-dictation): the A4 documented refusal, never a swallowed transcript.
+        let onboardingSink = OnboardingDeliverySink(store: onboardingStore)
+
         // MARK: The root
         //
         // The pipeline is assembled after the engine is prepared (it needs a *prepared* engine),
@@ -322,8 +387,15 @@ public enum AppBootstrap {
                 guard let engine = await resolver.engineIfReady() else {
                     throw PipelineAssemblyError.engineNotPrepared
                 }
+                let injector: any TextInjector
+                switch injectorComposition {
+                case .ladder:
+                    injector = custody.ladder
+                case .onboarding:
+                    injector = OnboardingInjector(sink: onboardingSink)
+                }
                 return DictationPipeline(
-                    engine: engine, injector: custody.ladder, holder: custody.holder,
+                    engine: engine, injector: injector, holder: custody.holder,
                     recorder: ledger, clock: clock,
                     cleanup: try await cleanupResolver.resolve())
             },
@@ -338,6 +410,11 @@ public enum AppBootstrap {
             widgetClock: MainRunLoopTimer(),
             liveLevel: liveLevel)
         rootBox.value = root
+        // The onboarding half of the root's surface: the store the window renders and the sink
+        // the window's field registers into — filled after construction, the `menuBarItem`
+        // shape (both are window-adjacent surfaces, neither exists for the probe).
+        root.onboardingStore = onboardingStore
+        root.onboardingSink = onboardingSink
 
         // The egress fold: the resolved provider's `requiresNetwork` + endpoint, folded into the
         // widget store exactly once at launch (resolve-once — a mid-session provider swap is
@@ -362,13 +439,20 @@ public enum AppBootstrap {
     /// Configures the shared application, starts the engine's background preparation, and hands
     /// control to its run loop. Does not return.
     ///
-    /// Deliberately two lines of work and one line of run loop: everything beyond the preparation
-    /// kick-off is `configure`'s, because `configure` is what the zero-network probe drives.
+    /// Deliberately three pieces of work and one line of run loop: everything beyond the
+    /// preparation kick-off is `configure`'s, because `configure` is what the zero-network probe
+    /// drives. The onboarding auto-show is here, not in `configure`, for the window-server rule
+    /// (`main()` shows, `configure` never constructs a window): the completion flag is read
+    /// **synchronously** (A3's store is UserDefaults-backed for exactly this decision), and the
+    /// window re-shows at launch until the flag is set (M4).
     @MainActor
     public static func main() {
         let application = NSApplication.shared
         let root = configure(application)
         attachMenuBarItem(to: root)
+        if !CompletionFlagStore().isComplete() {
+            root.showOnboarding()
+        }
         root.startEnginePreparation()
         application.run()
     }
@@ -391,14 +475,15 @@ public enum AppBootstrap {
             onAction: { state in
                 switch state {
                 case .noAccessibility:
-                    openSystemSettings(at: accessibilityPanePath)
+                    SystemSettingsPane.open(at: SystemSettingsPane.accessibilityPanePath)
                 case .noMicrophone:
-                    openSystemSettings(at: microphonePanePath)
+                    SystemSettingsPane.open(at: SystemSettingsPane.microphonePanePath)
                 case .downloadingModel, .ready, .listening, .transcribing, .secureInput:
                     break
                 }
             },
             onOpenSettings: { [weak root] in root?.showSettings() },
+            onOpenWelcome: { [weak root] in root?.showOnboarding() },
             onQuit: { NSApplication.shared.terminate(nil) })
         root.menuBarItem = item
         root.onMenuBarConditionsChanged = { [weak item] conditions in
@@ -428,22 +513,6 @@ public enum AppBootstrap {
             }
         }
     }
-
-    /// Opens a System Settings pane by its `x-apple.systempreferences` path.
-    @MainActor
-    private static func openSystemSettings(at path: String) {
-        guard let url = URL(string: path) else { return }
-        NSWorkspace.shared.open(url)
-    }
-
-    /// The Accessibility pane — where the user must add Vocca themselves, because macOS will not
-    /// prompt for this grant on an app's behalf.
-    private static let accessibilityPanePath =
-        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-
-    /// The Microphone pane.
-    private static let microphonePanePath =
-        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
 
     /// The shipped chord, in the form a person reads.
     public static let shippedHotkeyDisplayName = "⌥Space"
@@ -525,6 +594,31 @@ public enum AppBootstrap {
         /// `prepare` reported success but the resolver answered no engine — unreachable by
         /// construction (`prepareIfNeeded` sets `prepared` only after the engine answers).
         case engineNotPrepared
+    }
+
+    /// The A4 composition decision — which injector the loop is composed with, chosen exactly
+    /// once in ``configure(_:)`` (the resolve-once doctrine): the only branch about the
+    /// injector that exists, so no caller checks completion state at session time.
+    ///
+    /// Pinned by `OnboardingInjectorTests` in both directions — including that the onboarding
+    /// injector is never reachable when the flag is set, which is the half the zero-network
+    /// probe's green run rests on: the probe's `PROBE-CYCLE` post-condition asserts the *real*
+    /// ladder delivered (`ZeroNetworkTests.expectedCycleLifecycle`), and that report is
+    /// produced by the probe's own drive composing its own ``LadderInjector`` — this decision
+    /// cannot reach it, and the completed-machine direction below keeps the decision itself
+    /// honest.
+    public enum InjectorComposition: Sendable, Equatable {
+        /// Onboarding incomplete: the loop's injector is the onboarding sink — TRY IT's
+        /// dictation lands in the window's own field (prd.md M6).
+        case onboarding
+        /// Onboarding complete: the shipping ladder — today's behavior, byte for byte.
+        case ladder
+    }
+
+    /// Maps the persisted completion flag (A3) to the injector composition. Pure — the one
+    /// decision, taken once, at composition, in ``configure(_:)``.
+    public static func injectorComposition(completionFlag: Bool) -> InjectorComposition {
+        completionFlag ? .ladder : .onboarding
     }
 }
 
@@ -756,6 +850,59 @@ public final class DictationLoopRoot {
         settingsWindow?.show()
     }
 
+    // MARK: - The onboarding window (A5)
+
+    /// The onboarding flow's store — built by `configure` (window-free), fed by A2's adapters
+    /// and the root's tap health. `nil` never in the shipped graph; `configure` assigns it right
+    /// after the root exists.
+    public var onboardingStore: OnboardingStore?
+
+    /// The TRY IT delivery end the loop's injector holds — the window's field registers into it.
+    /// `nil` never in the shipped graph; `configure` assigns it right after the root exists.
+    public var onboardingSink: OnboardingDeliverySink?
+
+    /// The tap's latest health answer — the armed fact's source for the onboarding store
+    /// (`TapHealth != .permissionMissing`), kept by the ~1 s poll's report.
+    public private(set) var latestTapHealth: TapHealth?
+
+    /// The onboarding window, built on first use and kept for the process's lifetime — the
+    /// `settingsWindow` laziness, for the same reason.
+    private var onboardingWindow: OnboardingWindow?
+
+    /// Opens the five-step onboarding window, building it and its bindings the first time —
+    /// `main()`'s auto-show until the completion flag is set (M4), and the menu bar's
+    /// "Welcome…" reopen item's call. The bindings are closures over what the root already
+    /// holds: A2's pane paths and relaunch adapter, A5's mic request over
+    /// ``MicrophoneAuthorization``, and the root's download session — user-initiated only,
+    /// never from `configure` or `main` themselves.
+    public func showOnboarding() {
+        guard let onboardingStore, let onboardingSink else { return }
+        if onboardingWindow == nil {
+            let window = OnboardingWindow(
+                store: onboardingStore,
+                sink: onboardingSink,
+                bindings: OnboardingBindings(
+                    openAccessibilityPane: {
+                        SystemSettingsPane.open(at: SystemSettingsPane.accessibilityPanePath)
+                    },
+                    openMicrophonePane: {
+                        SystemSettingsPane.open(at: SystemSettingsPane.microphonePanePath)
+                    },
+                    requestMicrophoneAccess: {
+                        // M5b: the TCC prompt lands at the moment the flow controls it, and the
+                        // answer folds straight into the flow (the reducer's row).
+                        Task {
+                            let granted = await MicrophoneAuthorization.requestAccess()
+                            onboardingStore.fold(.microphoneRequestResulted(granted))
+                        }
+                    },
+                    makeDownloadSession: { [weak self] in self?.downloadSession },
+                    restart: { AppRelaunch.relaunch() }))
+            onboardingWindow = window
+        }
+        onboardingWindow?.show()
+    }
+
     /// The status item, retained for the process's lifetime once `main()` has made one. `nil`
     /// under the probe and in every headless test, which is what keeps `configure` window-free.
     public var menuBarItem: MenuBarItem?
@@ -979,6 +1126,12 @@ public final class DictationLoopRoot {
             policy: policy, timer: healthTimer, retaining: disablementObserver,
             reportHealth: { [weak cancelRouterBox] health in
                 Self.logTapHealth(health)
+                // The tap-armed fact's live source: every poll answer lands here, and the
+                // onboarding store's armed-fact read (`TapHealth != .permissionMissing`) plus
+                // its live ✓/✗ refresh ride on the same channel — the grant arriving mid-flow
+                // flips the row within a poll (S1, M5).
+                cancelRouterBox?.value?.latestTapHealth = health
+                cancelRouterBox?.value?.onboardingStore?.refresh()
                 // The translation from `TapHealth` to the menu's plain facts lives here, in the
                 // one place that already knows both the tap and the widget. `VoccaUI` stays free
                 // of any dependency on `VoccaHotkey` for it.
@@ -991,8 +1144,12 @@ public final class DictationLoopRoot {
 
         // The tap is created here. Without an Accessibility grant `tapCreate` returns nil and the
         // answer is `.permissionMissing` — logged, and the loop stays idle until the grant (the
-        // ~1 s poll and the grant notification are the recovery, already wired above).
-        Self.logTapHealth(tapHealth.arm())
+        // ~1 s poll and the grant notification are the recovery, already wired above). The
+        // arm's answer is also the onboarding store's first armed fact — kept here so the read
+        // is live from the instant the root exists, before the first poll.
+        let armedHealth = tapHealth.arm()
+        Self.logTapHealth(armedHealth)
+        latestTapHealth = armedHealth
 
         // The last step: the tap's sink can now reach this object's cancel router. The box is
         // deliberately filled last, so no path that could fire before the initializer finished —
