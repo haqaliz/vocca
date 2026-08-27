@@ -245,6 +245,8 @@ This file orients a coding agent working in this repository. Read it first.
 >   dictionary store, the pipeline wiring and the eval harness; C6: the Ollama and BYOK rungs,
 >   opted into by a hand-edited `cleanup-config.json` — both recorded below). **The Cleanup-tab
 >   settings UI and C8 (strategy memory) remain unbuilt.** The ladder does not learn.
+>   *(Amended by C8, landed 2026-08-27 — all five aspects: **the ladder learns, the user can
+>   overrule it, and the matrix that measures it exists**. Recorded in full below.)*
 >
 > **The `latency-instrumentation` unit landed 2026-08-14 — C7's first slice: the loop's
 > numbers, measured and gated.** `VoccaCore` now owns the local-only vocabulary the loop
@@ -449,7 +451,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   adapters' and the panel's only execution.
 > - **The loop is wired** (the `dictation-loop` unit above); CONVERSING and the settings surface
 >   are out of scope (only the FAILSAFE and the five live states ship); C8 (strategy
->   memory) remains unbuilt; C5 and C6 shipped in full except their settings surface — the
+>   memory) shipped in full — the store, the order, the recording seam, the Apps tab and the
+>   22-row matrix (recorded below), with the ≥95% number itself still unmeasured;
+>   C5 and C6 shipped in full except their settings surface — the
 >   rules dictionary and the cleanup-provider choice are JSON-editable, the Cleanup tab waits
 >   for the deferred settings surface; C7's
 >   latency-instrumentation slice shipped
@@ -589,6 +593,84 @@ This file orients a coding agent working in this repository. Read it first.
 > - **`restartDismissed` has no view control yet** — the state exists in the reducer's vocabulary
 >   (`OnboardingState`), and the UI that leads to it is not built.
 > - **Settings has no permission-status display** (N1, deferred).
+>
+> **C8 landed 2026-08-27 — all five aspects: the injection ladder learns per application, the
+> user can overrule it, and the matrix that measures it exists.** Until now `LadderInjector` re-tried a rung that
+> had already failed for a given app on *every* dictation, and the three seeded native apps were
+> the only ones the accessibility rung was ever offered to — the seed's own comment promising
+> that everything else reaches it "only through C8's learned memory". All three halves now exist.
+> **`core-memory`** shipped the pure vocabulary in `VoccaCore/StrategyMemory/`: the per-app
+> `InjectionStrategy` value, the ordered-rungs projection, the re-probe eligibility query, the
+> record fold and the absolute user override — stdlib-only, integer epoch seconds, no clock of
+> its own. **`store-seam`** shipped `InjectionStrategyStore` with both implementations
+> (`PersistentInjectionStrategyStore` over `~/Library/Application Support/Vocca/strategies.json`,
+> atomic and tolerant on the `FileSystemDictionaryStore` shape, plus the ephemeral store every
+> headless test uses), the cap-512 loud refusal, and the FileManager seam row that took the
+> exact-set pin from three seams to four. **`memory-order`** joined them to the ladder:
+> `MemoryBackedInjectionStrategyOrder` (`VoccaInject/Ladder/`) is the `InjectionStrategyOrder`,
+> the `InjectionAllowlist` **and** the new `InjectionStrategyRecording` seam, and
+> `ShippingLadder.makeWithMemory` puts **one instance in all three slots** — the load-bearing
+> decision, because an order that offers the accessibility rung while the rung's own gate
+> declines it schedules a probe that can never run and then records the refusal as the rung
+> failing. Both questions therefore route through the same projection. Promotion is the
+> adapter's one decision beyond Core: a clipboard delivery for an app that is neither seeded nor
+> learned mints a **candidate marker** (AX demoted with a re-probe window), because Core's fold
+> can only demote what was attempted and a clipboard win never attempts AX; after the window the
+> probe is offered once, and only a **read-back-verified** AX success promotes — a failed probe
+> is re-demoted with a fresh window. `SeededHostileApps` is the R5 data, and its Google Docs
+> entry is spelled **`com.google.Chrome`**: no `com.google.docs` bundle identifier exists, Docs
+> in a tab reports its host, and Docs as a Chrome PWA reports a per-installation hash that
+> cannot be seeded at all. `LadderInjector` gained an optional recorder (nil is C4's injector,
+> byte for byte), asks its order **once** per run and carries that answer into both the decision
+> and the record; the persist is applied in memory synchronously and written on a chained
+> detached task, so no dictation waits on a disk and two rapid presses cannot land out of order.
+> `AppBootstrap.assembleShippingLadder` is the extracted custody-chain assembly — store → loaded
+> snapshot → memory → ladder, pinned in that order by test — and the zero-network probe drives
+> the memory-backed ladder over a temp-directory store with no file, reporting `strategy=absent`
+> with zero `connect(2)` unchanged. **`apps-tab`** shipped the fifth Settings tab
+> (`VoccaUI/Apps/`): a pure reducer over an injected snapshot, the three health labels pinned
+> byte-for-byte to `PRODUCT_SPEC.md:275` and reused by the override picker rather than a second
+> dialect, and the reset that drops learned rows while preserving pins. The reducer has no clock
+> — the projection is asked with re-probe windows stripped, so the column reports what an
+> application has *settled* into rather than whether a probe is due this second. Writes go
+> through the memory (`replaceAll`, awaited and throwing, persisting exactly what it was handed
+> with the seed folded into memory only) so a pin applies to the next dictation; reads go to the
+> store, because the memory's launch-minted seeds are seed rather than learning.
+> **`matrix-smoke`** shipped the measurement surface: `Scripts/injection-matrix.sh` (22 rows as
+> data, `--self-check` / `--dry-run` / `--row`, a clipboard sentinel so a denied Automation grant
+> reads as VOID rather than a byte mismatch), `SMOKE_CHECKLIST.md` §12 with steps 87–93 and the
+> per-release tracked table, and the operational definition of first-method-success (bytes **and**
+> the log naming the expected rung as the landing rung; ≥19 of 20 deliverable rows). Test floor:
+> 1341.
+>
+> **What C8's landed aspects are NOT, and must not be claimed:**
+> - **Nothing here has typed into a real application.** The accessibility and clipboard rungs are
+>   executed by nothing in CI (the tap-adapter precedent), so what is proven headlessly is the
+>   *learning*, not the typing. `SMOKE_CHECKLIST.md` steps 22–35 remain the ladder's only real
+>   execution, and no promotion has ever been earned on a real machine.
+> - **The ≥95% first-method-success number does not exist.** The matrix, its harness and its
+>   rows exist; **the matrix has never been run**. The tracked table's only row says so. Until
+>   step 87's baseline calibration happens, Vocca has no measured injection-success figure of
+>   any kind, and every expected-rung in the table is a prediction rather than an observation.
+> - **The Apps tab is executed by nothing in CI** (the window-server rule): the reducer's
+>   decision table and the copy pins are the tested half, and the page and its wiring —
+>   including the LaunchServices name resolution — have never been rendered or run.
+> - **`apps-tab` was built before `matrix-smoke`, which its own spec advised against.** The
+>   sequencing note asked for the tab to be built against a *calibrated* matrix so its health
+>   column would describe rungs the matrix actually observes. It was built against
+>   `PRODUCT_SPEC.md:275`'s three labels instead, which are fixed vocabulary rather than
+>   findings — but if the baseline run shows a class of app the three labels describe badly,
+>   that is the cost, and the tab's copy is where it lands.
+> - **The 7-day re-probe window is provisional**, in exactly one place
+>   (`StrategyMemoryTargets.reprobeWindowSeconds`, pinned by a single-source scan) and
+>   re-baselined by the founder's matrix run — recorded, not gated.
+> - **`com.tinyspeck.slackmacgap` is still a guess**, and it is one of the two shipped hostile
+>   seeds. `Scripts/injection-matrix.sh --verify-bundle-ids` now reads `CFBundleIdentifier` from
+>   every installed matrix application and cross-checks the harness against the shipped Swift
+>   seeds (both directions, pinned by planted-violation tests). On the authoring machine that is
+>   **14 confirmed, 0 mismatched, 8 guessed** — Slack, Pages, Notion, iTerm2, Ghostty, IntelliJ,
+>   Zed and 1Password are not installed here, so their identifiers have never been seen. Step 87
+>   re-runs the mode on the founder's machine before the baseline.
 >
 > > **The `short-press-toggle` change landed 2026-08-25 — the first real dictation's two findings.**
 > Pressing the hotkey produced *"Voice processing failed. Nothing was lost — you can try again."*

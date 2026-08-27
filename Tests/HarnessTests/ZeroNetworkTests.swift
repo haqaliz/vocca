@@ -284,6 +284,11 @@ final class ZeroNetworkTests: XCTestCase {
         "injected=1-2-3.",
         "rung=clipboardPaste",
         "attempted=clipboardPaste",
+        // C8's strategy memory, on the path every fresh install runs: the ladder is the
+        // memory-backed one, and the store it loaded from had no file — so the projection is
+        // the shipped C4 order, `rung` above is unchanged, and no `strategies.json` was read or
+        // written by a process the interposer is watching for `connect(2)`.
+        "strategy=absent",
         // The happy path's quiet surfaces: the failsafe panel presented nothing, the handoff held
         // nothing, and no download session started.
         "failsafe=0",
@@ -1069,6 +1074,17 @@ final class ZeroNetworkTests: XCTestCase {
         XCTAssertEqual(
             try value("records"), "1",
             "The asserted full-cycle post-condition does not close exactly one latency record.")
+
+        // The strategy memory was consulted and had nothing — the fresh-install path. A
+        // constant that dropped this field would stop witnessing that the shipped ladder is the
+        // memory-backed one at all, and one that claimed a *loaded* memory would mean the probe
+        // is reading a strategies file from somewhere: on a developer's machine, plausibly the
+        // founder's own.
+        XCTAssertEqual(
+            try value("strategy"), "absent",
+            "The asserted full-cycle post-condition no longer runs the strategy memory over an "
+            + "absent file — the default configuration is a fresh install, which has no "
+            + "strategies.json, and a probe that found one is reading a file it does not own.")
     }
 
     // MARK: - Test F: the streaming post-condition is still worth asserting

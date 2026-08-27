@@ -412,6 +412,18 @@ is a bug, not a pass. The ladder's log names the rung that landed each insertion
 (`.accessibility`, `.clipboardPaste`, `.keystrokeSynthesis`), and every row states which one it
 expects.
 
+> **What C8's strategy memory changes about these rows, and what it does not** (memory-order
+> aspect, 2026-08-27). The ladder now remembers per application, so a matrix row run **twice**
+> can legitimately name different rungs: the first run discovers, the second starts at what
+> worked. Run each row on a fresh memory — delete `~/Library/Application Support/Vocca/strategies.json`
+> before the matrix — or the rung a row names is the memory's answer rather than the ladder's.
+> Two rows keep their expectation for a new reason: Slack (step 23) and Google Docs in Chrome
+> (step 24) are the **seeded hostile set** (`SeededHostileApps`), so their `.clipboardPaste`
+> result is now seeded rather than incidental. Nothing in the memory can promote an application
+> to the accessibility rung without a **read-back-verified** AX win, and no promotion is even
+> attempted until a re-probe window (7 days, provisional) has elapsed — so within one matrix
+> session, no row's rung can change because of learning alone.
+
 22. **Native AppKit: Notes, Mail, TextEdit** — the three seeded applications
     (`SeededInjectionAllowlist`), the only ones the accessibility rung is offered first.
 
@@ -1633,6 +1645,216 @@ demands, never a wall of dialogs.
 
     *Failure:* the number is not recorded (a claim with no measurement — the rule-1 shape); or
     the flow cannot reach DONE at all.
+
+
+---
+
+## 12. The injection matrix — memory active, the C8 measurement surface
+
+`ROADMAP.md:172` judges P2 on **≥95% first-method-success across a 20+ app matrix with the
+per-app strategy memory active**, and `ROADMAP.md:164` promises that matrix is "run as a
+semi-automated harness, tracked per release". Steps 22–35 are the P0 ladder rows and stay exactly
+as they are; this section is the expanded matrix, the memory-specific observations, and the
+tracked table the number accumulates in.
+
+Nothing here runs in CI, and not for the usual single reason — this section needs a window
+server, Automation grants for two dozen applications, a real microphone, a real pasteboard
+session, and a week of wall-clock time for one of its rows. `Scripts/injection-matrix.sh
+--self-check` is the only part a machine can run: it validates the row table and greps every row
+name into this file, so the harness and this section cannot drift apart silently. It is executed
+by the suite (`InjectionMatrixHarnessTests`).
+
+**The size question is settled here.** The docs said "20-app matrix" (`ROADMAP.md:172`), "past 20
+apps" (`CAPABILITY_ROADMAP.md:183`) and "20+ real apps" (`ARCHITECTURE.md:644`), and named no
+concrete set. The figure is **20+**, and the set is the 22 rows below: 20 deliverable rows and 2
+refusal rows.
+
+**First-method-success, operationally.** Per row: PASS = the field holds the transcript
+byte-for-byte **and** the ladder's log names the row's expected rung as the *landing* rung. A row
+that delivered through a fallback (the memory chose accessibility, accessibility failed, clipboard
+landed) is a delivery **without** first-method success — a miss for this number, and a
+demote-on-fail signal for the memory. The denominator is the **20 deliverable rows**; the two
+refusal rows are excluded from numerator and denominator and recorded separately under the
+zero-loss invariant. **≥95% = ≥19 of 20.** A skipped row (application not installed) and a voided
+row (no Automation grant, so the copy never happened) are neither passes nor failures — they are
+recorded as themselves, and a matrix run with many of either is not a matrix run.
+
+### The 22 rows
+
+The set starts from the P0 matrix (`ROADMAP.md:91`) and adds applications that span **failure
+classes the P0 set under-samples**, not brands. The class is the invariant: an application that
+is not installed is swapped for a same-class one and the swap is recorded in the tracked table.
+Bundle identifiers are confirmed with `plutil` against the installed application's
+`CFBundleIdentifier` at the baseline run — the `injection-adapters` discipline, and the reason
+the seeded lists are trusted.
+
+The expected-rung column is the **steady state**, and it is calibrated by step 87 rather than
+asserted in advance. A promotion candidate reads `clipboardPaste` until step 91 observes it flip.
+
+**The bundle identifier column is load-bearing and half of it is still guessed.** The memory keys
+on it, the seeds are written in it, and a wrong-but-plausible identifier is invisible: it seeds,
+learns and pins nothing while passing every test in the suite. C8's own plan carried
+`com.google.docs` — an identifier no application has ever reported — and the only thing that
+caught it was reading a real `Info.plist`. `Scripts/injection-matrix.sh --verify-bundle-ids` now
+does that for every installed row and exits non-zero on a mismatch. **Confirmed** below means it
+was read from an installed application's `CFBundleIdentifier`; **guess** means the application is
+not installed here and the identifier has never been seen. Re-run the mode on the founder's
+machine and update this column before trusting a guessed row — especially Slack's, which is one
+of the two shipped hostile seeds.
+
+Run so far (2026-08-28, authoring machine): **14 confirmed, 0 mismatched, 8 guessed.**
+
+| # | Row | Application | Bundle ID | ID source | Class | Seeded | Expected rung (steady state) |
+|---|-----|-------------|-----------|-----------|-------|--------|------------------------------|
+| 1 | `matrix-row: Notes` | Notes | `com.apple.Notes` | confirmed | native AppKit | allowlist | `.accessibility` |
+| 2 | `matrix-row: Mail` | Mail | `com.apple.mail` | confirmed | native AppKit | allowlist | `.accessibility` |
+| 3 | `matrix-row: TextEdit` | TextEdit | `com.apple.TextEdit` | confirmed | native AppKit | allowlist | `.accessibility` |
+| 4 | `matrix-row: Xcode` | Xcode | `com.apple.dt.Xcode` | confirmed | native AppKit | no | `.clipboardPaste` — promotion candidate |
+| 5 | `matrix-row: Messages` | Messages | `com.apple.MobileSMS` | confirmed | native AppKit | no | `.clipboardPaste` — promotion candidate |
+| 6 | `matrix-row: Pages` | Pages | `com.apple.iWork.Pages` | **guess** | native AppKit | no | `.clipboardPaste` — promotion candidate |
+| 7 | `matrix-row: VSCode` | Visual Studio Code | `com.microsoft.VSCode` | confirmed | Electron | no | `.clipboardPaste` |
+| 8 | `matrix-row: Slack` | Slack | `com.tinyspeck.slackmacgap` | **guess** | Electron | **hostile** | `.clipboardPaste` |
+| 9 | `matrix-row: Discord` | Discord | `com.hnc.Discord` | confirmed | Electron | no | `.clipboardPaste` |
+| 10 | `matrix-row: Notion` | Notion | `notion.id` | **guess** | Electron | no | `.clipboardPaste` |
+| 11 | `matrix-row: Obsidian` | Obsidian | `md.obsidian` | confirmed | Electron | no | `.clipboardPaste` |
+| 12 | `matrix-row: Safari` | Safari | `com.apple.Safari` | confirmed | browser | no | `.clipboardPaste` |
+| 13 | `matrix-row: Chrome` | Google Chrome | `com.google.Chrome` | confirmed | browser, plain field | **hostile** | `.clipboardPaste` |
+| 14 | `matrix-row: GoogleDocs` | Google Chrome | `com.google.Chrome` | confirmed | browser, custom editor | **hostile** | `.clipboardPaste` |
+| 15 | `matrix-row: Firefox` | Firefox | `org.mozilla.firefox` | confirmed | browser | no | `.clipboardPaste` |
+| 16 | `matrix-row: Terminal` | Terminal | `com.apple.Terminal` | confirmed | terminal | no | `.clipboardPaste` |
+| 17 | `matrix-row: iTerm2` | iTerm | `com.googlecode.iterm2` | **guess** | terminal | no | `.clipboardPaste` |
+| 18 | `matrix-row: Ghostty` | Ghostty | `com.mitchellh.ghostty` | **guess** | terminal | no | `.clipboardPaste` |
+| 19 | `matrix-row: IntelliJ` | IntelliJ IDEA | `com.jetbrains.intellij` | **guess** | Java/AWT | no | `.clipboardPaste` |
+| 20 | `matrix-row: Zed` | Zed | `dev.zed.Zed` | **guess** | native, non-AppKit | no | `.clipboardPaste` |
+| 21 | `matrix-row: 1Password` | 1Password | `com.1password.1password` | **guess** | known-hostile | — | **no rung attempted** |
+| 22 | `matrix-row: PasswordField` | Safari/Chrome password field | `com.apple.Safari` | confirmed | known-hostile | — | **no rung attempted** |
+
+**Rows 13 and 14 share a bundle identifier, and that is the finding, not an oversight.** The
+memory keys on the focused application's bundle ID, and Google Docs has none of its own: in a tab
+it reports `com.google.Chrome`, and as a Chrome PWA it reports
+`com.google.Chrome.app.<per-install hash>`, which cannot be seeded at all. So the hostile seed is
+**browser-wide** — the `memory-order` aspect's resolution of the spec's open question — and
+Chrome's plain fields are withheld from the accessibility rung along with Docs' editor. The two
+rows exist separately because they can still *diverge*: row 13 is where a founder finds out
+whether Chrome's plain field would have been accessibility-good, through the re-probe of step 90.
+If it repeatedly is, that is an argument for a field-class-scoped seed, and a finding to record
+rather than a failure.
+
+### Steps
+
+87. **`matrix-row` baseline calibration — the run that learns.**
+
+    This run has no expected-rung assertions. Its output *is* the expected-rung column for every
+    run after it.
+
+    *Gesture:* first run `Scripts/injection-matrix.sh --verify-bundle-ids` and update the ID
+    source column above — every **guess** that is now installed becomes confirmed or a mismatch,
+    and a mismatch is fixed in the harness table *and* in the shipped seed if the row is seeded.
+    Then quit Vocca, delete `~/Library/Application Support/Vocca/strategies.json`, relaunch. Run
+    `--dry-run` and record which rows are installed; swap any missing application for a same-class
+    one. Then run the full matrix, recording per row: the rung the log named, whether the bytes
+    matched, and anything surprising.
+
+    *Pass:* `--verify-bundle-ids` reports zero mismatches, and every installed row produced a
+    recorded observation. The per-row table this produces is written into this section as the
+    calibrated expectation.
+
+    *Failure:* a row with no recorded observation — or an identifier mismatch left unfixed, which
+    means the row's seed and its expected rung describe an application that does not exist.
+
+88. **`matrix-row` the tracked run — the ≥95% number.**
+
+    *Gesture:* with steady-state memory (i.e. **not** freshly reset — the baseline already
+    taught it), run `Scripts/injection-matrix.sh`. Per row: dictate the fixed phrase into the
+    named field, let the harness do the select-all/copy/byte-compare, and answer whether the log
+    named the expected rung.
+
+    *Pass:* ≥19 of the 20 deliverable rows land first-method, and both refusal rows refuse. Append
+    a row to the tracked table below.
+
+    *Failure:* fewer than 19 of 20 — recorded, never a silent pass, and the per-row misses are the
+    work list. **The number is recorded here, never gated in CI** (`prd.md` X7): CI proves the
+    memory's mechanism, this section produces the figure.
+
+89. **`matrix-row` seeded-hostile first run — the discovery cost is paid by the seed, not the user.**
+
+    *Gesture:* on a memory-fresh Vocca (delete `strategies.json`, relaunch), dictate once into
+    Slack and once into a Google Docs document — before any other dictation into either.
+
+    *Pass:* the log names **`.clipboardPaste` as the first attempt** in both. No `.accessibility`
+    attempt appears at all, so no AX discovery cost is paid on a first use.
+
+    *Failure:* an `.accessibility` first attempt on either. That is R5's seed missing or its
+    bundle identifier wrong — and a wrong-but-plausible identifier seeds *nothing* while passing
+    every test in the suite, which is exactly what this row exists to catch.
+    (`com.tinyspeck.slackmacgap` has never been `plutil`-confirmed; confirm it here.)
+
+90. **`matrix-row` the re-probe — Slack rediscovers, once.**
+
+    *Precondition, verified before anything is asserted:* at least five clipboard deliveries into
+    Slack, and the re-probe window has elapsed since the demotion. The window is
+    `StrategyMemoryTargets.reprobeWindowSeconds` — read the number from that one file and record
+    it beside this row; it is **provisional** and this step is what re-baselines it.
+
+    *Gesture:* after the window has passed, dictate into Slack once more and read the log.
+
+    *Pass:* the log names **one** `.accessibility` attempt, which fails, followed by the clipboard
+    landing; `strategies.json` shows the accessibility rung demoted again with a *fresh* window.
+    One attempt, not one per dictation.
+
+    *Failure:* no `.accessibility` attempt at all after the window elapsed — R4's decay schedule
+    is not running, and an application whose next update fixes accessibility is written off
+    forever. Also a failure: a re-probe on *every* dictation, which is the cost C8 exists to stop
+    paying.
+
+91. **`matrix-row` the promotion — a candidate earns the accessibility rung.**
+
+    *Precondition:* a promotion candidate (rows 4–6, 19, 20 — Xcode is the first to try) has
+    delivered by clipboard at least once, and the window has elapsed.
+
+    *Gesture:* dictate into it after the window; then dictate into it again.
+
+    *Pass:* the first dictation's log names an `.accessibility` attempt that lands **read-back
+    verified**; `strategies.json` shows `learnedAllowlist` true for that bundle ID; the *second*
+    dictation starts at `.accessibility` with no probe. The Apps tab shows the row as
+    `typing directly`.
+
+    *Failure:* a promotion recorded without read-back verification — that is the silent lie the
+    whole rung exists to catch, and it must never reach the learned allowlist. Also a failure: the
+    accessibility rung landing verified and the app *not* being promoted, which means the memory
+    learned nothing from its own success.
+
+92. **`matrix-row` Secure Input in the matrix — refusals teach the memory nothing.**
+
+    Rows 21–22, with memory active. Step 27 already covers the refusal; this row adds the memory.
+
+    *Gesture:* get a transcript into the failsafe, focus a password field (1Password, or any
+    sign-in page), press ⏎ to re-run the ladder. Then read `strategies.json`.
+
+    *Pass:* all four — the log records `attempted: []` (no rung, not even clipboard); the failsafe
+    shows the password-field copy; the transcript is still present and copyable; and
+    `strategies.json` gained **nothing** for that bundle identifier.
+
+    *Failure:* any strategy written from a refusal. A run that attempted no rung learned nothing,
+    and recording it would teach the memory that rungs failed which were never tried.
+
+93. **`matrix-row` per release, defined.**
+
+    *Gesture:* run step 88 once per release and append one row to the tracked table.
+
+    *Pass:* the table has a row for this release.
+
+    *Failure:* it does not. An unrun step is a failed step — this file's own rule, applied to the
+    one number P2 is judged on.
+
+### Tracked table — one row per release
+
+First-method-success (FMS) = deliverable rows whose expected rung *landed*, over the 20
+deliverable rows. Bar: ≥19/20. Recorded, never gated.
+
+| Release | Date | Rows run | Skipped | Voided | FMS | Notes |
+|---------|------|----------|---------|--------|-----|-------|
+| _(none yet)_ | — | — | — | — | — | The matrix has never been run. Step 87's baseline is its first execution, and until it happens Vocca has **no** measured injection-success number of any kind. |
 
 ---
 

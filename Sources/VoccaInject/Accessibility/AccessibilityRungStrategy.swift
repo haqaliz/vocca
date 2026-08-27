@@ -79,7 +79,11 @@ public actor AccessibilityRungStrategy: InjectionRungStrategy {
     /// This strategy implements the accessibility rung.
     public nonisolated var rung: InjectionRung { .accessibility }
 
-    private let allowlist: any InjectionAllowlist
+    // Internal rather than private: the composition factory must hand this rung and the ladder's
+    // order the *same* gate, and that is only assertable if it can be read back
+    // (`ShippingLadderMemoryWiringTests`). `nonisolated` because it is an immutable `Sendable`
+    // handle — reading it costs no hop and can answer no question about the rung's own state.
+    nonisolated let allowlist: any InjectionAllowlist
     private let insert: any AccessibilityInserting
 
     /// - Parameters:

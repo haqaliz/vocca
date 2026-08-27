@@ -376,6 +376,20 @@ extension VoccaNetworkProbe {
         // "held nothing" is one ledger read. The target is an ordinary unlisted application, so
         // the shipped order offers clipboard first and the clipboard rung delivers.
         let handoff = ProbeInjectionHandoff()
+        // C8's strategy memory over a throwaway directory that holds no `strategies.json` — the
+        // fresh-install path, and the one the default configuration must keep making zero network
+        // calls on. The founder's real memory is never read: the store is scoped to this
+        // process's own temp directory, exactly as the cleanup config's is. `now` is fixed, so
+        // no re-probe window can elapse mid-cycle and change what the order offers.
+        let strategyDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-probe-strategy-\(UUID().uuidString)")
+        let strategyStore = PersistentInjectionStrategyStore(directory: strategyDirectory)
+        let loadedStrategies = await strategyStore.load()
+        let memory = MemoryBackedInjectionStrategyOrder(
+            seed: SeededInjectionAllowlist(),
+            strategies: loadedStrategies,
+            store: strategyStore,
+            now: { 0 })
         let ladder = LadderInjector(
             strategies: [
                 .clipboardPaste: ProbeInjectionStrategy(
@@ -383,9 +397,10 @@ extension VoccaNetworkProbe {
                 .keystrokeSynthesis: ProbeInjectionStrategy(
                     rung: .keystrokeSynthesis, outcome: .failed),
             ],
-            order: DefaultInjectionStrategyOrder(allowlist: SeededInjectionAllowlist()),
+            order: memory,
             handoff: handoff,
-            clock: clock)
+            clock: clock,
+            recorder: memory)
         let injectorLedger = ProbeInjectorLedger(inner: ladder)
 
         // The cleanup stage: the real resolver over an isolated throwaway directory whose absent
@@ -545,6 +560,7 @@ extension VoccaNetworkProbe {
             "injected=\(spell(observation?.text ?? ""))",
             "rung=\(describe(observation?.result.rung))",
             "attempted=\(describe(observation?.result.attempted))",
+            "strategy=\(loadedStrategies.isEmpty ? "absent" : "loaded")",
             "failsafe=\(panel.presentationCount)",
             "holds=\(holds)",
             "download.starts=\(downloadStarts)",

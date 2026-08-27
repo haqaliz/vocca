@@ -257,12 +257,23 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | ASR | `ASREngine` | `ParakeetEngine`, `WhisperCppEngine` | **Yes** |
 | Cleanup | `CleanupProvider` | `RulesCleanup`, `OllamaCleanup`, `BYOKCleanup` | **Yes** |
 | Injection | `TextInjector` | `LadderInjector` + per-rung strategies | No — always local |
-| Strategy memory | `InjectionStrategyStore` | `PersistentStore`, `EphemeralStore` (tests) | No |
+| Strategy memory | `InjectionStrategyStore` | `PersistentInjectionStrategyStore`, `EphemeralInjectionStrategyStore` (tests) | No |
 | TTS | `SpeechSynthesizer` | `KokoroSynthesizer`, `SystemSynthesizer` | **Yes** |
 | VAD | `VoiceActivityDetector` | `SileroVAD`, `EnergyVAD` (fallback/tests) | No |
 | Turn detection | `TurnDetector` | `ParakeetEOU`, `SilenceThresholdDetector` | No |
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` | **No — by design** |
 | Actions | `ActionProvider` | `MCPProvider`, `ShellProvider` | No |
+
+> *Status (memory-order aspect, 2026-08-27): the strategy-memory row is real end to end.
+> `InjectionStrategyStore` and both implementations shipped in `store-seam`; the ladder now
+> consults them through `MemoryBackedInjectionStrategyOrder` (`VoccaInject/Ladder/`), which is
+> the `InjectionStrategyOrder`, the `InjectionAllowlist` and the new `InjectionStrategyRecording`
+> seam **as one instance** — `ShippingLadder.makeWithMemory` fills all three slots with it, so
+> the order that offers the accessibility rung and the rung that accepts the application can
+> never disagree. `LadderInjector` takes an optional recorder (nil is the C4 injector, byte for
+> byte) and its persist is detached: the snapshot is applied in memory before `inject` returns,
+> and the disk write is chained off the latency path. What remains unbuilt is the Apps tab and
+> the matrix (see §9).*
 
 ```swift
 protocol ASREngine: Sendable {
@@ -477,6 +488,8 @@ func inject(_ text: String, into target: TargetContext) async -> InjectionResult
 
 **Strategy memory (C8)** persists the winning rung per bundle ID, seeds known-hostile apps at first run, demotes on failure, and re-probes on a decay schedule so an app update that fixes AX is eventually noticed rather than permanently written off.
 
+*Status (memory-order aspect, 2026-08-27): the ladder learns. The pure vocabulary shipped in `core-memory` (`VoccaCore/StrategyMemory/`), the store in `store-seam`, and this aspect joined them to the ladder: the memory-backed order and allowlist, the seeded hostile set (`SeededHostileApps` — Chrome, which is how Google Docs actually reports itself, and Slack), the recording hook in `LadderInjector.inject`, and the composition root's `AppBootstrap.assembleShippingLadder` (store → loaded snapshot → memory → ladder, pinned in that order). Promotion works because the projection answers both questions: a non-allowlisted app that delivers by clipboard is marked a candidate, re-probed once after the window, and promoted only by a **read-back-verified** AX win — a failed probe is re-demoted with a fresh window. The Apps tab (`VoccaUI/Apps/`) is the fifth Settings tab: the health column, the absolute per-app override, and the reset that clears learning while preserving pins — a pure reducer, with writes going through the memory so a pin applies to the next dictation and reads going to the store, since the memory's launch-minted seeds are seed rather than learning. `Scripts/injection-matrix.sh` + `SMOKE_CHECKLIST.md` §12 are the ≥95% measurement surface (22 rows, per-release tracked table). **No part of this has run against a real application**: the accessibility and clipboard rungs are executed by nothing in CI, the Apps page has never been rendered, and **the matrix has never been run** — so what is proven headlessly is the learning, not the typing, and the ≥95% figure does not yet exist.*
+
 ---
 
 ## 10. `TranscriptCustody` — how I1 is actually enforced
@@ -641,7 +654,7 @@ Every seam has a fake; every capability's acceptance from `CAPABILITY_ROADMAP.md
 | **Fixture suite** | Canonical audio → expected transcript, run **parameterized over every `ASREngine`** | C2, C3 |
 | **Offline assertion** | Fixture suite re-run with the network interface down | C2 |
 | **Fault injection** | Forces each injection rung to fail — including AX's *silent* success-with-no-insert — in every combination | C4 |
-| **App matrix driver** | UI automation across 20+ real apps, semi-automated per release | C4, C8 |
+| **App matrix driver** | `Scripts/injection-matrix.sh` — 22 rows across 20+ real apps, semi-automated per release; its `--self-check` is the only CI-runnable half | C4, C8 |
 | **Network interposer** | Asserts **zero outbound connections** on the default path | C6 — **permanent release blocker** |
 | **Benchmark harness** | Replays fixtures, asserts p50/p95, fails CI on regression | C7 |
 | **Conversational set** | Labelled turn boundaries; scores endpointing with 5× false-cutoff weight | C10 |

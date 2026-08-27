@@ -1111,8 +1111,78 @@ set -euo pipefail
 # which refuses an existing destination), pinned both as the empty-dictionary case (the
 # reported remove-the-last-row bug) and the one-row-of-several case.
 #
+# The store-seam aspect (C8) raises it to 1274: the gate-resolution amendment
+# (InjectionStrategyTests, two — the bundle-ID key the store upserts by and the Codable
+# round trip the strategies.json schema depends on), the strategy store contract
+# (InjectionStrategyStoreTests, fifteen — the atomic temp-write→rename pair for update and
+# save, the byte-stable save, the torn update leaving the previous committed content, the
+# missing file's silent empty load, the corrupt-element/non-object/unknown-version
+# tolerances with their loud-log counts and byte-unchanged pins, the stray-temp never-read,
+# the real-store round trip, the refused-write throw, the cap refusals for new apps with
+# known apps flowing on both stores and the refused file untouched, the cap-bypassing
+# wholesale save, the ephemeral end-to-end reset, and the maximumRememberedApps
+# single-source definition scan), and the four-seam FileManager exact-set pin
+# (journal/dictionary/config/strategy, S15).
+#
+# The `memory-order` aspect's read side adds fifteen (1274 -> 1289): twelve in
+# MemoryBackedInjectionStrategyOrderTests (learned-tried-first with its unlearned control,
+# demote-on-fail driven through the real LadderInjector and the real decision, the re-probe
+# rediscovery pinned inclusively on both sides of the window with the restored rung's window
+# dropped, the failed re-probe's fresh window, the seeded hostile applications on a first
+# dictation *and* their launch-minted window against an unseen app's absence of one, the
+# promotion flow with both gates asserted at every step, the failed probe and the unverified
+# silent lie that must not promote, the failsafe's absence across the closed projection space,
+# the never-demoted clipboard and never-empty order, the learned entry beating the seed, and
+# the absent-file path compared row by row against the shipped C4 order), and three in
+# SeededHostileAppsTests (the exact two identifiers, disjointness from the allowlist seed,
+# and the reverse-DNS spelling that a display name would fail).
+#
+# The aspect's write side adds six (1289 -> 1295): InjectionStrategyRecordingTests' rung-0
+# refusals writing nothing and leaving no row at all, the delivered candidate marker and the
+# exhausted ladder's demotion derived from its intact trace, the gated-store proof that the
+# injector returns while the persist is still parked, the handoff-refusal residual still
+# reaching the seam, the in-memory apply the next projection reads before any disk write, and
+# the chained persists landing in order when two are released from one gate together.
+#
+# The aspect's wiring adds five (1295 -> 1300): the identity pin that the order slot, the
+# accessibility rung's gate and the recorder are one object; the C4 factory still building a
+# ladder that learns nothing; a promotion recorded through a factory-built ladder reaching the
+# gate a window later; and the custody chain's extracted assembly, which must load the store
+# before it builds the ladder and must leave an absent strategies.json unwritten. The probe's
+# `strategy=absent` field rides the existing whole-line assertion and its guard-the-guard test.
+#
+# The `apps-tab` aspect adds thirty-three (1300 -> 1333): seven copy pins (the three health
+# labels byte-for-byte from PRODUCT_SPEC.md:275, the reset button's one permitted deviation
+# from the spec's prose, the picker reusing the health vocabulary rather than a second dialect,
+# the overridden/learned badges being distinguishable in words, the honest empty state, the
+# save-error surface and the column headings); twenty reducer rows (the load/empty/opening
+# states, name-sorted rows with a bundle-ID tiebreak, the health mapping for every effective
+# first rung including the two that must read alike, the settled health under a due re-probe,
+# override set/clear/unknown-app/unrecognised-order, the S2 freeze driven through Core's own
+# record fold, reset dropping learned rows while preserving pins, save failure and its intact
+# rows, and the closed-set totality/equality pins); three SettingsTab pins (the five tabs in
+# reading order, the Apps tab's label and symbol, and every tab's title/symbol/id being
+# distinct); and three for the memory's wholesale-replace write path (the live ladder sees the
+# pin, the store is handed exactly what the caller decided, the seed is re-folded into memory
+# only, and a refused save throws where the Apps tab can show it).
+#
+# The `matrix-smoke` aspect adds eight (1333 -> 1341), all of them about the harness rather
+# than the matrix: the script parses, the self-check passes and states both numbers the >=95%
+# bar is made of, `--dry-run` exits zero on a machine with none of the twenty applications (a
+# CI runner is exactly that machine), and an unknown argument or row name is refused loudly
+# rather than starting a twenty-application run. The last three plant a violation in a copy of
+# the shipped script — a renamed row missing from the checklist, a known-hostile row expecting
+# a rung, an invented rung — because a self-check that cannot fail proves nothing.
+#
+# The bundle-identifier verification adds four (1341 -> 1345): the seed cross-check caught in
+# both directions (a row claiming a hostile seed the Swift data does not name, and a seeded
+# application marked unseeded), a display name planted where a bundle identifier belongs, and
+# `--verify-bundle-ids` itself run against this machine's installed applications — the only
+# check in the repository that can tell a correct identifier from a plausible one, and the one
+# that would have caught `com.google.docs` before it reached a plan.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1210
+MINIMUM_EXECUTED_TESTS=1345
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

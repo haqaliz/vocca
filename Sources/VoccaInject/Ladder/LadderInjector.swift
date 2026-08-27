@@ -46,10 +46,16 @@ import VoccaCore
 /// crashing or inventing an error the seam cannot carry.
 @MainActor
 public struct LadderInjector: TextInjector {
-    private let strategies: [InjectionRung: any InjectionRungStrategy]
-    private let order: any InjectionStrategyOrder
-    private let handoff: any FailsafeHandoff
-    private let clock: any MonotonicClock
+    // Internal rather than private: `ShippingLadder.makeWithMemory` must hand the *same*
+    // memory instance to the order slot, the accessibility rung's allowlist and the recorder,
+    // and "the same instance" is only assertable if the slots can be read back
+    // (`ShippingLadderMemoryWiringTests`). Nothing outside the module sees them.
+    let strategies: [InjectionRung: any InjectionRungStrategy]
+    let order: any InjectionStrategyOrder
+    let handoff: any FailsafeHandoff
+    let clock: any MonotonicClock
+    /// Where ladder outcomes are remembered — `nil` is C4's injector, byte for byte.
+    let recorder: (any InjectionStrategyRecording)?
 
     /// - Parameters:
     ///   - strategies: The rung strategies, keyed by rung. The caller wires the allowlist into
@@ -59,32 +65,49 @@ public struct LadderInjector: TextInjector {
     ///     a second implementation).
     ///   - handoff: The failsafe floor — the journal in the `failsafe-surface` aspect.
     ///   - clock: The only way time enters the ladder.
+    ///   - recorder: C8's strategy memory, or `nil` for an injector that learns nothing — which
+    ///     is byte-for-byte the C4 injector, so every construction site that predates the memory
+    ///     keeps its exact behaviour.
     public init(
         strategies: [InjectionRung: any InjectionRungStrategy],
         order: any InjectionStrategyOrder,
         handoff: any FailsafeHandoff,
-        clock: any MonotonicClock
+        clock: any MonotonicClock,
+        recorder: (any InjectionStrategyRecording)? = nil
     ) {
         self.strategies = strategies
         self.order = order
         self.handoff = handoff
         self.clock = clock
+        self.recorder = recorder
     }
 
     public func inject(_ text: String, into target: TargetContext) async -> InjectionResult {
+        // Asked once, and carried: the order the run was *given* is what the memory needs to
+        // interpret the trace it gets back, and a second call could answer differently — the
+        // re-probe window can elapse between two readings of the clock.
+        let orderedRungs = order.orderedRungs(for: target.bundleID)
+        let result: InjectionResult
         do {
-            return try await decide(
+            result = try await decide(
                 text: text,
                 target: target,
                 targetAppName: nil,
-                orderedRungs: order.orderedRungs(for: target.bundleID),
+                orderedRungs: orderedRungs,
                 strategies: strategies,
                 handoff: handoff,
                 clock: clock)
         } catch {
-            // The handoff refused custody — the I1-floor residual documented above.
-            return InjectionResult(
+            // The handoff refused custody — the I1-floor residual documented above. It is
+            // recorded like any other outcome: its empty trace is what makes it write nothing,
+            // and that decision belongs to the memory, not to this branch.
+            result = InjectionResult(
                 rung: .widgetFailsafe, attempted: [], verified: false, elapsed: .zero)
         }
+        // The seam returns as soon as the snapshot is updated; the disk write is its own
+        // detached business, so no dictation waits on a file (PRD T-2).
+        await recorder?.record(
+            bundleID: target.bundleID, orderedRungs: orderedRungs, result: result)
+        return result
     }
 }
