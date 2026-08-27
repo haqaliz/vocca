@@ -1047,8 +1047,20 @@ set -euo pipefail
 # (U+2325) and ≈ (U+2248) characters as-is, plus the two NEW-COPY surfaces (the M5c
 # three-state line and the M7 model-unavailable line) to their documented sources.
 #
+# The first-run-permissions aspects A2 (permission-reads) and A3 (completion-store)
+# raise it to 1178: A3's completion flag store (CompletionFlagStoreTests, six — absent →
+# false, markComplete → true, idempotency, Boolean-under-key storage, cross-instance
+# persistence, the frozen-key pin) plus its UserDefaults seam family (six seam-table
+# rows: the two-sided pin, the exactly-one-file test, the tree-wide escape scan, the
+# planted-identifier negative controls, the comments-stripped test), and A2's
+# permission-read mapping (OnboardingPermissionReadsTests, five — the (trusted,
+# tapArmed) three-state accessibility table and the microphone 4→3 mapping), the pane
+# URL pins (SystemSettingsPaneTests, five) and the microphone-authorization translation
+# (MicrophoneAuthorizationTests, three). The A2/A3 floor raise lands in one integrator
+# commit after both aspects, because both agents shared the floor line.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1153
+MINIMUM_EXECUTED_TESTS=1178
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
