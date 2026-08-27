@@ -93,7 +93,8 @@ public enum StrategyMemory {
     /// allowlist's answer **without** `learnedAllowlist` folded in — the projection composes the
     /// OR itself, so a first promotion is observable.
     ///
-    /// The rules, in order: no rung attempted → unchanged; the strict prefix of `attempted`
+    /// The rules, in order: an overridden app is frozen — the override wins and learning stops for
+    /// it (M7); no rung attempted → unchanged; the strict prefix of `attempted`
     /// before the winner (or every attempted rung when the failsafe won — it always succeeds) is
     /// demoted with a fresh window, never clipboard, never failsafe; a demoted rung that won is
     /// restored, its window dropped — unconditional on the window having elapsed; a
@@ -106,6 +107,9 @@ public enum StrategyMemory {
         allowlisted: Bool,
         into strategy: InjectionStrategy
     ) -> InjectionStrategy {
+        if strategy.overrideRungs != nil {
+            return strategy
+        }
         guard !attempted.isEmpty else {
             return strategy
         }

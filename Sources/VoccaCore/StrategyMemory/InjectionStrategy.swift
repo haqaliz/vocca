@@ -54,4 +54,27 @@ public struct InjectionStrategy: Sendable, Equatable {
         self.reprobeWindows = reprobeWindows
         self.overrideRungs = overrideRungs
     }
+
+    /// The validated override construction (M7): builds the strategy with a user-pinned rung
+    /// order, refusing — returning `nil` — an empty pin or any pin naming `.widgetFailsafe`.
+    ///
+    /// `.clipboardPaste` may appear anywhere in a pin (a user pin is not a learned invariant),
+    /// and the pin is returned by the projection verbatim and freezes the record fold: an
+    /// overridden app is never demoted, promoted or re-probed. The plain memberwise init stays
+    /// total for seeds and stores; this is the Apps tab's construction path.
+    public static func overriding(
+        overrideRungs: [InjectionRung],
+        demotedRungs: Set<InjectionRung> = [],
+        learnedAllowlist: Bool = false,
+        reprobeWindows: [InjectionRung: UInt64] = [:]
+    ) -> InjectionStrategy? {
+        guard !overrideRungs.isEmpty, !overrideRungs.contains(.widgetFailsafe) else {
+            return nil
+        }
+        return InjectionStrategy(
+            demotedRungs: demotedRungs,
+            learnedAllowlist: learnedAllowlist,
+            reprobeWindows: reprobeWindows,
+            overrideRungs: overrideRungs)
+    }
 }
