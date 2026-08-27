@@ -46,6 +46,7 @@
 # Usage:
 #   Scripts/injection-matrix.sh --self-check   # validate the row table + checklist sync (CI-safe)
 #   Scripts/injection-matrix.sh --dry-run      # print the table with install status; touch nothing
+#   Scripts/injection-matrix.sh --verify-bundle-ids  # plutil-confirm every installed row's id
 #   Scripts/injection-matrix.sh --row <name>   # run one row
 #   Scripts/injection-matrix.sh                # the full run, and the tally
 
@@ -61,7 +62,7 @@ PHRASE="the quick brown fox jumps over the lazy dog"
 
 # The row table — DATA, not decisions (the `SeededInjectionAllowlist` pattern). Each row:
 #
-#   name|application|class|seeded|expected-rung|field to click into
+#   name|application|bundle-id|class|seeded|expected-rung|field to click into
 #
 # `expected-rung` is the closed vocabulary the ladder's log uses, plus `none` for the two
 # refusal rows where no rung may be attempted at all. It is the STEADY-STATE expectation: the
@@ -70,30 +71,48 @@ PHRASE="the quick brown fox jumps over the lazy dog"
 #
 # The class column is the invariant. A row whose application is not installed is swapped for a
 # same-class one and the swap is recorded in the tracked table — the brand was never the point.
+#
+# THE BUNDLE ID COLUMN IS LOAD-BEARING, and it is why `--verify-bundle-ids` exists. The memory
+# keys on it, the seeds are written in it, and a wrong-but-plausible identifier is invisible:
+# it passes every test in the suite and silently seeds, learns and pins nothing at all. C8
+# shipped with `com.google.docs` in its plan — an identifier no application has ever reported —
+# and the only thing that caught it was reading a real Info.plist. So:
+#
+#   --verify-bundle-ids   reads CFBundleIdentifier from each installed application and compares
+#   --self-check          cross-checks the `seeded` column against the shipped Swift seed files
+#
+# The second is the one that runs in CI. It cannot tell you an identifier is *correct* — only a
+# real Info.plist can — but it can tell you the harness and the shipped seeds disagree about
+# which applications are seeded, which is the same defect one step later.
 ROWS=(
-  "Notes|Notes|native-appkit|allowlist|accessibility|a new note"
-  "Mail|Mail|native-appkit|allowlist|accessibility|the body of a new message"
-  "TextEdit|TextEdit|native-appkit|allowlist|accessibility|a plain-text document (⌘⇧T)"
-  "Xcode|Xcode|native-appkit|no|clipboardPaste|a comment line in a source file"
-  "Messages|Messages|native-appkit|no|clipboardPaste|the message compose field"
-  "Pages|Pages|native-appkit|no|clipboardPaste|a blank document"
-  "VSCode|Visual Studio Code|electron|no|clipboardPaste|an untitled text buffer"
-  "Slack|Slack|electron|hostile|clipboardPaste|a message input"
-  "Discord|Discord|electron|no|clipboardPaste|a message input"
-  "Notion|Notion|electron|no|clipboardPaste|an empty page body"
-  "Obsidian|Obsidian|electron|no|clipboardPaste|a new note"
-  "Safari|Safari|browser|no|clipboardPaste|a plain web input"
-  "Chrome|Google Chrome|browser|hostile|clipboardPaste|a plain web input"
-  "GoogleDocs|Google Chrome|browser-custom-editor|hostile|clipboardPaste|a Google Docs document body"
-  "Firefox|Firefox|browser|no|clipboardPaste|a plain web input"
-  "Terminal|Terminal|terminal|no|clipboardPaste|a shell prompt (do not press return)"
-  "iTerm2|iTerm|terminal|no|clipboardPaste|a shell prompt (do not press return)"
-  "Ghostty|Ghostty|terminal|no|clipboardPaste|a shell prompt (do not press return)"
-  "IntelliJ|IntelliJ IDEA|java-awt|no|clipboardPaste|an editor buffer"
-  "Zed|Zed|native-other|no|clipboardPaste|an untitled buffer"
-  "1Password|1Password|known-hostile|—|none|a password field"
-  "PasswordField|Safari|known-hostile|—|none|a password field on any sign-in page"
+  "Notes|Notes|com.apple.Notes|native-appkit|allowlist|accessibility|a new note"
+  "Mail|Mail|com.apple.mail|native-appkit|allowlist|accessibility|the body of a new message"
+  "TextEdit|TextEdit|com.apple.TextEdit|native-appkit|allowlist|accessibility|a plain-text document (⌘⇧T)"
+  "Xcode|Xcode|com.apple.dt.Xcode|native-appkit|no|clipboardPaste|a comment line in a source file"
+  "Messages|Messages|com.apple.MobileSMS|native-appkit|no|clipboardPaste|the message compose field"
+  "Pages|Pages|com.apple.iWork.Pages|native-appkit|no|clipboardPaste|a blank document"
+  "VSCode|Visual Studio Code|com.microsoft.VSCode|electron|no|clipboardPaste|an untitled text buffer"
+  "Slack|Slack|com.tinyspeck.slackmacgap|electron|hostile|clipboardPaste|a message input"
+  "Discord|Discord|com.hnc.Discord|electron|no|clipboardPaste|a message input"
+  "Notion|Notion|notion.id|electron|no|clipboardPaste|an empty page body"
+  "Obsidian|Obsidian|md.obsidian|electron|no|clipboardPaste|a new note"
+  "Safari|Safari|com.apple.Safari|browser|no|clipboardPaste|a plain web input"
+  "Chrome|Google Chrome|com.google.Chrome|browser|hostile|clipboardPaste|a plain web input"
+  "GoogleDocs|Google Chrome|com.google.Chrome|browser-custom-editor|hostile|clipboardPaste|a Google Docs document body"
+  "Firefox|Firefox|org.mozilla.firefox|browser|no|clipboardPaste|a plain web input"
+  "Terminal|Terminal|com.apple.Terminal|terminal|no|clipboardPaste|a shell prompt (do not press return)"
+  "iTerm2|iTerm|com.googlecode.iterm2|terminal|no|clipboardPaste|a shell prompt (do not press return)"
+  "Ghostty|Ghostty|com.mitchellh.ghostty|terminal|no|clipboardPaste|a shell prompt (do not press return)"
+  "IntelliJ|IntelliJ IDEA|com.jetbrains.intellij|java-awt|no|clipboardPaste|an editor buffer"
+  "Zed|Zed|dev.zed.Zed|native-other|no|clipboardPaste|an untitled buffer"
+  "1Password|1Password|com.1password.1password|known-hostile|—|none|a password field"
+  "PasswordField|Safari|com.apple.Safari|known-hostile|—|none|a password field on any sign-in page"
 )
+
+# The shipped seed data, as files rather than as copies. The self-check greps these, so the
+# harness cannot claim an application is seeded when the code says otherwise.
+ALLOWLIST_SEED="$REPO_ROOT/Sources/VoccaInject/Allowlist/SeededInjectionAllowlist.swift"
+HOSTILE_SEED="$REPO_ROOT/Sources/VoccaInject/Allowlist/SeededHostileApps.swift"
 
 # The closed rung vocabulary a row may expect. `none` is the refusal rows'.
 VALID_RUNGS=("accessibility" "clipboardPaste" "keystrokeSynthesis" "none")
@@ -126,15 +145,16 @@ self_check() {
     fi
 
     for row in "${ROWS[@]}"; do
-        local name application class seeded rung target
+        local name application bundle class seeded rung target
         name="$(field "$row" 1)"
         application="$(field "$row" 2)"
-        class="$(field "$row" 3)"
-        seeded="$(field "$row" 4)"
-        rung="$(field "$row" 5)"
-        target="$(field "$row" 6)"
+        bundle="$(field "$row" 3)"
+        class="$(field "$row" 4)"
+        seeded="$(field "$row" 5)"
+        rung="$(field "$row" 6)"
+        target="$(field "$row" 7)"
 
-        for value in "$name" "$application" "$class" "$seeded" "$rung" "$target"; do
+        for value in "$name" "$application" "$bundle" "$class" "$seeded" "$rung" "$target"; do
             if [ -z "$value" ]; then
                 printf 'FAIL: row "%s" has an empty column\n' "$row" >&2
                 failures=$((failures + 1))
@@ -173,6 +193,58 @@ self_check() {
 
         [ "$rung" != "none" ] && deliverable=$((deliverable + 1))
 
+        case "$bundle" in
+            *.*) ;;
+            *)
+                printf 'FAIL: row "%s" has "%s" where a reverse-DNS bundle identifier belongs.\n' \
+                    "$name" "$bundle" >&2
+                failures=$((failures + 1))
+                ;;
+        esac
+        case "$bundle" in
+            *" "*)
+                printf 'FAIL: row "%s" has a display name, not a bundle identifier: "%s"\n' \
+                    "$name" "$bundle" >&2
+                failures=$((failures + 1))
+                ;;
+        esac
+
+        # The seed cross-check. This is the half that runs in CI, and the defect it is aimed at
+        # is the one C8 actually shipped in its plan: an identifier that looks right, seeds
+        # nothing, and passes every test in the suite. It cannot tell you an identifier is
+        # correct — only `--verify-bundle-ids` against a real Info.plist can — but it can tell
+        # you the harness and the shipped Swift seeds disagree about what is seeded.
+        local in_allowlist=0 in_hostile=0
+        grep -q "\"$bundle\"" "$ALLOWLIST_SEED" && in_allowlist=1
+        grep -q "\"$bundle\"" "$HOSTILE_SEED" && in_hostile=1
+        case "$seeded" in
+            allowlist)
+                if [ "$in_allowlist" -eq 0 ]; then
+                    printf 'FAIL: row "%s" claims the accessibility allowlist seeds %s, but\n' \
+                        "$name" "$bundle" >&2
+                    printf '      SeededInjectionAllowlist.swift does not name it.\n' >&2
+                    failures=$((failures + 1))
+                fi
+                ;;
+            hostile)
+                if [ "$in_hostile" -eq 0 ]; then
+                    printf 'FAIL: row "%s" claims %s is seeded hostile, but\n' "$name" "$bundle" >&2
+                    printf '      SeededHostileApps.swift does not name it. The row expects a\n' >&2
+                    printf '      first attempt the memory will not actually produce.\n' >&2
+                    failures=$((failures + 1))
+                fi
+                ;;
+            no)
+                if [ "$in_allowlist" -eq 1 ] || [ "$in_hostile" -eq 1 ]; then
+                    printf 'FAIL: row "%s" claims %s is unseeded, but a shipped seed file\n' \
+                        "$name" "$bundle" >&2
+                    printf '      names it. The expected rung is calibrated against the wrong\n' >&2
+                    printf '      starting state.\n' >&2
+                    failures=$((failures + 1))
+                fi
+                ;;
+        esac
+
         if ! grep -q "matrix-row: $name\b" "$CHECKLIST"; then
             printf 'FAIL: row "%s" is not named in the smoke checklist. The table here and the\n' \
                 "$name" >&2
@@ -209,8 +281,8 @@ dry_run() {
         local name application class rung status
         name="$(field "$row" 1)"
         application="$(field "$row" 2)"
-        class="$(field "$row" 3)"
-        rung="$(field "$row" 5)"
+        class="$(field "$row" 4)"
+        rung="$(field "$row" 6)"
         if open -Ra "$application" >/dev/null 2>&1; then
             status="yes"
         else
@@ -218,6 +290,60 @@ dry_run() {
         fi
         printf '%-14s %-24s %-22s %-10s %s\n' "$name" "$application" "$class" "$rung" "$status"
     done
+}
+
+# ---------------------------------------------------------------------------
+# --verify-bundle-ids: the only check that can tell a *correct* identifier from a plausible one.
+#
+# Reads CFBundleIdentifier out of each installed application's Info.plist and compares it to the
+# table. Not runnable in CI — it needs the applications — but it needs no grant, no window
+# server and no dictation, so it is the cheapest real verification in this file, and the one
+# that catches the defect the seeds are most exposed to.
+#
+# Exit 1 on any MISMATCH. A missing application is not a failure: it is unverified, and says so.
+# ---------------------------------------------------------------------------
+verify_bundle_ids() {
+    local mismatches=0 confirmed=0 unverified=0
+    printf '%-14s %-26s %-30s %s\n' ROW EXPECTED-ID FOUND STATUS
+    for row in "${ROWS[@]}"; do
+        local name application bundle path found
+        name="$(field "$row" 1)"
+        application="$(field "$row" 2)"
+        bundle="$(field "$row" 3)"
+
+        found=""
+        for dir in /Applications /System/Applications /System/Applications/Utilities \
+            "$HOME/Applications"; do
+            if [ -d "$dir/$application.app" ]; then
+                path="$dir/$application.app"
+                found="$(plutil -extract CFBundleIdentifier raw "$path/Contents/Info.plist" \
+                    2>/dev/null || true)"
+                break
+            fi
+        done
+
+        if [ -z "$found" ]; then
+            printf '%-14s %-26s %-30s %s\n' "$name" "$bundle" "—" "UNVERIFIED (not installed)"
+            unverified=$((unverified + 1))
+        elif [ "$found" = "$bundle" ]; then
+            printf '%-14s %-26s %-30s %s\n' "$name" "$bundle" "$found" "CONFIRMED"
+            confirmed=$((confirmed + 1))
+        else
+            printf '%-14s %-26s %-30s %s\n' "$name" "$bundle" "$found" "MISMATCH"
+            mismatches=$((mismatches + 1))
+        fi
+    done
+
+    printf '\n%d confirmed, %d unverified (not installed), %d mismatched.\n' \
+        "$confirmed" "$unverified" "$mismatches"
+    if [ "$mismatches" -ne 0 ]; then
+        printf 'A mismatched identifier seeds, learns and pins nothing while passing every\n' >&2
+        printf 'test in the suite. Fix the table — and the shipped seed, if the row is seeded.\n' >&2
+        return 1
+    fi
+    if [ "$unverified" -ne 0 ]; then
+        printf 'Unverified rows are guesses until the application is installed and re-checked.\n'
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -229,8 +355,8 @@ run_row() {
     local name application rung target
     name="$(field "$row" 1)"
     application="$(field "$row" 2)"
-    rung="$(field "$row" 5)"
-    target="$(field "$row" 6)"
+    rung="$(field "$row" 6)"
+    target="$(field "$row" 7)"
 
     printf '\n=== %s (%s) — expecting %s ===\n' "$name" "$application" "$rung"
 
@@ -301,7 +427,7 @@ full_run() {
     local passed=0 failed=0 skipped=0 voided=0 refusals_ok=0 refusals_bad=0
     for row in "${ROWS[@]}"; do
         local rung
-        rung="$(field "$row" 5)"
+        rung="$(field "$row" 6)"
         set +e
         run_row "$row"
         local status=$?
@@ -335,6 +461,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --self-check) MODE="self-check" ;;
         --dry-run) MODE="dry-run" ;;
+        --verify-bundle-ids) MODE="verify-bundle-ids" ;;
         --row)
             MODE="row"
             shift
@@ -357,6 +484,7 @@ done
 case "$MODE" in
     self-check) self_check ;;
     dry-run) dry_run ;;
+    verify-bundle-ids) verify_bundle_ids ;;
     row)
         for row in "${ROWS[@]}"; do
             if [ "$(field "$row" 1)" = "$ROW_NAME" ]; then

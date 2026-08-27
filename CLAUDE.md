@@ -664,9 +664,13 @@ This file orients a coding agent working in this repository. Read it first.
 > - **The 7-day re-probe window is provisional**, in exactly one place
 >   (`StrategyMemoryTargets.reprobeWindowSeconds`, pinned by a single-source scan) and
 >   re-baselined by the founder's matrix run — recorded, not gated.
-> - **`com.tinyspeck.slackmacgap` is unverified.** Slack is not installed on the authoring
->   machine, so unlike `com.google.Chrome` it was not read from a real `Info.plist`. A
->   wrong-but-plausible identifier passes every test in the suite and silently seeds nothing.
+> - **`com.tinyspeck.slackmacgap` is still a guess**, and it is one of the two shipped hostile
+>   seeds. `Scripts/injection-matrix.sh --verify-bundle-ids` now reads `CFBundleIdentifier` from
+>   every installed matrix application and cross-checks the harness against the shipped Swift
+>   seeds (both directions, pinned by planted-violation tests). On the authoring machine that is
+>   **14 confirmed, 0 mismatched, 8 guessed** — Slack, Pages, Notion, iTerm2, Ghostty, IntelliJ,
+>   Zed and 1Password are not installed here, so their identifiers have never been seen. Step 87
+>   re-runs the mode on the founder's machine before the baseline.
 >
 > > **The `short-press-toggle` change landed 2026-08-25 — the first real dictation's two findings.**
 > Pressing the hotkey produced *"Voice processing failed. Nothing was lost — you can try again."*

@@ -83,6 +83,18 @@ final class InjectionMatrixHarnessTests: XCTestCase {
         try FileManager.default.copyItem(
             at: try repositoryRoot.appendingPathComponent("docs/SMOKE_CHECKLIST.md"),
             to: root.appendingPathComponent("docs/SMOKE_CHECKLIST.md"))
+        // ...and the shipped seed files, which the self-check cross-checks the `seeded` column
+        // against. The copy reads the *real* ones, so a planted violation is measured against
+        // the seeds that actually ship.
+        let seedDirectory = root.appendingPathComponent("Sources/VoccaInject/Allowlist")
+        try FileManager.default.createDirectory(
+            at: seedDirectory, withIntermediateDirectories: true)
+        for seed in ["SeededInjectionAllowlist.swift", "SeededHostileApps.swift"] {
+            try FileManager.default.copyItem(
+                at: try repositoryRoot
+                    .appendingPathComponent("Sources/VoccaInject/Allowlist/\(seed)"),
+                to: seedDirectory.appendingPathComponent(seed))
+        }
 
         let source = try String(contentsOf: try scriptURL, encoding: .utf8)
         XCTAssertTrue(
@@ -165,8 +177,8 @@ final class InjectionMatrixHarnessTests: XCTestCase {
     /// check exists for: the two files are one artifact, and nothing else compares them.
     func testTheSelfCheckCatchesARowMissingFromTheChecklist() throws {
         let copy = try scriptCopy(
-            replacing: "\"Notes|Notes|native-appkit|allowlist|accessibility|a new note\"",
-            with: "\"Nootes|Notes|native-appkit|allowlist|accessibility|a new note\"")
+            replacing: "\"Notes|Notes|com.apple.Notes|native-appkit|allowlist|accessibility|a new note\"",
+            with: "\"Nootes|Notes|com.apple.Notes|native-appkit|allowlist|accessibility|a new note\"")
         let result = try run(copy, ["--self-check"])
         XCTAssertNotEqual(
             result.status, 0,
@@ -179,11 +191,74 @@ final class InjectionMatrixHarnessTests: XCTestCase {
     /// — the checklist's second preamble rule, enforced mechanically.
     func testTheSelfCheckCatchesAHostileRowThatExpectsARung() throws {
         let copy = try scriptCopy(
-            replacing: "\"1Password|1Password|known-hostile|—|none|a password field\"",
-            with: "\"1Password|1Password|known-hostile|—|clipboardPaste|a password field\"")
+            replacing: "\"1Password|1Password|com.1password.1password|known-hostile|—|none|a password field\"",
+            with: "\"1Password|1Password|com.1password.1password|known-hostile|—|clipboardPaste|a password field\"")
         let result = try run(copy, ["--self-check"])
         XCTAssertNotEqual(result.status, 0, "A hostile row expecting a rung passed the check.")
         XCTAssertTrue(result.output.contains("expects a rung"))
+    }
+
+    /// **The check that would have caught `com.google.docs`, one step later.** A row claiming an
+    /// application is seeded hostile while `SeededHostileApps.swift` does not name it is the same
+    /// defect as a wrong identifier: the row expects a first attempt the memory will never
+    /// produce, and nothing else in the repository compares the two files.
+    func testTheSelfCheckCatchesARowSeededDifferentlyFromTheShippedCode() throws {
+        let copy = try scriptCopy(
+            replacing: "|com.microsoft.VSCode|electron|no|",
+            with: "|com.microsoft.VSCode|electron|hostile|")
+        let result = try run(copy, ["--self-check"])
+        XCTAssertNotEqual(
+            result.status, 0,
+            """
+            A row claimed an application was seeded hostile while the shipped seed data does not \
+            name it, and the self-check passed. The harness table and the Swift seeds are one \
+            decision in two files; nothing else compares them.
+            """)
+        XCTAssertTrue(result.output.contains("SeededHostileApps.swift does not name it"))
+    }
+
+    /// The mirror: a row claiming an application is unseeded while a seed file names it. Its
+    /// expected rung would be calibrated against the wrong starting state.
+    func testTheSelfCheckCatchesASeededAppMarkedUnseeded() throws {
+        let copy = try scriptCopy(
+            replacing: "|com.apple.Notes|native-appkit|allowlist|",
+            with: "|com.apple.Notes|native-appkit|no|")
+        let result = try run(copy, ["--self-check"])
+        XCTAssertNotEqual(result.status, 0, "A seeded application marked unseeded passed.")
+        XCTAssertTrue(result.output.contains("claims com.apple.Notes is unseeded"))
+    }
+
+    /// A display name where a bundle identifier belongs. It seeds nothing, matches nothing, and
+    /// no application ever reports it — the exact shape of the identifier defect.
+    func testTheSelfCheckCatchesADisplayNameInTheBundleIDColumn() throws {
+        let copy = try scriptCopy(
+            replacing: "|md.obsidian|electron|", with: "|Obsidian Notes|electron|")
+        let result = try run(copy, ["--self-check"])
+        XCTAssertNotEqual(result.status, 0, "A display name passed as a bundle identifier.")
+        XCTAssertTrue(result.output.contains("display name, not a bundle identifier"))
+    }
+
+    /// `--verify-bundle-ids` is the only check that can tell a correct identifier from a
+    /// plausible one, and it needs no grant, no window server and no dictation — so the suite
+    /// runs it. It reports on whatever is installed here and must never report a mismatch: a
+    /// mismatch means the shipped table is wrong about an application on this very machine.
+    func testTheBundleIDVerificationFindsNoMismatchOnThisMachine() throws {
+        let result = try run(try scriptURL, ["--verify-bundle-ids"])
+        XCTAssertEqual(
+            result.status, 0,
+            """
+            The matrix table names a bundle identifier that disagrees with an installed \
+            application's own Info.plist. A wrong identifier seeds, learns and pins nothing \
+            while passing every other test in the suite.
+            Output:
+            \(result.output)
+            """)
+        XCTAssertTrue(
+            result.output.contains("0 mismatched"),
+            "The verification no longer reports its mismatch count:\n\(result.output)")
+        XCTAssertFalse(
+            result.output.contains("MISMATCH"),
+            "At least one row mismatched:\n\(result.output)")
     }
 
     /// A rung outside the ladder's own vocabulary is caught — a row expecting something the log

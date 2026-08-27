@@ -1174,8 +1174,15 @@ set -euo pipefail
 # the shipped script — a renamed row missing from the checklist, a known-hostile row expecting
 # a rung, an invented rung — because a self-check that cannot fail proves nothing.
 #
+# The bundle-identifier verification adds four (1341 -> 1345): the seed cross-check caught in
+# both directions (a row claiming a hostile seed the Swift data does not name, and a seeded
+# application marked unseeded), a display name planted where a bundle identifier belongs, and
+# `--verify-bundle-ids` itself run against this machine's installed applications — the only
+# check in the repository that can tell a correct identifier from a plausible one, and the one
+# that would have caught `com.google.docs` before it reached a plan.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1341
+MINIMUM_EXECUTED_TESTS=1345
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
