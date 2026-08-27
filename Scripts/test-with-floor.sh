@@ -1104,8 +1104,15 @@ set -euo pipefail
 # `configure` or `main` (M9 — the download starts only from the window's MODEL
 # step, user-initiated).
 #
+# The fix/dictionary-last-row change raises it to 1210: the settings Dictionary tab's
+# save-over-existing regression (DictionaryStoreTests, two) — the second save after the
+# first must replace the committed file rather than fail with "a file with the same name
+# already exists" (the real adapter's commit is now the atomic replace, not `moveItem`,
+# which refuses an existing destination), pinned both as the empty-dictionary case (the
+# reported remove-the-last-row bug) and the one-row-of-several case.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1208
+MINIMUM_EXECUTED_TESTS=1210
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

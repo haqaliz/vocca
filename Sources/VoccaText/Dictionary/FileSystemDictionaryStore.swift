@@ -34,6 +34,8 @@ public protocol DictionaryFileSystem: Sendable {
     func write(_ data: Data, to url: URL) async throws
 
     /// Move the file at `source` over `destination` — the commit point of the atomic pair.
+    /// Succeeds whether or not `destination` already exists: an overwrite is a replace, not a
+    /// refusal.
     func moveItem(at source: URL, to destination: URL) async throws
 
     /// The file's bytes, or `nil` if it cannot be read.
@@ -56,7 +58,11 @@ public struct DefaultDictionaryFileSystem: DictionaryFileSystem {
     }
 
     public func moveItem(at source: URL, to destination: URL) async throws {
-        try FileManager.default.moveItem(at: source, to: destination)
+        // The atomic replace, not `moveItem`: `FileManager.moveItem` refuses an existing
+        // destination (NSFileWriteFileExistsError), which made every save after the first
+        // fail once dictionary.json existed. `replaceItemAt` is the same rename-over commit
+        // and succeeds whether or not the destination is there.
+        _ = try FileManager.default.replaceItemAt(destination, withItemAt: source)
     }
 
     public func read(_ url: URL) async -> Data? {
