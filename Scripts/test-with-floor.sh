@@ -1166,8 +1166,16 @@ set -euo pipefail
 # pin, the store is handed exactly what the caller decided, the seed is re-folded into memory
 # only, and a refused save throws where the Apps tab can show it).
 #
+# The `matrix-smoke` aspect adds eight (1333 -> 1341), all of them about the harness rather
+# than the matrix: the script parses, the self-check passes and states both numbers the >=95%
+# bar is made of, `--dry-run` exits zero on a machine with none of the twenty applications (a
+# CI runner is exactly that machine), and an unknown argument or row name is refused loudly
+# rather than starting a twenty-application run. The last three plant a violation in a copy of
+# the shipped script — a renamed row missing from the checklist, a known-hostile row expecting
+# a rung, an invented rung — because a self-check that cannot fail proves nothing.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1333
+MINIMUM_EXECUTED_TESTS=1341
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
