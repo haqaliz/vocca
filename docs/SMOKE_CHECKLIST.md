@@ -238,7 +238,12 @@ once per machine without resetting state. Use a fresh user account or
    after granting, the hotkey fires from **another app's** front window — not just when Vocca is
    frontmost.
 10. Quit, rebuild, relaunch. Confirm the grants **survived** — this is what catches an identity
-   regression, and it is invisible to every other check in this repository.
+    regression, and it is invisible to every other check in this repository.
+
+    On a fresh install these gates are not met ad hoc — the five-step onboarding window
+    (`first-run-permissions`) presents them, one at a time, and steps 81–86 are that flow's
+    execution. The rows above remain the direct per-gate checks this block has always been; the
+    flow is the shape they take on a machine that has never run Vocca.
 
 ### Behaviour in the real world
 
@@ -1039,7 +1044,8 @@ shipped app cannot yet produce the plan's claim, the step says so and records **
 Two preconditions govern the whole section: **the model must be present and prepared** — the
 launch-time background `prepare` (`AppBootstrap.main` → `startEnginePreparation`) runs once, in
 the background, and a press before it completes is step 66's gesture, not this section's — and
-**the Accessibility and microphone grants must be live** (steps 5-10).
+**the Accessibility and microphone grants must be live** (steps 5-10 — on a fresh account, the
+onboarding flow of steps 81–86 is how they become live).
 
 And one half of the plan is **not yet wired in the shipping app**, which is why one of the
 steps below cannot pass yet:
@@ -1519,6 +1525,113 @@ not ship.
     *Failure:* the window opens behind the frontmost app or refuses keystrokes; the Dock icon
     survives the close; a dictation after closing the window steals focus; a dictionary edit does
     not survive a reopen, or does not reach the next transcript.
+
+### The first-run onboarding — the five-step flow, its first execution
+
+*(Added 2026-08-27, `first-run-permissions`.)* The onboarding window and its adapters are executed
+by nothing in CI: the window is a window-server object, and the TCC prompts it presents cannot be
+granted on a hosted runner (§1's wall, and §2's — there is no microphone either). The flow's
+reducer, the pinned copy and the permission reads' decisions are the CI-covered half, over
+injected seams; these six steps are the flow's only execution, on a machine that has never run
+Vocca. The permissions block above (steps 5-10) is the direct per-gate check; this section is the
+shape those gates take on a fresh install — the one-at-a-time presentation `ARCHITECTURE.md:589`
+demands, never a wall of dialogs.
+
+81. **The fresh-install run — the welcome window, then the two prompts one at a time.**
+
+    *Gesture:* on a clean account (step 5's reset: `tccutil reset Accessibility dev.vocca.Vocca`
+    and `tccutil reset Microphone dev.vocca.Vocca`), launch Vocca. The **welcome window appears of
+    its own accord** — an `LSUIElement` launch that shows a window is distinguishable from one that
+    shows nothing, which is the point of this row (the local-dev-launch defect class). Read the
+    WELCOME copy, press [Get started]. On PERMISSIONS: the Accessibility row shows **✗** with the
+    §6 reason copy, and its button opens the **exact** `Privacy_Accessibility` pane (step 79's
+    discipline — the pane itself, not a Settings root); the Microphone row calls `requestAccess`
+    as it appears.
+
+    *Pass:* the two prompts fire **one at a time** — the microphone prompt appears only when its
+    row does, never stacked with the Accessibility pane or a second dialog (a wall of dialogs is
+    `ARCHITECTURE.md:589`'s named failure); the pane button lands on the exact pane; the prompt's
+    text is the `NSMicrophoneUsageDescription` string (step 6's check), not a generic one; nothing
+    in the flow needs a terminal, a config file, or an account.
+
+    *Failure:* the window never shows (a silent launch death looks identical to a working launch —
+    this row is the only place the difference is visible); both prompts at once; the pane button
+    opens the wrong pane; generic prompt text.
+
+82. **Grant → restart → dictate — the three-state Accessibility row, and the restart that arms.**
+
+    *Gesture:* grant Accessibility in System Settings and return to the window **without
+    restarting**. The row must show *granted, restart to arm* — the M5c middle state — **never a
+    bare ✓ with a dead tap** (the stale-tap trap of `ARCHITECTURE.md:604`: the tap was created
+    with its mask cleared and stays deaf until re-creation). Press [Restart Vocca] and wait.
+
+    *Pass:* the app **quits and relaunches itself** — an `LSUIElement` quit that does not come back
+    is silent, so watch for the relaunch rather than assuming it; the row then shows *armed*; and
+    within **60 s of first launch** the hotkey fires from **another app's** front window (step 9's
+    check, the `ROADMAP.md:80` target) — grant → restart → dictate, the whole path, on a real
+    grant.
+
+    *Failure:* [Restart Vocca] quits without relaunching; the row shows a ✓ while the tap is deaf
+    (the hotkey then does nothing from any app); the hotkey never fires from another app.
+
+83. **Mic denial is not a dead end — the exact toggle, and an honest later refusal.**
+
+    *Gesture:* deny the microphone prompt on a second fresh account (step 8's denial, now through
+    the flow) and keep going.
+
+    *Pass:* the window names the **exact toggle** to flip, with a button opening the
+    `Privacy_Microphone` pane (step 8's "says something useful", as specific as the copy allows),
+    and the flow **continues** past PERMISSIONS — denial never blocks the flow. A later dictation
+    presents the honest refusal rather than a silent no-op.
+
+    *Failure:* the flow dead-ends on the denial; the copy names a pane but not the toggle; a later
+    dictation appears to work and produces nothing.
+
+84. **Skip the model — TRY IT stays honest, and DONE stays reachable.**
+
+    *Gesture:* on the MODEL step, [Skip for now]. TRY IT must then show the **model-unavailable**
+    state with its [Download now] affordance and a way forward, and DONE must remain reachable.
+    Then, still without a model, press `⌥Space` from another app.
+
+    *Pass:* the press is refused with the `.modelUnavailable` notice and the **system mic
+    indicator never lights** — the readiness gate refuses before the machine can ask the
+    microphone (step 66's pass, now reached through the onboarding flow instead: same refusal,
+    different route to it). No auto-download starts; the refusal is honest and repeatable, never a
+    silent dead end (`PRODUCT_SPEC.md:233-235`); DONE is reachable without the model.
+
+    *Failure:* the mic indicator lights during the refusal; an auto-download starts; TRY IT offers
+    no way forward; DONE unreachable.
+
+85. **Menu-bar reopen, and completion — the flag, both directions.**
+
+    *Gesture:* complete TRY IT — speak into the window's field and watch the words land (the
+    dedicated onboarding sink delivers to the field; the ladder and steps 22-35 are not involved)
+    — then press DONE. From the menu bar, choose **Welcome…** and confirm it reopens the window.
+    Quit and relaunch: the window must **not** re-show. On a second, incomplete account: close the
+    window mid-flow and relaunch.
+
+    *Pass:* completion is **TRY IT success** — the `onboarding.complete` flag is set by that and
+    by nothing else (PRD R4), and a relaunch with the flag set shows no window; **Welcome…**
+    reopens the window after completion; on the incomplete account the relaunch resumes at the
+    **first incomplete step** — derived from the permission and model reads, never from extra
+    persisted step state.
+
+    *Failure:* the window re-shows after DONE; **Welcome…** is absent or opens nothing; a mid-flow
+    close loses the account's place or starts over at WELCOME; TRY IT's words land nowhere (the
+    sink diverged from the real loop — R3's surveillance row).
+
+86. **Timing: cold install to DONE — record the number.**
+
+    *Gesture:* on the cleanest account available, from first launch, run the flow end to end —
+    model downloaded **or** skipped, and the record must say which — and time it.
+
+    *Pass:* the flow reaches DONE, and the measured number is **recorded beside this step** with
+    the machine and the network state. The `ROADMAP.md:80` "under 60 seconds" figure is what this
+    row exists to measure, not what it asserts yet: a number past it is a record and a target to
+    work on, never a hidden fail.
+
+    *Failure:* the number is not recorded (a claim with no measurement — the rule-1 shape); or
+    the flow cannot reach DONE at all.
 
 ---
 
