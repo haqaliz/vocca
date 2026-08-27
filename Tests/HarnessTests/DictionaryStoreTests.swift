@@ -311,6 +311,58 @@ final class DictionaryStoreTests: XCTestCase {
         }
     }
 
+    /// The regression the settings Dictionary tab surfaced: every save after the first fails
+    /// with "a file with the same name already exists". The real adapter's commit was
+    /// `FileManager.moveItem`, which refuses to overwrite an existing destination — so the
+    /// first save (no `dictionary.json` yet) succeeded and every edit after it — adding a
+    /// row, removing the last row, removing one row of several — threw, leaving the on-disk
+    /// dictionary at its previous state while the window showed the edited list.
+    func testSavingOverAnExistingFileReplacesIt() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileSystemDictionaryStore(directory: directory)
+        let v1 = [
+            ReplacementRule(
+                source: "gonna", replacement: "going to", caseSensitive: true, wordBoundary: true),
+        ]
+        try await store.save(v1)
+
+        // The reported case: removing the last row saves an empty dictionary over v1.
+        let v2: [ReplacementRule] = []
+        try await store.save(v2)
+
+        XCTAssertEqual(
+            try? Data(contentsOf: directory.appendingPathComponent("dictionary.json")),
+            try FileSystemDictionaryStore.encode(v2),
+            "a second save must replace the committed file, not fail on its existence")
+        let reloaded = await store.load()
+        XCTAssertEqual(
+            reloaded, v2,
+            "removing the last row must persist as an empty dictionary, not resurrect v1")
+    }
+
+    /// The same regression, one row of several removed: the file's content must be v2, not v1.
+    func testRemovingOneRowOfSeveralPersistsTheRemainder() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileSystemDictionaryStore(directory: directory)
+        let v1 = [
+            ReplacementRule(
+                source: "gonna", replacement: "going to", caseSensitive: true, wordBoundary: true),
+            ReplacementRule(
+                source: "mcp", replacement: "MCP", caseSensitive: false, wordBoundary: true),
+        ]
+        try await store.save(v1)
+
+        let v2 = Array(v1.dropLast())
+        try await store.save(v2)
+
+        let reloaded = await store.load()
+        XCTAssertEqual(
+            reloaded, v2,
+            "an edit that removes one row must persist the remainder over the previous file")
+    }
+
     // MARK: - Fixtures
 
     private static func tempDirectory() -> URL {
