@@ -245,6 +245,11 @@ This file orients a coding agent working in this repository. Read it first.
 >   dictionary store, the pipeline wiring and the eval harness; C6: the Ollama and BYOK rungs,
 >   opted into by a hand-edited `cleanup-config.json` — both recorded below). **The Cleanup-tab
 >   settings UI and C8 (strategy memory) remain unbuilt.** The ladder does not learn.
+>   *(Amended by the `core-memory` aspect, landed 2026-08-27: C8's **vocabulary** shipped —
+>   the `InjectionStrategy` value type and the pure decisions (projection, re-probe eligibility,
+>   record fold, absolute override) in `VoccaCore`, stdlib-only and headless-tested — while the
+>   store, the memory-backed order, the recording, the Apps tab and the matrix remain unbuilt:
+>   the ladder still does not learn end to end, recorded below.)*
 >
 > **The `latency-instrumentation` unit landed 2026-08-14 — C7's first slice: the loop's
 > numbers, measured and gated.** `VoccaCore` now owns the local-only vocabulary the loop
@@ -449,7 +454,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   adapters' and the panel's only execution.
 > - **The loop is wired** (the `dictation-loop` unit above); CONVERSING and the settings surface
 >   are out of scope (only the FAILSAFE and the five live states ship); C8 (strategy
->   memory) remains unbuilt; C5 and C6 shipped in full except their settings surface — the
+>   memory) ships only its core vocabulary — the pure decisions, stdlib-only
+>   (`core-memory`, recorded below); its store, order, recording and Apps tab remain
+>   unbuilt; C5 and C6 shipped in full except their settings surface — the
 >   rules dictionary and the cleanup-provider choice are JSON-editable, the Cleanup tab waits
 >   for the deferred settings surface; C7's
 >   latency-instrumentation slice shipped

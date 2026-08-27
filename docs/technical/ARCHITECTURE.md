@@ -264,6 +264,11 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` | **No — by design** |
 | Actions | `ActionProvider` | `MCPProvider`, `ShellProvider` | No |
 
+> *Status (core-memory aspect, 2026-08-27): the `InjectionStrategyStore` seam and its
+> implementations remain unbuilt; the Core vocabulary they will persist — `InjectionStrategy`
+> and the pure decisions in `VoccaCore/StrategyMemory/` — shipped in this unit's first aspect
+> (see §9).*
+
 ```swift
 protocol ASREngine: Sendable {
     var identity: EngineIdentity { get }
@@ -476,6 +481,8 @@ func inject(_ text: String, into target: TargetContext) async -> InjectionResult
 ```
 
 **Strategy memory (C8)** persists the winning rung per bundle ID, seeds known-hostile apps at first run, demotes on failure, and re-probes on a decay schedule so an app update that fixes AX is eventually noticed rather than permanently written off.
+
+*Status (core-memory aspect, 2026-08-27): the **pure vocabulary** shipped in `VoccaCore/StrategyMemory/` — the per-app `InjectionStrategy` value, `StrategyMemory.orderedRungs` (the projection), `reprobeEligibility`, the record fold and the absolute override (S2), stdlib-only with integer epoch seconds and headless-tested. The store (§5), the memory-backed order, `LadderInjector` recording, the Apps tab and the matrix remain unbuilt — the ladder still does not learn end to end.*
 
 ---
 
