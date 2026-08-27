@@ -1,25 +1,24 @@
-# Issue card — warm-start-streaming
-
-**Source:** inline brief (no GitHub issue exists; `gh issue list` is empty; the id is a
-descriptive slug, per `vocca-begin-fast`).
-
-**Type:** `feat` · **Branch:** `feat/warm-start-streaming/aliz`
+# First-run + permissions onboarding
 
 ## Brief
 
-Build the deferred C7 remainder: warm start (ASR model pre-warmed at launch and after idle
-via the `ASREngine.prepare()` hook, so first-dictation-after-launch lands within 20% of
-steady-state) plus widget-only streaming partials (partials rendered in the widget only, the
-target app untouched until final injection, zero `TextInjector` calls before key-up). The
-first slice is warm start; widget streaming is the second in the same unit.
+Build the P0 first-run + permissions surface, the last unshipped P0 deliverable
+(`docs/ROADMAP.md:80`) and the design pass's highest-value unbuilt surface. The flow is
+already spec'd in `docs/product/PRODUCT_SPEC.md` §6 (WELCOME → PERMISSIONS one at a time →
+MODEL with skip → TRY IT → DONE, denial-never-a-dead-end, Accessibility-fatal `[Restart
+Vocca]`) and `docs/technical/ARCHITECTURE.md` §13:589-603 — write the acceptance tests
+first: a headless state machine over *injected* permission-status reads covering every
+denial path and the restart requirement, copy pinned byte-for-byte against §6 (the
+`BadgeCopy` precedent), the onboarding window driven through the existing
+composition-root/preferences surface with the zero-network probe still green, and the
+`TRY IT` step driving a real dictation into the window's own field once smoke-verified.
 
-Acceptance tests first: a warm-start test asserting first-dictation-after-launch within 20%
-of steady-state over an injected clock; a streaming test asserting zero injection calls
-before key-up across the closed route set; a seam test asserting `ASREngine`'s optional
-`supportsStreaming` degrades gracefully (whisper batches, Parakeet streams) with no caller
-branching on engine identity.
+Caveat: TCC grants cannot happen in CI and `CGEvent.tapCreate == nil` is the Accessibility
+check, so the adapters are seam-only and `docs/SMOKE_CHECKLIST.md` gains the real-machine
+rows (grant → restart → dictate) — the suite proves the flow's decisions, the founder's
+machine proves the prompts.
 
-**Caveat:** `ARCHITECTURE.md:630` open question 2 — speculative final-vs-batch equivalence
-is unmeasured, so keep the streaming slice's correctness claim to the widget guard and
-record, never claim a latency number CI didn't produce; the real numbers wait for the
-founder's `VOCCA_LATENCY_BENCH` run (`SMOKE_CHECKLIST.md` steps 71–72).
+## Source
+
+Inline brief from `vocca-next` handoff (no GitHub issue exists for this work).
+Owner: `aliz`. Type: `feat`. Slug: `first-run-permissions`.
