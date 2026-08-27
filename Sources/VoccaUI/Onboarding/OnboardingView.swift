@@ -186,7 +186,7 @@ public struct OnboardingView: View {
     }
 
     /// DONE (`PRODUCT_SPEC.md:241-242`): the completion surface. The window stays up for the
-    /// user to read and close; the menu bar's "Welcome…" item reopens it.
+    /// user to read and close.
     private var doneStep: some View {
         VStack(spacing: 12) {
             Spacer()

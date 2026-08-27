@@ -483,7 +483,6 @@ public enum AppBootstrap {
                 }
             },
             onOpenSettings: { [weak root] in root?.showSettings() },
-            onOpenWelcome: { [weak root] in root?.showOnboarding() },
             onQuit: { NSApplication.shared.terminate(nil) })
         root.menuBarItem = item
         root.onMenuBarConditionsChanged = { [weak item] conditions in
@@ -870,10 +869,9 @@ public final class DictationLoopRoot {
     private var onboardingWindow: OnboardingWindow?
 
     /// Opens the five-step onboarding window, building it and its bindings the first time —
-    /// `main()`'s auto-show until the completion flag is set (M4), and the menu bar's
-    /// "Welcome…" reopen item's call. The bindings are closures over what the root already
-    /// holds: A2's pane paths and relaunch adapter, A5's mic request over
-    /// ``MicrophoneAuthorization``, and the root's download session — user-initiated only,
+    /// `main()`'s auto-show until the completion flag is set (M4). The bindings are closures
+    /// over what the root already holds: A2's pane paths and relaunch adapter, A5's mic request
+    /// over ``MicrophoneAuthorization``, and the root's download session — user-initiated only,
     /// never from `configure` or `main` themselves.
     public func showOnboarding() {
         guard let onboardingStore, let onboardingSink else { return }

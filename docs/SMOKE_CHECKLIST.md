@@ -1484,19 +1484,20 @@ not ship.
     it can be driven through: **ready** (idle), **listening** and **transcribing** (dictate and
     watch it change and change back), **downloading model** (move the model directory aside and
     relaunch), **no Accessibility** (revoke the grant in System Settings), **no microphone**
-    (deny or disconnect). Open the menu in each and read the status block.
+    (deny or disconnect). Open the menu in each and confirm it stays minimal.
 
     **Secure Input is the state that cannot be staged from inside Vocca** — it is set by other
     people's software. Focus a password field (Terminal's *Secure Keyboard Entry*, a login sheet,
-    1Password) and confirm the icon becomes the lock, the menu says the hotkey is paused by
-    another app **and that it clears on its own**, and that **no button is offered** — there is
+    1Password) and confirm the icon becomes the lock and that **no button is offered** — there is
     nothing to press, and offering one would be an action that does nothing.
 
     *Pass:* every state has its own **shape** at menu bar size, distinguishable without colour
-    (the icon is a template image, so colour is not available to it anyway); the status block
-    reads as consequence-then-remedy rather than as a diagnosis; the blocked states that *can* be
-    acted on offer a button that opens the right System Settings pane; and the ~1 s health poll
-    does not rebuild the menu while it is open under the cursor.
+    (the icon is a template image, so colour is not available to it anyway); the VoiceOver label
+    carries the state as consequence-then-remedy, while the menu itself carries commands only —
+    the blocked states that *can* be acted on offer a button that opens the right System Settings
+    pane, then Settings… and Quit Vocca, with no readout rows (the founder's call: the menu is for
+    doing, not telling — `PRODUCT_SPEC.md:328-330`); and the ~1 s health poll does not rebuild
+    the menu while it is open under the cursor.
 
     *Failure:* two states sharing a shape (one of them is then invisible); an icon that does not
     change during a dictation; a button on Secure Input; a menu that closes or flickers on its
@@ -1602,23 +1603,23 @@ demands, never a wall of dialogs.
     *Failure:* the mic indicator lights during the refusal; an auto-download starts; TRY IT offers
     no way forward; DONE unreachable.
 
-85. **Menu-bar reopen, and completion — the flag, both directions.**
+85. **Completion, and the flag's both directions.**
 
     *Gesture:* complete TRY IT — speak into the window's field and watch the words land (the
     dedicated onboarding sink delivers to the field; the ladder and steps 22-35 are not involved)
-    — then press DONE. From the menu bar, choose **Welcome…** and confirm it reopens the window.
-    Quit and relaunch: the window must **not** re-show. On a second, incomplete account: close the
-    window mid-flow and relaunch.
+    — then press DONE. Quit and relaunch: the window must **not** re-show. On a second,
+    incomplete account: close the window mid-flow and relaunch.
 
     *Pass:* completion is **TRY IT success** — the `onboarding.complete` flag is set by that and
-    by nothing else (PRD R4), and a relaunch with the flag set shows no window; **Welcome…**
-    reopens the window after completion; on the incomplete account the relaunch resumes at the
-    **first incomplete step** — derived from the permission and model reads, never from extra
-    persisted step state.
+    by nothing else (PRD R4), and a relaunch with the flag set shows no window; the menu bar
+    carries no "Welcome…" row (the founder's call: welcome is one-time, and the Settings window
+    is the app's own surface — the tray menu is commands only); on the incomplete account the
+    relaunch resumes at the **first incomplete step** — derived from the permission and model
+    reads, never from extra persisted step state.
 
-    *Failure:* the window re-shows after DONE; **Welcome…** is absent or opens nothing; a mid-flow
-    close loses the account's place or starts over at WELCOME; TRY IT's words land nowhere (the
-    sink diverged from the real loop — R3's surveillance row).
+    *Failure:* the window re-shows after DONE; a mid-flow close loses the account's place or
+    starts over at WELCOME; TRY IT's words land nowhere (the sink diverged from the real loop —
+    R3's surveillance row).
 
 86. **Timing: cold install to DONE — record the number.**
 

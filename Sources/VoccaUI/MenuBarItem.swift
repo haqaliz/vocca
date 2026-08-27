@@ -40,9 +40,6 @@ public final class MenuBarItem {
     private let onAction: (MenuBarState) -> Void
     /// What to run for Settings.
     private let onOpenSettings: () -> Void
-    /// What to run for Welcome — the onboarding window's reopen (M4's "Welcome…" item,
-    /// post-completion).
-    private let onOpenWelcome: () -> Void
     /// What to run for Quit.
     private let onQuit: () -> Void
 
@@ -54,19 +51,16 @@ public final class MenuBarItem {
     ///   - hotkey: the chord in display form, e.g. `⌥Space`.
     ///   - onAction: invoked for a blocked state's call to action.
     ///   - onOpenSettings: invoked for the Settings item.
-    ///   - onOpenWelcome: invoked for the Welcome item.
     ///   - onQuit: invoked for the Quit item.
     public init(
         hotkey: String,
         onAction: @escaping (MenuBarState) -> Void,
         onOpenSettings: @escaping () -> Void,
-        onOpenWelcome: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         self.hotkey = hotkey
         self.onAction = onAction
         self.onOpenSettings = onOpenSettings
-        self.onOpenWelcome = onOpenWelcome
         self.onQuit = onQuit
         // `.variableLength` because the item is an icon whose symbol changes width between states.
         self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -101,47 +95,20 @@ public final class MenuBarItem {
     ///
     /// Rebuilt per state rather than mutated, because the shape differs: a blocked state carries a
     /// call to action that a working one has no row for at all.
+    ///
+    /// Minimal by design (`PRODUCT_SPEC.md:328-330`): the state lives in the icon and the
+    /// VoiceOver label, the menu carries commands. A readout row ("Vocca is ready", "Press
+    /// ⌥Space…") was removed on the founder's call — the menu is for doing, not telling.
     private func menu(for state: MenuBarState) -> NSMenu {
         let menu = NSMenu()
 
-        // The status block: what Vocca is doing, then what that means. Disabled because it is a
-        // readout, not a command — an enabled row invites a click that would do nothing.
-        let title = NSMenuItem(
-            title: MenuBarCopy.statusTitle(for: state), action: nil, keyEquivalent: "")
-        title.isEnabled = false
-        menu.addItem(title)
-
-        let detail = NSMenuItem(
-            title: MenuBarCopy.statusDetail(for: state, hotkey: hotkey),
-            action: nil, keyEquivalent: "")
-        detail.isEnabled = false
-        // The detail is a sentence, not a label, so it is set small — the size AppKit uses for
-        // secondary text in a menu.
-        detail.attributedTitle = NSAttributedString(
-            string: MenuBarCopy.statusDetail(for: state, hotkey: hotkey),
-            attributes: [
-                .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ])
-        menu.addItem(detail)
-
         if let actionTitle = MenuBarCopy.actionTitle(for: state) {
-            menu.addItem(.separator())
             let action = NSMenuItem(
                 title: actionTitle, action: #selector(runAction), keyEquivalent: "")
             action.target = self
             menu.addItem(action)
+            menu.addItem(.separator())
         }
-
-        menu.addItem(.separator())
-
-        // The onboarding window's reopen (M4): before completion the window auto-shows at
-        // launch, so this row is the post-completion way back in — and an always-present row is
-        // simpler and honest for the pre-completion case too (it re-shows the same window).
-        let welcome = NSMenuItem(
-            title: "Welcome…", action: #selector(openWelcome), keyEquivalent: "")
-        welcome.target = self
-        menu.addItem(welcome)
 
         let settings = NSMenuItem(
             title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
@@ -159,8 +126,6 @@ public final class MenuBarItem {
         guard let state else { return }
         onAction(state)
     }
-
-    @objc private func openWelcome() { onOpenWelcome() }
 
     @objc private func openSettings() { onOpenSettings() }
 
