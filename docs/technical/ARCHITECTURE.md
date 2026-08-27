@@ -264,10 +264,16 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` | **No — by design** |
 | Actions | `ActionProvider` | `MCPProvider`, `ShellProvider` | No |
 
-> *Status (core-memory aspect, 2026-08-27): the `InjectionStrategyStore` seam and its
-> implementations remain unbuilt; the Core vocabulary they will persist — `InjectionStrategy`
-> and the pure decisions in `VoccaCore/StrategyMemory/` — shipped in this unit's first aspect
-> (see §9).*
+> *Status (memory-order aspect, 2026-08-27): the strategy-memory row is real end to end.
+> `InjectionStrategyStore` and both implementations shipped in `store-seam`; the ladder now
+> consults them through `MemoryBackedInjectionStrategyOrder` (`VoccaInject/Ladder/`), which is
+> the `InjectionStrategyOrder`, the `InjectionAllowlist` and the new `InjectionStrategyRecording`
+> seam **as one instance** — `ShippingLadder.makeWithMemory` fills all three slots with it, so
+> the order that offers the accessibility rung and the rung that accepts the application can
+> never disagree. `LadderInjector` takes an optional recorder (nil is the C4 injector, byte for
+> byte) and its persist is detached: the snapshot is applied in memory before `inject` returns,
+> and the disk write is chained off the latency path. What remains unbuilt is the Apps tab and
+> the matrix (see §9).*
 
 ```swift
 protocol ASREngine: Sendable {
@@ -482,7 +488,7 @@ func inject(_ text: String, into target: TargetContext) async -> InjectionResult
 
 **Strategy memory (C8)** persists the winning rung per bundle ID, seeds known-hostile apps at first run, demotes on failure, and re-probes on a decay schedule so an app update that fixes AX is eventually noticed rather than permanently written off.
 
-*Status (core-memory aspect, 2026-08-27): the **pure vocabulary** shipped in `VoccaCore/StrategyMemory/` — the per-app `InjectionStrategy` value, `StrategyMemory.orderedRungs` (the projection), `reprobeEligibility`, the record fold and the absolute override (S2), stdlib-only with integer epoch seconds and headless-tested. The store (§5), the memory-backed order, `LadderInjector` recording, the Apps tab and the matrix remain unbuilt — the ladder still does not learn end to end.*
+*Status (memory-order aspect, 2026-08-27): the ladder learns. The pure vocabulary shipped in `core-memory` (`VoccaCore/StrategyMemory/`), the store in `store-seam`, and this aspect joined them to the ladder: the memory-backed order and allowlist, the seeded hostile set (`SeededHostileApps` — Chrome, which is how Google Docs actually reports itself, and Slack), the recording hook in `LadderInjector.inject`, and the composition root's `AppBootstrap.assembleShippingLadder` (store → loaded snapshot → memory → ladder, pinned in that order). Promotion works because the projection answers both questions: a non-allowlisted app that delivers by clipboard is marked a candidate, re-probed once after the window, and promoted only by a **read-back-verified** AX win — a failed probe is re-demoted with a fresh window. Still unbuilt: the Apps tab and per-app override (R7/S2 — the override is modelled and honoured, but nothing writes one), and the 20+ app matrix that produces the ≥95% number. **No part of this has run against a real application**: the accessibility and clipboard rungs are executed by nothing in CI, so what is proven headlessly is the learning, not the typing.*
 
 ---
 

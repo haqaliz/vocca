@@ -1144,8 +1144,15 @@ set -euo pipefail
 # reaching the seam, the in-memory apply the next projection reads before any disk write, and
 # the chained persists landing in order when two are released from one gate together.
 #
+# The aspect's wiring adds five (1295 -> 1300): the identity pin that the order slot, the
+# accessibility rung's gate and the recorder are one object; the C4 factory still building a
+# ladder that learns nothing; a promotion recorded through a factory-built ladder reaching the
+# gate a window later; and the custody chain's extracted assembly, which must load the store
+# before it builds the ladder and must leave an absent strategies.json unwritten. The probe's
+# `strategy=absent` field rides the existing whole-line assertion and its guard-the-guard test.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1295
+MINIMUM_EXECUTED_TESTS=1300
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

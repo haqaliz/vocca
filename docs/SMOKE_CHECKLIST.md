@@ -412,6 +412,18 @@ is a bug, not a pass. The ladder's log names the rung that landed each insertion
 (`.accessibility`, `.clipboardPaste`, `.keystrokeSynthesis`), and every row states which one it
 expects.
 
+> **What C8's strategy memory changes about these rows, and what it does not** (memory-order
+> aspect, 2026-08-27). The ladder now remembers per application, so a matrix row run **twice**
+> can legitimately name different rungs: the first run discovers, the second starts at what
+> worked. Run each row on a fresh memory — delete `~/Library/Application Support/Vocca/strategies.json`
+> before the matrix — or the rung a row names is the memory's answer rather than the ladder's.
+> Two rows keep their expectation for a new reason: Slack (step 23) and Google Docs in Chrome
+> (step 24) are the **seeded hostile set** (`SeededHostileApps`), so their `.clipboardPaste`
+> result is now seeded rather than incidental. Nothing in the memory can promote an application
+> to the accessibility rung without a **read-back-verified** AX win, and no promotion is even
+> attempted until a re-probe window (7 days, provisional) has elapsed — so within one matrix
+> session, no row's rung can change because of learning alone.
+
 22. **Native AppKit: Notes, Mail, TextEdit** — the three seeded applications
     (`SeededInjectionAllowlist`), the only ones the accessibility rung is offered first.
 

@@ -69,4 +69,37 @@ public enum ShippingLadder {
             handoff: handoff,
             clock: clock)
     }
+
+    /// The shipped ``LadderInjector`` **with C8's strategy memory** — the same rung strategies,
+    /// with the memory in all three of the slots that decide, gate and remember.
+    ///
+    /// A second factory rather than a parameter on ``make(allowlist:handoff:clock:)``, so every
+    /// caller that predates the memory keeps its exact behaviour: an injector built by `make`
+    /// records nothing and orders from the seeded allowlist alone, byte for byte as it did in C4.
+    ///
+    /// - Parameter memory: The memory, handed to the rung order, to the accessibility rung's
+    ///   allowlist gate **and** to the injector's recorder. The same instance in all three: the
+    ///   order decides whether to offer the accessibility rung and the rung decides whether to
+    ///   accept the application, and two objects answering that one question is how the
+    ///   promotion probe gets scheduled by one and refused by the other, forever
+    ///   (`AccessibilityRungStrategy.swift:98-100`).
+    public static func makeWithMemory(
+        memory: MemoryBackedInjectionStrategyOrder,
+        handoff: any FailsafeHandoff,
+        clock: any MonotonicClock
+    ) -> LadderInjector {
+        let keystrokes = KeystrokeSource()
+        let strategies: [InjectionRung: any InjectionRungStrategy] = [
+            .accessibility: AccessibilityRungStrategy(
+                allowlist: memory, insert: AXSource()),
+            .clipboardPaste: ClipboardRungStrategy(
+                pasteboard: SystemPasteboard(), keystrokes: keystrokes),
+        ]
+        return LadderInjector(
+            strategies: strategies,
+            order: memory,
+            handoff: handoff,
+            clock: clock,
+            recorder: memory)
+    }
 }

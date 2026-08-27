@@ -135,8 +135,13 @@ public enum AppBootstrap {
             let journal = try await RecoveryJournal(
                 store: FileSystemJournalStore(), capacity: Self.recoveryJournalCapacity)
             let holder = JournalTranscriptHolder(journal: journal)
-            let ladder = ShippingLadder.make(
-                allowlist: SeededInjectionAllowlist(), handoff: holder, clock: clock)
+            // C8's strategy memory joins the same chain, and for the same reason the journal is
+            // here: its load reads a file, and `configure` may not block. An absent
+            // `strategies.json` — every fresh install — is a silent empty memory whose
+            // projection is the shipped C4 order, so this is probe-safe: FileManager only, no
+            // network, and nothing written by the load.
+            let ladder = await assembleShippingLadder(
+                store: PersistentInjectionStrategyStore(), handoff: holder, clock: clock)
             return AssembledCustody(holder: holder, ladder: ladder)
         }
         let deferredHolder = DeferredCustody(assembly: custodyTask)
@@ -531,6 +536,45 @@ public enum AppBootstrap {
     /// stays bounded either way; the number is named here so the composition root and the tests
     /// read one constant.
     public static let recoveryJournalCapacity = 5
+
+    // MARK: - The learning ladder
+
+    /// **store → loaded snapshot → memory → ladder**, in that order — the custody chain's ladder
+    /// assembly, extracted so the order is pinned by a test rather than asserted by a comment.
+    ///
+    /// The order is the whole content of this function. Building the ladder first and loading
+    /// afterwards would leave the first dictation after every launch ordering from an empty
+    /// memory — re-trying, once per launch, exactly the rung C8 exists to stop re-trying.
+    ///
+    /// Nothing here can block `configure`: the load is asynchronous, an absent `strategies.json`
+    /// is a silent empty memory (every fresh install), and a load never writes. `now` is epoch
+    /// seconds — the re-probe window's clock, injected so the suite does not wait a week.
+    ///
+    /// - Parameters:
+    ///   - store: Where the per-app strategies live. ``PersistentInjectionStrategyStore`` at
+    ///     ship, a temp-directory store under the probe and the suite.
+    ///   - handoff: The failsafe floor, already assembled — the same custody the panel reads.
+    ///   - clock: The ladder's monotonic clock, the one the whole loop shares.
+    ///   - now: Epoch seconds for the strategy memory. Distinct from `clock` on purpose: a
+    ///     monotonic reading is meaningless across launches, which is exactly the span a
+    ///     re-probe window covers.
+    @MainActor
+    public static func assembleShippingLadder(
+        store: any InjectionStrategyStore,
+        handoff: any FailsafeHandoff,
+        clock: any MonotonicClock,
+        now: @escaping @Sendable () -> UInt64 = {
+            UInt64(max(0, Date().timeIntervalSince1970))
+        }
+    ) async -> LadderInjector {
+        let loaded = await store.load()
+        let memory = MemoryBackedInjectionStrategyOrder(
+            seed: SeededInjectionAllowlist(),
+            strategies: loaded,
+            store: store,
+            now: now)
+        return ShippingLadder.makeWithMemory(memory: memory, handoff: handoff, clock: clock)
+    }
 
     // MARK: - The model repositories
 
