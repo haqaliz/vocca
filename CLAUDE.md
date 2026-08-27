@@ -568,7 +568,11 @@ This file orients a coding agent working in this repository. Read it first.
 > (`injectorComposition(completionFlag:)`: the ladder once complete, the onboarding sink until
 > then) — so words land in the window's field, never through the allowlist ladder, with the M7
 > model-unavailable state honest when the model was skipped and DONE still reachable. The menu bar
-> gains the "Welcome…" reopen item. Test floor: 1208.
+> carries no Welcome row — the founder's call, recorded in the `fix/tray-menu-cleanup` change:
+> welcome is one-time (the window auto-shows at launch until completion), and the tray menu is
+> commands only — Settings… and Quit Vocca, plus the blocked states' action button; the state
+> lives in the icon and the VoiceOver label, and the status readout rows were removed from the
+> menu with them. Test floor: 1208.
 >
 > **What the first-run-permissions unit is NOT, and must not be claimed:**
 > - **The window is executed by nothing in CI** (the window-server precedent): the reducer, the
