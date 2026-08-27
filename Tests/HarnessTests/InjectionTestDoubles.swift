@@ -202,3 +202,94 @@ final class TestEpochClock: Sendable {
         value.withLock { $0 = second }
     }
 }
+
+// MARK: - The strategy store, with a gate
+
+/// **A strategy store whose writes can be held open.**
+///
+/// The memory's persist is detached by contract: `record` applies the outcome in memory and
+/// returns, and the disk write happens on its own. Both halves of that claim are unobservable
+/// against a store that completes instantly — an inject that *did* await a fast write looks
+/// exactly like one that did not — so this double parks every write at a gate the test controls.
+///
+/// It is also the only way to reproduce the ordering race deliberately: two writes spawned a
+/// microsecond apart are parked together, and released together, so a recorder that did not chain
+/// them lands them in whatever order the scheduler chose.
+actor GatedInjectionStrategyStore: InjectionStrategyStore {
+    /// Every snapshot written, in the order the writes completed — the ordering assertion's
+    /// subject.
+    private(set) var updates: [InjectionStrategy] = []
+    /// Whether `update` completes immediately. Open at construction: a test that never touches
+    /// the gate gets an ordinary store.
+    private var isOpen = true
+    /// Whether the next write throws instead of landing — the persist-failure path.
+    private var refusesNextUpdate = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init() {}
+
+    /// Parks every subsequent write until ``openGate()``.
+    func closeGate() {
+        isOpen = false
+    }
+
+    /// Releases every parked write and lets later ones through.
+    func openGate() {
+        isOpen = true
+        let parked = waiters
+        waiters.removeAll()
+        for waiter in parked { waiter.resume() }
+    }
+
+    /// Makes the next write throw — the store reporting that the file was not updated.
+    func refuseNextUpdate() {
+        refusesNextUpdate = true
+    }
+
+    func load() async -> [InjectionStrategy] {
+        updates
+    }
+
+    func update(_ strategy: InjectionStrategy) async throws -> Bool {
+        if !isOpen {
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+        if refusesNextUpdate {
+            refusesNextUpdate = false
+            throw TestStrategyStoreError.refusedWrite
+        }
+        updates.append(strategy)
+        return true
+    }
+
+    func save(_ strategies: [InjectionStrategy]) async throws {
+        updates = strategies
+    }
+}
+
+/// What a refused persist is. The value is that it throws — the specific error is the store's
+/// business, exactly as ``TestHandoffError`` is the journal's.
+enum TestStrategyStoreError: Error {
+    case refusedWrite
+}
+
+/// A recorder that only counts, for the paths where *whether the seam was called* is the whole
+/// question — the handoff-refusal residual, which writes nothing precisely because its trace is
+/// empty, and so is indistinguishable from a branch that skipped the seam entirely.
+actor CountingStrategyRecorder: InjectionStrategyRecording {
+    struct Call: Equatable {
+        let bundleID: String?
+        let orderedRungs: [InjectionRung]
+        let result: InjectionResult
+    }
+
+    private(set) var calls: [Call] = []
+
+    init() {}
+
+    func record(bundleID: String?, orderedRungs: [InjectionRung], result: InjectionResult) async {
+        calls.append(Call(bundleID: bundleID, orderedRungs: orderedRungs, result: result))
+    }
+}

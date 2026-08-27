@@ -193,7 +193,12 @@ public final class MemoryBackedInjectionStrategyOrder:
             folded.bundleID = bundleID
             folded = Self.markingPromotionCandidate(
                 folded, result: result, allowlisted: allowlisted, now: instant)
-            guard folded != held[bundleID] else { return nil }
+            // Compared against `current`, not against the stored entry: for an application
+            // nothing is known about, `current` is a freshly synthesised default, and a fold
+            // that changed nothing must not turn that default into a stored row. That is the
+            // rung-0 refusals' path — Secure Input and no-focused-field attempt nothing, so
+            // they learn nothing, so they leave no trace of the application at all.
+            guard folded != current else { return nil }
             held[bundleID] = folded
             return folded
         }

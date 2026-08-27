@@ -1137,8 +1137,15 @@ set -euo pipefail
 # SeededHostileAppsTests (the exact two identifiers, disjointness from the allowlist seed,
 # and the reverse-DNS spelling that a display name would fail).
 #
+# The aspect's write side adds six (1289 -> 1295): InjectionStrategyRecordingTests' rung-0
+# refusals writing nothing and leaving no row at all, the delivered candidate marker and the
+# exhausted ladder's demotion derived from its intact trace, the gated-store proof that the
+# injector returns while the persist is still parked, the handoff-refusal residual still
+# reaching the seam, the in-memory apply the next projection reads before any disk write, and
+# the chained persists landing in order when two are released from one gate together.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1289
+MINIMUM_EXECUTED_TESTS=1295
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

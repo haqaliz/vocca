@@ -367,8 +367,10 @@ final class MemoryBackedInjectionStrategyOrderTests: XCTestCase {
     }
 
     /// An *unverified* accessibility "success" — the silent lie — is not a promotion either. The
-    /// decision already treats it as a failure (`ARCHITECTURE.md:400`); the memory must not
-    /// undo that by learning from the claim.
+    /// decision already treats it as a failure and falls through
+    /// (`InjectionLadderDecision.swift:130-136`), so it never hands the memory a result shaped
+    /// like this one; the row is here because the memory must not become the place the lie is
+    /// believed if some future caller does.
     @MainActor
     func testUnverifiedAccessibilitySuccessNeverPromotes() async {
         let clock = TestEpochClock(0)
@@ -381,10 +383,20 @@ final class MemoryBackedInjectionStrategyOrderTests: XCTestCase {
                 rung: .accessibility, attempted: [.accessibility], verified: false,
                 elapsed: .zero))
 
-        XCTAssertEqual(
-            memory.snapshot().first { $0.bundleID == Self.unknown }?.learnedAllowlist, false,
+        XCTAssertNotEqual(
+            memory.snapshot().first { $0.bundleID == Self.unknown }?.learnedAllowlist, true,
             "An unverified accessibility claim promoted the application — the silent lie was "
             + "believed by the memory after the decision had already caught it.")
+        XCTAssertFalse(
+            memory.contains(bundleID: Self.unknown),
+            "The unverified claim let the application through the accessibility rung's gate.")
+        XCTAssertNil(
+            memory.snapshot().first { $0.bundleID == Self.unknown },
+            """
+            The claim was recorded as something. It taught the memory nothing — no rung was \
+            demoted, nothing was promoted — and a row that records nothing still costs one of \
+            the 512 applications the store will ever remember.
+            """)
     }
 
     // MARK: - T7 · The failsafe is not a rung to learn
