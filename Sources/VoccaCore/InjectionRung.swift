@@ -23,7 +23,10 @@
 ///
 /// The `String` raw values are the persisted spelling (the recovery journal, C8's strategy
 /// memory), so a rename is a migration, not a refactor.
-public enum InjectionRung: String, Sendable, CaseIterable {
+/// `Codable` so C8's strategy memory can persist a strategy per app (`strategies.json`) —
+/// the String raw values are the persisted spelling, which is exactly what a synthesized
+/// conformance emits. Codable is stdlib: the Core import rule is untouched.
+public enum InjectionRung: String, Sendable, CaseIterable, Codable {
     /// AX insertion into an allowlisted app, gated and read-back verified. Success without
     /// verification counts as failure (`ARCHITECTURE.md:400`) — the silent-lie catch.
     case accessibility

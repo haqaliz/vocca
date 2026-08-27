@@ -26,7 +26,10 @@
 ///   floor under I1, not a rung to learn from;
 /// - `overrideRungs != nil` freezes learning: the projection returns it verbatim and the record
 ///   fold leaves the strategy unchanged (S2 — a user pin is absolute).
-public struct InjectionStrategy: Sendable, Equatable {
+public struct InjectionStrategy: Sendable, Equatable, Codable {
+    /// The store's key (`store-seam` contract): the bundle ID this strategy belongs to. Empty for
+    /// a hand-built value with no app yet; the recorder fills it before `update` upserts by it.
+    public var bundleID: String
     /// The rungs demoted for this app. Never contains `.clipboardPaste` or `.widgetFailsafe` —
     /// enforced by ``StrategyMemory/record(result:attempted:now:allowlisted:into:)``, guarded by
     /// ``StrategyMemory/orderedRungs(for:allowlisted:now:)``.
@@ -44,11 +47,13 @@ public struct InjectionStrategy: Sendable, Equatable {
     /// The plain memberwise init with empty defaults — the state a fresh, never-seen app starts
     /// as. A seed (a hostile app's starting demotion) constructs this by hand: seeds are data.
     public init(
+        bundleID: String = "",
         demotedRungs: Set<InjectionRung> = [],
         learnedAllowlist: Bool = false,
         reprobeWindows: [InjectionRung: UInt64] = [:],
         overrideRungs: [InjectionRung]? = nil
     ) {
+        self.bundleID = bundleID
         self.demotedRungs = demotedRungs
         self.learnedAllowlist = learnedAllowlist
         self.reprobeWindows = reprobeWindows

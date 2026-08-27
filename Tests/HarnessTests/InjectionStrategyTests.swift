@@ -81,6 +81,35 @@ final class InjectionStrategyTests: XCTestCase {
         XCTAssertEqual(requireSendable(strategy), strategy)
     }
 
+    /// The strategy carries its own key — the bundle ID the store upserts by (the
+    /// `store-seam` contract: "the value carries its key"). The memberwise default keeps
+    /// every existing construction site — `InjectionStrategy()` included — compiling
+    /// unchanged; the store's key is filled in by the recorder, not by hand.
+    func testTheStrategyCarriesItsBundleIDKey() {
+        let strategy = InjectionStrategy(bundleID: "com.example.app")
+        XCTAssertEqual(strategy.bundleID, "com.example.app")
+        XCTAssertEqual(InjectionStrategy().bundleID, "", "the empty strategy carries no app yet")
+    }
+
+    /// The full-field round trip the store's `strategies.json` depends on: encode →
+    /// decode → equal, with every field populated — bundle ID, demoted rungs, learned
+    /// allowlist, re-probe windows and the override. `reprobeWindows`'s dictionary
+    /// encodes in the alternating key/value array form (non-String keys) — accepted:
+    /// the file is machine-written.
+    func testTheStrategyRoundTripsCodable() throws {
+        let strategy = InjectionStrategy(
+            bundleID: "com.example.app",
+            demotedRungs: [.accessibility, .keystrokeSynthesis],
+            learnedAllowlist: true,
+            reprobeWindows: [.accessibility: 100, .keystrokeSynthesis: 200],
+            overrideRungs: [.clipboardPaste])
+
+        let data = try JSONEncoder().encode(strategy)
+        let decoded = try JSONDecoder().decode(InjectionStrategy.self, from: data)
+
+        XCTAssertEqual(decoded, strategy, "a strategy must survive encode/decode whole")
+    }
+
     /// The seed shape a hostile app starts as — AX demoted at seed time, window at
     /// `seedTime + reprobeWindowSeconds` — must be constructible by hand, the
     /// `TargetContext` plain-init doctrine: seeds are data, and data is built, not derived.
