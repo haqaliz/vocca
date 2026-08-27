@@ -1124,8 +1124,21 @@ set -euo pipefail
 # single-source definition scan), and the four-seam FileManager exact-set pin
 # (journal/dictionary/config/strategy, S15).
 #
+# The `memory-order` aspect's read side adds fifteen (1274 -> 1289): twelve in
+# MemoryBackedInjectionStrategyOrderTests (learned-tried-first with its unlearned control,
+# demote-on-fail driven through the real LadderInjector and the real decision, the re-probe
+# rediscovery pinned inclusively on both sides of the window with the restored rung's window
+# dropped, the failed re-probe's fresh window, the seeded hostile applications on a first
+# dictation *and* their launch-minted window against an unseen app's absence of one, the
+# promotion flow with both gates asserted at every step, the failed probe and the unverified
+# silent lie that must not promote, the failsafe's absence across the closed projection space,
+# the never-demoted clipboard and never-empty order, the learned entry beating the seed, and
+# the absent-file path compared row by row against the shipped C4 order), and three in
+# SeededHostileAppsTests (the exact two identifiers, disjointness from the allowlist seed,
+# and the reverse-DNS spelling that a display name would fail).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1274
+MINIMUM_EXECUTED_TESTS=1289
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

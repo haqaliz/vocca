@@ -285,7 +285,7 @@ final class InjectionStrategyStoreTests: XCTestCase {
         let directory = Self.tempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let v1 = Self.appStrategy()
-        try await PersistentInjectionStrategyStore(directory: directory).update(v1)
+        _ = try await PersistentInjectionStrategyStore(directory: directory).update(v1)
         let committedBefore = try Data(
             contentsOf: directory.appendingPathComponent("strategies.json"))
 

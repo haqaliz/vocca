@@ -182,8 +182,9 @@ final class TestEpochClock: Sendable {
     }
 
     /// The supplier handed to the memory. Reads the current second; never advances by itself.
+    /// Captures `self`, not the lock: a `Mutex` is non-copyable and cannot be captured at all.
     var read: @Sendable () -> UInt64 {
-        { [value] in value.withLock { $0 } }
+        { [self] in self.now }
     }
 
     /// The second the clock currently reads.
