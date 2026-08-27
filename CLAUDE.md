@@ -245,9 +245,8 @@ This file orients a coding agent working in this repository. Read it first.
 >   dictionary store, the pipeline wiring and the eval harness; C6: the Ollama and BYOK rungs,
 >   opted into by a hand-edited `cleanup-config.json` — both recorded below). **The Cleanup-tab
 >   settings UI and C8 (strategy memory) remain unbuilt.** The ladder does not learn.
->   *(Amended by C8's first three aspects, landed 2026-08-27 — `core-memory`, `store-seam` and
->   `memory-order`: **the ladder learns**. The Apps tab and the matrix remain unbuilt; recorded
->   in full below.)*
+>   *(Amended by C8, landed 2026-08-27 — all five aspects: **the ladder learns, the user can
+>   overrule it, and the matrix that measures it exists**. Recorded in full below.)*
 >
 > **The `latency-instrumentation` unit landed 2026-08-14 — C7's first slice: the loop's
 > numbers, measured and gated.** `VoccaCore` now owns the local-only vocabulary the loop
@@ -452,9 +451,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   adapters' and the panel's only execution.
 > - **The loop is wired** (the `dictation-loop` unit above); CONVERSING and the settings surface
 >   are out of scope (only the FAILSAFE and the five live states ship); C8 (strategy
->   memory) learns per application through its store, order and recording seam
->   (`core-memory`, `store-seam`, `memory-order`, recorded below); its Apps tab and the
->   20+ app matrix remain unbuilt; C5 and C6 shipped in full except their settings surface — the
+>   memory) shipped in full — the store, the order, the recording seam, the Apps tab and the
+>   22-row matrix (recorded below), with the ≥95% number itself still unmeasured;
+>   C5 and C6 shipped in full except their settings surface — the
 >   rules dictionary and the cleanup-provider choice are JSON-editable, the Cleanup tab waits
 >   for the deferred settings surface; C7's
 >   latency-instrumentation slice shipped
@@ -595,8 +594,8 @@ This file orients a coding agent working in this repository. Read it first.
 >   (`OnboardingState`), and the UI that leads to it is not built.
 > - **Settings has no permission-status display** (N1, deferred).
 >
-> **C8's first three aspects landed 2026-08-27 — `core-memory`, `store-seam` and `memory-order`:
-> the injection ladder learns per application.** Until now `LadderInjector` re-tried a rung that
+> **C8 landed 2026-08-27 — all five aspects: the injection ladder learns per application, the
+> user can overrule it, and the matrix that measures it exists.** Until now `LadderInjector` re-tried a rung that
 > had already failed for a given app on *every* dictation, and the three seeded native apps were
 > the only ones the accessibility rung was ever offered to — the seed's own comment promising
 > that everything else reaches it "only through C8's learned memory". All three halves now exist.
@@ -628,21 +627,40 @@ This file orients a coding agent working in this repository. Read it first.
 > `AppBootstrap.assembleShippingLadder` is the extracted custody-chain assembly — store → loaded
 > snapshot → memory → ladder, pinned in that order by test — and the zero-network probe drives
 > the memory-backed ladder over a temp-directory store with no file, reporting `strategy=absent`
-> with zero `connect(2)` unchanged. Test floor: 1300.
+> with zero `connect(2)` unchanged. **`apps-tab`** shipped the fifth Settings tab
+> (`VoccaUI/Apps/`): a pure reducer over an injected snapshot, the three health labels pinned
+> byte-for-byte to `PRODUCT_SPEC.md:275` and reused by the override picker rather than a second
+> dialect, and the reset that drops learned rows while preserving pins. The reducer has no clock
+> — the projection is asked with re-probe windows stripped, so the column reports what an
+> application has *settled* into rather than whether a probe is due this second. Writes go
+> through the memory (`replaceAll`, awaited and throwing, persisting exactly what it was handed
+> with the seed folded into memory only) so a pin applies to the next dictation; reads go to the
+> store, because the memory's launch-minted seeds are seed rather than learning.
+> **`matrix-smoke`** shipped the measurement surface: `Scripts/injection-matrix.sh` (22 rows as
+> data, `--self-check` / `--dry-run` / `--row`, a clipboard sentinel so a denied Automation grant
+> reads as VOID rather than a byte mismatch), `SMOKE_CHECKLIST.md` §12 with steps 87–93 and the
+> per-release tracked table, and the operational definition of first-method-success (bytes **and**
+> the log naming the expected rung as the landing rung; ≥19 of 20 deliverable rows). Test floor:
+> 1341.
 >
 > **What C8's landed aspects are NOT, and must not be claimed:**
 > - **Nothing here has typed into a real application.** The accessibility and clipboard rungs are
 >   executed by nothing in CI (the tap-adapter precedent), so what is proven headlessly is the
 >   *learning*, not the typing. `SMOKE_CHECKLIST.md` steps 22–35 remain the ladder's only real
 >   execution, and no promotion has ever been earned on a real machine.
-> - **The ≥95% first-method-success number does not exist.** The expanded 20+ app matrix, its
->   harness script and its smoke rows are the unbuilt `matrix-smoke` aspect; the checklist gained
->   a note (run the matrix on a fresh `strategies.json`, or a row reports the memory's answer
->   rather than the ladder's), not rows.
-> - **The Apps tab does not exist** (`apps-tab`, R7/S2). The per-app override is modelled in Core
->   and honoured absolutely by both the projection and the fold — but nothing can write one, and
->   there is no "reset what Vocca learned" button. The file is hand-editable, like
->   `cleanup-config.json` before it.
+> - **The ≥95% first-method-success number does not exist.** The matrix, its harness and its
+>   rows exist; **the matrix has never been run**. The tracked table's only row says so. Until
+>   step 87's baseline calibration happens, Vocca has no measured injection-success figure of
+>   any kind, and every expected-rung in the table is a prediction rather than an observation.
+> - **The Apps tab is executed by nothing in CI** (the window-server rule): the reducer's
+>   decision table and the copy pins are the tested half, and the page and its wiring —
+>   including the LaunchServices name resolution — have never been rendered or run.
+> - **`apps-tab` was built before `matrix-smoke`, which its own spec advised against.** The
+>   sequencing note asked for the tab to be built against a *calibrated* matrix so its health
+>   column would describe rungs the matrix actually observes. It was built against
+>   `PRODUCT_SPEC.md:275`'s three labels instead, which are fixed vocabulary rather than
+>   findings — but if the baseline run shows a class of app the three labels describe badly,
+>   that is the cost, and the tab's copy is where it lands.
 > - **The 7-day re-probe window is provisional**, in exactly one place
 >   (`StrategyMemoryTargets.reprobeWindowSeconds`, pinned by a single-source scan) and
 >   re-baselined by the founder's matrix run — recorded, not gated.
