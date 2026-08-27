@@ -1077,8 +1077,35 @@ set -euo pipefail
 # composing its own `LadderInjector` (`DictationCycleDrive.swift:379-389`), which A4
 # does not touch.
 #
+# The first-run-permissions aspect A5 (onboarding-window) raises it to 1208: the
+# onboarding store's fold contract (OnboardingStoreTests, eleven) — the WELCOME
+# opening state, the closed-set route through the reducer, the injected-read
+# refresh with the armed-fact feed's three-state mapping (`TapHealth !=
+# .permissionMissing` → armed input, M5c), the mic read through the pure seam, the
+# no-reads-on-fold pin (the store never calls a system API), the completion write's
+# exactly-once and no-other-writer pins (R4), and the advance rule's rows
+# (permissions-met → MODEL, committed → TRY IT, never at WELCOME, never over the
+# M7 refusal, close-resumes-and-never-uncompletes) — and the onboarding window's
+# headless contracts (OnboardingWindowContractTests, ten) — lazy construction
+# (built only on show — `configure` stays window-free), the activation-policy
+# dance routed through the seam (.regular on show, .accessory on every close, S2),
+# close-folds-resume (S3), canBecomeKey (the focus-taking window — TRY IT's field
+# needs the keyboard), restart single-fire per presentation with the re-arm on
+# re-show (M3/R2), the stray-restart no-op, and the TRY IT delivery wiring
+# (delivered text appends to the field and completes — G5; a second delivery
+# appends; a delivery with no registered destination fails honestly — the A4
+# refusal, tryItFailed folded, never a fabricated success; and a delivery to a
+# **closed** window refuses — the A4 "binding is gone" shape, completion never lands
+# behind a closed window). The A4 stand-in
+# (`PendingOnboardingSink`) is gone: the real sink is the window's field binding,
+# registered at window construction. The zero-network probe stays green by
+# construction: `configure` builds the window-free store and sink, the model-
+# presence fold is a disk read, and the window itself is never constructed by
+# `configure` or `main` (M9 — the download starts only from the window's MODEL
+# step, user-initiated).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1186
+MINIMUM_EXECUTED_TESTS=1208
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

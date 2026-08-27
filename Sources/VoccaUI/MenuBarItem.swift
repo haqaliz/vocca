@@ -40,6 +40,9 @@ public final class MenuBarItem {
     private let onAction: (MenuBarState) -> Void
     /// What to run for Settings.
     private let onOpenSettings: () -> Void
+    /// What to run for Welcome — the onboarding window's reopen (M4's "Welcome…" item,
+    /// post-completion).
+    private let onOpenWelcome: () -> Void
     /// What to run for Quit.
     private let onQuit: () -> Void
 
@@ -51,16 +54,19 @@ public final class MenuBarItem {
     ///   - hotkey: the chord in display form, e.g. `⌥Space`.
     ///   - onAction: invoked for a blocked state's call to action.
     ///   - onOpenSettings: invoked for the Settings item.
+    ///   - onOpenWelcome: invoked for the Welcome item.
     ///   - onQuit: invoked for the Quit item.
     public init(
         hotkey: String,
         onAction: @escaping (MenuBarState) -> Void,
         onOpenSettings: @escaping () -> Void,
+        onOpenWelcome: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         self.hotkey = hotkey
         self.onAction = onAction
         self.onOpenSettings = onOpenSettings
+        self.onOpenWelcome = onOpenWelcome
         self.onQuit = onQuit
         // `.variableLength` because the item is an icon whose symbol changes width between states.
         self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -129,6 +135,14 @@ public final class MenuBarItem {
 
         menu.addItem(.separator())
 
+        // The onboarding window's reopen (M4): before completion the window auto-shows at
+        // launch, so this row is the post-completion way back in — and an always-present row is
+        // simpler and honest for the pre-completion case too (it re-shows the same window).
+        let welcome = NSMenuItem(
+            title: "Welcome…", action: #selector(openWelcome), keyEquivalent: "")
+        welcome.target = self
+        menu.addItem(welcome)
+
         let settings = NSMenuItem(
             title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -145,6 +159,8 @@ public final class MenuBarItem {
         guard let state else { return }
         onAction(state)
     }
+
+    @objc private func openWelcome() { onOpenWelcome() }
 
     @objc private func openSettings() { onOpenSettings() }
 
