@@ -32,24 +32,26 @@ final class InjectionStrategyStoreTests: XCTestCase {
 
     // MARK: - The bounded store (S1)
 
-    /// The remembered-apps cap lives in exactly the one named Core constant — the
-    /// ``LatencyLedger.maximumRetainedRecords`` shape — and the identifier appears nowhere else
-    /// in the sources. The bare `512` literal legitimately lives in `LatencyLedger.swift` too,
-    /// so the scan pins the *named value*, not the numeral: a second definition of the cap
-    /// under another name would be a second home for the bound.
+    /// The remembered-apps cap is the ``LatencyLedger.maximumRetainedRecords`` shape: a named
+    /// value whose **definition** (`maximumRememberedApps = 512`) lives in exactly the one Core
+    /// file and this pinning test — the ``WarmStartRatio`` single-source precedent. The bare
+    /// `512` numeral and the name itself legitimately appear elsewhere (the ledger's own cap,
+    /// and the stores' constructor defaults referencing the constant by name), so the scan pins
+    /// the definition, not the identifier or the numeral: a second *definition* of the bound
+    /// under another name would be a second home.
     func testTheRememberedAppsCapLivesOnlyInTheNamedConstant() throws {
         XCTAssertEqual(InjectionStrategyStoreConstants.maximumRememberedApps, 512)
 
         let root = try PackageRootLocator.find(from: #filePath)
         let namedFile = "InjectionStrategyStore.swift"
         let pinningTest = "InjectionStrategyStoreTests.swift"
+        let allowedSightings: Set<String> = [namedFile, pinningTest]
+        let pattern = #"maximumRememberedApps = 512"#
         var sightings: [String: Int] = [:]
         for tree in [root.appendingPathComponent("Sources"), root.appendingPathComponent("Tests")] {
             for file in SwiftSourceScanner.swiftFiles(under: tree) {
                 let content = try String(contentsOf: file, encoding: .utf8)
-                if SwiftSourceScanner.stripComments(from: content)
-                    .contains("maximumRememberedApps")
-                {
+                if SwiftSourceScanner.stripComments(from: content).contains(pattern) {
                     sightings[file.lastPathComponent, default: 0] += 1
                 }
             }
@@ -57,8 +59,8 @@ final class InjectionStrategyStoreTests: XCTestCase {
 
         XCTAssertFalse(sightings.isEmpty, "vacuity guard: the scan saw no files at all")
         XCTAssertEqual(
-            Set(sightings.keys), [namedFile, pinningTest],
-            "maximumRememberedApps must be defined in exactly the named Core file, got: \(sightings)")
+            Set(sightings.keys), allowedSightings,
+            "the cap's definition must live in exactly the named Core file and its pinning test, got: \(sightings)")
         XCTAssertEqual(
             sightings[namedFile], 1,
             "the named file's own definition must exist — the vacuity guard's second direction")
@@ -484,7 +486,9 @@ enum InjectionStrategyFileSystemEvent: Equatable {
 }
 
 /// An in-memory ``InjectionStrategyFileSystem`` whose every save is recorded as the atomic
-/// temp-write/rename pair, against a real temp directory — the S1/S3 protocol half.
+/// temp-write/rename pair, against a real temp directory — the S1/S3 protocol half. The commit
+/// is `replaceItemAt`, mirroring the shipped adapter (whose overwrite-succeeds commit is the
+/// point of the pair), so a second save over the same file records the same two events.
 actor RecordingInjectionStrategyFileSystem: InjectionStrategyFileSystem {
     private(set) var events: [InjectionStrategyFileSystemEvent] = []
     private let directory: URL
@@ -503,7 +507,7 @@ actor RecordingInjectionStrategyFileSystem: InjectionStrategyFileSystem {
     }
 
     func moveItem(at source: URL, to destination: URL) async throws {
-        try FileManager.default.moveItem(at: source, to: destination)
+        _ = try FileManager.default.replaceItemAt(destination, withItemAt: source)
         events.append(.rename(destination.lastPathComponent))
     }
 
