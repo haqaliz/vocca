@@ -24,4 +24,63 @@ public enum StrategyMemoryTargets {
     /// exactly `now == window` the rung is eligible again. PROVISIONAL — the `matrix-smoke` run
     /// re-baselines it in exactly this place.
     public static let reprobeWindowSeconds: UInt64 = 604_800
+    /// The rung order a fresh, allowlisted app starts with — accessibility, then clipboard-paste,
+    /// then keystroke synthesis, exactly `ARCHITECTURE.md:398-403`'s ladder order minus the
+    /// failsafe (which never appears in a strategy). The projection's base; `memory-order` will
+    /// consume it in place of the `VoccaInject` default.
+    public static let canonicalRungOrder: [InjectionRung] = [.accessibility, .clipboardPaste, .keystrokeSynthesis]
+}
+
+/// The pure decisions C8's strategy memory is made of: the ordered-rungs projection and the
+/// re-probe eligibility query (`core-memory/spec.md` M3/M4). No clock — `now` is an argument,
+/// epoch seconds; the caller owns the real time.
+public enum StrategyMemory {
+
+    /// The rung order the next dictation for this app attempts: canonical order minus demoted
+    /// rungs, with a demoted rung re-included once `now >=` its re-probe window (inclusive,
+    /// one-shot — the projection is idempotent and the record fold consumes the eligibility, M6).
+    ///
+    /// The allowlist gate is composed here, not pre-folded into the strategy:
+    /// `.accessibility` is included only when `allowlisted`, `learnedAllowlist`, **or** its
+    /// re-probe is due — the elapsed re-probe beats the gate, which is the R6 promotion probe's
+    /// projection shape. `.clipboardPaste` is never dropped, so the result is never empty (X3),
+    /// and `.widgetFailsafe` never appears. An `overrideRungs` set is returned verbatim (M7).
+    public static func orderedRungs(
+        for strategy: InjectionStrategy, allowlisted: Bool, now: UInt64
+    ) -> [InjectionRung] {
+        if let override = strategy.overrideRungs {
+            return override
+        }
+        var result: [InjectionRung] = []
+        for rung in StrategyMemoryTargets.canonicalRungOrder {
+            if rung == .clipboardPaste {
+                result.append(rung)
+                continue
+            }
+            let reProbeDue = reprobeEligibility(for: rung, in: strategy, now: now)
+            if strategy.demotedRungs.contains(rung) && !reProbeDue {
+                continue
+            }
+            if rung == .accessibility
+                && !(allowlisted || strategy.learnedAllowlist || reProbeDue)
+            {
+                continue
+            }
+            result.append(rung)
+        }
+        return result
+    }
+
+    /// Is `rung` owed its one-shot re-probe for this app? Demoted **and** a window entry exists
+    /// **and** `now >= window` (inclusive). A demoted rung with no window is never eligible —
+    /// tolerant-decode strays stay on clipboard (M4, O3). No special-casing of clipboard or
+    /// failsafe here: the projection is the single enforcement point of the never-demote
+    /// invariants.
+    public static func reprobeEligibility(
+        for rung: InjectionRung, in strategy: InjectionStrategy, now: UInt64
+    ) -> Bool {
+        guard strategy.demotedRungs.contains(rung) else { return false }
+        guard let window = strategy.reprobeWindows[rung] else { return false }
+        return now >= window
+    }
 }
