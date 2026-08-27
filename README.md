@@ -10,6 +10,20 @@ Vocca is an open-source, macOS, local-first voice tool. Hold a hotkey and talk, 
 
 Your audio never has to leave your Mac.
 
+<p align="center">
+
+[![CI](https://img.shields.io/github/actions/workflow/status/haqaliz/vocca/ci.yml?label=CI&color=3fb950)](https://github.com/haqaliz/vocca/actions/workflows/ci.yml)
+[![Status](https://img.shields.io/badge/status-P0%20in%20development-3fb950)](docs/ROADMAP.md)
+[![Release](https://img.shields.io/github/v/release/haqaliz/vocca?color=3fb950&label=release)](https://github.com/haqaliz/vocca/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![macOS](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-333333?logo=apple&logoColor=white)](docs/technical/ARCHITECTURE.md)
+[![Swift](https://img.shields.io/badge/swift-6.0-orange?logo=swift&logoColor=white)](https://www.swift.org/)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-3fb950)](CONTRIBUTING.md)
+
+[Why](#why) · [What it will do](#what-it-will-do) · [Building & signing](#building--signing) · [Architecture](docs/technical/ARCHITECTURE.md) · [Vision](VISION.md) · [Roadmap](docs/ROADMAP.md) · [Product spec](docs/product/PRODUCT_SPEC.md) · [Contributing](#contributing)
+
+</p>
+
 ---
 
 > ### ⚠️ Status: early — the loop exists, the product is not yet proven
