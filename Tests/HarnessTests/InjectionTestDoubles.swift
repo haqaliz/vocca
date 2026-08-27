@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Synchronization
 import VoccaCore
 import VoccaInject
 
@@ -157,4 +158,46 @@ actor RecordingFailsafeHandoff: FailsafeHandoff {
 /// error is the journal's business.
 enum TestHandoffError: Error {
     case refusedCustody
+}
+
+// MARK: - The strategy memory's clock
+
+/// **Epoch seconds the test moves by hand** — the strategy memory's second clock.
+///
+/// The ladder's own ``MonotonicClock`` measures a single run's `elapsed` in `Duration`; the
+/// strategy memory measures the *re-probe window* in integer epoch seconds
+/// (``StrategyMemoryTargets/reprobeWindowSeconds``, 604 800 s), and the two never mix — a
+/// monotonic reading is meaningless across launches, and a wall-clock second is meaningless
+/// inside one ladder run. This double is the second of the two, so a test can step a week
+/// forward without waiting one.
+///
+/// A `Mutex` rather than a plain `var`: the memory's `now` supplier is `@Sendable` and is read
+/// from whatever isolation asks the projection a question — the main actor for the order, the
+/// accessibility rung's actor for the allowlist gate.
+final class TestEpochClock: Sendable {
+    private let value: Mutex<UInt64>
+
+    init(_ start: UInt64 = 0) {
+        self.value = Mutex(start)
+    }
+
+    /// The supplier handed to the memory. Reads the current second; never advances by itself.
+    var read: @Sendable () -> UInt64 {
+        { [value] in value.withLock { $0 } }
+    }
+
+    /// The second the clock currently reads.
+    var now: UInt64 {
+        value.withLock { $0 }
+    }
+
+    /// Moves the clock forward by `seconds`.
+    func advance(by seconds: UInt64) {
+        value.withLock { $0 += seconds }
+    }
+
+    /// Sets the clock to `second` outright.
+    func set(to second: UInt64) {
+        value.withLock { $0 = second }
+    }
 }
