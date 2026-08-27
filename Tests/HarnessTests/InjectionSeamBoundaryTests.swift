@@ -81,6 +81,10 @@ private struct EventTypeSighting: Equatable, CustomStringConvertible {
 /// ``fileManagerSeamModuleRoots`` resolves each seam's row to the module root that owns it,
 /// journal → `VoccaInject`, dictionary → `VoccaText`
 /// (``filesPermittedToNameFileManagerIdentifiersBySeam``).
+/// The `first-run-permissions` A3 aspect adds the `UserDefaults` family: the onboarding
+/// completion flag's one-file seam in `VoccaUI`, the repository's first `UserDefaults`-naming
+/// file — the family ships with its row so the "one file per seam" claim is explicit and
+/// enforced from day one (``filesPermittedToNameUserDefaultsIdentifiersBySeam``).
 ///
 /// ## Where the rules live
 ///
@@ -166,15 +170,16 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// list is keyed on that path, so the failure is a lint that names files nobody can find and
     /// silently stops matching its own allow-list.
     ///
-    /// The identifier matcher is a parameter because the file hosts six families now — the
+    /// The identifier matcher is a parameter because the file hosts seven families now — the
     /// CoreGraphics event types (``eventTypeIdentifiers(inSource:)``), the pasteboard's
     /// `NSPasteboard` family (``pasteboardIdentifiers(inSource:)``), the Accessibility family
     /// (``accessibilityIdentifiers(inSource:)``), the Secure Input read
     /// (``secureInputIdentifiers(inSource:)``), the journal's `FileManager` family
-    /// (``fileManagerIdentifiers(inSource:)``) and the Keychain's `SecItem`/`kSec` family
-    /// (``securityIdentifiers(inSource:)``) — and the walk must be one
-    /// implementation, not five copies that could drift apart in the direction that matters (the
-    /// subdirectory walk). The default keeps the earlier call sites unchanged.
+    /// (``fileManagerIdentifiers(inSource:)``), the Keychain's `SecItem`/`kSec` family
+    /// (``securityIdentifiers(inSource:)``) and the onboarding flag's `UserDefaults` family
+    /// (``userDefaultsIdentifiers(inSource:)``) — and the walk must be one
+    /// implementation, not seven copies that could drift apart in the direction that matters
+    /// (the subdirectory walk). The default keeps the earlier call sites unchanged.
     private static func sightings(
         under root: URL,
         permitting permitted: Set<String>,
@@ -1432,6 +1437,234 @@ final class InjectionSeamBoundaryTests: XCTestCase {
                     let manager = FileManager.default
                     """),
             ["FileManager"],
+            """
+            ...but stripping comments must not make the lint blind to real code beside them. \
+            Without this, the previous assertion could be satisfied by a scan that gives up on \
+            any file containing a comment.
+            """)
+    }
+
+    // MARK: - The UserDefaults family (first-run-permissions A3)
+
+    /// Files allowed to name `UserDefaults`, relative to `Sources/`, keyed by seam.
+    ///
+    /// **One file per seam, and nothing else ever joins a seam's entry** — the H7 rule, stated
+    /// for the UserDefaults family the onboarding completion flag needs. `CompletionFlagStore`
+    /// is the adapter: the synchronous read the `main()` show decision requires and the
+    /// write-on-TRY-IT-success flag, in raw `UserDefaults` terms, with every decision (the
+    /// frozen key, the idempotent best-effort write) above it in the headless store tests. This
+    /// is the first `UserDefaults`-naming file in the repository — no `UserDefaults` existed in
+    /// `Sources/` before it (`prd.md` M4) — and the family ships with its row so the "one file
+    /// per seam" claim is explicit and enforced from day one, the same reviewed amendment the
+    /// pasteboard family began with (`plan_20260827.md` §2, step 3).
+    private static let filesPermittedToNameUserDefaultsIdentifiersBySeam: [String: Set<String>] = [
+        "completion": ["VoccaUI/Onboarding/CompletionFlagStore.swift"],
+    ]
+
+    /// The UserDefaults table flattened — every permitted file in every seam. The tree-wide scan
+    /// is aimed at this set.
+    private static var filesPermittedToNameUserDefaultsIdentifiers: Set<String> {
+        Set(filesPermittedToNameUserDefaultsIdentifiersBySeam.values.flatMap { $0 })
+    }
+
+    /// The identifier prefixes that constitute the UserDefaults family: the one type, whole.
+    /// There is nothing else to list, which is why the prefix rule costs nothing here — it is
+    /// the same shape as the other families', applied to a family with one member.
+    private static let userDefaultsIdentifierPrefixes = ["UserDefaults"]
+
+    /// Every occurrence of a UserDefaults identifier in `source`, comments removed first.
+    ///
+    /// A pure function over a string, so it can be run against source that violates the rule —
+    /// which is the only way to know it would catch one. See
+    /// ``testTheUserDefaultsLintDetectsAPlantedIdentifier``.
+    private static func userDefaultsIdentifiers(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let pattern = "\\b(" + userDefaultsIdentifierPrefixes.joined(separator: "|")
+            + ")[A-Za-z0-9_]*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// The tree-wide scan, aimed at the UserDefaults table: no `UserDefaults` identifier is
+    /// named outside the family's one permitted file.
+    ///
+    /// The completion flag's whole point is that its decisions run headless over an injected
+    /// suite; a second file naming the family is a decision that moved into the half CI cannot
+    /// reach — the same shape as the pasteboard scan above, for the family
+    /// `CompletionFlagStore` is the one file for.
+    func testNoUserDefaultsIdentifierEscapesTheUserDefaultsSeamTable() throws {
+        let root = try sourcesRoot()
+        for seam in Self.filesPermittedToNameUserDefaultsIdentifiersBySeam.keys.sorted() {
+            guard let files = Self.filesPermittedToNameUserDefaultsIdentifiersBySeam[seam] else {
+                continue
+            }
+            for relativePath in files {
+                let directory = root.appendingPathComponent(relativePath)
+                    .deletingLastPathComponent()
+                guard FileManager.default.fileExists(atPath: directory.path) else {
+                    throw InjectionSeamTestError.seamDirectoryMissing(expectedAt: directory.path)
+                }
+            }
+        }
+
+        let sightings = try Self.sightings(
+            under: root,
+            permitting: Self.filesPermittedToNameUserDefaultsIdentifiers,
+            identifiersIn: Self.userDefaultsIdentifiers)
+
+        XCTAssertEqual(
+            sightings, [],
+            """
+            A UserDefaults identifier is named outside its seam's permitted file: \
+            \(sightings.map(\.description).joined(separator: "; ")). Every decision about the \
+            persisted flag must live above the one-file adapter, where a headless suite can \
+            drive it; a second naming file is a decision that escaped CI forever.
+            """)
+    }
+
+    /// The "one file per seam" claim for the UserDefaults family, enforced rather than asserted
+    /// in a comment — the sibling of ``testEachSeamPermitsExactlyOneFile``, for the family table.
+    func testEachUserDefaultsSeamPermitsExactlyOneFile() {
+        XCTAssertFalse(
+            Self.filesPermittedToNameUserDefaultsIdentifiersBySeam.isEmpty,
+            """
+            The UserDefaults seam table must not be empty — an empty table passes "no file names \
+            the family" vacuously, and a seam with no file is a seam whose adapter has moved \
+            without the amendment noticing.
+            """)
+        for seam in Self.filesPermittedToNameUserDefaultsIdentifiersBySeam.keys.sorted() {
+            XCTAssertEqual(
+                Self.filesPermittedToNameUserDefaultsIdentifiersBySeam[seam]?.count, 1,
+                """
+                The UserDefaults family permits one file per seam. The \(seam) seam permits \
+                \(Self.filesPermittedToNameUserDefaultsIdentifiersBySeam[seam]?.sorted().joined(separator: ", ") ?? "none"). \
+                A second entry means a persistence decision has moved below the seam, where no CI \
+                run can reach it.
+                """)
+        }
+    }
+
+    /// **Every permitted UserDefaults file actually names its family** — the two-sided pin, in
+    /// the same shape as ``testEachPermittedFileActuallyNamesItsFamily``.
+    ///
+    /// Two independent claims, because either one failing alone still passes a one-sided check:
+    /// "no other file names the family" passes if the permitted file *also* lost its
+    /// implementation (the family used everywhere else — vacuous), and "the permitted file names
+    /// the family" passes if several do (the seam has sprung a leak). The exact-set half walks
+    /// the whole tree with `permitting: []`, so the set of sighting-bearing files must be
+    /// exactly the table's union.
+    func testEachPermittedUserDefaultsFileActuallyNamesItsFamily() throws {
+        let root = try sourcesRoot()
+        let permitted = Self.filesPermittedToNameUserDefaultsIdentifiers
+        XCTAssertFalse(
+            permitted.isEmpty,
+            "the permitted set must not be empty — an empty set passes 'no file names it' vacuously")
+
+        for relativePath in permitted.sorted() {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+            XCTAssertFalse(
+                Self.userDefaultsIdentifiers(inSource: source).isEmpty,
+                """
+                \(relativePath) is permitted to name UserDefaults, but names none. A permitted \
+                file that does not name its family means the family moved somewhere else and the \
+                lint cannot see it.
+                """)
+        }
+
+        let allSightings = try Self.sightings(
+            under: root, permitting: [], identifiersIn: Self.userDefaultsIdentifiers)
+        XCTAssertEqual(
+            Set(allSightings.map(\.file)), permitted,
+            """
+            exactly the permitted set may name UserDefaults: \
+            \(permitted.sorted().joined(separator: ", ")), got \
+            \(Set(allSightings.map(\.file)).sorted().joined(separator: ", ")). A file outside the \
+            table with a sighting is a leak; a permitted file without one is a vacuous pin.
+            """)
+    }
+
+    /// The UserDefaults family's planted-tree negative control: the scan reaches a
+    /// `UserDefaults` identifier planted inside a fabricated root, and stops at it.
+    ///
+    /// The real check's own walk (`sightings(under:permitting:identifiersIn:)`) is run against
+    /// a planted tree — the `InjectionBoundaryPins.swift:364-405` shape — rooted at a fabricated
+    /// `Sources` beside a control file outside it. The planted file is sighted and the outside
+    /// file is not: that is what proves the tree-wide root actually reaches the tree it claims
+    /// to guard, instead of scanning nothing or wandering beyond it.
+    func testTheUserDefaultsScanSeesAPlantedIdentifierAtTheSourcesRoot() throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-userdefaults-\(UUID().uuidString)")
+        let sourcesRoot = scratch.appendingPathComponent("Sources")
+        let outsideRoot = scratch.appendingPathComponent("Outside")
+        try FileManager.default.createDirectory(at: sourcesRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        try "let defaults = UserDefaults.standard\n".write(
+            to: sourcesRoot.appendingPathComponent("Planted.swift"), atomically: true,
+            encoding: .utf8)
+        try "let defaults = UserDefaults.standard\n".write(
+            to: outsideRoot.appendingPathComponent("Control.swift"), atomically: true,
+            encoding: .utf8)
+
+        let sightings = try Self.sightings(
+            under: sourcesRoot, permitting: [], identifiersIn: Self.userDefaultsIdentifiers)
+
+        XCTAssertEqual(
+            Set(sightings.map(\.file)), ["Planted.swift"],
+            """
+            The Sources-rooted scan must see the planted identifier and stop at the root: got \
+            \(Set(sightings.map(\.file)).sorted().joined(separator: ", ")). A file outside the \
+            root that is flagged proves the scan wanders; a planted file that is not flagged \
+            proves the scan does not reach the tree it claims to guard.
+            """)
+        XCTAssertTrue(
+            sightings.allSatisfy { $0.identifier == "UserDefaults" },
+            """
+            The sighted identifier must be the planted family member: got \
+            \(Set(sightings.map(\.identifier)).sorted().joined(separator: ", ")).
+            """)
+    }
+
+    /// The UserDefaults family's negative control: planted source is caught.
+    func testTheUserDefaultsLintDetectsAPlantedIdentifier() {
+        XCTAssertEqual(
+            Self.userDefaultsIdentifiers(
+                inSource: "let defaults = UserDefaults.standard"),
+            ["UserDefaults"],
+            "The standard defaults is the family's front door — the leak that matters most.")
+
+        XCTAssertEqual(
+            Self.userDefaultsIdentifiers(
+                inSource: "func read(_ defaults: UserDefaults) -> Bool { false }"),
+            ["UserDefaults"],
+            "A signature phrased in the type needs the defaults system to read, exactly like an event type.")
+    }
+
+    /// Comments are stripped before the scan, and that is load-bearing rather than incidental:
+    /// the one-file adapter's documentation has to be able to name the family it translates
+    /// (`CompletionFlagStore`'s does, at length, and should).
+    func testTheUserDefaultsLintIgnoresIdentifiersInComments() {
+        XCTAssertEqual(
+            Self.userDefaultsIdentifiers(
+                inSource: """
+                    /// The one file permitted to name UserDefaults, deliberately.
+                    let store = CompletionFlagStore()
+                    """),
+            [],
+            "A doc comment naming the family must not trip the lint.")
+
+        XCTAssertEqual(
+            Self.userDefaultsIdentifiers(
+                inSource: """
+                    /// The one file permitted to name UserDefaults.
+                    let defaults = UserDefaults.standard
+                    """),
+            ["UserDefaults"],
             """
             ...but stripping comments must not make the lint blind to real code beside them. \
             Without this, the previous assertion could be satisfied by a scan that gives up on \
