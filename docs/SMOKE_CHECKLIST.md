@@ -1469,6 +1469,57 @@ not ship.
     (speculative final-vs-batch equivalence) is untouched, and no latency number is claimed
     from this mechanism.
 
+79. **The menu bar item — every state, and the one that cannot be staged.** The surface that
+    exists because an `LSUIElement` Vocca that is running perfectly and one that died at launch
+    look identical. `MenuBarItem` is executed by nothing in CI: a hosted runner has no menu bar,
+    and `NSStatusBar.system` has nothing to attach to.
+
+    *Gesture:* with Vocca running, confirm the icon is present, then drive it through the states
+    it can be driven through: **ready** (idle), **listening** and **transcribing** (dictate and
+    watch it change and change back), **downloading model** (move the model directory aside and
+    relaunch), **no Accessibility** (revoke the grant in System Settings), **no microphone**
+    (deny or disconnect). Open the menu in each and read the status block.
+
+    **Secure Input is the state that cannot be staged from inside Vocca** — it is set by other
+    people's software. Focus a password field (Terminal's *Secure Keyboard Entry*, a login sheet,
+    1Password) and confirm the icon becomes the lock, the menu says the hotkey is paused by
+    another app **and that it clears on its own**, and that **no button is offered** — there is
+    nothing to press, and offering one would be an action that does nothing.
+
+    *Pass:* every state has its own **shape** at menu bar size, distinguishable without colour
+    (the icon is a template image, so colour is not available to it anyway); the status block
+    reads as consequence-then-remedy rather than as a diagnosis; the blocked states that *can* be
+    acted on offer a button that opens the right System Settings pane; and the ~1 s health poll
+    does not rebuild the menu while it is open under the cursor.
+
+    *Failure:* two states sharing a shape (one of them is then invisible); an icon that does not
+    change during a dictation; a button on Secure Input; a menu that closes or flickers on its
+    own while open; or the icon vanishing at any point — a status item that is deallocated
+    disappears silently, which is the exact failure this surface exists to end.
+
+80. **The settings window — and the activation policy it borrows.** The one window in Vocca
+    allowed to take focus. Executed by nothing in CI for the usual reason.
+
+    *Gesture:* open it from the menu, visit all four tabs, then **switch the activation mode to
+    hold-to-talk, close the window, and dictate** — the change must take effect on the next press.
+    Add a dictionary entry, close and reopen the window, and confirm it survived; then dictate the
+    entry's source and confirm the replacement lands in the text.
+
+    *Pass:* the window comes to the front and takes keystrokes — an accessory app's window cannot
+    become key, which is why `show()` switches to `.regular`. General and Dictionary respond;
+    Speech and Cleanup report what Vocca is using and say plainly where those choices still live.
+    Choosing Settings… a second time raises the existing window rather than stacking another.
+
+    **The load-bearing row is what happens on close.** `windowWillClose` must return the app to
+    `.accessory`: the Dock icon disappears, and the *next dictation is typed by a background agent
+    again*. A Vocca left in `.regular` can take focus, which is the one thing it must never do —
+    dictate once after closing the window and confirm the text lands in the other app's field
+    rather than pulling focus to Vocca.
+
+    *Failure:* the window opens behind the frontmost app or refuses keystrokes; the Dock icon
+    survives the close; a dictation after closing the window steals focus; a dictionary edit does
+    not survive a reopen, or does not reach the next transcript.
+
 ---
 
 ## When this file is wrong

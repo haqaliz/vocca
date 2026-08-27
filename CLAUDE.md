@@ -492,7 +492,59 @@ This file orients a coding agent working in this repository. Read it first.
 >   and such a bundle must never reach `Scripts/notarize.sh`. A Developer ID identity removes
 >   the need for the flag entirely.
 >
-> **The `short-press-toggle` change landed 2026-08-25 — the first real dictation's two findings.**
+> **The design pass landed 2026-08-26/27 — Vocca stopped being invisible.** Three merges
+> (`fix/waveform-*`, `feat/design-tokens-menubar`, `feat/settings-window`) built the first
+> surfaces the app has ever had beyond the pill, chosen from eleven prototypes generated against
+> the surface briefs. The prototypes split cleanly and the picks follow that split: the stronger
+> set understood the *product* — it documented Secure Input recovery, the 600 ms collapse, and
+> shape-only state encoding — and the other understood the *person*, writing "Your words are safe
+> here — copy them in." Structure from one, voice from the other.
+>
+> **`VoccaTheme`** is the token layer, and it names **system colours rather than the designs' hex
+> pairs**. Those pairs are correct and are exactly what `NSColor` already resolves to, so naming
+> the system colour keeps them from drifting when Apple retunes them, and picks up Increase
+> Contrast and the user's chosen accent — neither of which a literal can follow. The designs
+> hardcoded because they were authored on the web, where that machinery does not exist.
+>
+> **The menu bar item** (`MenuBarState`, `MenuBarCopy`, `MenuBarItem`) is the surface that ends
+> the class of failure this whole stretch was made of. Vocca is `LSUIElement`, so a Vocca running
+> perfectly and a Vocca that died at launch looked identical — and *every* bug found in these two
+> days was silent for exactly that reason. Seven states, each reachable from something the loop
+> already reports; **precedence is a pure reducer** (activity outranks housekeeping; among
+> blockers, no-Accessibility outranks all because it makes the rest moot, and Secure Input comes
+> last because it needs no action and ends on its own). Shape carries state and colour carries
+> nothing, which is the platform's rule as much as the design's — a template image has one colour
+> to draw with — so the accessibility requirement is satisfied by construction. `NSStatusBar` is a
+> window-server object, so the item is built in `main()`, never `configure`: the `LiveWidget`
+> rule, applied again.
+>
+> **The settings window** (`SettingsTab`, `SettingsView`, `SettingsWindow`) retires the first of
+> the hand-edited JSON files. General switches activation mode — which had swapped defaults the
+> day before with **no way to change it at all** — and Dictionary reads and writes the same store
+> the rules engine loads from, so an edit applies to the next dictation. It is **the one window
+> allowed to take focus**, which costs an activation-policy switch: an `LSUIElement` process
+> cannot make a window key, so `show()` becomes `.regular` and `windowWillClose` returns to
+> `.accessory`. Failing to return would leave Vocca able to steal the field it exists to type
+> into.
+>
+> **What the design pass did NOT build, and must not be claimed:**
+> - **Speech and Cleanup are read-only tabs.** They report what Vocca is using and say where the
+>   choice still lives; the cleanup provider is still `cleanup-config.json`. The hotkey is
+>   displayed rather than rebindable. Each says so in words, because a control that looks editable
+>   and is not teaches a user the app is broken.
+> - **First run and permissions do not exist.** The highest-value surface in the design direction
+>   is still unbuilt, and a fresh install still meets the same three silent gates.
+> - **No colour, type or spacing was copied from a prototype's canned rendering.** Both prototypes'
+>   waveforms are hardcoded arrays with no level input — the bar geometry was taken and nothing
+>   else, because a canned waveform is the one thing `PRODUCT_SPEC.md:88` forbids outright.
+> - **"Pause Vocca" and recent-transcript history were deliberately not built**, though both
+>   prototypes drew them. Vocca has no pause, and the recovery journal is purged on resolve — so a
+>   history is a privacy decision, not a layout one. Building either from a mockup would be
+>   shipping a feature nobody decided on.
+> - **None of it has been seen in motion.** The pill renders only during a dictation, and
+>   dictation has still never been observed delivering text end to end.
+>
+> > **The `short-press-toggle` change landed 2026-08-25 — the first real dictation's two findings.**
 > Pressing the hotkey produced *"Voice processing failed. Nothing was lost — you can try again."*
 > The cause was not the model: FluidAudio's transcribe guard throws `ASRError.invalidAudioData`
 > below **0.3 s** (4 800 samples at 16 kHz), `ParakeetEngine` mapped that to
