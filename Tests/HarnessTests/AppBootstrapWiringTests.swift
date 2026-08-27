@@ -13,7 +13,9 @@
 // limitations under the License.
 
 import Foundation
+import VoccaBootstrap
 import VoccaCore
+@testable import VoccaInject
 import VoccaText
 import VoccaUI
 import XCTest
@@ -89,6 +91,73 @@ final class AppBootstrapWiringTests: XCTestCase {
         let store = WidgetStateStore(clock: TestClock())
         store.setEgress(egress)
         XCTAssertEqual(store.state.egress, .active(endpoint: "http://localhost:11434"))
+    }
+
+    // MARK: - T17: the custody chain assembles the memory before the ladder
+
+    /// **The ladder the loop gets is built over what the store held**, in that order: the store
+    /// is read, the snapshot becomes the memory, the memory becomes the ladder. Asserted through
+    /// the extracted assembly rather than through `configure`, which needs an `NSApplication` and
+    /// a run loop; the root calls exactly this function.
+    ///
+    /// A demotion written to the file before the assembly must reach the order the ladder
+    /// consults — an assembly that built the ladder first and loaded afterwards would answer the
+    /// unlearned order for the first dictation after every launch, which is precisely the cost
+    /// C8 exists to stop paying.
+    @MainActor
+    func testConfigureAssemblesMemoryBeforeTheInjector() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seeding = PersistentInjectionStrategyStore(directory: directory)
+        _ = try await seeding.update(
+            InjectionStrategy(
+                bundleID: "com.apple.Notes",
+                demotedRungs: [.accessibility],
+                reprobeWindows: [.accessibility: .max]))
+
+        let ladder = await AppBootstrap.assembleShippingLadder(
+            store: PersistentInjectionStrategyStore(directory: directory),
+            handoff: RecordingFailsafeHandoff(),
+            clock: TestClock(),
+            now: { 0 })
+
+        let memory = try XCTUnwrap(
+            ladder.order as? MemoryBackedInjectionStrategyOrder,
+            "The assembled ladder does not consult the strategy memory at all.")
+        XCTAssertEqual(
+            memory.orderedRungs(for: "com.apple.Notes"),
+            [.clipboardPaste, .keystrokeSynthesis],
+            """
+            What the store held did not reach the ladder. Either the load happened after the \
+            ladder was built, or its result was dropped — and the first dictation after every \
+            launch would re-try the rung that is already known to fail.
+            """)
+    }
+
+    /// **An absent file is silent**, which is what a fresh install has and what the zero-network
+    /// probe drives: no throw, no file created by the load, and the shipped C4 order.
+    @MainActor
+    func testTheAssemblyOverAnAbsentFileIsSilentAndDefaultsToTheC4Order() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ladder = await AppBootstrap.assembleShippingLadder(
+            store: PersistentInjectionStrategyStore(directory: directory),
+            handoff: RecordingFailsafeHandoff(),
+            clock: TestClock(),
+            now: { 0 })
+
+        let memory = try XCTUnwrap(ladder.order as? MemoryBackedInjectionStrategyOrder)
+        XCTAssertEqual(
+            memory.orderedRungs(for: "com.apple.Notes"),
+            [.accessibility, .clipboardPaste, .keystrokeSynthesis])
+        XCTAssertEqual(
+            memory.orderedRungs(for: "com.example.Editor"),
+            [.clipboardPaste, .keystrokeSynthesis])
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("strategies.json").path),
+            "The launch load created the strategies file. A load must never write.")
     }
 
     // MARK: - Fixtures
