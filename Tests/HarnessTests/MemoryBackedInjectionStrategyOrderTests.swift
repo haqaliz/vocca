@@ -481,6 +481,71 @@ final class MemoryBackedInjectionStrategyOrderTests: XCTestCase {
         XCTAssertTrue(memory.contains(bundleID: Self.hostile))
     }
 
+    // MARK: - The Apps tab's write path
+
+    /// `replaceAll` is the one write that is not a consequence of a dictation, and unlike
+    /// `record` it **is** awaited: the user pressed a button and is owed a saved file or an
+    /// error on screen.
+    @MainActor
+    func testReplaceAllUpdatesTheLiveMemoryAndPersistsWhatItWasGiven() async throws {
+        let store = GatedInjectionStrategyStore()
+        let clock = TestEpochClock(0)
+        let memory = makeMemory(store: store, clock: clock)
+
+        let pinned = InjectionStrategy(
+            bundleID: Self.unknown, overrideRungs: [.accessibility, .clipboardPaste])
+        try await memory.replaceAll([pinned])
+
+        XCTAssertEqual(
+            memory.orderedRungs(for: Self.unknown), [.accessibility, .clipboardPaste],
+            "A pin written from the Apps tab did not reach the running ladder — it would take "
+            + "effect at the next launch rather than the next dictation.")
+        let written = await store.updates
+        XCTAssertEqual(
+            written, [pinned],
+            """
+            The wholesale write did not persist exactly what it was handed. The hostile seed \
+            belongs in memory only: written to disk it becomes a stored row, and the launch-time \
+            fold mints only for applications with no entry — so a seeded application would come \
+            back un-seeded, quietly, one release later.
+            """)
+    }
+
+    /// The seed survives a wholesale replace *in memory*, so a reset does not leave Chrome
+    /// briefly un-seeded until the next launch.
+    @MainActor
+    func testReplaceAllReFoldsTheHostileSeedIntoTheLiveMemory() async throws {
+        let clock = TestEpochClock(1_000)
+        let memory = makeMemory(clock: clock)
+
+        try await memory.replaceAll([])
+
+        XCTAssertEqual(
+            memory.orderedRungs(for: Self.hostile), [.clipboardPaste, .keystrokeSynthesis],
+            "A reset left a known-hostile application offering the accessibility rung.")
+        XCTAssertEqual(
+            memory.snapshot().first { $0.bundleID == Self.hostile }?
+                .reprobeWindows[.accessibility],
+            1_000 + window,
+            "The re-folded seed's re-probe window was not minted from the reset instant.")
+    }
+
+    /// A failing store throws out of `replaceAll` rather than being logged, because the Apps tab
+    /// has somewhere to show it — the opposite of `record`, which has no user watching.
+    @MainActor
+    func testReplaceAllSurfacesAStoreFailure() async {
+        let store = GatedInjectionStrategyStore()
+        await store.refuseNextSave()
+        let memory = makeMemory(store: store, clock: TestEpochClock(0))
+
+        do {
+            try await memory.replaceAll([InjectionStrategy(bundleID: Self.unknown)])
+            XCTFail("A refused wholesale write was swallowed.")
+        } catch {
+            // Expected: the Apps tab renders this as the saveError line.
+        }
+    }
+
     // MARK: - T10 · An absent file is the C4 ladder, byte for byte
 
     /// What every user runs on their first dictation, and what the zero-network probe drives: an

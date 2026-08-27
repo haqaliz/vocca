@@ -98,6 +98,9 @@ public final class MemoryBackedInjectionStrategyOrder:
     private let store: any InjectionStrategyStore
     /// Epoch seconds. The re-probe window's clock, and the only way time enters the memory.
     private let now: @Sendable () -> UInt64
+    /// The applications whose accessibility rung starts demoted, kept so the fold can be redone
+    /// when the whole set is replaced (the Apps tab's reset).
+    private let hostileBundleIDs: Set<String>
 
     private static let log = Logger(subsystem: "dev.vocca.Vocca", category: "strategy-memory")
 
@@ -119,25 +122,32 @@ public final class MemoryBackedInjectionStrategyOrder:
         self.seed = seed
         self.store = store
         self.now = now
+        self.hostileBundleIDs = hostileBundleIDs
         self.persistChain = Mutex(nil)
+        self.strategies = Mutex(
+            Self.folding(strategies, hostileBundleIDs: hostileBundleIDs, now: now()))
+    }
 
+    /// The loaded set with the hostile seed folded in: a seeded demotion with a re-probe window
+    /// minted from `now`, and **only** where nothing is already known. A learned entry always
+    /// wins — the seed is what an application starts as, never a correction applied to what it
+    /// became, so a verified promotion is not re-demoted at the next launch.
+    private static func folding(
+        _ strategies: [InjectionStrategy], hostileBundleIDs: Set<String>, now: UInt64
+    ) -> [String: InjectionStrategy] {
         var held: [String: InjectionStrategy] = [:]
         for strategy in strategies where !strategy.bundleID.isEmpty {
             held[strategy.bundleID] = strategy
         }
-        // The hostile fold: a seeded demotion with a window minted from *this* instant, and only
-        // where nothing is already known. A learned entry always wins — the seed is what an
-        // application starts as, never a correction applied to what it became.
-        let minted = now()
         for identifier in hostileBundleIDs where held[identifier] == nil {
             held[identifier] = InjectionStrategy(
                 bundleID: identifier,
                 demotedRungs: [.accessibility],
                 reprobeWindows: [
-                    .accessibility: minted &+ StrategyMemoryTargets.reprobeWindowSeconds
+                    .accessibility: now &+ StrategyMemoryTargets.reprobeWindowSeconds
                 ])
         }
-        self.strategies = Mutex(held)
+        return held
     }
 
     // MARK: - The read side
@@ -268,6 +278,24 @@ public final class MemoryBackedInjectionStrategyOrder:
                 }
             }
         }
+    }
+
+    /// **Replaces the whole memory** — the Apps tab's write path (PRD R7), and the only one that
+    /// is not a consequence of a dictation.
+    ///
+    /// Unlike `record`, this one *is* awaited: the user pressed a button and is owed either a
+    /// saved file or an error on screen, so the failure is thrown rather than logged. It is off
+    /// the latency path by construction — a settings window, not a ladder run.
+    ///
+    /// What is persisted is exactly what the caller decided; the hostile seed is folded into the
+    /// **in-memory** set only. Writing the seed to disk would turn it into a stored row, and the
+    /// launch-time fold mints only for applications with no entry — so a seeded application
+    /// would come back un-seeded at the next launch, quietly, one release later.
+    public func replaceAll(_ strategies: [InjectionStrategy]) async throws {
+        let folded = Self.folding(
+            strategies, hostileBundleIDs: hostileBundleIDs, now: now())
+        self.strategies.withLock { $0 = folded }
+        try await store.save(strategies)
     }
 
     /// Awaits every persist spawned so far. The shutdown and test seam — nothing on the latency

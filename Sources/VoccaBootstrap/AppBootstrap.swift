@@ -140,9 +140,10 @@ public enum AppBootstrap {
             // `strategies.json` — every fresh install — is a silent empty memory whose
             // projection is the shipped C4 order, so this is probe-safe: FileManager only, no
             // network, and nothing written by the load.
-            let ladder = await assembleShippingLadder(
+            let assembled = await assembleShippingLadder(
                 store: PersistentInjectionStrategyStore(), handoff: holder, clock: clock)
-            return AssembledCustody(holder: holder, ladder: ladder)
+            return AssembledCustody(
+                holder: holder, ladder: assembled.ladder, memory: assembled.memory)
         }
         let deferredHolder = DeferredCustody(assembly: custodyTask)
         let deferredLadder = DeferredLadder(assembly: custodyTask)
@@ -421,6 +422,13 @@ public enum AppBootstrap {
         root.onboardingStore = onboardingStore
         root.onboardingSink = onboardingSink
 
+        // The strategy memory, reached back from the custody chain once it has assembled — the
+        // Apps tab's write path (C8 R7). Without it a pin would reach the file and not the
+        // ladder, and would take effect at the next launch rather than the next dictation.
+        Task {
+            root.strategyMemory = try? await custodyTask.value.memory
+        }
+
         // The egress fold: the resolved provider's `requiresNetwork` + endpoint, folded into the
         // widget store exactly once at launch (resolve-once — a mid-session provider swap is
         // structurally impossible). `configure` is synchronous and the resolver is async, so the
@@ -537,6 +545,40 @@ public enum AppBootstrap {
     /// read one constant.
     public static let recoveryJournalCapacity = 5
 
+    // MARK: - The Apps tab's read
+
+    /// What the Apps tab shows: the stored strategies, each with a name a person recognises and
+    /// the seeded allowlist's answer about it.
+    ///
+    /// The allowlist answer travels with the row because `VoccaUI` may import only `VoccaCore`
+    /// (`ModuleBoundaryTests`) and the seeded list lives in `VoccaInject`. The name comes from
+    /// LaunchServices; an application that no longer resolves — uninstalled since Vocca learned
+    /// about it — shows its bundle identifier rather than a blank, so no row is ever nameless.
+    @MainActor
+    public static func readAppStrategies() async -> [AppStrategyEntry] {
+        let seed = SeededInjectionAllowlist()
+        let stored = await PersistentInjectionStrategyStore().load()
+        return stored.map { strategy in
+            AppStrategyEntry(
+                bundleID: strategy.bundleID,
+                displayName: displayName(forBundleID: strategy.bundleID),
+                strategy: strategy,
+                isAllowlisted: seed.contains(bundleID: strategy.bundleID))
+        }
+    }
+
+    /// The installed application's name, or the bundle identifier when nothing resolves.
+    @MainActor
+    private static func displayName(forBundleID bundleID: String) -> String {
+        guard
+            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        else {
+            return bundleID
+        }
+        let name = FileManager.default.displayName(atPath: url.path)
+        return name.isEmpty ? bundleID : name
+    }
+
     // MARK: - The learning ladder
 
     /// **store → loaded snapshot → memory → ladder**, in that order — the custody chain's ladder
@@ -566,14 +608,16 @@ public enum AppBootstrap {
         now: @escaping @Sendable () -> UInt64 = {
             UInt64(max(0, Date().timeIntervalSince1970))
         }
-    ) async -> LadderInjector {
+    ) async -> (ladder: LadderInjector, memory: MemoryBackedInjectionStrategyOrder) {
         let loaded = await store.load()
         let memory = MemoryBackedInjectionStrategyOrder(
             seed: SeededInjectionAllowlist(),
             strategies: loaded,
             store: store,
             now: now)
-        return ShippingLadder.makeWithMemory(memory: memory, handoff: handoff, clock: clock)
+        return (
+            ShippingLadder.makeWithMemory(memory: memory, handoff: handoff, clock: clock), memory
+        )
     }
 
     // MARK: - The model repositories
@@ -861,6 +905,13 @@ public final class DictationLoopRoot {
     /// outlives `attachMenuBarItem`.
     public var menuBarPhaseObservation: AnyCancellable?
 
+    /// The ladder's strategy memory (C8), reached back from the custody chain after it assembles.
+    ///
+    /// `nil` only in the window between launch and the journal's disk load — and in the probe,
+    /// which composes its own ladder. The Apps tab writes through this so a pin reaches the
+    /// running ladder; the file underneath it is the same one the memory persists to.
+    public var strategyMemory: MemoryBackedInjectionStrategyOrder?
+
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
     /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
@@ -888,7 +939,24 @@ public final class DictationLoopRoot {
                     // The same store the rules engine reads from, so an edit here is an edit the
                     // next dictation applies — not a second copy of the file that drifts from it.
                     loadDictionary: { await FileSystemDictionaryStore().load() },
-                    saveDictionary: { try await FileSystemDictionaryStore().save($0) }))
+                    saveDictionary: { try await FileSystemDictionaryStore().save($0) },
+                    // The Apps tab reads the *store* — the seeded-hostile entries the memory
+                    // mints at launch are seed rather than learning, and listing them as things
+                    // Vocca worked out would be claiming knowledge it does not have.
+                    loadStrategies: { await AppBootstrap.readAppStrategies() },
+                    // ...and writes through the *memory*, so a pin applies to the next dictation
+                    // rather than the next launch. The memory persists to the same file the read
+                    // came from, so the two can never be two files.
+                    saveStrategies: { [weak self] entries in
+                        let strategies = entries.map(\.strategy)
+                        guard let memory = self?.strategyMemory else {
+                            // The custody chain has not assembled yet — write the file directly
+                            // rather than dropping the user's edit. The memory loads from it.
+                            try await PersistentInjectionStrategyStore().save(strategies)
+                            return
+                        }
+                        try await memory.replaceAll(strategies)
+                    }))
         }
         settingsWindow?.show()
     }
@@ -1819,6 +1887,9 @@ final class RefusingAudioSource: SessionAudioSource {
 private struct AssembledCustody: Sendable {
     let holder: JournalTranscriptHolder
     let ladder: LadderInjector
+    /// The strategy memory the ladder consults — kept so the Apps tab can write through to the
+    /// *running* ladder, not only to the file it will read at the next launch.
+    let memory: MemoryBackedInjectionStrategyOrder
 }
 
 /// The FAILSAFE panel's holder, when the journal is still assembling.

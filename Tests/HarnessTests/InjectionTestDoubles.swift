@@ -224,6 +224,7 @@ actor GatedInjectionStrategyStore: InjectionStrategyStore {
     private var isOpen = true
     /// Whether the next write throws instead of landing — the persist-failure path.
     private var refusesNextUpdate = false
+    private var refusesNextSave = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     init() {}
@@ -246,6 +247,11 @@ actor GatedInjectionStrategyStore: InjectionStrategyStore {
         refusesNextUpdate = true
     }
 
+    /// Makes the next wholesale write throw — the Apps tab's save-failure path.
+    func refuseNextSave() {
+        refusesNextSave = true
+    }
+
     func load() async -> [InjectionStrategy] {
         updates
     }
@@ -265,6 +271,10 @@ actor GatedInjectionStrategyStore: InjectionStrategyStore {
     }
 
     func save(_ strategies: [InjectionStrategy]) async throws {
+        if refusesNextSave {
+            refusesNextSave = false
+            throw TestStrategyStoreError.refusedWrite
+        }
         updates = strategies
     }
 }

@@ -115,15 +115,19 @@ final class AppBootstrapWiringTests: XCTestCase {
                 demotedRungs: [.accessibility],
                 reprobeWindows: [.accessibility: .max]))
 
-        let ladder = await AppBootstrap.assembleShippingLadder(
+        let assembled = await AppBootstrap.assembleShippingLadder(
             store: PersistentInjectionStrategyStore(directory: directory),
             handoff: RecordingFailsafeHandoff(),
             clock: TestClock(),
             now: { 0 })
 
         let memory = try XCTUnwrap(
-            ladder.order as? MemoryBackedInjectionStrategyOrder,
+            assembled.ladder.order as? MemoryBackedInjectionStrategyOrder,
             "The assembled ladder does not consult the strategy memory at all.")
+        XCTAssertTrue(
+            assembled.memory === memory,
+            "The memory handed back is not the one the ladder consults — the Apps tab would "
+            + "write through to an object no dictation reads.")
         XCTAssertEqual(
             memory.orderedRungs(for: "com.apple.Notes"),
             [.clipboardPaste, .keystrokeSynthesis],
@@ -141,13 +145,14 @@ final class AppBootstrapWiringTests: XCTestCase {
         let directory = Self.tempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let ladder = await AppBootstrap.assembleShippingLadder(
+        let assembled = await AppBootstrap.assembleShippingLadder(
             store: PersistentInjectionStrategyStore(directory: directory),
             handoff: RecordingFailsafeHandoff(),
             clock: TestClock(),
             now: { 0 })
 
-        let memory = try XCTUnwrap(ladder.order as? MemoryBackedInjectionStrategyOrder)
+        let memory = try XCTUnwrap(
+            assembled.ladder.order as? MemoryBackedInjectionStrategyOrder)
         XCTAssertEqual(
             memory.orderedRungs(for: "com.apple.Notes"),
             [.accessibility, .clipboardPaste, .keystrokeSynthesis])

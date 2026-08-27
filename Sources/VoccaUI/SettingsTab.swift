@@ -14,10 +14,11 @@
 
 /// The settings window's tabs, and the words on them.
 ///
-/// Four tabs because there are four things a user can decide: how they start a dictation, which
-/// engine hears them, what happens to the text afterwards, and which words Vocca gets wrong. Every
-/// one of these has been editable since the day it shipped — by hand, in JSON, in Application
-/// Support. This window is the same settings with a surface on them.
+/// Five tabs because there are five things a user can decide: how they start a dictation, which
+/// engine hears them, what happens to the text afterwards, which words Vocca gets wrong, and how
+/// it types into a given application. Every one of these has been editable since the day it
+/// shipped — by hand, in JSON, in Application Support. This window is the same settings with a
+/// surface on them.
 public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
 
     /// The hotkey and how it activates.
@@ -28,6 +29,8 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
     case cleanup
     /// The user's own replacements, for names and jargon the model mishears.
     case dictionary
+    /// What Vocca learned about typing into each application, and the user's own pins over it.
+    case apps
 
     public var id: String { rawValue }
 
@@ -38,6 +41,7 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
         case .speech: return "Speech"
         case .cleanup: return "Cleanup"
         case .dictionary: return "Dictionary"
+        case .apps: return "Apps"
         }
     }
 
@@ -48,6 +52,7 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
         case .speech: return "waveform"
         case .cleanup: return "wand.and.stars"
         case .dictionary: return "character.book.closed"
+        case .apps: return "square.grid.2x2"
         }
     }
 }

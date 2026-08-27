@@ -37,6 +37,18 @@ public struct SettingsBindings {
     public var loadDictionary: () async -> [ReplacementRule]
     /// Saves the user's replacements.
     public var saveDictionary: ([ReplacementRule]) async throws -> Void
+    /// What Vocca has learned or been told about each application, with names resolved and the
+    /// seeded allowlist's answer folded in.
+    ///
+    /// Reads the **store**, not the ladder's live snapshot: the seeded-hostile entries the memory
+    /// mints at launch are seed, not learning, and a table that listed them as things Vocca had
+    /// worked out would be claiming knowledge it does not have.
+    public var loadStrategies: () async -> [AppStrategyEntry]
+    /// Writes the whole set back — the `saveDictionary` shape, for the same reason: the reducer
+    /// has already computed the post-action truth, so a wholesale write cannot disagree with what
+    /// the table shows. The wiring also hands it to the running ladder, so a pin applies to the
+    /// next dictation rather than to the next launch.
+    public var saveStrategies: ([AppStrategyEntry]) async throws -> Void
 
     public init(
         isToggleMode: @escaping () -> Bool,
@@ -45,7 +57,9 @@ public struct SettingsBindings {
         engineDisplayName: @escaping () -> String,
         cleanupSummary: @escaping () -> (name: String, endpoint: String?),
         loadDictionary: @escaping () async -> [ReplacementRule],
-        saveDictionary: @escaping ([ReplacementRule]) async throws -> Void
+        saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
+        loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
+        saveStrategies: @escaping ([AppStrategyEntry]) async throws -> Void = { _ in }
     ) {
         self.isToggleMode = isToggleMode
         self.setToggleMode = setToggleMode
@@ -54,6 +68,8 @@ public struct SettingsBindings {
         self.cleanupSummary = cleanupSummary
         self.loadDictionary = loadDictionary
         self.saveDictionary = saveDictionary
+        self.loadStrategies = loadStrategies
+        self.saveStrategies = saveStrategies
     }
 }
 
@@ -85,6 +101,7 @@ public struct SettingsView: View {
         case .speech: SpeechSettingsPage(bindings: bindings)
         case .cleanup: CleanupSettingsPage(bindings: bindings)
         case .dictionary: DictionarySettingsPage(bindings: bindings)
+        case .apps: AppsSettingsPage(bindings: bindings)
         }
     }
 }

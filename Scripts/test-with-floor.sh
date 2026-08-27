@@ -1151,8 +1151,23 @@ set -euo pipefail
 # before it builds the ladder and must leave an absent strategies.json unwritten. The probe's
 # `strategy=absent` field rides the existing whole-line assertion and its guard-the-guard test.
 #
+# The `apps-tab` aspect adds thirty-three (1300 -> 1333): seven copy pins (the three health
+# labels byte-for-byte from PRODUCT_SPEC.md:275, the reset button's one permitted deviation
+# from the spec's prose, the picker reusing the health vocabulary rather than a second dialect,
+# the overridden/learned badges being distinguishable in words, the honest empty state, the
+# save-error surface and the column headings); twenty reducer rows (the load/empty/opening
+# states, name-sorted rows with a bundle-ID tiebreak, the health mapping for every effective
+# first rung including the two that must read alike, the settled health under a due re-probe,
+# override set/clear/unknown-app/unrecognised-order, the S2 freeze driven through Core's own
+# record fold, reset dropping learned rows while preserving pins, save failure and its intact
+# rows, and the closed-set totality/equality pins); three SettingsTab pins (the five tabs in
+# reading order, the Apps tab's label and symbol, and every tab's title/symbol/id being
+# distinct); and three for the memory's wholesale-replace write path (the live ladder sees the
+# pin, the store is handed exactly what the caller decided, the seed is re-folded into memory
+# only, and a refused save throws where the Apps tab can show it).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1300
+MINIMUM_EXECUTED_TESTS=1333
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
