@@ -83,4 +83,56 @@ public enum StrategyMemory {
         guard let window = strategy.reprobeWindows[rung] else { return false }
         return now >= window
     }
+
+    /// The fold: one ladder outcome — with the trace it demotes on passed explicitly — becomes
+    /// the next dictation's strategy (`core-memory/spec.md` M5/M6, "The record fold, precisely").
+    ///
+    /// `attempted` is normally `result.attempted`, but it is an argument because the rung-0 rows
+    /// carry `attempted: []` (Secure Input refusals, `bundleID == nil`) and a result carrying a
+    /// truncated trace must not silently change the demotion. `allowlisted:` is the seeded
+    /// allowlist's answer **without** `learnedAllowlist` folded in — the projection composes the
+    /// OR itself, so a first promotion is observable.
+    ///
+    /// The rules, in order: no rung attempted → unchanged; the strict prefix of `attempted`
+    /// before the winner (or every attempted rung when the failsafe won — it always succeeds) is
+    /// demoted with a fresh window, never clipboard, never failsafe; a demoted rung that won is
+    /// restored, its window dropped — unconditional on the window having elapsed; a
+    /// read-back-verified AX win on a non-allowlisted app promotes (X1). Nothing else is this
+    /// function's concern.
+    public static func record(
+        result: InjectionResult,
+        attempted: [InjectionRung],
+        now: UInt64,
+        allowlisted: Bool,
+        into strategy: InjectionStrategy
+    ) -> InjectionStrategy {
+        guard !attempted.isEmpty else {
+            return strategy
+        }
+        var updated = strategy
+        switch result.rung {
+        case .widgetFailsafe:
+            for rung in attempted where rung != .clipboardPaste && rung != .widgetFailsafe {
+                updated.demotedRungs.insert(rung)
+                updated.reprobeWindows[rung] = now + StrategyMemoryTargets.reprobeWindowSeconds
+            }
+        case .accessibility, .clipboardPaste, .keystrokeSynthesis:
+            guard let winnerIndex = attempted.firstIndex(of: result.rung) else {
+                return strategy
+            }
+            for rung in attempted[..<winnerIndex]
+            where rung != .clipboardPaste && rung != .widgetFailsafe {
+                updated.demotedRungs.insert(rung)
+                updated.reprobeWindows[rung] = now + StrategyMemoryTargets.reprobeWindowSeconds
+            }
+        }
+        if updated.demotedRungs.contains(result.rung) {
+            updated.demotedRungs.remove(result.rung)
+            updated.reprobeWindows[result.rung] = nil
+        }
+        if result.rung == .accessibility && result.verified && !allowlisted {
+            updated.learnedAllowlist = true
+        }
+        return updated
+    }
 }

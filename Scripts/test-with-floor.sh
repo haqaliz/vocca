@@ -1112,7 +1112,7 @@ set -euo pipefail
 # reported remove-the-last-row bug) and the one-row-of-several case.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1232
+MINIMUM_EXECUTED_TESTS=1252
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
