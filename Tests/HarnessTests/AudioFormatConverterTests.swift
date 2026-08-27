@@ -1125,10 +1125,17 @@ final class AudioFormatConverterTests: XCTestCase {
     /// Phase 4 added the `AVAudioEngine` graph and edited this line to do it, exactly as promised:
     /// the graph (`AudioCaptureGraph.swift`) is the one new file with a reason to name the
     /// framework, and it is the only one added. That is the intended cost.
+    ///
+    /// The `first-run-permissions` unit (A2, `permission-reads`) adds the third file: the
+    /// microphone-permission adapter (`MicrophoneAuthorization.swift`). Its status read and
+    /// request are PRD M5/M5b's permission surface — `AVCaptureDevice` is where the TCC
+    /// authorization answer and the request live — and R6's planned amendment is this reviewed
+    /// row, exactly as the R6 row of `docs/planning/first-run-permissions/prd.md` promises.
     func testTheFilesThatImportAVFoundationAreExactlyTheExpectedSet() throws {
         let expected: Set<String> = [
             "VoccaAudio/AudioFormatConverter.swift",
             "VoccaAudio/AudioCaptureGraph.swift",
+            "VoccaAudio/MicrophoneAuthorization.swift",
         ]
 
         let sources = try PackageRootLocator.find(from: #filePath)

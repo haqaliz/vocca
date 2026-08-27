@@ -391,9 +391,9 @@ public enum AppBootstrap {
             onAction: { state in
                 switch state {
                 case .noAccessibility:
-                    openSystemSettings(at: accessibilityPanePath)
+                    SystemSettingsPane.open(at: SystemSettingsPane.accessibilityPanePath)
                 case .noMicrophone:
-                    openSystemSettings(at: microphonePanePath)
+                    SystemSettingsPane.open(at: SystemSettingsPane.microphonePanePath)
                 case .downloadingModel, .ready, .listening, .transcribing, .secureInput:
                     break
                 }
@@ -428,22 +428,6 @@ public enum AppBootstrap {
             }
         }
     }
-
-    /// Opens a System Settings pane by its `x-apple.systempreferences` path.
-    @MainActor
-    private static func openSystemSettings(at path: String) {
-        guard let url = URL(string: path) else { return }
-        NSWorkspace.shared.open(url)
-    }
-
-    /// The Accessibility pane — where the user must add Vocca themselves, because macOS will not
-    /// prompt for this grant on an app's behalf.
-    private static let accessibilityPanePath =
-        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-
-    /// The Microphone pane.
-    private static let microphonePanePath =
-        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
 
     /// The shipped chord, in the form a person reads.
     public static let shippedHotkeyDisplayName = "⌥Space"
