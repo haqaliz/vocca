@@ -1111,8 +1111,21 @@ set -euo pipefail
 # which refuses an existing destination), pinned both as the empty-dictionary case (the
 # reported remove-the-last-row bug) and the one-row-of-several case.
 #
+# The store-seam aspect (C8) raises it to 1274: the gate-resolution amendment
+# (InjectionStrategyTests, two — the bundle-ID key the store upserts by and the Codable
+# round trip the strategies.json schema depends on), the strategy store contract
+# (InjectionStrategyStoreTests, fifteen — the atomic temp-write→rename pair for update and
+# save, the byte-stable save, the torn update leaving the previous committed content, the
+# missing file's silent empty load, the corrupt-element/non-object/unknown-version
+# tolerances with their loud-log counts and byte-unchanged pins, the stray-temp never-read,
+# the real-store round trip, the refused-write throw, the cap refusals for new apps with
+# known apps flowing on both stores and the refused file untouched, the cap-bypassing
+# wholesale save, the ephemeral end-to-end reset, and the maximumRememberedApps
+# single-source definition scan), and the four-seam FileManager exact-set pin
+# (journal/dictionary/config/strategy, S15).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1257
+MINIMUM_EXECUTED_TESTS=1274
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

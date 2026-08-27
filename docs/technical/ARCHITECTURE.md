@@ -257,7 +257,7 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | ASR | `ASREngine` | `ParakeetEngine`, `WhisperCppEngine` | **Yes** |
 | Cleanup | `CleanupProvider` | `RulesCleanup`, `OllamaCleanup`, `BYOKCleanup` | **Yes** |
 | Injection | `TextInjector` | `LadderInjector` + per-rung strategies | No — always local |
-| Strategy memory | `InjectionStrategyStore` | `PersistentStore`, `EphemeralStore` (tests) | No |
+| Strategy memory | `InjectionStrategyStore` | `PersistentInjectionStrategyStore`, `EphemeralInjectionStrategyStore` (tests) | No |
 | TTS | `SpeechSynthesizer` | `KokoroSynthesizer`, `SystemSynthesizer` | **Yes** |
 | VAD | `VoiceActivityDetector` | `SileroVAD`, `EnergyVAD` (fallback/tests) | No |
 | Turn detection | `TurnDetector` | `ParakeetEOU`, `SilenceThresholdDetector` | No |
