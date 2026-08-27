@@ -1032,8 +1032,23 @@ set -euo pipefail
 # steady-state side (the p50 discipline), the target's own value pin, and the single-source
 # scan that keeps the bound's literal in exactly the named table and its pinning test.
 #
+# The first-run-permissions aspect A1 (flow-reducer) raises it to 1153: the onboarding
+# flow's decision table (OnboardingReducerTests, 26) and its pinned copy
+# (OnboardingCopyTests, 13). The reducer tests that justify the raise are the resume
+# matrix (begin/windowClosed folded from every step × every status combination, the S3
+# "resume at the first incomplete step" rule pinned in both directions), the M5c
+# restart-offer invariant (restartOffered is only reachable from grantedNotArmed, driven
+# over the whole closed set), the M4 completion pin (tryItSucceeded is the only transition
+# that sets completed, swept over the closed set), the model state's terminality
+# (straggler rejection after skipped/committed/failed with M7's fresh-download door), the
+# M7 refusal rows (absent/failed/skipped refuse with .modelUnavailable, committed/in-
+# flight are ready), and the closed-set totality fold over representative states at every
+# step. The copy tests pin §6 byte-for-byte (PRODUCT_SPEC.md:211-244), including the ⌥
+# (U+2325) and ≈ (U+2248) characters as-is, plus the two NEW-COPY surfaces (the M5c
+# three-state line and the M7 model-unavailable line) to their documented sources.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1114
+MINIMUM_EXECUTED_TESTS=1153
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
