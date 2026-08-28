@@ -42,14 +42,14 @@ public enum EngineSessionStart {
 /// (`PRODUCT_SPEC.md:189-196`), the per-row installed/download affordance, and the Whisper tier
 /// menu.
 ///
-/// **Thin glue, executed by nothing in CI** (the `FailsafeView`/`DownloadProgressView` shape, and
+/// **Thin glue, executed by nothing in CI** (the `FailsafeView`/``SpeechSettingsPage`` shape, and
 /// the window-server precedent): every decision this surface can make lives above it — the
 /// reducer in ``EnginePickerStateReducer`` and the copy in ``EnginePickerCopy``, both tested
 /// headlessly. This view renders ``EnginePickerState``, translates the user's intents into
 /// ``EnginePickerAction``, and translates ``ModelDownloadSession`` events into the download
 /// actions — nothing else.
 ///
-/// The download affordance follows `DownloadWindow`'s wiring: the session arrives from outside
+/// The download affordance follows ``SpeechSettingsPage``'s wiring: the session arrives from outside
 /// (``makeSession`` is the composition root's injection of ``StoreModelDownloadSession`` — a
 /// `VoccaASR` type `VoccaUI` may not name), the view owns it for its lifetime, and the events
 /// are fed back to the reducer as actions. Cancelling is `session.cancel()`; the stream then

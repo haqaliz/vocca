@@ -1232,8 +1232,37 @@ set -euo pipefail
 # user their switch broke something. One test was deleted with the duplication it guarded: the
 # shipped activation default no longer exists twice.
 #
+# The speech-tab aspect adds twenty-six (1401 -> 1427). Fourteen are the tab's own decision table
+# and five its words, and the pair worth naming there are the two that could not have been written
+# against the picker that already existed: presence is keyed by *tier*, so one Whisper tier being
+# on disk must never make the other read `[ installed ]`, and `EnginePickerState` keys by engine —
+# one slot for both rows, which cannot express the distinction at all. Planting the engine-keyed
+# answer fails it. The management controls are asserted to be the spec sentence's own phrases
+# rather than three fresh literals, because two spellings of one string is how a copy change lands
+# in the prose and never on the buttons.
+#
+# The four load-bearing ones are the agreement rows. Each drives **one composed root** into an
+# in-between window and asserts what the Speech tab, the menu bar and the next press say
+# *together*, in a single comparison. Three separate tests could not do it: each would pass while
+# the surfaces described different instants, which is this repository's dominant bug class and the
+# reason M11 calls the window a must-have. They found two real defects on the first run. The pill
+# was left stranded in OPENING by every refused press — the widget reducer has no time-based
+# transition in it by design, and the router presented the failsafe panel without telling the
+# widget anything, so the pill went on claiming a microphone was opening until the next press. And
+# the menu bar had no word for a model that was deleted: an unprepared engine read as
+# `downloadingModel`, whose copy promises dictation "as soon as it finishes", which stops being
+# true the moment a [Remove] button exists. The fourth row is the half a naive wiring gets wrong —
+# a background download of an engine nobody selected must block nothing.
+#
+# The rest are the guards: removal refused while a dictation is in flight (and refused in the
+# *plan*, not only in the button, so a caller that skipped the control is refused too), M12's
+# cancel-then-remove expressed as a returned value rather than as three calls in the right order,
+# and the wiring read out of the shipped source because `showSettings()` builds a window CI cannot
+# construct. `DownloadProgressView.swift` was deleted whole — zero callers since C2 — and the
+# count did not move, which is what confirmed it was dead rather than merely unloved.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1401
+MINIMUM_EXECUTED_TESTS=1427
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

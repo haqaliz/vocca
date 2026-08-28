@@ -1858,6 +1858,133 @@ deliverable rows. Bar: ≥19/20. Recorded, never gated.
 
 ---
 
+## 13. The Speech tab — the engine picker, its first execution
+
+`PRODUCT_SPEC.md:254-262` specifies this surface, and until the `speech-tab` aspect the tab was
+read-only and said so. The machinery under it — the tier-keyed model store, the settings store,
+the switch that replaces a resolver without a restart — shipped in three earlier aspects and has
+never been touched by a finger.
+
+Nothing here runs in CI, for the window-server reason and three more: the tab downloads a 470 MB
+model over a network the zero-network probe forbids, removes it from a real Application Support
+directory, and switches an engine whose CoreML load cannot reach a hosted runner. What CI proves
+is the half above the glass — `SpeechTabReducerTests` for every decision, `SpeechTabCopyTests` for
+every word, `EngineStateAgreementTests` for the three surfaces agreeing, and `SpeechTabWiringTests`
+for the gestures reaching the root. **The page itself has never been rendered.**
+
+Run these with the model already downloaded (step 17), and read the menu bar icon during each —
+the tab is only one of the three surfaces, and the point of steps 97–99 is what the *other two*
+say at the same moment.
+
+94. **The Speech tab renders, and reports what is actually on this Mac.**
+
+    *Gesture:* open Settings > Speech. Compare each row's badge and disk figure against
+    `~/Library/Application Support/Vocca/models/` in Finder.
+
+    *Pass:* Parakeet reads `[ installed ]` with a figure matching Finder's for its directory; both
+    Whisper tiers read `[ download ]` with no figure at all — not "0 bytes". Each engine row
+    carries its status line, and Whisper's says it has never been measured.
+
+    *Failure:* a badge or a figure that disagrees with Finder; a "0 bytes" beside a model that is
+    not there; or the two engines presented as equally exercised, which is R7's whole point and
+    the one claim in this tab nobody has earned.
+
+95. **One Whisper tier downloads without making the other read installed.**
+
+    The keying defect aspect 1 fixed, seen from the surface a user would have acted on.
+
+    *Gesture:* press [Download] on the Whisper **turbo** row and let it finish. Read both Whisper
+    rows.
+
+    *Pass:* turbo reads `[ installed ]` with its figure; **q5_0 still reads `[ download ]` with no
+    figure**. Two directories exist under `models/`, each with its own `verified` marker.
+
+    *Failure:* q5_0 reading `[ installed ]`. It would send the next dictation into
+    `.modelUnavailable` with no explanation on the page that promised otherwise.
+
+96. **The engine switch takes effect on the next press, with no restart.**
+
+    *Gesture:* with the Whisper model downloaded, select Whisper in the tab. Wait for the menu bar
+    to leave its warming state, then dictate a sentence into TextEdit. Quit and relaunch Vocca and
+    read the tab.
+
+    *Gesture (second half):* `log show --predicate 'subsystem == "dev.vocca.Vocca"' --last 2m`
+    and find the transcript's engine attribution.
+
+    *Pass:* the text lands, the log attributes it to `whisper-large-v3-turbo`, and the tab still
+    shows Whisper selected after the relaunch. **This is also whisper's first real transcription
+    ever** — `SMOKE_CHECKLIST.md` step 19 remains the WER run, but this is the first time the
+    engine has produced text for a user at all.
+
+    *Failure:* text attributed to Parakeet; a required restart; or a selection that reverts.
+
+97. **In-between window (a): the model is removed, and all three surfaces say the same thing.**
+
+    *Gesture:* with Parakeet selected and idle, press [Remove] on its row and confirm. Then read
+    the tab, the menu bar icon **and** its menu, and then press ⌥Space.
+
+    *Pass:* all four — the row flips to `[ download ]` with no figure; the menu bar shows the
+    missing-model icon and says *"The speech model isn't on this Mac"* (**not** "Downloading…
+    works as soon as it finishes", which would promise a wait that never comes); the press is
+    refused with the model-unavailable panel; and **the pill returns to idle rather than sitting
+    in OPENING**.
+
+    *Failure:* any surface describing a state that ended — especially a pill left mid-gesture. It
+    did exactly that until `EngineStateAgreementTests` asked, and this is the row that confirms
+    the fix on a real screen.
+
+98. **In-between window (b): the newly selected engine is warming, and nothing calls it broken.**
+
+    *Gesture:* switch engines and, in the seconds before the menu bar settles, read the tab and
+    the menu and press ⌥Space once.
+
+    *Pass:* the tab says the engine is getting ready, the menu bar shows the warming state with
+    *"Loading the speech model"*, and the press is refused with the model-unavailable panel and
+    the pill returning to idle. Nothing anywhere says a model is missing: it is on disk and the
+    switch worked.
+
+    *Failure:* a missing-model report during a warm-up. It would tell the user their switch broke
+    something.
+
+99. **In-between window (c): a background download blocks nothing.**
+
+    The half a naive wiring gets wrong.
+
+    *Gesture:* with Parakeet selected, prepared and idle, press [Download] on a Whisper row. While
+    it runs, read the menu bar and dictate a sentence.
+
+    *Pass:* the menu bar stays ready throughout, the dictation works normally, and the Whisper row
+    still shows its progress bar — unblocked is not the same as invisible.
+
+    *Failure:* a menu bar reporting the download as a reason dictation is unavailable. A working
+    Vocca would spend the whole transfer saying otherwise.
+
+100. **Removal is refused mid-dictation, and says why.**
+
+    *Gesture:* start a toggle dictation (⌥Space), and while it is recording press [Remove] on the
+    selected engine's row.
+
+    *Pass:* nothing is deleted and the tab shows *"Finish the dictation first. Vocca won't remove
+    a model while it's listening."* The dictation then completes normally.
+
+    *Failure:* a deletion under a live microphone, or a button that silently does nothing — a
+    control that refuses without explaining teaches a user the app is broken.
+
+101. **M12: removing a tier mid-download cancels the transfer rather than breaking it.**
+
+    *Gesture:* start a download on a Whisper row, and at roughly 30% press [Remove] on that same
+    row and confirm. Then read the log.
+
+    *Gesture (second half):* `log show --predicate 'subsystem == "dev.vocca.Vocca"' --last 2m`.
+
+    *Pass:* the row returns to `[ download ]`, the directory is gone from `models/`, and the log
+    records a **cancellation**, not `ModelDownloadError.transportFailed`.
+
+    *Failure:* a `transportFailed` in the log. It means the directory was deleted under the
+    running transfer, and the app blamed the transport for something the app did.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here
