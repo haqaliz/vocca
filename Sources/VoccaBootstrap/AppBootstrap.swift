@@ -447,6 +447,10 @@ public enum AppBootstrap {
         // shape (both are window-adjacent surfaces, neither exists for the probe).
         root.onboardingStore = onboardingStore
         root.onboardingSink = onboardingSink
+        // The Speech tab's store: the same one every engine loads through, so a row's
+        // `[ installed ]`, the bytes beside [Remove] and the model the engine opens are all one
+        // directory. Assigned after construction, the `strategyMemory` shape.
+        root.modelStore = store
 
         // The strategy memory, reached back from the custody chain once it has assembled — the
         // Apps tab's write path (C8 R7). Without it a pin would reach the file and not the
@@ -874,6 +878,22 @@ public final class Wiring {
 
 // MARK: - The composition root
 
+/// **A Speech-tab action asked of a composition that has no model store.**
+///
+/// Never reachable in the shipped graph — `configure` assigns the store the moment the root
+/// exists. Surfaced rather than swallowed because the alternative is a [Remove] that reports
+/// success and deletes nothing, which is the failure the whole tab's error path exists for.
+public enum SpeechSettingsUnavailable: Error, CustomStringConvertible {
+    /// No model store was composed.
+    case noModelStore
+
+    public var description: String {
+        switch self {
+        case .noModelStore: return "no model store is available in this composition"
+        }
+    }
+}
+
 /// The dictation loop, owned: the tap, the machines, the engine lifecycle, the ladder, the panel
 /// and the routing between them.
 ///
@@ -985,6 +1005,16 @@ public final class DictationLoopRoot {
     /// running ladder; the file underneath it is the same one the memory persists to.
     public var strategyMemory: MemoryBackedInjectionStrategyOrder?
 
+    /// The model store every engine loads through, reached back from `configure` — the
+    /// ``strategyMemory`` precedent, and for the same reason: the Speech tab needs it and the
+    /// root's initializer is not where a composition detail belongs.
+    ///
+    /// `nil` only in a composition that built no store — every headless harness in the suite. The
+    /// tab's fallback is to claim nothing (an empty snapshot renders
+    /// ``SpeechTabInstall/unknown``, which is the honest "we could not ask") and to refuse a
+    /// removal out loud rather than to report a success that did not happen.
+    public var modelStore: ModelStore?
+
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
     /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
@@ -1038,9 +1068,101 @@ public final class DictationLoopRoot {
                             return
                         }
                         try await memory.replaceAll(strategies)
+                    },
+                    // MARK: Speech
+                    //
+                    // The selection is read off the resolver, which *is* the fact rather than a
+                    // copy of it — the window outlives every switch, so a captured value would
+                    // leave the radio pointing at the launch engine for ever.
+                    engineSelection: { [weak self] in
+                        self?.resolver.selection ?? .defaultSelection
+                    },
+                    // Aspect 3's switch, unchanged: it refuses mid-session, persists the choice,
+                    // replaces the resolver and prepares the new engine eagerly.
+                    setEngineSelection: { [weak self] selection in
+                        self?.setEngineSelection(selection)
+                    },
+                    engineReadiness: { [weak self] in
+                        self?.engineReadinessState ?? .unavailable
+                    },
+                    // Asked every time the page opens, never cached: a model can be removed by
+                    // this very page, and a stale answer is a row offering to remove bytes that
+                    // are already gone. The version comes from the shipped manifest, which is the
+                    // same one the engine and the downloader read — presence is version-scoped
+                    // (`ModelStore.isPresent(tier:version:)`) and asking about any other version
+                    // would answer about a directory nothing uses.
+                    modelSnapshot: { [weak self] in
+                        guard let store = self?.modelStore else { return [] }
+                        return await DictationLoopRoot.modelSnapshot(store: store)
+                    },
+                    makeDownloadSession: { [weak self] tier in
+                        guard let store = self?.modelStore else { return nil }
+                        do {
+                            return try StoreModelDownloadSession(
+                                store: store,
+                                manifest: ShippedModelManifest.load(for: tier),
+                                transport: DefaultModelTransport(
+                                    baseURL: AppBootstrap.repositoryURL(for: tier)))
+                        } catch {
+                            // Offered to nobody rather than offered and broken: the row shows no
+                            // download it cannot perform.
+                            return nil
+                        }
+                    },
+                    // Removal, and the two reports the other surfaces need. `engineModelRemoved`
+                    // is what keeps the menu bar from saying "ready" over a model that is gone —
+                    // it closes the readiness gate when the removed tier is the one in use, so
+                    // the next press refuses honestly (R5) instead of opening a microphone for an
+                    // engine that cannot transcribe.
+                    removeModel: { [weak self] tier in
+                        guard let store = self?.modelStore else {
+                            throw SpeechSettingsUnavailable.noModelStore
+                        }
+                        try await DictationLoopRoot.removeModel(tier: tier, store: store)
+                        self?.engineModelRemoved(tier: tier)
+                    },
+                    isSessionInFlight: { [weak self] in
+                        guard let self else { return false }
+                        return self.holdToTalk.machine.state != .idle
+                            || self.toggle.machine.state != .idle
+                    },
+                    // A download's start and finish, reported so the menu bar can tell the wait
+                    // it can do nothing about from the one it can. Only the selected tier's
+                    // download blocks anything; the root drops the rest.
+                    downloadActivityChanged: { [weak self] tier, isRunning in
+                        self?.engineDownloadChanged(tier: tier, isRunning: isRunning)
                     }))
         }
         settingsWindow?.show()
+    }
+
+    // MARK: - The Speech tab's store queries
+
+    /// Every tier's presence and disk figure, asked of the store at the version its **shipped
+    /// manifest** pins.
+    ///
+    /// Version-scoped because presence is: a verified version directory is immutable
+    /// (`PRODUCT_SPEC.md:273`), so asking about any other version would answer about a directory
+    /// nothing uses. A tier whose manifest will not load is **omitted** rather than reported
+    /// absent — "we could not ask" and "it is not there" are different answers, and the tab has a
+    /// state for the first one (``SpeechTabInstall/unknown``) precisely so it need not guess.
+    static func modelSnapshot(store: ModelStore) async -> [SpeechTabTierSnapshot] {
+        var snapshots: [SpeechTabTierSnapshot] = []
+        for tier in EngineTier.allCases {
+            guard let manifest = try? ShippedModelManifest.load(for: tier) else { continue }
+            let isPresent = await store.isPresent(tier: tier, version: manifest.version)
+            let bytes = await store.bytesOnDisk(tier: tier, version: manifest.version)
+            snapshots.append(
+                SpeechTabTierSnapshot(tier: tier, isPresent: isPresent, bytesOnDisk: bytes))
+        }
+        return snapshots
+    }
+
+    /// Deletes one tier's model, at the same version ``modelSnapshot(store:)`` reported the bytes
+    /// for — so the number beside [Remove] and the directory it frees are the same directory.
+    static func removeModel(tier: EngineTier, store: ModelStore) async throws {
+        let manifest = try ShippedModelManifest.load(for: tier)
+        try await store.remove(tier: tier, version: manifest.version)
     }
 
     // MARK: - The onboarding window (A5)

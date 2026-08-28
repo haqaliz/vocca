@@ -50,6 +50,34 @@ public struct SettingsBindings {
     /// next dictation rather than to the next launch.
     public var saveStrategies: ([AppStrategyEntry]) async throws -> Void
 
+    // MARK: - Speech
+
+    /// The engine and tier in use **right now**, read rather than captured: the window is built
+    /// once and kept for the process's lifetime, so a captured selection would leave the radio
+    /// pointing at the launch engine for ever — including straight after the user changed it here.
+    public var engineSelection: () -> EngineSelection
+    /// Switches the engine. Routed to `DictationLoopRoot.setEngineSelection(_:)`, which already
+    /// refuses mid-session, persists the choice and prepares the new engine eagerly (aspect 3).
+    public var setEngineSelection: (EngineSelection) -> Void
+    /// What the readiness gate says — the one fact the Speech tab, the menu bar and the next press
+    /// all render (`EngineStateAgreementTests`).
+    public var engineReadiness: () -> EngineReadinessState
+    /// The store's presence and disk answers, per tier. Asked, never cached: a model can be
+    /// removed by this very page.
+    public var modelSnapshot: () async -> [SpeechTabTierSnapshot]
+    /// A download session for one tier, or `nil` when one cannot be built (a manifest that will
+    /// not load). `nil` is offered to nobody — the row shows no download it cannot perform.
+    public var makeDownloadSession: (EngineTier) -> (any ModelDownloadSession)?
+    /// Deletes one tier's model. Throws what the store throws: a removal the user asked for that
+    /// did not happen must say so.
+    public var removeModel: (EngineTier) async throws -> Void
+    /// Whether a dictation is in flight — the R5 guard. Removal is refused while it is `true`.
+    public var isSessionInFlight: () -> Bool
+    /// A download for one tier started or stopped. Reported so the surfaces that describe waits
+    /// can tell a download from a warm-up — and so the menu bar does not report a background fetch
+    /// of an engine nobody selected as a reason dictation is unavailable.
+    public var downloadActivityChanged: (EngineTier, Bool) -> Void
+
     public init(
         isToggleMode: @escaping () -> Bool,
         setToggleMode: @escaping (Bool) -> Void,
@@ -59,7 +87,19 @@ public struct SettingsBindings {
         loadDictionary: @escaping () async -> [ReplacementRule],
         saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
         loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
-        saveStrategies: @escaping ([AppStrategyEntry]) async throws -> Void = { _ in }
+        saveStrategies: @escaping ([AppStrategyEntry]) async throws -> Void = { _ in },
+        // The Speech defaults claim **nothing**, and that is deliberate. A default that pretended
+        // to work — a `ready` gate, a tier reported present — would let a page offer a dictation
+        // and a download that nothing is behind. Closed and empty is the safe direction, exactly
+        // as it is for the readiness gate itself.
+        engineSelection: @escaping () -> EngineSelection = { .defaultSelection },
+        setEngineSelection: @escaping (EngineSelection) -> Void = { _ in },
+        engineReadiness: @escaping () -> EngineReadinessState = { .unavailable },
+        modelSnapshot: @escaping () async -> [SpeechTabTierSnapshot] = { [] },
+        makeDownloadSession: @escaping (EngineTier) -> (any ModelDownloadSession)? = { _ in nil },
+        removeModel: @escaping (EngineTier) async throws -> Void = { _ in },
+        isSessionInFlight: @escaping () -> Bool = { false },
+        downloadActivityChanged: @escaping (EngineTier, Bool) -> Void = { _, _ in }
     ) {
         self.isToggleMode = isToggleMode
         self.setToggleMode = setToggleMode
@@ -70,6 +110,14 @@ public struct SettingsBindings {
         self.saveDictionary = saveDictionary
         self.loadStrategies = loadStrategies
         self.saveStrategies = saveStrategies
+        self.engineSelection = engineSelection
+        self.setEngineSelection = setEngineSelection
+        self.engineReadiness = engineReadiness
+        self.modelSnapshot = modelSnapshot
+        self.makeDownloadSession = makeDownloadSession
+        self.removeModel = removeModel
+        self.isSessionInFlight = isSessionInFlight
+        self.downloadActivityChanged = downloadActivityChanged
     }
 }
 
@@ -152,27 +200,6 @@ private struct GeneralSettingsPage: View {
             Text(title)
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }
-    }
-}
-
-// MARK: - Speech
-
-/// Which engine is transcribing. Read-only: switching engines is the picker's own surface and is
-/// not wired into this window yet, so this reports rather than pretends.
-private struct SpeechSettingsPage: View {
-
-    let bindings: SettingsBindings
-
-    var body: some View {
-        Form {
-            Section("Engine") {
-                LabeledContent("Transcribing with", value: bindings.engineDisplayName())
-                Text("Everything is transcribed on this Mac. Audio never leaves it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
     }
 }
 
