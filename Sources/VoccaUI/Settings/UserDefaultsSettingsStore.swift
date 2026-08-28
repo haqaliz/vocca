@@ -52,7 +52,7 @@ import VoccaCore
 /// Best-effort and never throwing, for the same reason the completion flag's write is: a failed
 /// write fails in the safe direction — the setting reverts to the shipped default at the next
 /// launch, which is a working configuration and a visible one.
-public struct UserDefaultsSettingsStore {
+public struct UserDefaultsSettingsStore: SettingsStore {
     /// The frozen key the engine selection lives under.
     ///
     /// Pinned by test as a literal. The key is the file format: change it and every existing
@@ -125,4 +125,19 @@ public struct UserDefaultsSettingsStore {
     /// `persistedIdentifier` can equal would do; this one says what happened when it reaches a
     /// log line. It is never written to the defaults — nothing here writes on a read.
     private static let presentButNotAString = "<a stored value that is not a string>"
+}
+
+/// The shipped settings store, behind the Core-owned seam — the composition factory, in the one
+/// file permitted to name the type it returns.
+///
+/// The `ShippingLadder`/`ShippingCleanup` shape, and it exists for a lint's sake as much as for
+/// tidiness: `InjectionSeamBoundaryTests` forbids any file outside this seam's table from naming an
+/// identifier beginning `UserDefaults` — the type's own name included. Without this factory the
+/// composition root could not so much as mention the store, which is exactly the pressure the rule
+/// is meant to apply: the root reads a seam, not an adapter.
+public enum ShippingSettings {
+    /// The store over the app's standard defaults domain.
+    public static func store() -> any SettingsStore {
+        UserDefaultsSettingsStore()
+    }
 }

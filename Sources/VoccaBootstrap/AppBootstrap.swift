@@ -188,14 +188,37 @@ public enum AppBootstrap {
             })
         panelBox.value = panel
 
+        // MARK: The settings the user chose
+        //
+        // **Read once, here, and derived from everywhere else.** Five sites used to name
+        // `EngineSelection.defaultSelection` outright — the resolver, the download session's
+        // manifest, its base URL, the onboarding presence check and the Settings label — and the
+        // failure that arrangement invites is not a site reading the wrong value but two sites
+        // reading *different* ones: a download session fetching Parakeet's manifest while the
+        // resolver builds Whisper. One read cannot produce it, and `EngineSelectionWiringTests`
+        // pins the count.
+        //
+        // Reached through `ShippingSettings.store()` rather than by naming the adapter: the
+        // `UserDefaults` seam permits exactly two files to name that family, and this is not one
+        // of them (`InjectionSeamBoundaryTests`). The read is synchronous and cannot fail — an
+        // absent or unreadable value degrades to the shipped default, which is a working
+        // configuration.
+        let settings = ShippingSettings.store()
+        let selection = settings.engineSelection()
+
         // MARK: The engine lifecycle
         //
         // The resolver is built here, but its builder runs only when `prepareIfNeeded` does — and
         // that is `main`'s job, not `configure`'s: the engine's `prepare` is where model bytes
         // arrive, which is the one thing the probe must never trigger.
-        let resolver = DictationEngineResolver(selection: .defaultSelection) { selection in
-            try await engine(for: selection, store: store, clock: clock)
+        //
+        // Built through the same factory a *switch* uses, so the resolver the app launches with
+        // and the resolver a selection change mints are one recipe rather than two that agree by
+        // inspection.
+        let makeResolver: @Sendable (EngineSelection) -> DictationEngineResolver = { selection in
+            Self.makeResolver(selection: selection, store: store, clock: clock)
         }
+        let resolver = makeResolver(selection)
 
         // The download window's surface: the same store, manifest and transport the engine will
         // use, so a download the UI starts and a download the launch starts are single-flight.
@@ -203,9 +226,9 @@ public enum AppBootstrap {
         do {
             downloadSession = try StoreModelDownloadSession(
                 store: store,
-                manifest: ShippedModelManifest.load(for: EngineSelection.defaultSelection.tier),
+                manifest: ShippedModelManifest.load(for: selection.tier),
                 transport: DefaultModelTransport(
-                    baseURL: repositoryURL(for: EngineSelection.defaultSelection.tier)))
+                    baseURL: repositoryURL(for: selection.tier)))
         } catch {
             logger.error(
                 "the download session could not be built: \(String(describing: error), privacy: .public)")
@@ -352,7 +375,7 @@ public enum AppBootstrap {
         // `installedState(_:)` house pattern): `ModelStore.isPresent` is an actor read, so the
         // wiring answers it in a launch task, and a present model folds `.committed` — the flow
         // then resumes past the MODEL step. Disk-only: the zero-network probe stays green.
-        if let manifest = try? ShippedModelManifest.load(for: EngineSelection.defaultSelection.tier) {
+        if let manifest = try? ShippedModelManifest.load(for: selection.tier) {
             Task {
                 if await store.isPresent(engineID: manifest.engineID, version: manifest.version) {
                     onboardingStore.fold(.modelStatusChanged(.committed))
@@ -676,6 +699,26 @@ public enum AppBootstrap {
         }
     }
 
+    /// The resolver recipe, in one place: an ``EngineSelection`` plus the process's model store
+    /// and clock become the engine lifecycle that selection runs under.
+    ///
+    /// Extracted because there are now **two** callers and they must not drift: `configure` builds
+    /// the launch resolver, and ``DictationLoopRoot/setEngineSelection(_:)`` builds a fresh one on
+    /// every switch — `DictationEngineResolver.selection` is a `let` with no reset by design
+    /// (resolve-once), so a switch is a new resolver or it is nothing.
+    ///
+    /// Construction is side-effect-free and probe-safe for the same reason ``engine(for:store:clock:)``
+    /// is: the builder inside runs only when `prepareIfNeeded()` does.
+    public static func makeResolver(
+        selection: EngineSelection,
+        store: ModelStore,
+        clock: any MonotonicClock & Sendable
+    ) -> DictationEngineResolver {
+        DictationEngineResolver(selection: selection) { selection in
+            try await engine(for: selection, store: store, clock: clock)
+        }
+    }
+
     /// Why the pipeline assembly could not produce a pipeline.
     private enum PipelineAssemblyError: Error {
         /// `prepare` reported success but the resolver answered no engine — unreachable by
@@ -934,7 +977,16 @@ public final class DictationLoopRoot {
                         self?.setActiveMode(isToggle ? .toggle : .holdToTalk)
                     },
                     hotkeyDisplayName: AppBootstrap.shippedHotkeyDisplayName,
-                    engineDisplayName: { EngineSelection.defaultSelection.tier.engine.displayName },
+                    // The *live* selection, not the launch-time one: after a switch this label
+                    // must name the engine Vocca is now using, and the resolver's selection is
+                    // that fact rather than a copy of it.
+                    // Empty rather than a shipped-default guess when the root is gone: the
+                    // window cannot outlive the root in the shipped graph, and a label naming
+                    // an engine the user did not choose is the exact failure the single read
+                    // above exists to prevent.
+                    engineDisplayName: { [weak self] in
+                        self?.resolver.selection.tier.engine.displayName ?? ""
+                    },
                     cleanupSummary: { ("Built-in rules", nil) },
                     // The same store the rules engine reads from, so an edit here is an edit the
                     // next dictation applies — not a second copy of the file that drifts from it.
