@@ -66,6 +66,22 @@ public enum SpeechTabCopy {
     /// "close this without doing anything".
     public static let stopDownloadButton = "Stop"
 
+    /// The disk a tier occupies, in the units a person thinks in.
+    ///
+    /// **Empty for nothing on disk.** "0 bytes" reads like a model that is there and is empty,
+    /// which is a different and more alarming claim than "there is no model here" — and the row
+    /// already says the second one with `[ download ]`.
+    ///
+    /// `ByteCountFormatter`'s file style, so the figure matches what Finder shows for the same
+    /// directory: a user checking Vocca's number against the folder must not find two answers.
+    public static func diskUsed(bytes: Int) -> String {
+        guard bytes > 0 else { return "" }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useMB, .useGB]
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
+
     // MARK: - Removal
 
     /// The removal confirmation. Names the engine rather than saying "this model", and says the
@@ -81,6 +97,10 @@ public enum SpeechTabCopy {
         Dictation with it stops working until you download it again.
         """
     }
+
+    /// The confirmation's cancel. Not "Cancel": in a dialog whose other button is "Remove",
+    /// "Cancel" reads ambiguously as cancelling *something*, and this one keeps the model.
+    public static let keepItButton = "Keep it"
 
     /// Removal refused because a dictation is in flight — `setActiveMode`'s guard, in words.
     ///

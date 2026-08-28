@@ -266,4 +266,87 @@ final class SpeechTabReducerTests: XCTestCase {
             state.errorMessage, SpeechTabCopy.removalFailed("Permission denied"),
             "and the failure is on the page, in the store's own words")
     }
+
+    // MARK: - R5: removal is guarded, and R8/M12: it cancels a download first
+
+    /// **R5.** Removal is refused while a dictation is in flight, and the refusal *says so*.
+    ///
+    /// `setActiveMode`'s guard shape: a change while a session is running is refused rather than
+    /// applied, because the alternative is deleting the model an open microphone is about to be
+    /// transcribed by. Refused **in words**, not by a greyed-out button — a control that does
+    /// nothing and explains nothing teaches a user the app is broken, which is the argument
+    /// ``SettingsCopy/hotkeyNotRebindable`` already makes for saying so plainly.
+    func testRemovalIsRefusedWhileASessionIsInFlightAndSaysWhy() {
+        var state = SpeechTabReducer.reduce(
+            .initial,
+            .snapshotLoaded([
+                SpeechTabTierSnapshot(tier: .parakeetV3, isPresent: true, bytesOnDisk: 470_000)
+            ]))
+        state = SpeechTabReducer.reduce(state, .removalRefused)
+
+        XCTAssertEqual(
+            state.errorMessage, SpeechTabCopy.removalRefusedWhileDictating,
+            "the user is told why, and what to do about it")
+        XCTAssertEqual(
+            state.row(for: .parakeetV3)?.install, .installed,
+            "and nothing moved — the model is exactly where it was")
+    }
+
+    /// **M12, and the ordering is the whole decision.** Confirming a removal for a tier whose
+    /// download is in flight cancels the download **first**, then removes.
+    ///
+    /// Aspect 1 measured what happens otherwise: deleting the directory under a running transfer
+    /// makes the download fail as `ModelDownloadError.transportFailed` — the app blaming the
+    /// transport for something the app did, in a log the user may one day be asked to read. A
+    /// deliberate cancel is a failure that is attributed correctly.
+    ///
+    /// The plan chose cancel-then-remove over refusing the removal because the user has just said
+    /// they do not want this model; refusing them because they are mid-way through fetching it is
+    /// the worse answer.
+    func testConfirmingARemovalDuringADownloadCancelsTheDownloadFirst() {
+        var state = SpeechTabReducer.reduce(.initial, .downloadStarted(.whisperTurbo))
+        state = SpeechTabReducer.reduce(state, .downloadProgress(.whisperTurbo, 0.3))
+
+        XCTAssertEqual(
+            SpeechTabReducer.removalPlan(state, tier: .whisperTurbo),
+            .cancelDownloadThenRemove(.whisperTurbo),
+            """
+            a removal over a running transfer must cancel it first. Deleting the directory under             the transport makes the download fail as `transportFailed`, blaming the transport for             something the app did.
+            """)
+
+        XCTAssertEqual(
+            SpeechTabReducer.removalPlan(state, tier: .whisperTurboQ5),
+            .remove(.whisperTurboQ5),
+            "a tier with nothing in flight is removed outright — the sibling's transfer is not "
+                + "its business")
+    }
+
+    /// **R5 again, at the plan level.** The idle guard is in the plan, not only in the page: a
+    /// caller that skipped the button and confirmed directly must still be refused.
+    func testTheRemovalPlanRefusesWhileASessionIsInFlight() {
+        var state = SpeechTabReducer.reduce(
+            .initial,
+            .snapshotLoaded([
+                SpeechTabTierSnapshot(tier: .parakeetV3, isPresent: true, bytesOnDisk: 470_000)
+            ]))
+        state = SpeechTabReducer.reduce(state, .sessionActivityChanged(true))
+
+        XCTAssertEqual(
+            SpeechTabReducer.removalPlan(state, tier: .parakeetV3), .refused,
+            "the guard belongs to the decision, not to whichever control happened to call it")
+
+        state = SpeechTabReducer.reduce(state, .sessionActivityChanged(false))
+        XCTAssertEqual(
+            SpeechTabReducer.removalPlan(state, tier: .parakeetV3), .remove(.parakeetV3),
+            "and it lifts when the dictation ends")
+    }
+
+    /// **R4.** The disk figure is human, and a tier that is not there says nothing rather than
+    /// "0 bytes" — which reads like a model that exists and is empty.
+    func testTheDiskFigureIsHumanAndSilentWhenThereIsNothingThere() {
+        XCTAssertEqual(SpeechTabCopy.diskUsed(bytes: 0), "")
+        XCTAssertTrue(
+            SpeechTabCopy.diskUsed(bytes: 470_000_000).contains("MB"),
+            "470 MB of model is reported in the units a person thinks in, not in bytes")
+    }
 }

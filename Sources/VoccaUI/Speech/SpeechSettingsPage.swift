@@ -33,6 +33,8 @@ struct SpeechSettingsPage: View {
     @State private var state = SpeechTabState.initial
     /// The download sessions in flight, one per tier — the `ModelStep`'s slot guard, per row.
     @State private var sessions: [EngineTier: any ModelDownloadSession] = [:]
+    /// The tier whose removal is waiting on the confirmation. `nil` when no dialog is up.
+    @State private var pendingRemoval: EngineTier?
     var body: some View {
         Form {
             Section("Engine") {
@@ -54,6 +56,19 @@ struct SpeechSettingsPage: View {
         }
         .formStyle(.grouped)
         .task { await load() }
+        .confirmationDialog(
+            pendingRemoval.map(SpeechTabCopy.removalConfirmation(for:)) ?? "",
+            isPresented: Binding(
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button(SpeechTabCopy.removeButton, role: .destructive) {
+                if let tier = pendingRemoval { confirmRemoval(of: tier) }
+                pendingRemoval = nil
+            }
+            Button(SpeechTabCopy.keepItButton, role: .cancel) { pendingRemoval = nil }
+        }
     }
 
     // MARK: - The engine rows (`PRODUCT_SPEC.md:254-256`)
@@ -106,6 +121,11 @@ struct SpeechSettingsPage: View {
                     Text(EnginePickerCopy.installedAffordance)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text(SpeechTabCopy.diskUsed(bytes: row.bytesOnDisk))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button(SpeechTabCopy.removeButton) { requestRemoval(of: row.tier) }
+                    Button(SpeechTabCopy.redownloadButton) { redownload(row.tier) }
                 case .absent:
                     Text(EnginePickerCopy.downloadAffordance)
                         .font(.caption)
@@ -137,6 +157,76 @@ struct SpeechSettingsPage: View {
     private func load() async {
         apply(.snapshotLoaded(await bindings.modelSnapshot()))
         apply(.engineStatusChanged(bindings.engineReadiness()))
+    }
+
+    /// [Remove] — the request, which only ever raises the confirmation. The idle refusal is
+    /// checked here **and** in the plan below, because a disabled button explains nothing: a user
+    /// who presses it mid-dictation is told why rather than left pressing a control that does
+    /// nothing.
+    private func requestRemoval(of tier: EngineTier) {
+        guard !bindings.isSessionInFlight() else {
+            apply(.removalRefused)
+            return
+        }
+        pendingRemoval = tier
+    }
+
+    /// The confirmed removal, in M12's order — the plan decides, this performs.
+    private func confirmRemoval(of tier: EngineTier) {
+        apply(.sessionActivityChanged(bindings.isSessionInFlight()))
+        switch SpeechTabReducer.removalPlan(state, tier: tier) {
+        case .refused:
+            apply(.removalRefused)
+        case .cancelDownloadThenRemove(let tier):
+            // Cancelled **first**, and the removal waits for the cancellation to land: deleting
+            // the directory under a live transfer makes the download fail as `transportFailed`,
+            // blaming the transport for something the app did.
+            cancelDownload(of: tier)
+            performRemoval(of: tier, after: true)
+        case .remove(let tier):
+            performRemoval(of: tier, after: false)
+        }
+    }
+
+    /// Deletes the model, then re-reads the world: the store is what a row should describe, and
+    /// the root's readiness may have closed with the removal (R5) — a page that did not re-ask
+    /// would go on saying "ready" over a model it had just deleted.
+    private func performRemoval(of tier: EngineTier, after cancellation: Bool) {
+        Task {
+            if cancellation {
+                // One turn for the cancelled session's stream to terminate and its `.cancelled`
+                // event to fold. The store's own removal is idempotent either way; this is about
+                // the transfer being told before its files vanish.
+                await Task.yield()
+            }
+            do {
+                try await bindings.removeModel(tier)
+                apply(.removalCompleted(tier))
+            } catch {
+                apply(.removalFailed(tier, error.localizedDescription))
+            }
+            apply(.snapshotLoaded(await bindings.modelSnapshot()))
+            apply(.engineStatusChanged(bindings.engineReadiness()))
+        }
+    }
+
+    /// [Re-download] over a model that is already there: remove it, then fetch it fresh. The
+    /// store short-circuits a download whose verified marker is present, so fetching without
+    /// removing first would do nothing at all and look like a button that does not work.
+    private func redownload(_ tier: EngineTier) {
+        guard !bindings.isSessionInFlight() else {
+            apply(.removalRefused)
+            return
+        }
+        Task {
+            do {
+                try await bindings.removeModel(tier)
+                apply(.removalCompleted(tier))
+                startDownload(of: tier)
+            } catch {
+                apply(.removalFailed(tier, error.localizedDescription))
+            }
+        }
     }
 
     /// [Download] / [Re-download] — one session per tier, its events folded through the reducer,

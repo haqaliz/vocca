@@ -120,6 +120,8 @@ public struct SpeechTabState: Sendable, Equatable {
     public var rows: [SpeechTabRow]
     /// The last thing that went wrong, in words. `nil` once something succeeds.
     public var errorMessage: String?
+    /// Whether a dictation is in flight. The R5 guard's input, injected like everything else here.
+    public var isSessionInFlight: Bool
     /// The readiness gate's answer, as the root reports it. Injected, never inferred: the gate is
     /// the single fact all three surfaces read, and a tab that guessed at it from its own download
     /// slots would be the second source of truth R6 exists to prevent.
@@ -134,6 +136,7 @@ public struct SpeechTabState: Sendable, Equatable {
         self.bytes = [:]
         self.downloads = [:]
         self.errorMessage = nil
+        self.isSessionInFlight = false
         self.readiness = .unavailable
         self.rows = SpeechTabReducer.rows(
             selection: selection, presence: [:], bytes: [:], downloads: [:])
@@ -188,6 +191,28 @@ public enum SpeechTabAction: Sendable, Equatable {
     case removalFailed(EngineTier, String)
     /// The root's readiness gate moved. The tab reports it; it never decides it.
     case engineStatusChanged(EngineReadinessState)
+    /// A dictation started or ended. The R5 guard reads this rather than a live object, so the
+    /// refusal is a decision the reducer takes and a test can drive.
+    case sessionActivityChanged(Bool)
+    /// A removal was asked for and refused — a dictation is in flight. Says so in words.
+    case removalRefused
+}
+
+/// **What confirming a removal must actually do**, in the order it must do it (M12).
+///
+/// A returned plan rather than a side effect inside the fold: the reducer is pure, and the
+/// ordering is the whole of this decision — so it is a value a test can assert rather than a
+/// sequence of calls a page happens to make in the right order today.
+public enum SpeechTabRemovalPlan: Sendable, Equatable {
+    /// A download for this tier is running. Cancel it, **then** delete — deleting the directory
+    /// under a live transfer makes the download fail as `ModelDownloadError.transportFailed`,
+    /// which blames the transport for something the app did (measured in aspect 1).
+    case cancelDownloadThenRemove(EngineTier)
+    /// Nothing is in flight for this tier: delete it.
+    case remove(EngineTier)
+    /// A dictation is in flight. Nothing is deleted — `setActiveMode`'s guard, applied to the one
+    /// action on this tab that cannot be undone by pressing the button again.
+    case refused
 }
 
 /// The Speech tab's decisions — pure, clock-free, and holding no store of its own.
@@ -245,6 +270,12 @@ public enum SpeechTabReducer {
         case .engineStatusChanged(let readiness):
             next.readiness = readiness
 
+        case .sessionActivityChanged(let isInFlight):
+            next.isSessionInFlight = isInFlight
+
+        case .removalRefused:
+            next.errorMessage = SpeechTabCopy.removalRefusedWhileDictating
+
         case .removalFailed(_, let message):
             // Nothing about the tier moves. The model is still on disk, so the row that says so
             // is the accurate one; only the failure is new.
@@ -254,6 +285,18 @@ public enum SpeechTabReducer {
             selection: next.selection, presence: next.presence, bytes: next.bytes,
             downloads: next.downloads)
         return next
+    }
+
+    /// **What confirming a removal of `tier` must do** — the guard and the ordering, as one
+    /// decision.
+    ///
+    /// Lives here rather than in the page so that a caller which skipped the button is refused
+    /// too: R5 is a rule about removals, not a rule about one control.
+    public static func removalPlan(_ state: SpeechTabState, tier: EngineTier) -> SpeechTabRemovalPlan
+    {
+        guard !state.isSessionInFlight else { return .refused }
+        if case .downloading = state.downloads[tier] { return .cancelDownloadThenRemove(tier) }
+        return .remove(tier)
     }
 
     /// The selected engine's status: the gate's answer, with a download of **that tier** taking
