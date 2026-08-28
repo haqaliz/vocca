@@ -411,11 +411,12 @@ public enum AppBootstrap {
             targetResolution: targetResolution,
             panel: panel,
             pipeline: nil,
-            pipelineAssembly: {
+            // The prepared engine arrives as a parameter, deliberately. This closure outlives every
+            // resolver the process will build — a switch replaces the resolver, and a closure that
+            // had captured one would keep assembling pipelines over the engine the app launched
+            // with. Taking the engine leaves nothing here to go stale.
+            pipelineAssembly: { engine in
                 let custody = try await custodyTask.value
-                guard let engine = await resolver.engineIfReady() else {
-                    throw PipelineAssemblyError.engineNotPrepared
-                }
                 let injector: any TextInjector
                 switch injectorComposition {
                 case .ladder:
@@ -428,6 +429,8 @@ public enum AppBootstrap {
                     recorder: ledger, clock: clock,
                     cleanup: try await cleanupResolver.resolve())
             },
+            makeResolver: makeResolver,
+            settings: settings,
             downloadSession: downloadSession,
             recorder: ledger,
             sessionBox: sessionBox,
@@ -717,13 +720,6 @@ public enum AppBootstrap {
         DictationEngineResolver(selection: selection) { selection in
             try await engine(for: selection, store: store, clock: clock)
         }
-    }
-
-    /// Why the pipeline assembly could not produce a pipeline.
-    private enum PipelineAssemblyError: Error {
-        /// `prepare` reported success but the resolver answered no engine — unreachable by
-        /// construction (`prepareIfNeeded` sets `prepared` only after the engine answers).
-        case engineNotPrepared
     }
 
     /// The A4 composition decision — which injector the loop is composed with, chosen exactly
@@ -1094,8 +1090,19 @@ public final class DictationLoopRoot {
     /// The tap-health policy with its clock attached — the root's one object that keeps the
     /// disablement observer alive.
     public let tapHealth: TapHealthTimer
-    /// The engine lifecycle: resolve-once, single-flight prepare, the readiness gate's truth.
-    public let resolver: DictationEngineResolver
+    /// **The engine lifecycle currently in force** — resolve-once, single-flight prepare, the
+    /// readiness gate's truth.
+    ///
+    /// A `var`, and the one slot in this class that a caller must read *at call time* rather than
+    /// capture. `DictationEngineResolver.selection` is a `let` with no reset by design (resolve-once
+    /// — its own `isPrepared` describes the engine it built), so switching engines replaces the
+    /// resolver rather than mutating it, and anything holding the old instance is holding a
+    /// resolver for an engine nobody selected.
+    ///
+    /// Nothing in the composition captures one: ``pipelineAssembly`` is handed the prepared
+    /// *engine* precisely so that it has no resolver to go stale against, and
+    /// ``prepareAndAssemble()`` re-reads this slot after every suspension.
+    public private(set) var resolver: DictationEngineResolver
     /// Focused-app resolution — the key-down half of S1.
     public let targetResolution: TargetResolution
     /// The FAILSAFE surface the loop presents on.
@@ -1141,7 +1148,21 @@ public final class DictationLoopRoot {
     private let cancelRouterBox = WeakBox<DictationLoopRoot>()
     /// The pipeline's construction, run once the engine is prepared (`nil` when the pipeline was
     /// injected — the test shape).
-    private let pipelineAssembly: (@MainActor () async throws -> DictationPipeline)?
+    ///
+    /// It takes the prepared **engine** rather than reaching for a resolver. That is the whole of
+    /// the defence against a closure calling a replaced resolver: `configure` builds this closure
+    /// before the root exists and it lives for the process's lifetime, so a captured resolver would
+    /// still be the launch one after every switch. There is nothing to capture.
+    private let pipelineAssembly: (@MainActor (any ASREngine) async throws -> DictationPipeline)?
+
+    /// How a selection becomes a resolver — the recipe a switch re-runs. `nil` in a composition
+    /// with no factory wired, where ``setEngineSelection(_:)`` refuses loudly rather than pretending
+    /// to switch.
+    private let makeResolver: (@Sendable (EngineSelection) -> DictationEngineResolver)?
+
+    /// Where a chosen setting is written so it survives the launch. `nil` in the headless shape,
+    /// where a switch applies but is not persisted.
+    private let settings: (any SettingsStore)?
 
     private let logger = Logger(subsystem: "dev.vocca.Vocca", category: "loop")
 
@@ -1184,7 +1205,9 @@ public final class DictationLoopRoot {
         targetResolution: TargetResolution,
         panel: any FailsafePresenting,
         pipeline: DictationPipeline? = nil,
-        pipelineAssembly: (@MainActor () async throws -> DictationPipeline)? = nil,
+        pipelineAssembly: (@MainActor (any ASREngine) async throws -> DictationPipeline)? = nil,
+        makeResolver: (@Sendable (EngineSelection) -> DictationEngineResolver)? = nil,
+        settings: (any SettingsStore)? = nil,
         downloadSession: (any ModelDownloadSession)? = nil,
         recorder: (any LatencyRecorder)? = nil,
         sessionBox: LatencySessionBox? = nil,
@@ -1211,6 +1234,8 @@ public final class DictationLoopRoot {
         self.downloadSession = downloadSession
         self.latencyLedger = recorder as? LatencyLedger
         self.pipelineAssembly = pipelineAssembly
+        self.makeResolver = makeResolver
+        self.settings = settings
         self.readiness = readiness
         self.widgetClock = widgetClock
         self.runningAppName = runningAppName
@@ -1342,6 +1367,48 @@ public final class DictationLoopRoot {
         }
     }
 
+    // MARK: - The engine
+
+    /// Switches the engine the **next** session will run.
+    ///
+    /// ``setActiveMode(_:)``'s shape, for the same reason: a change while a session is in flight is
+    /// refused and logged, so a user who changes this while dictating gets the change on their next
+    /// press rather than a broken session. Nothing is ever swapped under a running microphone.
+    ///
+    /// The order below is the whole of the safety argument, and it is deliberate:
+    ///
+    /// 1. **Refuse a no-op.** Re-choosing the running engine must not close the gate — otherwise
+    ///    clicking the engine already in use costs the user a re-warm before their next press.
+    /// 2. **Refuse mid-session**, both machines, exactly as the mode switch does.
+    /// 3. **Persist**, so the choice survives the launch even if everything after this fails.
+    /// 4. **Replace the resolver.** `DictationEngineResolver.selection` is a `let` and resolution is
+    ///    never repeated (only preparation is), so a switch is a new resolver or it is nothing.
+    /// 5. **Close the readiness gate.** The new engine is not prepared; until it is, a press must be
+    ///    refused before the microphone opens. Closing is always the safe direction.
+    /// 6. **Prepare eagerly** (PRD M10), so the first press after a switch is not refused for a
+    ///    model that is already sitting on disk.
+    ///
+    /// A `prepare()` that fails leaves the gate closed with the selection **still switched**: the
+    /// user asked for this engine, and silently reverting to the other one would be deciding for
+    /// them. The next press then refuses honestly and says why.
+    public func setEngineSelection(_ selection: EngineSelection) {
+        guard selection != resolver.selection else { return }
+        guard holdToTalk.machine.state == .idle, toggle.machine.state == .idle else {
+            logger.error(
+                "refusing to switch engine while a session is in flight — end it first")
+            return
+        }
+        guard let makeResolver else {
+            logger.error(
+                "no resolver factory is wired — this composition cannot switch engines")
+            return
+        }
+        settings?.setEngineSelection(selection)
+        resolver = makeResolver(selection)
+        markEnginePreparing()
+        startEnginePreparation()
+    }
+
     /// The wiring the current mode drives.
     private var activeWiring: Wiring {
         switch activeMode {
@@ -1362,6 +1429,17 @@ public final class DictationLoopRoot {
         updateMenuBarConditions { $0.isEnginePrepared = true }
     }
 
+    /// Closes the readiness gate: a preparation is under way and the engine behind it is not ready.
+    ///
+    /// The counterpart to ``markEnginePrepared()``, and the safe direction of the pair — a closed
+    /// gate refuses a press before the microphone is asked for. Called by every preparation as it
+    /// begins, and synchronously by ``setEngineSelection(_:)`` so that no turn of the main actor
+    /// exists in which the gate is open over an engine the user has just replaced.
+    private func markEnginePreparing() {
+        readiness.markPreparing()
+        updateMenuBarConditions { $0.isEnginePrepared = false }
+    }
+
     /// The launch half of the engine lifecycle: `prepare` in the background, then assemble the
     /// pipeline, then open the gate.
     ///
@@ -1372,7 +1450,30 @@ public final class DictationLoopRoot {
         Task { await prepareAndAssemble() }
     }
 
+    /// One preparation, from the resolver that was current when it started.
+    ///
+    /// ## The stale-preparation race, and the guard that closes it
+    ///
+    /// This runs concurrently with itself. The launch preload can still be warming Parakeet — a
+    /// cold CoreML load is seconds, and the model may be downloading — when the user picks Whisper
+    /// in Settings; the switch replaces the resolver and starts a second run of this function.
+    /// Then the *first* one's `prepare()` returns, successfully, for a resolver nobody is using.
+    ///
+    /// Replacing the resolver does not stop that completion from reaching ``markEnginePrepared()``,
+    /// and if it reached it the gate would be open over an engine that was never prepared: the next
+    /// press would open the microphone for an engine that cannot transcribe, which is the one
+    /// outcome the readiness gate exists to prevent. So the resolver is captured **once**, at the
+    /// top, and re-compared to the slot after **every** suspension point. A run that is no longer
+    /// the current one abandons itself: it installs nothing and opens nothing.
+    ///
+    /// Identity is the right comparison because every switch mints a fresh resolver — including a
+    /// switch back to the engine that was running, which is a different object with its own
+    /// `isPrepared`. Check-then-act is atomic here because both this function and
+    /// ``setEngineSelection(_:)`` are on the main actor, and no suspension separates a guard below
+    /// from the statement it guards.
     private func prepareAndAssemble() async {
+        let resolver = self.resolver
+        markEnginePreparing()
         do {
             try await resolver.prepareIfNeeded()
         } catch {
@@ -1382,18 +1483,39 @@ public final class DictationLoopRoot {
             // until a later preparation succeeds.
             return
         }
+        guard isCurrent(resolver) else { return }
         if let assembly = pipelineAssembly {
+            guard let engine = await resolver.engineIfReady() else {
+                logger.error(
+                    "the engine reported prepared but answered no engine — nothing was installed")
+                return
+            }
+            let pipeline: DictationPipeline
             do {
-                router.install(pipeline: try await assembly())
+                pipeline = try await assembly(engine)
             } catch {
                 logger.error(
                     "the dictation pipeline could not be assembled: \(String(describing: error), privacy: .public)")
                 return
             }
+            guard isCurrent(resolver) else { return }
+            router.install(pipeline: pipeline)
         }
         // Installed before the gate opens: no session that passes the gate can find itself without
         // a pipeline when it ends.
         markEnginePrepared()
+    }
+
+    /// Whether `candidate` is still the resolver this root is running — the stale-preparation
+    /// guard, logged when it answers `false` because an abandoned preparation is a real event
+    /// somebody reading a log deserves to see.
+    private func isCurrent(_ candidate: DictationEngineResolver) -> Bool {
+        guard candidate === resolver else {
+            logger.info(
+                "abandoning a preparation for an engine that is no longer selected — the gate stays closed for it")
+            return false
+        }
+        return true
     }
 
     // MARK: - The inputs the sink does not carry
