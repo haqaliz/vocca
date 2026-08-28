@@ -1187,8 +1187,29 @@ set -euo pipefail
 # check in the repository that can tell a correct identifier from a plausible one, and the one
 # that would have caught `com.google.docs` before it reached a plan.
 #
+# The settings-store aspect adds nineteen (1356 -> 1375). Eleven are the Core vocabulary's: the
+# on-disk spelling of every tier and every activation mode pinned as a literal rather than asked
+# of the enum, which is the only form of the test that a case rename cannot pass through; the
+# pairwise-distinctness guard for each type, each caught with a planted collision because a guard
+# that cannot fail proves nothing; the round trip over allCases, so a case added without a decode
+# arm is a setting the user can choose and lose; the tolerant decode's three answers, where the
+# assertion that earns its place is the loud one — an absent value is the shipped default reported
+# to nobody, an unreadable one is the shipped default plus a report naming the string it rejected,
+# and a silent reset is the failure the rule exists for; and the pin holding the duplicated
+# activation default against the root's DictationLoopRoot.defaultMode, which the test target is the
+# one place that may import both modules to check.
+#
+# Eight are the adapter's, and all but one are about the half only the adapter can get wrong: a
+# written value read back from a fresh instance rather than the one that wrote it, the silent fresh
+# install, the unknown identifier reported loudly through the store's own injected log, the two
+# frozen keys and their distinctness, and the rule that a failed read never rewrites what it failed
+# to read. The load-bearing row is the stored value of the wrong type. `string(forKey:)` answers nil
+# for a stored array exactly as it does for a key never written, so a corrupted preferences file
+# would be indistinguishable from a fresh install and would reset a user's settings in silence; that
+# test fails on its own against the obvious implementation, which is how it was written.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1356
+MINIMUM_EXECUTED_TESTS=1375
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
