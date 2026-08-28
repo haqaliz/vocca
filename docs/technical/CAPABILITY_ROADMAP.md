@@ -84,6 +84,16 @@ Beyond those, each capability either makes the loop *more reliable* (injection, 
 
 **Dependencies:** C2.
 
+*(Amended by the `settings-live-controls` unit, 2026-08-29: the second bullet — "engine selection
+in settings, switchable without restart" and the per-engine model-tier choice — **is built**. Five
+hardcoded `EngineSelection.defaultSelection` sites now read a persisted selection; a change is
+refused mid-session and applies at the next session boundary, preparing the newly selected engine
+eagerly. Building it exposed that the two Whisper tiers shared one model directory and one verified
+marker, which is why storage is now keyed by `EngineTier.storageID` rather than by the engine id
+both tiers share. **The whisper WER run is still unexecuted** — `SMOKE_CHECKLIST.md` step 19 — so
+the engine is selectable and its accuracy remains unmeasured, and the Speech tab says exactly
+that.)*
+
 ---
 
 ## C4. The system-wide injection ladder · P0, week 3
