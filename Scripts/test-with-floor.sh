@@ -1261,8 +1261,29 @@ set -euo pipefail
 # construct. `DownloadProgressView.swift` was deleted whole — zero callers since C2 — and the
 # count did not move, which is what confirmed it was dead rather than merely unloved.
 #
+# The verification-smoke aspect adds eight (1427 -> 1435), and seven of them exist so that the
+# eighth means something. The eighth is the artifact check — every shipped manifest's declared
+# digest and byte count against the bytes on a real disk — and it is env-gated on VOCCA_MODEL_DIR,
+# so on this runner it does exactly one thing: it skips, visibly. That is the whole of what CI can
+# honestly do with a 1.6 GB GGUF, and a silent pass in its place is what let a 2-byte config.json
+# with the SHA-256 of the literal string {} sit in the Parakeet manifest for two weeks while the
+# badge stayed green.
+#
+# So the seven are the gate proving it can fail, over files the suite synthesises and then lies
+# about: a planted digest, two planted digests in one run with a clean file between them (the run
+# must continue past a failure and past a success — a manifest from a partial provisioning run has
+# more than one wrong line), a byte count that disagrees with the disk, a declared file that was
+# never written, a directory where a file was declared, and the SDK-nested layout the Parakeet
+# manifest uses — a verifier pointed at the version root alone would report a healthy install as
+# thirteen missing files, fail for the wrong reason, and be switched off. None of them touches a
+# network: the check reads local bytes, because a verification that fetched what it was verifying
+# would prove only that the fetch and the manifest agreed with each other.
+#
+# The count is what a check of this shape costs. The manifests are unverified rather than
+# defective, and the seven rows are the difference between being able to say that and guessing it.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1427
+MINIMUM_EXECUTED_TESTS=1435
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
