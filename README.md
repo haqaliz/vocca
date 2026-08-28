@@ -20,7 +20,7 @@ Your audio never has to leave your Mac.
 [![Swift](https://img.shields.io/badge/swift-6.0-orange?logo=swift&logoColor=white)](https://www.swift.org/)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-3fb950)](CONTRIBUTING.md)
 
-[Why](#why) · [What it will do](#what-it-will-do) · [Building & signing](#building--signing) · [Architecture](docs/technical/ARCHITECTURE.md) · [Vision](VISION.md) · [Roadmap](docs/ROADMAP.md) · [Product spec](docs/product/PRODUCT_SPEC.md) · [Contributing](#contributing)
+[Why](#why) · [Install](#install) · [What it will do](#what-it-will-do) · [Building & signing](#building--signing) · [Architecture](docs/technical/ARCHITECTURE.md) · [Vision](VISION.md) · [Roadmap](docs/ROADMAP.md) · [Product spec](docs/product/PRODUCT_SPEC.md) · [Contributing](#contributing)
 
 </p>
 
@@ -41,7 +41,10 @@ Your audio never has to leave your Mac.
 > the numbers (latency, injection success) are unmeasured until then. The plan — vision, phased
 > roadmap, capability backlog, architecture, product spec — is all still here and still governs.
 >
-> If you're here from a link expecting a download — there isn't one yet. Star the repo if you want to know when there is.
+> If you're here from a link expecting a download: there is one, and you should know what it
+> is before you install it. Vocca builds a signed **but not notarized** DMG ([Install](#install)),
+> and the dictation loop it contains has never been run on a real machine. Nothing about it is
+> measured yet. Star the repo if you'd rather wait for the release that is.
 
 ---
 
@@ -54,6 +57,72 @@ Good open-source Mac dictation now exists ([VoiceInk](https://github.com/Beingpa
 **great dictation + a voice agent that can actually do things + fully local + extensible.**
 
 That combination is the open lane, and it's what Vocca is for.
+
+## Install
+
+> **Vocca has not yet been shown to work.** The loop is wired and tested, but no real-machine
+> run has happened — `docs/SMOKE_CHECKLIST.md` steps 62–68 are its first execution. Install it
+> to look at it, not to depend on it.
+
+Apple Silicon, macOS 15 or later.
+
+### Homebrew
+
+```bash
+brew install --cask haqaliz/vocca/vocca
+xattr -dr com.apple.quarantine /Applications/Vocca.app   # before opening it
+open /Applications/Vocca.app
+```
+
+### Download
+
+Grab `Vocca-vX.Y.Z.dmg` from the [latest release](https://github.com/haqaliz/vocca/releases/latest),
+open it, and drag **Vocca** to Applications. Then clear the quarantine flag once and launch:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Vocca.app
+open /Applications/Vocca.app
+```
+
+> **Run the `xattr` line before you open Vocca the first time.** Opening it while it is still
+> quarantined does not just show a warning — macOS **deletes `/Applications/Vocca.app`**, and not
+> to the Trash. If that has already happened, install again and run the line first. (If you are
+> following older instructions that pass `--no-quarantine` to Homebrew: that flag no longer
+> exists and the command will fail.)
+
+> **Why the extra command?** Vocca is signed with an Apple Development certificate — hardened
+> runtime, secure timestamp — and is **not notarized yet**, so macOS quarantines it on download
+> and refuses to open it. There is no device restriction: the bundle carries no provisioning
+> profile and its only entitlement is microphone access, so Gatekeeper is the sole obstacle. On
+> macOS 15 the Control-click → Open shortcut is gone, so it is the command above or System
+> Settings → Privacy & Security → **Open Anyway** after a blocked launch. Notarization is the
+> next distribution milestone ([runbook](docs/planning/notarization/runbook.md)); when it lands,
+> both of these disappear.
+
+### First launch
+
+Vocca is `LSUIElement` — **no Dock icon, no window**. A successful launch and a failed one look
+identical, so look for the menu bar item. A first-run window walks you through the two
+permissions and the model download:
+
+- **Microphone** — Vocca cannot hear you without it.
+- **Accessibility** — Vocca cannot type into other apps without it, and macOS requires a restart
+  of the app after granting it.
+- **The speech model** (~470 MB, Parakeet) downloads once. This is the only network request
+  Vocca's default configuration ever makes; it is asserted by a CI test that is a permanent
+  release blocker.
+
+Verify a download against `SHA256SUMS.txt` on the release.
+
+### Uninstall
+
+```bash
+brew uninstall --cask vocca          # the app
+brew uninstall --zap --cask vocca    # also the models, dictionary, and learned per-app settings
+```
+
+A BYOK API key, if you configured one, is in your login Keychain and is not removed by either —
+delete it in Keychain Access.
 
 ## What it will do
 
