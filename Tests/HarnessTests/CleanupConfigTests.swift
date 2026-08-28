@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Foundation
+import VoccaCore
 import VoccaText
 import XCTest
 

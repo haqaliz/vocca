@@ -13,21 +13,13 @@
 // limitations under the License.
 
 import Foundation
+import VoccaCore
 
-/// Which cleanup provider the user opted into — the `cleanup-config.json` `provider` field,
-/// hand-edited until the Cleanup tab ships (`prd.md` M7).
-///
-/// `rules` is the zero-network default. `ollama` and `byok` are opt-in LLM rungs: the raw
-/// strings are the file's contract (`rules`, `ollama`, `byok` — pinned byte-for-byte, so a
-/// future settings surface writes exactly these).
-public enum CleanupProviderKind: String, Codable, Sendable, Equatable {
-    /// The deterministic rules engine — the default, zero network.
-    case rules = "rules"
-    /// A local LLM via Ollama (`ollama-provider`).
-    case ollama = "ollama"
-    /// The user's own cloud endpoint (`byok-provider`).
-    case byok = "byok"
-}
+// `CleanupProviderKind` — which rung the file names — lives in `VoccaCore`
+// (`CleanupProviderKind.swift`). It moved there when the Cleanup tab shipped: `VoccaUI` may import
+// only the core, and the alternative was a second three-case enum for the radio buttons to drift
+// against the file format. This file still owns the *file* — the decode, the degrade policy and
+// the blocks below.
 
 /// The Ollama block of `cleanup-config.json`: `{endpoint, model}`.
 public struct OllamaCleanupConfig: Sendable, Equatable {
