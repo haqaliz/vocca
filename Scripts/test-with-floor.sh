@@ -1282,8 +1282,60 @@ set -euo pipefail
 # The count is what a check of this shape costs. The manifests are unverified rather than
 # defective, and the seven rows are the difference between being able to say that and guessing it.
 #
+# The cleanup-tab aspect adds sixty-five (1435 -> 1500), on the one surface ROADMAP.md principle 2
+# says must survive an audit of the actual code paths — so the count is worth accounting for
+# precisely rather than waving at.
+#
+# Seven give the config store a save path it deliberately shipped without, and two of those seven
+# are the reason the other five are not decoration. Both blocks survive a save of either rung — a
+# round trip CleanupConfig.tolerantDecode had promised in prose since C6 and nothing had ever
+# checked, so switching to the local default silently cost the endpoint a user had typed. And the
+# written document carries no key material under any spelling: the BYOK key lives in the Keychain,
+# this is a plain file in Application Support a user is invited to open, and the absence is asserted
+# rather than trusted to a type that might grow a field.
+#
+# Eight are F3 — the tab reported the literal "Built-in rules" regardless of what had resolved, so a
+# user on Ollama or BYOK read the local answer while the widget's egress badge, folded from the same
+# provider, correctly showed the cloud marker. Two surfaces describing one fact, and one of them
+# lying. The load-bearing pair are the two directions of one rule: an endpoint is never rendered for
+# a provider that does not dial (a degraded LLM block leaves a string in hand, and a cloud line over
+# a provider that never dials is the badge's failure in reverse), and a provider that declares
+# egress with no endpoint still says the text leaves — a surface that inferred the first fact from
+# the second would fall silent, showing the reassuring local line, in exactly the case it knows
+# least about. The wiring row is a source scan rather than a behavioural check, because the defect
+# was not a wrong value: it was a literal no configuration could move.
+#
+# Twenty-five are the reducer and its copy. Every string is pinned byte-for-byte to
+# PRODUCT_SPEC.md:263-274, and the one that earns its own test is the warning glyph, asserted as
+# U+26A0 + U+FE0F rather than as a character that looks right: without the variation selector macOS
+# draws a thin monochrome outline that reads as decoration, and a warning nobody reads is not one.
+# The reducer's own load-bearing row is that the selection moves on saveSucceeded and on nothing
+# else — the file is what the next launch reads, so a radio that moved on the click would need a
+# rollback on every failure path, and the rollback nobody writes is how a user ends up believing
+# they are on the local rung.
+#
+# Sixteen are R3, the one-time confirmation, and they are the ones this file would keep if it had to
+# keep only some. Three planted mutations fail them: removing the gate, resetting the selection on
+# decline, and treating a dismissal as agreement. The decline test drives from Ollama rather than
+# from the shipped default on purpose — a rollback that reset to rules would pass a test written
+# from rules and would silently take a user off Ollama for dismissing an unrelated dialog. The
+# persisted half degrades an unreadable acknowledgement to *not acknowledged*, loudly, because the
+# other direction spends an agreement the user never gave.
+#
+# Nine are the draft/config translation and the page's wiring — the seam where a settings surface
+# most easily becomes a second copy of the config. The row that earns its place is that a blank
+# block is not written at all: an ollama block with an empty model does not decode, and
+# tolerantDecode degrades the *whole* config to rules with a loud log, so a user who typed a cloud
+# endpoint and never touched Ollama would find their cloud rung silently off.
+#
+# What none of it proves is that any of this has been seen. The page is executed by nothing in CI
+# (the window-server rule) and a dialog is not its decision table: whether it is legible, and
+# whether SwiftUI presents it at all, are questions only a human at a window can answer.
+# SMOKE_CHECKLIST.md section 15 (steps 105-110) is that execution, and step 107 is the one that
+# matters.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1435
+MINIMUM_EXECUTED_TESTS=1500
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

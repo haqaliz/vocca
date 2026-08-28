@@ -167,6 +167,49 @@ final class CleanupSummaryTests: XCTestCase {
             "the summary is derived from the resolver, which is the fact rather than a copy of it")
     }
 
+    /// **The tab writes the file the resolver reads, and no other.**
+    ///
+    /// A source scan over the same body, for the same reason the literal one is: the failure this
+    /// guards against is a settings surface acquiring its *own* store — a second file, or a second
+    /// path to the same one, that drifts from what the resolver loads (`spec.md` R2). Naming
+    /// `CleanupConfigStore` in both directions is what keeps it one file.
+    func testTheTabReadsAndWritesTheResolversOwnConfigFile() throws {
+        let body = try Self.showSettingsBody()
+
+        XCTAssertTrue(
+            body.contains("loadCleanupConfig") && body.contains("saveCleanupConfig"),
+            "the tab's choice must be wired in both directions, or it is a control that does nothing")
+        XCTAssertTrue(
+            body.contains("CleanupConfigStore"),
+            "and both directions go through the store the resolver reads")
+    }
+
+    /// **The cloud acknowledgement outlives the window.**
+    ///
+    /// "One-time" means once, not once per window: the flag is read from and written to the
+    /// settings store, which is the same place the engine and activation choices live.
+    func testTheCloudAcknowledgementIsWiredToThePersistedSettings() throws {
+        let body = try Self.showSettingsBody()
+
+        XCTAssertTrue(body.contains("hasAcknowledgedCloudCleanup"))
+        XCTAssertTrue(body.contains("setAcknowledgedCloudCleanup"))
+    }
+
+    /// **The retired note is gone.** `SettingsCopy.cleanupNotEditable` told the user that changing
+    /// the provider still meant editing `cleanup-config.json` by hand. It became false the moment
+    /// the tab shipped, and a settings page that says something untrue about itself is worse than
+    /// one that says nothing.
+    func testTheFileEditingNoteIsRetired() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/VoccaUI/SettingsTab.swift"),
+            encoding: .utf8)
+
+        XCTAssertFalse(
+            source.contains("cleanupNotEditable"),
+            "the note became false when the choice became editable here")
+    }
+
     // MARK: - Fixtures
 
     /// A resolver over `directory` with both LLM seams stubbed — nothing here dials, and the

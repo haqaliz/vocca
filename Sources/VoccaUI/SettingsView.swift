@@ -39,6 +39,18 @@ public struct SettingsBindings {
     /// resolver is an actor and the answer is a fact about the process, not a captured copy — the
     /// `engineDisplayName` argument, applied to the one tab whose wrong answer is a privacy claim.
     public var cleanupSummary: () async -> CleanupSummary?
+    /// The cleanup config as the tab edits it — the same `cleanup-config.json` the resolver
+    /// reads, never a second copy that drifts from it.
+    public var loadCleanupConfig: () async -> CleanupConfigDraft
+    /// Writes it back. Throws what the store throws: a cleanup choice the user made that did not
+    /// reach the disk must say so.
+    public var saveCleanupConfig: (CleanupConfigDraft) async throws -> Void
+    /// Whether the one-time cloud confirmation has already been read and accepted
+    /// (`PRODUCT_SPEC.md:273`).
+    public var isCloudCleanupAcknowledged: () -> Bool
+    /// Records that it has. Best-effort: a failed write shows the dialog once more, which is the
+    /// safe direction.
+    public var setCloudCleanupAcknowledged: (Bool) -> Void
     /// Loads the user's replacements.
     public var loadDictionary: () async -> [ReplacementRule]
     /// Saves the user's replacements.
@@ -90,6 +102,14 @@ public struct SettingsBindings {
         hotkeyDisplayName: String,
         engineDisplayName: @escaping () -> String,
         cleanupSummary: @escaping () async -> CleanupSummary?,
+        // The cleanup defaults claim **nothing** and change **nothing**, for the reason the Speech
+        // defaults do: a default that pretended to work would let a page report a provider and
+        // save a choice that nothing is behind. Unacknowledged is the safe direction too — the
+        // worst case is a dialog shown once more.
+        loadCleanupConfig: @escaping () async -> CleanupConfigDraft = { .empty },
+        saveCleanupConfig: @escaping (CleanupConfigDraft) async throws -> Void = { _ in },
+        isCloudCleanupAcknowledged: @escaping () -> Bool = { false },
+        setCloudCleanupAcknowledged: @escaping (Bool) -> Void = { _ in },
         loadDictionary: @escaping () async -> [ReplacementRule],
         saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
         loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
@@ -112,6 +132,10 @@ public struct SettingsBindings {
         self.hotkeyDisplayName = hotkeyDisplayName
         self.engineDisplayName = engineDisplayName
         self.cleanupSummary = cleanupSummary
+        self.loadCleanupConfig = loadCleanupConfig
+        self.saveCleanupConfig = saveCleanupConfig
+        self.isCloudCleanupAcknowledged = isCloudCleanupAcknowledged
+        self.setCloudCleanupAcknowledged = setCloudCleanupAcknowledged
         self.loadDictionary = loadDictionary
         self.saveDictionary = saveDictionary
         self.loadStrategies = loadStrategies
@@ -153,7 +177,8 @@ public struct SettingsView: View {
         switch tab {
         case .general: GeneralSettingsPage(bindings: bindings)
         case .speech: SpeechSettingsPage(bindings: bindings)
-        case .cleanup: CleanupSettingsPage(bindings: bindings)
+        case .cleanup:
+            CleanupSettingsPage(bindings: bindings, openDictionary: { self.tab = .dictionary })
         case .dictionary: DictionarySettingsPage(bindings: bindings)
         case .apps: AppsSettingsPage(bindings: bindings)
         }
@@ -206,50 +231,6 @@ private struct GeneralSettingsPage: View {
             Text(title)
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }
-    }
-}
-
-// MARK: - Cleanup
-
-/// What polishes the text, and whether that leaves the machine.
-///
-/// The egress line is the point of this tab. The badge on the pill tells a user that text is
-/// leaving *while it happens*; this is where they can check before it ever does.
-private struct CleanupSettingsPage: View {
-
-    let bindings: SettingsBindings
-
-    @State private var summary: CleanupSummary?
-
-    var body: some View {
-        Form {
-            Section("Cleanup") {
-                if let summary {
-                    LabeledContent("Using", value: summary.name)
-                    if summary.sendsTextOffTheMac {
-                        Label {
-                            Text(summary.endpoint.map { "Text is sent to \($0)." }
-                                ?? "Text is sent off this Mac.")
-                        } icon: {
-                            Image(systemName: "cloud")
-                        }
-                        .foregroundStyle(VoccaTheme.egress)
-                        .font(.caption)
-                    } else {
-                        Label(
-                            "Runs on this Mac. Nothing is sent anywhere.",
-                            systemImage: "checkmark.shield")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Text(SettingsCopy.cleanupNotEditable)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .task { summary = await bindings.cleanupSummary() }
     }
 }
 

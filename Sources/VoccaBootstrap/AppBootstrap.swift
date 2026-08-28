@@ -1069,6 +1069,24 @@ public final class DictationLoopRoot {
                     cleanupSummary: { [weak self] in
                         await self?.cleanupResolver?.summary()
                     },
+                    // The same `cleanup-config.json` the resolver reads — one file, translated
+                    // in one place (`CleanupConfig.draft` / `init(draft:)`), never a second copy
+                    // that drifts from it. The resolver is resolve-once, so a write here lands at
+                    // the next launch, which is what `CleanupTabCopy.appliesAtNextLaunch` says on
+                    // the page rather than leaving the user to discover.
+                    loadCleanupConfig: { await CleanupConfigStore().load().draft },
+                    saveCleanupConfig: { draft in
+                        try await CleanupConfigStore().save(CleanupConfig(draft: draft))
+                    },
+                    // The one-time cloud confirmation's memory, in the settings store beside the
+                    // engine and activation choices — so "one-time" means once, not once per
+                    // window.
+                    isCloudCleanupAcknowledged: { [weak self] in
+                        self?.settings?.hasAcknowledgedCloudCleanup() ?? false
+                    },
+                    setCloudCleanupAcknowledged: { [weak self] acknowledged in
+                        self?.settings?.setAcknowledgedCloudCleanup(acknowledged)
+                    },
                     // The same store the rules engine reads from, so an edit here is an edit the
                     // next dictation applies — not a second copy of the file that drifts from it.
                     loadDictionary: { await FileSystemDictionaryStore().load() },

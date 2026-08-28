@@ -2101,6 +2101,135 @@ failure after an unverified download cannot be attributed to anything.
 
 ---
 
+## 15. The Cleanup tab — the rungs become a choice, and the dialog before the cloud one
+
+*(Added 2026-08-29, `cleanup-tab`.)* Two things ship here that CI cannot execute, and they fail in
+opposite directions.
+
+The first is the **summary line**, which until this aspect was the literal `("Built-in rules", nil)`
+— so a user on Ollama or BYOK read "Built-in rules" with no endpoint while the widget's egress
+badge, folded from the same resolved provider, correctly showed the cloud marker. Two surfaces
+describing one fact, and one of them lying. That is fixed at the derivation, and the derivation is
+tested headlessly; what is *not* tested is that the two surfaces agree **on a running Mac**, because
+the widget needs a window server and the resolver needs a real `cleanup-config.json`. Step 106 is
+that comparison, and it is the only place it has ever been made.
+
+The second is the **one-time cloud confirmation** (`PRODUCT_SPEC.md:273`). Its decisions are pure
+and `CleanupCloudConfirmationTests` runs all of them — three planted mutations fail that gate. But
+a dialog is not its decision table: whether it is legible, whether the accepting button is the one
+a person's hand goes to, and whether it appears at all through SwiftUI's
+`confirmationDialog(_:isPresented:)` are questions only a human at a window can answer. **A
+confirmation nobody can read is the same as no confirmation**, and this surface is the one
+`ROADMAP.md` principle 2 says must survive an audit of the actual code paths — a regression here is
+positioning-fatal, not a UI bug.
+
+Nothing in this section may be run against a Vocca whose `cleanup-config.json` you care about. Copy
+it aside first; step 105 rewrites it.
+
+105. **The choice is a control, and it reaches the file.**
+
+    *Gesture:* quit Vocca. `cp ~/Library/Application\ Support/Vocca/cleanup-config.json /tmp/` if
+    one exists. Launch, open Settings → Cleanup. Read the three rungs against
+    `PRODUCT_SPEC.md:266-268`: the names, the two sentences each, and the ⚠️ on the cloud row.
+    Select **Local AI**, filling the endpoint and model fields first
+    (`http://localhost:11434`, any model name). Then `cat` the file.
+
+    *Pass:* the file names `"provider": "ollama"` with the endpoint and model you typed, is
+    pretty-printed with sorted keys, and its slashes are unescaped — it is still a file a person can
+    hand-edit, which is a supported path and not merely a legacy one. The ⚠️ renders as a yellow
+    warning triangle, not as a thin monochrome outline: the outline is what U+26A0 without its
+    variation selector looks like, and a warning that reads as decoration is not a warning.
+
+    *Failure:* a rung that cannot be selected because the fields appear only *after* selection —
+    which would make the LLM rungs unreachable. Also a failure: the file gaining a key, a token or
+    anything resembling one. The BYOK key lives in the Keychain; a plain file in Application Support
+    is not where it goes, and `CleanupConfigStoreTests` asserts the absence but cannot assert what a
+    future hand does.
+
+106. **The tab and the egress badge agree, on a machine, in both directions.**
+
+    This is F3's real execution. The defect was a literal, so nothing configuration could do would
+    move it; the fix is a derivation, and a derivation can still be wired to the wrong thing.
+
+    *Gesture:* with a **BYOK** rung selected and a key in the Keychain (step 76's key), restart
+    Vocca — the resolver resolves once at launch, which is exactly what the tab's own
+    "takes effect the next time Vocca restarts" line says. Open Settings → Cleanup and read the
+    "Using" line. Then dictate a sentence and watch the recording pill.
+
+    *Pass:* the tab names the BYOK provider and the endpoint you configured, and the pill carries
+    the ☁︎ marker while recording. Switch back to **Basic**, restart, and repeat: the tab says
+    "Runs on this Mac. Nothing is sent anywhere." and the pill carries no marker.
+
+    *Failure:* the tab and the pill disagreeing in either direction. The badge showing a cloud
+    marker over a tab reporting the local rung is the worse of the two — but a tab claiming egress
+    that is not happening is not harmless either: a warning that fires wrongly is one people learn
+    to ignore.
+
+    *Void — not fail — if:* you did not restart between the change and the reading. The resolver is
+    resolve-once by design, and comparing a fresh tab against a stale provider measures nothing.
+
+107. **The cloud confirmation appears, says what is sent, and declining costs nothing.**
+
+    The must-have, and the step this section exists for.
+
+    *Gesture:* with the acknowledgement cleared —
+    `defaults delete dev.vocca.Vocca settings.cloudCleanupAcknowledged` with Vocca quit — launch,
+    open Settings → Cleanup, and while on a rung that is **not** Basic (Local AI, so the previous
+    choice is something a reset would visibly destroy), select **Cloud (BYOK)**. Read the dialog.
+    Decline it.
+
+    *Pass:* a dialog appears before anything is written. It names the endpoint, says the text of
+    every dictation is sent there with the API key, and says plainly that the **audio is never
+    sent**. On declining: the radio is still on Local AI — not Basic, not blank — and
+    `cleanup-config.json` still says `"provider": "ollama"`. Select Cloud again: the dialog appears
+    **again**, because declining is not agreeing.
+
+    *Failure:* the file changing before the dialog is answered. Also a failure: declining leaving
+    the radio on Basic or on nothing — the previous choice is the one that was there, and a reset to
+    the default is a setting silently changed by a dialog the user refused.
+
+108. **It is one-time, and it means once.**
+
+    *Gesture:* accept the dialog. Confirm the file now says `"provider": "byok"`. Switch to Basic,
+    switch back to Cloud. Then quit Vocca, relaunch, and switch to Cloud once more.
+
+    *Pass:* the dialog does not appear on any of the three later selections. `defaults read
+    dev.vocca.Vocca settings.cloudCleanupAcknowledged` reads `acknowledged`.
+
+    *Failure:* the dialog appearing again after a relaunch, which would mean the acknowledgement
+    lives in the window rather than in the settings store — the difference between "one-time" and
+    "once per window", and the reason people stop reading dialogs.
+
+    *Void — not fail — if:* you cleared the key between steps. This step is about the flag, and a
+    rung that refuses for a missing endpoint never reaches the dialog to be asked about.
+
+109. **A rung that cannot work is refused in words, not written.**
+
+    *Gesture:* clear the Ollama **model** field and select Local AI. Then clear the BYOK endpoint
+    and select Cloud.
+
+    *Pass:* each is refused with a sentence naming what is missing, and `cleanup-config.json` is
+    unchanged both times.
+
+    *Failure:* either selection being written. An `ollama` block with no model does not decode, and
+    `CleanupConfig.tolerantDecode` degrades the **whole** config to rules with a loud log — so the
+    file would say Local AI, the radio would say Local AI, and Vocca would be running the built-in
+    rules. That is the exact class of defect this whole aspect exists to end, reappearing one layer
+    down.
+
+110. **Restore your config.**
+
+    *Gesture:* `cp /tmp/cleanup-config.json ~/Library/Application\ Support/Vocca/` if you saved one
+    in step 105, or delete the file to return to the shipped default. Restart and confirm the tab
+    reads "Runs on this Mac. Nothing is sent anywhere."
+
+    *Pass:* the machine is back where it started, and the zero-network default is what is running.
+
+    *Failure:* leaving a tester's machine pointed at a cloud endpoint after a smoke run — which is
+    a real cost, not a tidiness note: every subsequent dictation on that machine sends text to it.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

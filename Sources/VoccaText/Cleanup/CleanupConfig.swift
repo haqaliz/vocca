@@ -103,6 +103,54 @@ public struct CleanupConfig: Sendable, Equatable {
         self.byok = byok
     }
 
+    // MARK: - The Cleanup tab's draft
+
+    /// This config as the Cleanup tab edits it.
+    ///
+    /// The tab works in `CleanupConfigDraft` (VoccaCore) because `VoccaUI` may import only the
+    /// core, and the translation lives here — on the type that owns the file — so there is exactly
+    /// one place a field can be dropped between the surface and the disk.
+    ///
+    /// An absent Ollama block still offers ``defaultOllamaEndpoint``, so selecting Local AI on a
+    /// fresh install leaves one field to fill rather than two — and the one left is the one only
+    /// the user can know. Nothing else is guessed: an unset model and an unset cloud endpoint come
+    /// back empty, because a plausible-looking default in either would be a value the user never
+    /// chose being written to a file on their behalf.
+    public var draft: CleanupConfigDraft {
+        CleanupConfigDraft(
+            provider: provider,
+            ollamaEndpoint: ollama?.endpoint ?? Self.defaultOllamaEndpoint,
+            ollamaModel: ollama?.model ?? "",
+            byokEndpoint: byok?.endpoint ?? "",
+            byokModel: byok?.model ?? "")
+    }
+
+    /// The config a draft describes.
+    ///
+    /// **A block whose required fields are blank is not written at all**, and that is the rule
+    /// this initializer exists for. An `ollama` block with an empty model does not decode, and
+    /// `tolerantDecode(_:log:)` degrades the *whole* config to rules when the selected block is
+    /// invalid — so a user who typed a cloud endpoint and never touched Ollama would find their
+    /// cloud rung silently off. Omitting the empty block is the difference between that and a file
+    /// that says what they chose.
+    ///
+    /// An empty BYOK model is an **absent** field rather than an empty string, matching the file's
+    /// contract that a missing `model` lets the endpoint choose its own; `""` is a model name no
+    /// endpoint has.
+    public init(draft: CleanupConfigDraft) {
+        let ollama: OllamaCleanupConfig? =
+            draft.isConfigured(.ollama)
+            ? OllamaCleanupConfig(endpoint: draft.ollamaEndpoint, model: draft.ollamaModel)
+            : nil
+        let byok: ByokCleanupConfig? =
+            draft.isConfigured(.byok)
+            ? ByokCleanupConfig(
+                endpoint: draft.byokEndpoint,
+                model: draft.byokModel.isEmpty ? nil : draft.byokModel)
+            : nil
+        self.init(provider: draft.provider, ollama: ollama, byok: byok)
+    }
+
     /// The file's bytes for this config — the encode half of ``tolerantDecode(_:log:)``, and the
     /// only thing that ever writes `cleanup-config.json`.
     ///
