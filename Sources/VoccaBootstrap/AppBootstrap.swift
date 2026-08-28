@@ -920,15 +920,44 @@ public final class DictationLoopRoot {
     /// offers the choice is still the settings surface's, which is why this is a default rather
     /// than a preference.
     ///
-    /// Read from ``defaultMode`` rather than written here, because this property and the routing
-    /// sink's initial `active` must name the same wiring: set independently, `activeMode` would
-    /// report a mode the tap's events were not going to, and `setActiveMode(_:)` would then refuse
-    /// the very switch that would repair it (`mode != activeMode` is already false).
-    public private(set) var activeMode: DictationMode = DictationLoopRoot.defaultMode
+    /// Assigned once in the initializer from the same local the routing sink's initial `active` is
+    /// derived from, never written independently: this property and the tap's actual route must
+    /// name the same wiring, or the root reports a mode its events are not going to and
+    /// `setActiveMode(_:)` then refuses the very switch that would repair it (`mode != activeMode`
+    /// is already false).
+    ///
+    /// Its launch value is the **persisted** mode when a store is wired, and ``defaultMode`` when
+    /// none is — an absent store is a fresh install, not a failure.
+    public private(set) var activeMode: DictationMode
 
-    /// The mode a freshly constructed root starts in — the one place the shipped default is
-    /// written, read by both ``activeMode`` and the routing sink's initial target.
-    public static let defaultMode: DictationMode = .toggle
+    /// The mode a fresh install starts in — **derived**, not declared.
+    ///
+    /// This used to be a second literal `.toggle`, duplicating
+    /// ``PersistedSettings/defaultActivation`` in a module `VoccaCore` may not import, with a test
+    /// in the one target that can see both holding them together. That duplication existed only
+    /// because the settings-store aspect could not reach the composition root; the root reads the
+    /// store now, so the fact lives in one place and an exhaustive mapping carries it here. Two
+    /// constants agreeing by test is a worse state than one constant, and the test that held them
+    /// is deleted with the duplication it guarded.
+    public static let defaultMode: DictationMode = mode(for: PersistedSettings.defaultActivation)
+
+    /// The root's vocabulary for one of Core's activation modes. Total, with no `default:`: the
+    /// third mode `Activation` anticipates (voice-activated, at P3) must say which wiring it drives
+    /// or this file stops compiling.
+    public static func mode(for activation: HotkeyConfiguration.Activation) -> DictationMode {
+        switch activation {
+        case .holdToTalk: return .holdToTalk
+        case .toggle: return .toggle
+        }
+    }
+
+    /// The inverse — what gets written when the mode changes. Total for the same reason.
+    public static func activation(for mode: DictationMode) -> HotkeyConfiguration.Activation {
+        switch mode {
+        case .holdToTalk: return .holdToTalk
+        case .toggle: return .toggle
+        }
+    }
 
     // MARK: - The menu bar's conditions
 
@@ -1284,8 +1313,12 @@ public final class DictationLoopRoot {
         // Derived from the same `defaultMode` as `activeMode`, never named directly: the two are
         // one fact, and a root whose reported mode and actual route disagree is a hotkey that
         // silently drives the wrong machine.
+        // The launch mode, read from the store exactly once and used for **both** the reported
+        // mode and the tap's route — the two are one fact, and this local is where it lives.
+        let initialMode = settings.map { Self.mode(for: $0.activationMode()) } ?? Self.defaultMode
+        self.activeMode = initialMode
         let initialRoute: ScheduledWatchdog<AudioBuffer>
-        switch Self.defaultMode {
+        switch initialMode {
         case .holdToTalk: initialRoute = holdToTalk.scheduledWatchdog
         case .toggle: initialRoute = toggle.scheduledWatchdog
         }
@@ -1358,6 +1391,9 @@ public final class DictationLoopRoot {
                 "refusing to switch mode while a session is in flight — end it first")
             return
         }
+        // Written only once the change is actually adopted, below the refusals above: a store
+        // describing a mode the running app never entered would be honoured by the next launch.
+        settings?.setActivationMode(Self.activation(for: mode))
         activeMode = mode
         switch mode {
         case .holdToTalk:

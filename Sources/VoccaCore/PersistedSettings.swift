@@ -108,12 +108,12 @@ public enum PersistedSettings {
     }
     /// The shipped activation mode a fresh install starts in: toggle.
     ///
-    /// **This value is duplicated, on purpose and only until the composition root reads this
-    /// store.** The root declares the same fact as `DictationLoopRoot.defaultMode`, in a module
-    /// this one may not import, and the two are pinned against each other by test
-    /// (`PersistedSettingsTests`) rather than by hope. The wiring aspect makes the root derive
-    /// its constant from this one and deletes the duplication; until then the test is what keeps
-    /// a change to either from shipping alone.
+    /// **The one place this fact is written.** It was briefly duplicated by
+    /// `DictationLoopRoot.defaultMode`, in a module this one may not import, with a test in the one
+    /// target that can see both holding them together — an arrangement that existed only because
+    /// the settings-store aspect could not reach the composition root. The root reads this store
+    /// now and derives its constant from this one through an exhaustive mapping, so the duplication
+    /// and the test that guarded it are both gone.
     ///
     /// Toggle became the default on 2026-08-25, after the first real dictation: holding a key for
     /// a whole utterance is what produces the accidentally-short presses that failed. Hold-to-talk

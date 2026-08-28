@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import VoccaBootstrap
 import VoccaCore
 import XCTest
 
@@ -187,37 +186,5 @@ final class PersistedSettingsTests: XCTestCase {
         XCTAssertTrue(
             reports.first?.contains("voice-activated") == true,
             "the report must name the value it rejected; got \(reports)")
-    }
-    // MARK: - The duplicated default, pinned against its twin
-
-    /// ``PersistedSettings/defaultActivation`` and `DictationLoopRoot.defaultMode` state the same
-    /// fact, and this test is the only thing keeping them from stating it differently.
-    ///
-    /// The duplication is deliberate and temporary. The root's constant lives in `VoccaBootstrap`,
-    /// which `VoccaCore` may not import (the graph points inward) and which the store's adapter
-    /// module cannot see either — so the store cannot read the root's answer, and the root does
-    /// not yet read the store's. Until the wiring aspect makes the root derive its constant from
-    /// this one, a change to either alone means a user's fresh install starts in one mode and
-    /// their first saved setting reads back as another. That is a test target's job precisely
-    /// because it is the one place that may import both modules; nothing in `Sources/` does, and
-    /// this aspect deliberately wires nothing into the root.
-    ///
-    /// The mapping switch is exhaustive with no `default:`, so a third mode has to say which
-    /// `Activation` it corresponds to rather than silently satisfying the pin.
-    @MainActor
-    func testTheShippedActivationDefaultAgreesWithTheRootsDictationModeDefault() {
-        let rootDefault: HotkeyConfiguration.Activation
-        switch DictationLoopRoot.defaultMode {
-        case .holdToTalk: rootDefault = .holdToTalk
-        case .toggle: rootDefault = .toggle
-        }
-        XCTAssertEqual(
-            PersistedSettings.defaultActivation, rootDefault,
-            """
-            the persisted-settings default (\(PersistedSettings.defaultActivation)) and the root's \
-            DictationLoopRoot.defaultMode (\(DictationLoopRoot.defaultMode)) disagree. They are one \
-            fact in two modules until the wiring aspect deletes the duplication; a machine with no \
-            saved setting would start in one mode while the store reports the other.
-            """)
     }
 }
