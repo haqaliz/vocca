@@ -1459,12 +1459,23 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// is the adapter: the synchronous read the `main()` show decision requires and the
     /// write-on-TRY-IT-success flag, in raw `UserDefaults` terms, with every decision (the
     /// frozen key, the idempotent best-effort write) above it in the headless store tests. This
-    /// is the first `UserDefaults`-naming file in the repository — no `UserDefaults` existed in
+    /// was the first `UserDefaults`-naming file in the repository — no `UserDefaults` existed in
     /// `Sources/` before it (`prd.md` M4) — and the family ships with its row so the "one file
     /// per seam" claim is explicit and enforced from day one, the same reviewed amendment the
     /// pasteboard family began with (`plan_20260827.md` §2, step 3).
+    ///
+    /// `UserDefaultsSettingsStore` is the second seam, added by the `settings-store` aspect
+    /// (`plan_20260828.md` phase 2) and shipping in the same commit as the file that needs it —
+    /// the process the completion flag itself followed. It is a **separate seam rather than a
+    /// second file in the completion seam**: the two answer different questions (has onboarding
+    /// finished; what did the user choose in Settings), are read at different moments, and the
+    /// one-file-per-seam rule is what stops "we already have a UserDefaults file" from becoming
+    /// the argument for putting the next one there too. Its decisions — the on-disk spellings and
+    /// the tolerant decode — live above it in `VoccaCore/PersistedSettings.swift`, which is why
+    /// the file below it is thin enough for the rule to cost nothing.
     private static let filesPermittedToNameUserDefaultsIdentifiersBySeam: [String: Set<String>] = [
         "completion": ["VoccaUI/Onboarding/CompletionFlagStore.swift"],
+        "settings": ["VoccaUI/Settings/UserDefaultsSettingsStore.swift"],
     ]
 
     /// The UserDefaults table flattened — every permitted file in every seam. The tree-wide scan
