@@ -65,6 +65,7 @@ done
 case "$ENGINE" in
     parakeet-tdt-0.6b-v3)
         [ "$tier_set" -eq 0 ] || { echo "--tier is only valid for the whisper engine" >&2; exit 2; }
+        STORAGE_ID="$ENGINE"   # one tier, so the tier's storage key is the engine's name
         SDK_DIR="$ENGINE"   # the SDK's repo folder name — the layout rule `load(from: D)` resolves to
         REQUIRED=(
             "Preprocessor.mlmodelc" "Encoder.mlmodelc" "Decoder.mlmodelc"
@@ -72,9 +73,20 @@ case "$ENGINE" in
         )
         ;;
     whisper-large-v3-turbo)
+        # Storage is keyed by **tier**, not by engine (`EngineTier.storageID`): the two whisper
+        # tiers are different artifacts, so installing both under the engine's name would give
+        # them one directory and one verified marker — the app would load whichever arrived
+        # first under the name of whichever was selected. The keys here are the shipped
+        # manifests' `engineID`s, and `ModelStoreTierKeyingTests` pins those to the enum.
         case "$tier" in
-            turbo) MODEL_FILE="ggml-large-v3-turbo.bin" ;;
-            q5_0) MODEL_FILE="ggml-large-v3-turbo-q5_0.bin" ;;
+            turbo)
+                MODEL_FILE="ggml-large-v3-turbo.bin"
+                STORAGE_ID="whisper-large-v3-turbo"
+                ;;
+            q5_0)
+                MODEL_FILE="ggml-large-v3-turbo-q5_0.bin"
+                STORAGE_ID="whisper-large-v3-turbo-q5_0"
+                ;;
             *) echo "unknown tier: $tier" >&2; exit 2 ;;
         esac
         SDK_DIR=""
@@ -99,7 +111,7 @@ if [ -z "$root_dir" ]; then
     echo "no --root given; using scratch store root $root_dir"
 fi
 
-version_dir="$root_dir/$ENGINE/$VERSION"
+version_dir="$root_dir/$STORAGE_ID/$VERSION"
 if [ -n "$SDK_DIR" ]; then
     install_dir="$version_dir/$SDK_DIR"
 else
@@ -122,10 +134,10 @@ touch "$version_dir/verified"
 # The SHA-256 manifest, generated from the bytes actually installed. The parakeet shape walks
 # the install recursively (nested .mlmodelc files); the whisper shape is exactly the one
 # required file, passed by name so the walk can never absorb the marker or a stale manifest.
-python3 - "$install_dir" "$version_dir/manifest.json" "$ENGINE" "$VERSION" "$SDK_DIR" ${MODEL_FILE:+"$MODEL_FILE"} <<'PY'
+python3 - "$install_dir" "$version_dir/manifest.json" "$STORAGE_ID" "$VERSION" "$SDK_DIR" ${MODEL_FILE:+"$MODEL_FILE"} <<'PY'
 import hashlib, json, os, sys
 
-install_dir, out_path, engine, version, sdk_dir = sys.argv[1:6]
+install_dir, out_path, storage_id, version, sdk_dir = sys.argv[1:6]
 explicit = sys.argv[6:]
 files = []
 if explicit:
@@ -142,9 +154,9 @@ else:
             digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
             files.append({"name": rel, "sha256": digest, "byteCount": os.path.getsize(path)})
 if sdk_dir:
-    manifest = {"engineID": engine, "version": version, "sdkDirectory": sdk_dir, "files": files}
+    manifest = {"engineID": storage_id, "version": version, "sdkDirectory": sdk_dir, "files": files}
 else:
-    manifest = {"engineID": engine, "version": version, "files": files}
+    manifest = {"engineID": storage_id, "version": version, "files": files}
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 with open(out_path, "w") as f:
     json.dump(manifest, f, indent=2)

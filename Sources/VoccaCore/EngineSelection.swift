@@ -35,6 +35,27 @@ public enum EngineTier: Sendable, Hashable, CaseIterable {
         case .whisperTurbo, .whisperTurboQ5: return .whisperTurbo
         }
     }
+
+    /// The key the model store names this tier's directory by: `<root>/<storageID>/<version>/`.
+    ///
+    /// **Storage is keyed by tier, not by engine**, and that is the whole of this property's
+    /// reason to exist. Two tiers of one engine are two different artifacts — whisper turbo is
+    /// 1.6 GB and its q5_0 quantisation is 574 MB, under different file names — so keying their
+    /// directories by ``EngineCandidate/id``, which both share, gave them one directory and one
+    /// verified marker: the second tier's download short-circuits on the first tier's marker and
+    /// the engine loads bytes nobody chose. ``EngineCandidate/id`` remains the *attribution* key
+    /// a transcript is signed with, which is correct to share; the directory is not.
+    ///
+    /// Total, with no `default:`, exactly as ``engine`` is: a tier added here must say where its
+    /// bytes live or the file stops compiling. Every shipped manifest's `engineID` is pinned to
+    /// this value (`ModelStoreTierKeyingTests`), so the two names for one directory cannot drift.
+    public var storageID: String {
+        switch self {
+        case .parakeetV3: return "parakeet-tdt-0.6b-v3"
+        case .whisperTurbo: return "whisper-large-v3-turbo"
+        case .whisperTurboQ5: return "whisper-large-v3-turbo-q5_0"
+        }
+    }
 }
 
 /// The closed set of ASR engines the picker can select — the seeded two, no more.

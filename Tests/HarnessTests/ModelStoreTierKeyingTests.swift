@@ -116,6 +116,23 @@ final class ModelStoreTierKeyingTests: XCTestCase {
             "two shipped manifests declare the same (engineID, version) storage key: \(collisions)")
     }
 
+    /// The storage key has **one** source: ``EngineTier/storageID``, and every shipped manifest
+    /// must agree with it.
+    ///
+    /// Two things now name a tier's directory — the enum, which the per-tier queries ask, and the
+    /// manifest's `engineID`, which the download and load paths carry — and the whole defect above
+    /// is what happens when two names for one directory drift apart. So they are pinned to each
+    /// other here, over the closed tier set: a manifest edited without the enum, or a tier added
+    /// without a manifest, fails at build time rather than resolving to a directory nobody meant.
+    func testEveryShippedManifestAgreesWithItsTierStorageID() throws {
+        for tier in EngineTier.allCases {
+            let manifest = try ShippedModelManifest.load(for: tier)
+            XCTAssertEqual(
+                manifest.engineID, tier.storageID,
+                "\(tier)'s manifest keys storage differently from the tier that owns it")
+        }
+    }
+
     /// The guard's own gate: a planted duplicate must make the uniqueness check report the
     /// collision.
     ///
