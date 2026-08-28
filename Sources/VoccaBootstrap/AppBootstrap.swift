@@ -1825,11 +1825,37 @@ private final class EffectRouter {
 /// the flag is *used* — every read and write happens on the main actor (the gate's `beginCapture`
 /// runs in the machine's domain, the router and `markEnginePrepared` are the root's) — and is
 /// documented here because the compiler cannot see it.
+///
+/// ## Why it closes as well as opens
+///
+/// This was a one-way latch while a process ran exactly one engine for its whole life. The engine
+/// is now switchable at runtime (`settings-live-controls`, aspect 3), and a switch must be able to
+/// **close** the gate again: the engine whose `prepare()` succeeded is not the engine now
+/// selected, and leaving the gate open over the old one would let a press open the microphone for
+/// an engine that cannot transcribe.
+///
+/// The two directions are not symmetric, and the asymmetry is the whole safety argument. **Closing
+/// is always safe** — a closed gate refuses the press before the microphone is asked for, the user
+/// gets the honest `.modelUnavailable` notice, and the worst a spurious close can do is make
+/// someone wait. **Opening is the dangerous direction**, so it keeps exactly one caller:
+/// ``markReady()``, reached only from ``DictationLoopRoot/markEnginePrepared()``, reached in turn
+/// only after `prepareIfNeeded()` has succeeded. `EngineReadinessTests` pins that closed set by
+/// scanning this file, because the hazard is an opener nobody has written yet.
 final class EngineReadiness {
     private(set) var isReady = false
 
+    /// The one opener. See the type's note: every other transition closes.
     func markReady() {
         isReady = true
+    }
+
+    /// Closes the gate: a preparation is under way (a launch preload, or the eager preparation a
+    /// selection change starts) and the engine behind it is not ready to transcribe.
+    ///
+    /// Idempotent — a state assignment, not a counter. Nothing about a switch should depend on how
+    /// many times either transition was called.
+    func markPreparing() {
+        isReady = false
     }
 }
 
