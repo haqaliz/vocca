@@ -32,9 +32,19 @@
 # Notarization is deliberately NOT part of this workflow. Scripts/notarize.sh has never
 # run end to end (it needs a paid Developer ID Application certificate and a notarytool
 # credential, neither of which exists), so a release from here is signed — hardened
-# runtime, secure timestamp, Apple Development identity — but not notarized and not
-# distributable outside the signing machine. That must be stated in the release notes,
-# and the release-notes step says it out loud.
+# runtime, secure timestamp, Apple Development identity — but not notarized.
+#
+# What that does and does not cost, measured on the published v0.1.0 rather than assumed:
+# the bundle carries NO provisioning profile and its only entitlement is
+# com.apple.security.device.audio-input, which Apple does not gate — so there is no device
+# restriction and the app is not locked to the machine that signed it. Gatekeeper is the
+# sole obstacle, and `xattr -dr com.apple.quarantine` clears it. Earlier notes here and in
+# the v0.1.0 release claimed the build "runs only on machines that signed it"; that was
+# wrong, and wrong in the pessimistic direction.
+#
+# The release notes must still say the build is unnotarized and must carry the xattr line,
+# because a user who launches a quarantined app does not get a warning — macOS deletes it.
+# docs/planning/notarization/runbook.md is what to execute the day a Developer ID exists.
 
 name: Release
 
@@ -143,19 +153,100 @@ jobs:
           VOCCA_EXPECTED_CONFIGURATION: Release
         run: ./Scripts/test-with-floor.sh
 
-      - name: Package Vocca.app
+      # A DMG, not a zip, and the reason is measured rather than stylistic. `zip -r` FOLLOWS
+      # symlinks, and whisper.framework is a versioned framework built out of them
+      # (Versions/Current -> A, and the framework-root `whisper` -> Versions/Current/whisper).
+      # v0.1.0 shipped that way: the 5.7 MB binary was stored three times, Versions/Current came
+      # out of the archive as a real directory, and `codesign --verify --deep --strict` on the
+      # extracted bundle failed with "bundle format is ambiguous (could be app or framework)".
+      # That release cannot launch on any Mac — Gatekeeper never gets a say — and it would fail
+      # notarization later for the same reason. `hdiutil` over a staging folder preserves the
+      # links (as `ditto -c -k --keepParent` would for a zip); `cp -R` into the staging folder
+      # does too. Do not reintroduce `zip` here.
+      - name: Package Vocca.dmg
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           cd .build/xcode-release/Build/Products/Release
-          zip -r Vocca-macos.zip Vocca.app
-          shasum -a 256 Vocca-macos.zip > Vocca-macos.zip.sha256
+
+          # The staging folder holds the app next to an /Applications symlink, so the mounted
+          # volume is the usual drag-to-install window.
+          rm -rf dmg-stage && mkdir dmg-stage
+          cp -R Vocca.app dmg-stage/
+          ln -s /Applications dmg-stage/Applications
+          hdiutil create -volname Vocca -srcfolder dmg-stage -ov \
+            -format UDZO -fs HFS+ "Vocca-${VERSION}.dmg"
+          rm -rf dmg-stage
+
+          # Signing the DMG is cosmetic while the app carries an Apple Development identity
+          # (Gatekeeper quarantines the download either way), but it is the line that starts
+          # mattering the day this switches to Developer ID + notarytool — see
+          # docs/planning/notarization/runbook.md step 3.
+          identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\([^"]*\)".*/\1/p' | head -1)"
+          codesign --force --sign "$identity" --timestamp "Vocca-${VERSION}.dmg" \
+            || echo "::warning::DMG signing failed; shipping it unsigned"
+
+          # Checksums last, so they cover the final bytes of the artifact that ships.
+          shasum -a 256 "Vocca-${VERSION}.dmg" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+          # The archive symlink check, on the artifact this tag is about to publish. v0.1.0 is
+          # why this is a gate and not a comment: nothing in the suite reaches the packaging
+          # step, so a broken archive was publishable and green.
+          hdiutil attach -nobrowse -readonly -mountpoint dmg-check "Vocca-${VERSION}.dmg"
+          trap 'hdiutil detach dmg-check -quiet || true' EXIT
+          [ -L dmg-check/Vocca.app/Contents/Frameworks/whisper.framework/Versions/Current ] || {
+            echo "::error::whisper.framework/Versions/Current is not a symlink inside the DMG. The archive step flattened the framework — the published app will not pass codesign --verify. This is the v0.1.0 zip defect; do not ship."
+            exit 1
+          }
+          codesign --verify --deep --strict --verbose=2 dmg-check/Vocca.app
+          echo "DMG contents verify: framework links intact, signature seals."
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           cd .build/xcode-release/Build/Products/Release
-          gh release create "$GITHUB_REF_NAME" Vocca-macos.zip Vocca-macos.zip.sha256 \
-            --repo "$GITHUB_REPOSITORY" \
-            --notes "Signed with an Apple Development identity (hardened runtime, secure timestamp). **Not notarized**: no Developer ID certificate exists yet, so this build runs only on machines that signed it and Gatekeeper will not let it launch elsewhere. Notarization lands when a Developer ID does — do not claim otherwise."
+          # The heredoc body carries the block scalar's indentation; strip it so the release
+          # notes render as markdown rather than one code block.
+          sed 's/^ \{10\}//' > notes.md <<'NOTES'
+          ## Install
+
+          Download `Vocca-VERSION_PLACEHOLDER.dmg`, open it, drag **Vocca** to Applications.
+          Then clear the quarantine flag **before you open it the first time**:
+
+          ```bash
+          xattr -dr com.apple.quarantine /Applications/Vocca.app
+          open /Applications/Vocca.app
+          ```
+
+          Vocca is signed with an Apple Development certificate (hardened runtime, secure
+          timestamp) and is **not notarized**, so macOS quarantines it on download. There is no
+          device restriction — the bundle carries no provisioning profile and its only
+          entitlement is microphone access — so Gatekeeper is the sole obstacle, and the command
+          above is what removes it. On macOS 15 the old Control-click -> Open shortcut is gone;
+          it is that command or System Settings -> Privacy & Security -> **Open Anyway** after a
+          blocked launch.
+
+          Run the `xattr` line first. Opening a quarantined app does not merely warn — macOS
+          **deletes** it, and not to the Trash.
+
+          Vocca is `LSUIElement`: it has no Dock icon and no window at launch. Look for the menu
+          bar item.
+
+          Verify the download against `SHA256SUMS.txt`.
+
+          ---
+
+          **This build has not been proven to dictate.** The loop is wired and tested, but no
+          real-machine run has happened (`docs/SMOKE_CHECKLIST.md` steps 62-68), so latency and
+          injection success are unmeasured. Treat this as something to look at, not to depend on.
+          NOTES
+          sed -i '' "s/VERSION_PLACEHOLDER/${VERSION}/g" notes.md
+
+          gh release create "$GITHUB_REF_NAME" \
+            "Vocca-${VERSION}.dmg" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --notes-file notes.md
