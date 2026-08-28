@@ -1985,6 +1985,122 @@ say at the same moment.
 
 ---
 
+## 14. The manifests, and whisper's first real bytes
+
+*(Added 2026-08-29, `verification-smoke`.)* Two claims sit under the engine picker, and shipping a
+[Download] button turns both into a 1.6 GB risk a user pays for.
+
+The first is that **the shipped manifests are unverified, not defective.** The placeholder this
+repository already shipped once — `ac381d0`'s 2-byte `config.json` carrying the SHA-256 of the
+literal string `{}` — does **not** reproduce in any manifest here: that digest
+(`44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a`) appears nowhere, no entry
+declares a 0- or 2-byte size, and no digest repeats across files. What is open is provenance.
+`672367e` added both Whisper manifests with no provisioning run recorded behind it — the same
+evidentiary shape as `ac381d0` — and `Scripts/provision-asr-fixtures.sh` gained its whisper support
+the day *before* those files landed, with no record it was used. Neither reading is upgraded here.
+The comparison has simply never been made, and step 102 is where it is made.
+
+The second is that **whisper has never transcribed anything.** Step 19 is unexecuted, and the
+tolerances `WhisperCppEngineWERTests` asserts are seeded from Parakeet's table rather than measured
+on whisper's output (`docs/planning/second-asr-engine/fixture-harness/tolerances_20260810.md`).
+
+`ManifestDigestVerificationTests` is the machinery for step 102, and CI runs only half of it: the
+planted-mismatch rows, over synthesised files, which are what make a green badge say anything about
+the verifier at all. The artifact half skips visibly without `VOCCA_MODEL_DIR` and downloads
+nothing — it reads bytes already on this disk. Run these steps **in order**: a transcription
+failure after an unverified download cannot be attributed to anything.
+
+102. **The shipped manifests, checked against real bytes for the first time.**
+
+    *Gesture:* provision both Whisper tiers, then run the verification against the root they
+    landed in:
+
+    ```
+    ./Scripts/provision-asr-fixtures.sh --engine whisper-large-v3-turbo --tier turbo  --root <root>
+    ./Scripts/provision-asr-fixtures.sh --engine whisper-large-v3-turbo --tier q5_0   --root <root>
+    VOCCA_MODEL_DIR=<root>/whisper-large-v3-turbo/1 \
+      swift test --filter testEveryShippedManifestMatchesTheProvisionedBytes
+    ```
+
+    Run it a third time with `VOCCA_MODEL_DIR` pointed at the Parakeet install (step 17's), so all
+    three shipped manifests are answered for. The run prints `MANIFEST-VERIFY:` naming every tier
+    it did **not** find under that root — those tiers are still unverified after the run, and the
+    line exists so a partial check is never read as a full one.
+
+    *Pass:* the test passes for each root, and between the runs every tier has appeared in a
+    *verified* list rather than in an unverified one. A pass here is the first evidence in this
+    repository's history that a Whisper manifest describes the artifact it claims to.
+
+    *Failure:* any verdict line. `manifest declares N bytes, disk has M` is an entry that was
+    written rather than measured — the `ac381d0` shape exactly; `manifest declares sha256 …, disk
+    has …` with a matching length is a manifest generated from different bytes than the ones the
+    URL now serves. Either way the manifest is regenerated from the provisioning run's own output
+    and committed with the run recorded, never hand-edited to match.
+
+    *Void — not fail — if:* the provisioning run did not complete. A `.part` file anywhere under
+    the version directory, or a transfer that was interrupted, means the precondition (a complete
+    artifact) did not hold, and the verification result says nothing about the manifest. Re-run the
+    provisioning to completion first. Likewise void the run if `swift test` reported the test as
+    **skipped**: that is the env var not reaching the process, not a clean sheet.
+
+103. **Whisper produces text, on both tiers, through the Speech tab.**
+
+    Step 96 is turbo's row and calls itself whisper's first real transcription. This step adds what
+    no row covers yet — that the **tier** choice changes which bytes actually run — and it must not
+    be attempted until step 102 has passed for the tier in question.
+
+    *Gesture:* with the turbo tier installed and selected, dictate a sentence into TextEdit. Then
+    select the q5_0 tier in the Speech tab, wait for the menu bar to leave its warming state, and
+    dictate the same sentence again.
+
+    *Gesture (second half):* `log show --predicate 'subsystem == "dev.vocca.Vocca"' --last 5m` and
+    read both transcripts' engine attribution and the model directory each load came from.
+
+    *Pass:* both dictations land text, and the second load reads its bytes from
+    `whisper-large-v3-turbo-q5_0/1/` — a different directory and a different `verified` marker from
+    the first. Both transcripts are attributed to the whisper identity; the two tiers share it,
+    because attribution is keyed by engine and storage by tier, and that is correct.
+
+    *Failure:* the second dictation loading from the turbo directory, which is the tier-keying
+    defect returning at the only layer that can still hide it. Also a failure: a tier switch that
+    requires a restart, or a second dictation that produces no text at all after the first did —
+    the q5_0 artifact is a real model, and a tier the picker offers must work or not be offered.
+
+    **This step settles nothing about accuracy.** It says whisper runs. What it is worth is
+    ordering: step 104's numbers mean nothing until this passes, because a WER measured through a
+    load that took the wrong bytes measures the wrong model.
+
+104. **Re-baseline whisper's WER tolerances from step 19's run, with the run recorded.**
+
+    Step 19 is the run and stays its home; this step is what happens to the numbers afterwards, and
+    it exists because a real run that changes no number leaves the seeded table looking measured.
+    The procedure is
+    `docs/planning/settings-live-controls/verification-smoke/tolerances_20260829.md` — measure →
+    margin → founder-signed → land in exactly the two test files.
+
+    *Gesture:* run step 19. Record, in that file's measured-values table: the six per-fixture WERs
+    the runner printed, the machine (model identifier and chip), the **artifact hashes** — the
+    `sha256` of each file from the manifest step 102 has now verified, so the numbers name the
+    bytes they were measured on — and the date. Then apply the margin, take the founder's sign-off,
+    and land the signed numbers in `WhisperCppEngineWERTests.swift` and
+    `ParakeetEngineWERTests.swift` together.
+
+    *Pass:* the record carries a measured row, and the two tolerance tables carry numbers with a
+    measurement and a signature behind them. Until then, every whisper accuracy claim in this
+    repository is a claim about structure.
+
+    *Failure:* a run whose numbers exceed the seeded tolerances and a tolerance raised to fit them.
+    A failing real run is the correct outcome and re-baselines with data in hand; it is never a
+    reason to relax a number quietly. Also a failure: landing whisper's table without Parakeet's —
+    the two engines run the same six fixtures, and moving one alone hides a regression in the
+    other.
+
+    *Void — not fail — if:* step 102 has not passed for the artifact the run used. A WER measured
+    against unverified bytes measures an unknown model, and recording it would close a question
+    that is still open — this file's first rule, applied to the one table nobody has measured.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here
