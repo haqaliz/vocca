@@ -238,4 +238,15 @@ private actor CountingConfigFileSystem: CleanupConfigFileSystem {
         readCalls += 1
         return data
     }
+
+    // The write half of the seam. This double exists to count *reads*, so the writes refuse
+    // loudly rather than pretending: a resolver test that silently "saved" would be claiming
+    // something about a path it never exercises.
+    struct WriteNotSupported: Error {}
+
+    func createDirectory(at url: URL) async throws { throw WriteNotSupported() }
+
+    func write(_ data: Data, to url: URL) async throws { throw WriteNotSupported() }
+
+    func moveItem(at source: URL, to destination: URL) async throws { throw WriteNotSupported() }
 }

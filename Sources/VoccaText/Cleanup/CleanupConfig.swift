@@ -111,6 +111,48 @@ public struct CleanupConfig: Sendable, Equatable {
         self.byok = byok
     }
 
+    /// The file's bytes for this config — the encode half of ``tolerantDecode(_:log:)``, and the
+    /// only thing that ever writes `cleanup-config.json`.
+    ///
+    /// Untyped JSON (`JSONSerialization`) rather than a synthesized `Codable` conformance, for the
+    /// same reason the decode is: this file is a **hand-edited** surface, and the shape is the
+    /// contract — the three raw provider strings, an `ollama` block with `endpoint` and `model`,
+    /// a `byok` block with `endpoint` and an optional `model`. A synthesized encoder would emit
+    /// whatever the Swift type happens to look like next year.
+    ///
+    /// **Both blocks are written whenever they exist**, not just the selected one: switching to
+    /// the rules rung must not cost the user the endpoint they typed on the cloud one, which is
+    /// exactly what ``tolerantDecode(_:log:)`` already promises a round trip preserves.
+    ///
+    /// **A `nil` model is an absent key, not a null.** The decode reads a missing `model` as "the
+    /// endpoint defaults its own", and `null` is a wrong-typed field a hand-edit would have to
+    /// puzzle over.
+    ///
+    /// The formatting is the hand-editability contract: `.sortedKeys` so two saves of the same
+    /// config produce the same bytes, `.prettyPrinted` so a person can read it, and
+    /// `.withoutEscapingSlashes` so an endpoint reads as an endpoint rather than as
+    /// `http:\/\/localhost:11434`.
+    ///
+    /// **No key material is representable here.** The BYOK key lives in the Keychain behind the
+    /// `KeyProvider` seam; ``ByokCleanupConfig`` has no field for one, and
+    /// `CleanupConfigStoreTests` asserts the written document carries none.
+    public func encoded() throws -> Data {
+        var object: [String: Any] = ["provider": provider.rawValue]
+        if let ollama {
+            object["ollama"] = ["endpoint": ollama.endpoint, "model": ollama.model]
+        }
+        if let byok {
+            var block: [String: Any] = ["endpoint": byok.endpoint]
+            if let model = byok.model {
+                block["model"] = model
+            }
+            object["byok"] = block
+        }
+        return try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    }
+
     /// Decode `data` tolerantly: never throws, unknown keys ignored, and every invalid selected
     /// block degrades to the rules default with exactly one `log` call.
     ///
