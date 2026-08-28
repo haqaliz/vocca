@@ -215,7 +215,7 @@ final class EngineSwitchTests: XCTestCase {
         XCTAssertTrue(
             harness.root.menuBarConditions.isEnginePrepared,
             "the gate must not be closed under a live microphone")
-        let whisperPrepares = await (harness.assembled.engines.count)
+        let whisperPrepares = harness.assembled.engines.count
         XCTAssertEqual(
             whisperPrepares, 1,
             "and no second pipeline was assembled — the refusal happened before anything moved")
@@ -336,7 +336,7 @@ final class EngineSwitchTests: XCTestCase {
             until: { harness.root.menuBarConditions.isEnginePrepared },
             "the switch must finish assembling and open the gate")
 
-        let identities = await harness.assembled.identities
+        let identities = harness.assembled.identities
         XCTAssertEqual(
             identities, ["parakeet-tdt-0.6b-v3", "whisper-large-v3-turbo"],
             """
@@ -509,7 +509,7 @@ final class EngineSwitchTests: XCTestCase {
             harness.source.beginCount, 0,
             "and a press in that window must still be refused before the microphone is asked")
 
-        let identities = await harness.assembled.identities
+        let identities = harness.assembled.identities
         XCTAssertFalse(
             identities.contains("parakeet-tdt-0.6b-v3"),
             "no pipeline may be installed over the replaced engine either; got \(identities)")
