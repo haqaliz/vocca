@@ -703,10 +703,64 @@ This file orients a coding agent working in this repository. Read it first.
 > - **Toggle's cost is now paid by default**: it has no finger-as-ground-truth, so a forgotten
 >   session runs to the 120 s ceiling. That was an opt-in cost when hold-to-talk was the default.
 >
+> **The `release-packaging` change landed 2026-08-28 — Vocca acquired an install path, and the
+> one artifact it had ever published turned out not to be installable.** `v0.1.0` shipped an
+> archive that could not launch on any Mac, and Gatekeeper never got a say: `zip -r` **follows
+> symlinks**, and `whisper.framework` is a versioned framework built out of them. Measured on the
+> published asset — the 5.7 MB binary stored **three times** (`Versions/A/whisper`,
+> `Versions/Current/whisper`, the framework root), `Versions/Current` and `Resources` extracted as
+> real directories, 11.5 MB zipped becoming 34 MB extracted, and `codesign --verify --deep
+> --strict` failing with *"bundle format is ambiguous (could be app or framework)"*. It would have
+> failed notarization later for the same reason. `Scripts/notarize.sh` was already correct; it
+> uses `ditto -c -k --keepParent`. The release now builds a **DMG** (`hdiutil` over a `cp -R`
+> staging folder, which preserves the links — verified both directions against a synthetic
+> framework of the same shape), and the packaging step **mounts the DMG it just built**, asserts
+> `Versions/Current` is still a symlink, and runs `codesign --verify` on the mounted app. That
+> gate exists because **nothing in `Scripts/test-with-floor.sh` reaches the packaging step**, which
+> is exactly why a broken archive was publishable and green — the same shape as the three
+> `fix/local-dev-launch` defects, and the fourth thing CI could not have caught.
+>
+> Two claims were corrected by measuring the artifact rather than reasoning about it. The bundle
+> carries **no `embedded.provisionprofile`** and its only entitlement is
+> `com.apple.security.device.audio-input`, which Apple does not gate — so **there is no device
+> restriction and the app is not locked to the machine that signed it**; the v0.1.0 release notes
+> and the workflow header both said otherwise, and both were wrong in the pessimistic direction.
+> Gatekeeper is the whole of the obstacle, and `xattr -dr com.apple.quarantine` clears it. And the
+> signature already carries a **real secure timestamp** (`Timestamp=Aug 17, 2026`, not a local
+> `Signed Time=`), because `Scripts/sign.sh` passes `--timestamp` — so deck's
+> certificate-expiry argument does not transfer to Vocca, and what actually happens at the
+> certificate's expiry is recorded as **unverified** rather than inherited as a conclusion.
+>
+> The distribution surface is deck's, mirrored: `homebrew/vocca.rb` is the source of truth and
+> `haqaliz/homebrew-vocca` is the tap (`Casks/vocca.rb` a mirror — a Homebrew requirement, since
+> `brew tap` resolves to a repo named `homebrew-<name>` whose root holds `Casks/`, so a
+> subdirectory of this repo cannot be tapped). `README.md` gained an Install section covering both
+> paths, the quarantine ordering (**opening a quarantined app does not warn — macOS deletes it**),
+> and a First launch section saying `LSUIElement` means no window and to look at the menu bar.
+> `docs/planning/notarization/runbook.md` is what to execute the day a Developer ID exists.
+> Test floor unchanged at 1345: no test changed, and the defect was not catchable by one.
+>
+> **What that change does NOT prove, and must not be claimed:**
+> - **The DMG has never been built.** The packaging step and its symlink gate have not run —
+>   `release.yml` fires only on a `v*` tag, and no tag has been pushed since. The mechanism is
+>   verified against a synthetic framework, not against Vocca's own bundle.
+> - **Nothing has been installed from a tap.** `homebrew/vocca.rb` ships with **placeholder
+>   `version` and `sha256`** and must not reach the tap until a DMG release exists; the tap repo
+>   currently holds a README and no cask. `brew install` has never been run.
+> - **The cask's `zap` list is unexercised**, and it names paths that matter — the models
+>   (~470 MB) and the `recovery/` journal, which is the on-disk half of "a transcript is never
+>   lost".
+> - **`v0.1.0` was deleted**, tag preserved. Vocca currently publishes no release at all, and the
+>   next one is the first that anyone could install — which is why it waits on
+>   `SMOKE_CHECKLIST.md` steps 62–68 rather than on a version bump.
+>
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no
 >   Apple Developer ID and no `notarytool` credential. Only its credential-detect-and-skip path
->   is exercised.
+>   is exercised. `docs/planning/notarization/runbook.md` is the ordered procedure for the day one
+>   exists; every step in it is unexecuted. What being unnotarized costs is **Gatekeeper, and only
+>   Gatekeeper** — the bundle is not machine-locked (no provisioning profile, one ungated
+>   entitlement), so `xattr -dr com.apple.quarantine` is the whole workaround.
 > - **CI cannot reach the parts most likely to break**: `CGEvent.tapCreate` returns `nil` with no
 >   Accessibility grant and TCC cannot be granted on a hosted runner; there is no microphone; and
 >   `AVAudioSinkNode` is unsupported in manual rendering mode, so the realtime capture path has no
