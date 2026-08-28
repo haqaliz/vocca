@@ -31,8 +31,14 @@ public struct SettingsBindings {
     public var hotkeyDisplayName: String
     /// The engine currently transcribing, for the Speech tab.
     public var engineDisplayName: () -> String
-    /// The cleanup provider's name and whether it sends text off the machine.
-    public var cleanupSummary: () -> (name: String, endpoint: String?)
+    /// **What Vocca is actually cleaning with** — the resolved provider's name, its own egress
+    /// declaration, and the endpoint when there is one to name.
+    ///
+    /// `nil` when nothing has resolved (a composition with no resolver, which is every headless
+    /// harness): the page claims nothing rather than inventing an answer. Asynchronous because the
+    /// resolver is an actor and the answer is a fact about the process, not a captured copy — the
+    /// `engineDisplayName` argument, applied to the one tab whose wrong answer is a privacy claim.
+    public var cleanupSummary: () async -> CleanupSummary?
     /// Loads the user's replacements.
     public var loadDictionary: () async -> [ReplacementRule]
     /// Saves the user's replacements.
@@ -83,7 +89,7 @@ public struct SettingsBindings {
         setToggleMode: @escaping (Bool) -> Void,
         hotkeyDisplayName: String,
         engineDisplayName: @escaping () -> String,
-        cleanupSummary: @escaping () -> (name: String, endpoint: String?),
+        cleanupSummary: @escaping () async -> CleanupSummary?,
         loadDictionary: @escaping () async -> [ReplacementRule],
         saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
         loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
@@ -213,23 +219,29 @@ private struct CleanupSettingsPage: View {
 
     let bindings: SettingsBindings
 
+    @State private var summary: CleanupSummary?
+
     var body: some View {
-        let summary = bindings.cleanupSummary()
-        return Form {
+        Form {
             Section("Cleanup") {
-                LabeledContent("Using", value: summary.name)
-                if let endpoint = summary.endpoint {
-                    Label {
-                        Text("Text is sent to \(endpoint).")
-                    } icon: {
-                        Image(systemName: "cloud")
-                    }
-                    .foregroundStyle(VoccaTheme.egress)
-                    .font(.caption)
-                } else {
-                    Label("Runs on this Mac. Nothing is sent anywhere.", systemImage: "checkmark.shield")
+                if let summary {
+                    LabeledContent("Using", value: summary.name)
+                    if summary.sendsTextOffTheMac {
+                        Label {
+                            Text(summary.endpoint.map { "Text is sent to \($0)." }
+                                ?? "Text is sent off this Mac.")
+                        } icon: {
+                            Image(systemName: "cloud")
+                        }
+                        .foregroundStyle(VoccaTheme.egress)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                    } else {
+                        Label(
+                            "Runs on this Mac. Nothing is sent anywhere.",
+                            systemImage: "checkmark.shield")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Text(SettingsCopy.cleanupNotEditable)
                     .font(.caption)
@@ -237,6 +249,7 @@ private struct CleanupSettingsPage: View {
             }
         }
         .formStyle(.grouped)
+        .task { summary = await bindings.cleanupSummary() }
     }
 }
 

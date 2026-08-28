@@ -83,7 +83,7 @@ final class SpeechTabWiringTests: XCTestCase {
             setToggleMode: { _ in },
             hotkeyDisplayName: "⌥Space",
             engineDisplayName: { "Parakeet v3" },
-            cleanupSummary: { ("Built-in rules", nil) },
+            cleanupSummary: { nil },
             loadDictionary: { [] },
             saveDictionary: { _ in })
 

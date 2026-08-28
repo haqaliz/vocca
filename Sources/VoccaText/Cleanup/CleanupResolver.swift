@@ -123,6 +123,32 @@ public actor CleanupResolver {
         resolvedEndpoint
     }
 
+    /// **What the Cleanup tab reports** — the resolved provider's name and egress, derived rather
+    /// than read off the file (F3).
+    ///
+    /// Resolves first, so the answer is about the provider that is actually running: an `ollama`
+    /// selection with an undialable endpoint has already degraded to rules here, and a tab echoing
+    /// the file would tell a user their text goes to a machine nothing ever dials. Safe to call
+    /// at any time — ``resolve()`` is single-flight and resolve-once, so asking costs one
+    /// dictionary-store construction on the first call and nothing afterwards.
+    public func summary() async -> CleanupSummary {
+        guard let provider = try? await resolve() else {
+            // Unreachable: `resolve()` never throws (every invalid configuration degrades to the
+            // rules provider). Spelled as the safe direction rather than force-unwrapped, and the
+            // safe direction here is the local one — a settings page must not invent egress.
+            return CleanupSummary(
+                name: ShippingRulesCleanupProvider(
+                    store: FileSystemDictionaryStore(directory: store.directory)
+                ).identity.displayName,
+                sendsTextOffTheMac: false,
+                endpoint: nil)
+        }
+        return CleanupSummary.resolved(
+            identity: provider.identity,
+            requiresNetwork: provider.requiresNetwork,
+            endpoint: resolvedEndpoint)
+    }
+
     /// Build the provider from the config — never throws; invalid blocks degrade to rules.
     private func build() async -> any CleanupProvider {
         let config = await store.load()

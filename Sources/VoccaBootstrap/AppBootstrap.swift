@@ -451,6 +451,9 @@ public enum AppBootstrap {
         // `[ installed ]`, the bytes beside [Remove] and the model the engine opens are all one
         // directory. Assigned after construction, the `strategyMemory` shape.
         root.modelStore = store
+        // The Cleanup tab's source of truth: the same resolver the pipeline cleans through and the
+        // egress badge folds from, so the tab cannot report a provider Vocca is not using (F3).
+        root.cleanupResolver = cleanupResolver
 
         // The strategy memory, reached back from the custody chain once it has assembled — the
         // Apps tab's write path (C8 R7). Without it a pin would reach the file and not the
@@ -1015,6 +1018,16 @@ public final class DictationLoopRoot {
     /// removal out loud rather than to report a success that did not happen.
     public var modelStore: ModelStore?
 
+    /// The one cleanup resolver for the process, reached back from `configure` — the
+    /// ``modelStore`` precedent, and for the same reason: the Cleanup tab needs it and the root's
+    /// initializer is not where a composition detail belongs.
+    ///
+    /// `nil` only in a composition that built no resolver — every headless harness in the suite,
+    /// and the tab's fallback there is to claim nothing rather than to invent an answer. The tab
+    /// asks it what actually resolved, which is what makes the page and the widget's egress badge
+    /// two renderings of one fact instead of two guesses (F3).
+    public var cleanupResolver: CleanupResolver?
+
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
     /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
@@ -1047,7 +1060,15 @@ public final class DictationLoopRoot {
                     engineDisplayName: { [weak self] in
                         self?.resolver.selection.tier.engine.displayName ?? ""
                     },
-                    cleanupSummary: { ("Built-in rules", nil) },
+                    // Derived from the **resolved** provider, never a literal and never the file:
+                    // an `ollama` block with an undialable endpoint has already degraded to rules
+                    // by the time the resolver answers, and a tab echoing the file would tell a
+                    // user their text goes to a machine nothing ever dials (F3). With no resolver
+                    // — every headless harness — the page claims nothing rather than inventing an
+                    // answer, which for a privacy surface is the only safe direction.
+                    cleanupSummary: { [weak self] in
+                        await self?.cleanupResolver?.summary()
+                    },
                     // The same store the rules engine reads from, so an edit here is an edit the
                     // next dictation applies — not a second copy of the file that drifts from it.
                     loadDictionary: { await FileSystemDictionaryStore().load() },
