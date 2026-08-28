@@ -396,6 +396,69 @@ final class EngineSwitchTests: XCTestCase {
         XCTAssertEqual(prepares, 1, "nor warm the engine a second time")
     }
 
+    // MARK: - R4 (PRD M11): preparing is not unavailable
+
+    /// **R4.** While the newly selected engine warms, the root reports **preparing** — a state of
+    /// its own, distinct from the unavailable it reports when no preparation is under way.
+    ///
+    /// PRD M11's rule is that no in-between window may look identical to a failure, and this is the
+    /// window it was written for: the model is sitting on disk, nothing is wrong, and the only true
+    /// thing to say is "a moment". Reporting the same state as "there is no model" would tell the
+    /// user their switch broke something.
+    func testASwitchInFlightReportsPreparingRatherThanUnavailable() async {
+        let whisper = GatedEngine.whisper()
+        let harness = Harness(parakeet: StubEngine.parakeet(), whisper: whisper)
+        harness.root.startEnginePreparation()
+        await harness.drain(
+            until: { harness.root.engineReadinessState == .ready },
+            "the launch preload must complete")
+
+        harness.root.setEngineSelection(Self.whisper)
+        XCTAssertEqual(
+            harness.root.engineReadinessState, .preparing,
+            "a switch in flight is a wait, not a failure")
+        XCTAssertTrue(
+            harness.root.menuBarConditions.isPreparingEngine,
+            "and the menu bar's own projection carries it — the icon must not read as broken")
+        XCTAssertNotEqual(
+            MenuBarStateReducer.state(for: harness.root.menuBarConditions),
+            MenuBarStateReducer.state(
+                for: MenuBarConditions(isEnginePrepared: false, isPreparingEngine: false)),
+            "preparing and unavailable must not render as the same icon")
+
+        await whisper.release()
+        await harness.drain(
+            until: { harness.root.engineReadinessState == .ready },
+            "and the state resolves to ready when the engine is warm")
+        XCTAssertFalse(
+            harness.root.menuBarConditions.isPreparingEngine,
+            "the preparing flag is cleared with it")
+    }
+
+    /// **R4, the other side.** A preparation that *fails* reports unavailable, not preparing: there
+    /// is nothing in flight and waiting will not help. The selection stays switched — the user
+    /// asked for this engine, and silently reverting would be deciding for them — so the honest
+    /// report is "this engine is not available", which is exactly what the next press is told.
+    func testAFailedPreparationReportsUnavailableRatherThanPreparing() async {
+        let harness = Harness(parakeet: StubEngine.parakeet(), whisper: FailingEngine.whisper())
+        harness.root.startEnginePreparation()
+        await harness.drain(
+            until: { harness.root.engineReadinessState == .ready },
+            "the launch preload must complete")
+
+        harness.root.setEngineSelection(Self.whisper)
+        await harness.drain(
+            until: { harness.root.engineReadinessState == .unavailable },
+            "a failed preparation is not a wait — it is a state the user can act on")
+        XCTAssertFalse(harness.root.menuBarConditions.isEnginePrepared)
+        XCTAssertFalse(
+            harness.root.menuBarConditions.isPreparingEngine,
+            "nothing is in flight, so nothing may claim to be")
+        XCTAssertEqual(
+            harness.root.resolver.selection, Self.whisper,
+            "and the selection stays switched — the user asked for this engine")
+    }
+
     // MARK: - The stale-preparation race
 
     /// **The sharpest hazard in this aspect.** A preparation already in flight for the *replaced*
@@ -544,6 +607,32 @@ private actor GatedEngine: ASREngine {
         Transcript(
             text: "", segments: [], engine: identity, isFinal: true,
             audioDuration: buffer.audioDuration)
+    }
+}
+
+/// An engine whose `prepare()` always throws — a model that is missing, or bytes that will not
+/// load. The failed-preparation row needs one, because a *failed* wait and an *ongoing* wait are
+/// the two states R4 exists to keep apart.
+private actor FailingEngine: ASREngine {
+    static func whisper() -> FailingEngine {
+        FailingEngine(
+            identity: EngineIdentity(
+                id: "whisper-large-v3-turbo", displayName: "Whisper large-v3-turbo", isLocal: true))
+    }
+
+    let identity: EngineIdentity
+    let supportsStreaming = false
+
+    init(identity: EngineIdentity) {
+        self.identity = identity
+    }
+
+    func prepare() async throws {
+        throw VoccaError.modelUnavailable(identity, reason: "the test's missing model")
+    }
+
+    func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+        throw VoccaError.modelUnavailable(identity, reason: "the test's missing model")
     }
 }
 

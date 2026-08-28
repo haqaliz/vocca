@@ -28,7 +28,10 @@ import XCTest
 /// forever.
 ///
 /// The engine can now be switched at runtime, and a switch must **close** the gate again — the
-/// engine that was prepared is not the engine now selected. So the type gains one transition back.
+/// engine that was prepared is not the engine now selected. So the type gains two transitions back:
+/// `markPreparing()` for a wait that is under way, and `markUnavailable()` for one that failed or
+/// never started. The gate itself cannot tell them apart — both are closed — but the surfaces that
+/// tell a person about it must, which is what `EngineReadinessState` is for.
 ///
 /// ## Why closing needs no safety argument and opening does
 ///
@@ -157,7 +160,7 @@ final class EngineReadinessTests: XCTestCase {
             Self.declarationBody(named: "final class EngineReadiness", in: source),
             "EngineReadiness must still be declared in AppBootstrap.swift")
 
-        let openingFunctions = Self.functionsAssigningReadyTrue(in: readinessBody)
+        let openingFunctions = Self.functionsOpeningTheGate(in: readinessBody)
         XCTAssertEqual(
             openingFunctions, ["markReady"],
             """
@@ -203,8 +206,14 @@ final class EngineReadinessTests: XCTestCase {
         return SwiftSourceScanner.bracedBody(in: characters, openingBraceIndex: brace)?.body
     }
 
-    /// Every `func` in `body` whose own body assigns `isReady = true`.
-    private static func functionsAssigningReadyTrue(in body: String) -> Set<String> {
+    /// Every `func` in `body` whose own body **opens** the gate.
+    ///
+    /// Two spellings are recognised, and both must be, because the type has already had one of
+    /// each: the flag form (`isReady = true`) it shipped with, and the state form (`state = .ready`)
+    /// it took when a third answer was needed for the surfaces. A scan that knew only the retired
+    /// spelling would report an empty set and pass vacuously, which is how a lint quietly stops
+    /// linting.
+    private static func functionsOpeningTheGate(in body: String) -> Set<String> {
         var names: Set<String> = []
         let characters = Array(body)
         var index = 0
@@ -229,7 +238,8 @@ final class EngineReadinessTests: XCTestCase {
                 let function = SwiftSourceScanner.bracedBody(
                     in: characters, openingBraceIndex: brace)
             else { break }
-            if function.body.replacingOccurrences(of: " ", with: "").contains("isReady=true") {
+            let compact = function.body.replacingOccurrences(of: " ", with: "")
+            if compact.contains("isReady=true") || compact.contains("state=.ready") {
                 names.insert(name)
             }
             index = function.closingBraceIndex + 1

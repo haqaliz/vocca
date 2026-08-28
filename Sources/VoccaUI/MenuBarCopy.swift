@@ -45,6 +45,7 @@ public enum MenuBarCopy {
         case .noAccessibility: return "exclamationmark.triangle"
         case .noMicrophone: return "mic.slash"
         case .downloadingModel: return "arrow.down.circle"
+        case .preparingEngine: return "hourglass"
         case .secureInput: return "lock"
         }
     }
@@ -59,6 +60,7 @@ public enum MenuBarCopy {
         case .noAccessibility: return "Vocca can't hear the hotkey"
         case .noMicrophone: return "No microphone"
         case .downloadingModel: return "Getting ready"
+        case .preparingEngine: return "Warming up"
         case .secureInput: return "Hotkey paused by another app"
         }
     }
@@ -84,6 +86,8 @@ public enum MenuBarCopy {
                 + "Vocca is allowed to use it."
         case .downloadingModel:
             return "Downloading the speech model. Dictation works as soon as it finishes."
+        case .preparingEngine:
+            return "Loading the speech model. Dictation works as soon as it's ready."
         case .secureInput:
             return "Another app is in a password field, so macOS is hiding the keyboard from "
                 + "everything — including Vocca. This clears up on its own."
@@ -101,7 +105,10 @@ public enum MenuBarCopy {
         case .noAccessibility: return "Open System Settings…"
         case .noMicrophone: return "Open Privacy Settings…"
         case .downloadingModel: return "Show progress…"
-        case .ready, .listening, .transcribing, .secureInput: return nil
+        // `preparingEngine` offers nothing on purpose: a warm-up has no progress window to open
+        // and no setting to change. It ends on its own, exactly as Secure Input does, and a button
+        // would be an action that does nothing.
+        case .ready, .listening, .transcribing, .preparingEngine, .secureInput: return nil
         }
     }
 

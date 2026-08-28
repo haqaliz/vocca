@@ -22,8 +22,20 @@ import XCTest
 /// Two promises meet here:
 ///
 /// - **No restart needed** (`CAPABILITY_ROADMAP.md:78`): a session begun *after* a selection
-///   change reads the *new* selection — the resolver takes the current
-///   ``EngineSelection`` as its input, so nothing about it is cached at launch.
+///   change reads the *new* selection.
+///
+///   This comment used to end "so nothing about it is cached at launch", which was true of the pure
+///   function below and false of the app around it. It was: `AppBootstrap.configure` hardcoded
+///   `EngineSelection.defaultSelection` at five sites, and `DictationEngineResolver` fixed its
+///   selection at `init` with no reset — so changing the engine and pressing the hotkey ran the
+///   engine the app had launched with, for as long as the app kept running. The pure resolution had
+///   nothing cached; the wiring cached everything.
+///
+///   What makes it true is not this function but the `engine-resolution` aspect: the root reads the
+///   persisted selection at every site (`EngineSelectionWiringTests`), and a change **replaces the
+///   resolver** and eagerly prepares the new engine (`EngineSwitchTests`) — because resolve-once is
+///   a promise worth keeping, so a switch is a new resolver rather than a mutated one. This file
+///   pins the pure half; those two pin the half that had been claiming it.
 /// - **No engine swap under a running session** (the never-auto-switch rule, in its
 ///   consumption form): resolution returns an ``EngineIdentity`` value — a snapshot. A
 ///   mid-session selection change moves the *picker's* state, not the identity a running

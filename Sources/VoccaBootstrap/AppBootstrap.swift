@@ -517,7 +517,8 @@ public enum AppBootstrap {
                     SystemSettingsPane.open(at: SystemSettingsPane.accessibilityPanePath)
                 case .noMicrophone:
                     SystemSettingsPane.open(at: SystemSettingsPane.microphonePanePath)
-                case .downloadingModel, .ready, .listening, .transcribing, .secureInput:
+                case .downloadingModel, .preparingEngine, .ready, .listening, .transcribing,
+                    .secureInput:
                     break
                 }
             },
@@ -1462,8 +1463,18 @@ public final class DictationLoopRoot {
     /// calls it directly after constructing the root with an injected pipeline.
     public func markEnginePrepared() {
         readiness.markReady()
-        updateMenuBarConditions { $0.isEnginePrepared = true }
+        updateMenuBarConditions {
+            $0.isEnginePrepared = true
+            $0.isPreparingEngine = false
+        }
     }
+
+    /// **What the engine is doing** — the projection the menu bar and the Settings surfaces read.
+    ///
+    /// Three answers rather than the gate's two, because "warming up after a switch" and "there is
+    /// no usable model" are the same thing to a microphone and completely different things to a
+    /// person (PRD M11).
+    public var engineReadinessState: EngineReadinessState { readiness.state }
 
     /// Closes the readiness gate: a preparation is under way and the engine behind it is not ready.
     ///
@@ -1473,7 +1484,20 @@ public final class DictationLoopRoot {
     /// exists in which the gate is open over an engine the user has just replaced.
     private func markEnginePreparing() {
         readiness.markPreparing()
-        updateMenuBarConditions { $0.isEnginePrepared = false }
+        updateMenuBarConditions {
+            $0.isEnginePrepared = false
+            $0.isPreparingEngine = true
+        }
+    }
+
+    /// Closes the readiness gate with **nothing in flight**: the preparation failed, so waiting is
+    /// not the remedy and no surface may say it is.
+    private func markEngineUnavailable() {
+        readiness.markUnavailable()
+        updateMenuBarConditions {
+            $0.isEnginePrepared = false
+            $0.isPreparingEngine = false
+        }
     }
 
     /// The launch half of the engine lifecycle: `prepare` in the background, then assemble the
@@ -1515,8 +1539,11 @@ public final class DictationLoopRoot {
         } catch {
             logger.error(
                 "the engine could not be prepared: \(String(describing: error), privacy: .public)")
-            // The readiness gate stays closed — sessions refuse honestly with .modelUnavailable
-            // until a later preparation succeeds.
+            // The gate stays closed — sessions refuse honestly with .modelUnavailable until a later
+            // preparation succeeds — and the reported state drops from `preparing` to
+            // `unavailable`, because nothing is in flight any more and a surface still saying "a
+            // moment" would be promising a wait that never ends.
+            if isCurrent(resolver) { markEngineUnavailable() }
             return
         }
         guard isCurrent(resolver) else { return }
@@ -1524,6 +1551,7 @@ public final class DictationLoopRoot {
             guard let engine = await resolver.engineIfReady() else {
                 logger.error(
                     "the engine reported prepared but answered no engine — nothing was installed")
+                markEngineUnavailable()
                 return
             }
             let pipeline: DictationPipeline
@@ -1532,6 +1560,7 @@ public final class DictationLoopRoot {
             } catch {
                 logger.error(
                     "the dictation pipeline could not be assembled: \(String(describing: error), privacy: .public)")
+                if isCurrent(resolver) { markEngineUnavailable() }
                 return
             }
             guard isCurrent(resolver) else { return }
@@ -2052,21 +2081,57 @@ private final class EffectRouter {
 /// only after `prepareIfNeeded()` has succeeded. `EngineReadinessTests` pins that closed set by
 /// scanning this file, because the hazard is an opener nobody has written yet.
 final class EngineReadiness {
-    private(set) var isReady = false
+    /// The state itself — three answers, because two cannot tell a wait from a failure.
+    private(set) var state: EngineReadinessState = .unavailable
+
+    /// The gate's own question: may a session open the microphone? Only
+    /// ``EngineReadinessState/ready`` answers yes, so a state added to that enum is closed by
+    /// default rather than open by accident.
+    var isReady: Bool { state == .ready }
 
     /// The one opener. See the type's note: every other transition closes.
     func markReady() {
-        isReady = true
+        state = .ready
     }
 
-    /// Closes the gate: a preparation is under way (a launch preload, or the eager preparation a
-    /// selection change starts) and the engine behind it is not ready to transcribe.
+    /// Closes the gate because a preparation is **under way** — a launch preload, or the eager
+    /// preparation a selection change starts.
     ///
     /// Idempotent — a state assignment, not a counter. Nothing about a switch should depend on how
     /// many times either transition was called.
     func markPreparing() {
-        isReady = false
+        state = .preparing
     }
+
+    /// Closes the gate because there is **nothing in flight**: a preparation failed, or none has
+    /// started. Identical to ``markPreparing()`` at the gate's own level, where both are simply
+    /// "closed", and different everywhere a person is told about it — one is a wait, the other is
+    /// something to act on.
+    func markUnavailable() {
+        state = .unavailable
+    }
+}
+
+/// **What the engine is doing, for the surfaces that report it** — the three-way answer PRD M11
+/// asks for.
+///
+/// Two states are enough for the readiness *gate*, which only ever asks "may the microphone open?".
+/// They are not enough for the person. After an engine switch the model is already on disk, nothing
+/// is wrong, and the only true thing to say is "a moment"; a failed load is a wait that will never
+/// end. Reporting both as one state is how an in-between window comes to look like a failure, which
+/// M11 names as this repository's dominant bug class — an `LSUIElement` app where a successful
+/// launch and a dead one look exactly the same.
+///
+/// The gate is closed for everything but ``ready``, so a fourth state added here cannot accidentally
+/// open a microphone.
+public enum EngineReadinessState: Sendable, Hashable {
+    /// No preparation is in flight: none has started, or the last one failed. The next press is
+    /// refused, and waiting will not change that.
+    case unavailable
+    /// A preparation is running right now. The next press is refused, and waiting *is* the remedy.
+    case preparing
+    /// The selected engine is prepared. The microphone may open.
+    case ready
 }
 
 /// The microphone, gated on engine readiness — the "the mic never opens" half of the spec.

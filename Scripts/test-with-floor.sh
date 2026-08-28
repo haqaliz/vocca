@@ -1208,8 +1208,32 @@ set -euo pipefail
 # would be indistinguishable from a fresh install and would reset a user's settings in silence; that
 # test fails on its own against the obvious implementation, which is how it was written.
 #
+# The engine-resolution aspect adds twenty-six (1375 -> 1401), of which the load-bearing few are
+# worth naming. The readiness latch became two-way — a switch has to be able to close the gate it
+# could previously only open — and the test that guards the dangerous direction is a scan of the
+# shipped source rather than a behavioural check: a behavioural test can only exercise the openers
+# that already exist, and the hazard is the one nobody has written yet. Planting a second opener
+# fails it, in either spelling the type has used.
+#
+# The sharpest row is the stale-preparation race. The launch preload can still be warming Parakeet
+# when the user picks Whisper; the switch replaces the resolver and starts a second preparation, and
+# then the first one succeeds — for a resolver nobody is using. With the guard removed the test
+# fails three ways: the gate opens over an engine that was never prepared, a pipeline is installed
+# over the replaced one, and a press really does open the microphone. That is the whole reason the
+# row exists, and it is the reason the resolver is re-compared after every suspension rather than
+# merely swapped.
+#
+# The rest are the wiring: five hardcoded sites collapsed to one read, pinned by counting the reads
+# rather than checking a value — two sites reading differently is the failure a five-site change
+# invites, and one read cannot produce it; the activation mode read at launch and written back, each
+# row driving a real chord through the tap so the assertion is which microphone opened rather than
+# which mode the root claims; and a preparing state distinct from an unavailable one, because after
+# a switch the model is on disk, nothing is wrong, and an icon reporting "no model" would tell the
+# user their switch broke something. One test was deleted with the duplication it guarded: the
+# shipped activation default no longer exists twice.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1375
+MINIMUM_EXECUTED_TESTS=1401
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
