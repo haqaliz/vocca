@@ -14,6 +14,7 @@
 
 import Foundation
 import Synchronization
+import VoccaCore
 
 /// Why a model download did not complete.
 ///
@@ -114,6 +115,21 @@ public actor ModelStore {
         return !Self.containsPartFile(under: directory)
     }
 
+    /// Whether **this tier's** model is present and verified, at the given version.
+    ///
+    /// The tier's directory is named by ``EngineTier/storageID`` — storage is keyed by tier, not
+    /// by engine — so this is the query the Speech tab's per-row `[installed]`/`[download]` badge
+    /// is drawn from, and asking it by tier is what makes the badge tell the truth per row: the
+    /// two Whisper tiers are two artifacts with two directories and two verified markers, and one
+    /// tier's download must never answer for the other's.
+    ///
+    /// It is version-scoped because presence is: a verified version directory is immutable
+    /// (`PRODUCT_SPEC.md:273`), and the version the product asks about is the one its shipped
+    /// manifest pins.
+    public func isPresent(tier: EngineTier, version: String) -> Bool {
+        isPresent(engineID: tier.storageID, version: version)
+    }
+
     /// Whether any file under `directory` — at any depth — carries the `.part` suffix.
     private static func containsPartFile(under directory: URL) -> Bool {
         guard
@@ -128,6 +144,73 @@ public actor ModelStore {
             }
         }
         return false
+    }
+
+    /// How many bytes this tier's version occupies on disk — `0` when it is not there.
+    ///
+    /// This is the "disk used" figure a Speech-tab row shows (`PRODUCT_SPEC.md:260`), so it is
+    /// the total of every file under the tier's version directory **at any depth**: the SDK-shaped
+    /// layout nests its files under a named subdirectory and its file names are themselves paths,
+    /// so a walk that stopped at the top level would report `0` for the default engine. The scan
+    /// is the same recursive enumeration ``isPresent(engineID:version:)`` uses for `.part` files,
+    /// for the same reason.
+    ///
+    /// **Never throws, and answers `0` rather than failing.** A directory that cannot be read is a
+    /// permissions quirk; a settings page must still render, with a row that reports nothing
+    /// rather than a page that reports nothing.
+    public func bytesOnDisk(tier: EngineTier, version: String) -> Int {
+        Self.totalFileBytes(under: baseURL(for: tier.storageID, version: version))
+    }
+
+    /// The summed size of every regular file under `directory`, at any depth. Directories, hidden
+    /// files and anything whose size cannot be read contribute nothing.
+    private static func totalFileBytes(under directory: URL) -> Int {
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+                options: [.skipsHiddenFiles])
+        else { return 0 }
+        var total = 0
+        for case let url as URL in enumerator {
+            guard
+                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                values.isRegularFile == true,
+                let size = values.fileSize
+            else { continue }
+            total += size
+        }
+        return total
+    }
+
+    /// Deletes this tier's version directory — its files **and** its verified marker — so the
+    /// tier reads as absent afterwards and can be downloaded again.
+    ///
+    /// The marker is deleted with the directory rather than separately, and that ordering is the
+    /// whole safety of the operation: a removal that freed the bytes but left the marker behind
+    /// would leave a tier that reads `[installed]`, loads nothing, and can never repair itself,
+    /// because ``downloadIfMissing`` short-circuits on exactly that marker.
+    ///
+    /// **Idempotent.** Removing a tier that is not there succeeds silently: the settings row's
+    /// [Remove] pressed twice, or pressed on a model a previous run already deleted, is not an
+    /// error a user should have to read.
+    ///
+    /// **Version-scoped, like presence.** Only the named version's directory is deleted, never the
+    /// whole `<storageID>/` tree — the number a settings row shows beside [Remove] is
+    /// ``bytesOnDisk(tier:version:)`` for that same version, and deleting a version the caller did
+    /// not name would free bytes it never offered to free.
+    ///
+    /// **A download in flight for this tier is not interrupted**, and this method does not consult
+    /// the one-flight guard. That interaction is undecided (`plan_20260828.md` §6): the current
+    /// behaviour is documented by test (`ModelStoreTierKeyingTests`), and the policy belongs to a
+    /// later aspect rather than to an invented rule here.
+    ///
+    /// - Throws: the underlying `FileManager` error when a directory that exists cannot be
+    ///   deleted. A removal the user asked for and that did not happen must say so.
+    public func remove(tier: EngineTier, version: String) throws {
+        let directory = baseURL(for: tier.storageID, version: version)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        try FileManager.default.removeItem(at: directory)
     }
 
     /// Downloads a model version if it is not already present and verified — and never otherwise.
