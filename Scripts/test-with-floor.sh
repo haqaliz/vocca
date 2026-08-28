@@ -1174,6 +1174,12 @@ set -euo pipefail
 # the shipped script — a renamed row missing from the checklist, a known-hostile row expecting
 # a rung, an invented rung — because a self-check that cannot fail proves nothing.
 #
+# The tier-keying aspect adds eleven (1345 -> 1356): the collision the two Whisper manifests
+# carried — one directory and one verified marker for two different artifacts — plus the
+# per-tier presence, disk-usage and removal queries the Speech tab asks, and the uniqueness
+# guard that stops the class recurring. The guard's own planted-duplicate row is included: a
+# gate that cannot fail proves nothing.
+#
 # The bundle-identifier verification adds four (1341 -> 1345): the seed cross-check caught in
 # both directions (a row claiming a hostile seed the Swift data does not name, and a seeded
 # application marked unseeded), a display name planted where a bundle identifier belongs, and
@@ -1182,7 +1188,7 @@ set -euo pipefail
 # that would have caught `com.google.docs` before it reached a plan.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1345
+MINIMUM_EXECUTED_TESTS=1356
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

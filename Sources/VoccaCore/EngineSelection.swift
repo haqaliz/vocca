@@ -60,9 +60,15 @@ public enum EngineTier: Sendable, Hashable, CaseIterable {
 
 /// The closed set of ASR engines the picker can select — the seeded two, no more.
 ///
-/// ``id`` is the stable machine key the model store keys its directory by (C8) and persisted
-/// settings decode back (C14); ``identity`` is the full ``EngineIdentity`` the transcript
-/// attribution carries, so the selection's engine is exactly the engine that signs transcripts.
+/// ``id`` is the stable machine key **attribution** uses and persisted settings decode back
+/// (C14); ``identity`` is the full ``EngineIdentity`` the transcript attribution carries, so the
+/// selection's engine is exactly the engine that signs transcripts.
+///
+/// ``id`` is **not** the model store's directory key, though it read as one until 2026-08-28.
+/// Both Whisper tiers share this engine, so keying storage by it gave two different artifacts one
+/// directory and one verified marker. Storage is keyed by tier — see ``EngineTier/storageID``.
+/// Sharing ``id`` across an engine's tiers is correct for signing a transcript and wrong for
+/// naming a directory, and the two answers are now two properties.
 /// Both seeded engines are local, so ``EngineIdentity.isLocal`` is `true` and no egress badge
 /// applies.
 public enum EngineCandidate: Sendable, Hashable, CaseIterable {
