@@ -49,4 +49,11 @@ public protocol SettingsStore {
     func activationMode() -> HotkeyConfiguration.Activation
     /// Persist the chosen activation mode.
     func setActivationMode(_ activation: HotkeyConfiguration.Activation)
+    /// Whether the user has read and accepted the cloud-cleanup confirmation
+    /// (`PRODUCT_SPEC.md:273`). `false` on a fresh install, and `false` for anything unreadable —
+    /// the dialog is shown again rather than an agreement being assumed.
+    func hasAcknowledgedCloudCleanup() -> Bool
+    /// Record — or withdraw — that acknowledgement. Best-effort, never throws: a failed write
+    /// means the dialog appears once more, which is the safe direction.
+    func setAcknowledgedCloudCleanup(_ acknowledged: Bool)
 }

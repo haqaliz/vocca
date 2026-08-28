@@ -374,6 +374,16 @@ private final class AgreementSettingsStore: SettingsStore, @unchecked Sendable {
     func setActivationMode(_ activation: HotkeyConfiguration.Activation) {
         self.activation = activation
     }
+
+    // The cloud-cleanup acknowledgement is not what these tests are about, so the double answers
+    // the safe direction and remembers a write — `false` means the confirmation is shown, which
+    // is never the dangerous answer.
+    private var acknowledgedCloud = false
+
+    func hasAcknowledgedCloudCleanup() -> Bool { acknowledgedCloud }
+
+    func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }
+
 }
 
 /// An engine whose `prepare()` blocks until the test lets it finish — the only way to hold a root

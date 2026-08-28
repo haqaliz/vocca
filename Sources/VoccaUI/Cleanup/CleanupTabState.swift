@@ -66,6 +66,13 @@ public struct CleanupTabState: Sendable, Equatable {
     public var message: String?
     /// The rows, derived from everything above, in the spec's order.
     public var rows: [CleanupTabRow]
+    /// The rung whose confirmation dialog is open, or `nil`. Only the cloud rung ever appears
+    /// here — and while it does, nothing else has moved.
+    public var pendingConfirmation: CleanupProviderKind?
+    /// Whether the user has read and accepted the cloud-cleanup dialog, as the settings store
+    /// remembers it across launches. `false` until ``CleanupTabAction/acknowledgementLoaded(_:)``
+    /// says otherwise, which is the safe direction: the worst case is a dialog shown twice.
+    public var hasAcknowledgedCloud: Bool
 
     /// The state the window opens in: the zero-network default, and no claim about anything.
     public static let initial = CleanupTabState()
@@ -76,6 +83,8 @@ public struct CleanupTabState: Sendable, Equatable {
         self.summary = nil
         self.isLoaded = false
         self.message = nil
+        self.pendingConfirmation = nil
+        self.hasAcknowledgedCloud = false
         self.rows = CleanupTabReducer.rows(selection: .rules, draft: .empty)
     }
 }
@@ -98,6 +107,16 @@ public enum CleanupTabAction: Sendable, Equatable {
     case saveFailed(String)
     /// A rung could not be chosen yet, with the sentence saying why.
     case selectionRefused(String)
+    /// The settings store was asked whether the cloud dialog has already been accepted.
+    case acknowledgementLoaded(Bool)
+    /// The cloud confirmation was put in front of the user. Nothing else moves while it is up.
+    case confirmationRequested(CleanupProviderKind)
+    /// The user read it and agreed. **Acknowledges; does not write** — the write is the plan's,
+    /// and the selection still waits for it to land.
+    case confirmationAccepted
+    /// The user dismissed it. Nothing is acknowledged, nothing is written, and the previous
+    /// choice is untouched — which is true here by construction rather than by a rollback.
+    case confirmationDeclined
 }
 
 /// **What picking a rung must actually do.**
@@ -110,6 +129,10 @@ public enum CleanupTabPlan: Sendable, Equatable {
     case write(CleanupConfigDraft)
     /// The rung is missing something the file needs. Nothing is written and nothing moves.
     case refuse(String)
+    /// The rung sends text off the machine and the user has not yet agreed to that. Show the
+    /// dialog `PRODUCT_SPEC.md:273` requires — *"not a checkbox buried in a paragraph"* — and
+    /// write nothing until they accept.
+    case confirm(CleanupProviderKind)
 }
 
 /// The Cleanup tab's decisions — pure, clock-free, and holding no store of its own.
@@ -154,6 +177,25 @@ public enum CleanupTabReducer {
 
         case .selectionRefused(let message):
             next.message = message
+
+        case .acknowledgementLoaded(let acknowledged):
+            next.hasAcknowledgedCloud = acknowledged
+
+        case .confirmationRequested(let kind):
+            // Only the dialog moves. The selection, the draft's provider and the file are all
+            // exactly what they were while the user is reading.
+            next.pendingConfirmation = kind
+
+        case .confirmationAccepted:
+            next.hasAcknowledgedCloud = true
+            next.pendingConfirmation = nil
+
+        case .confirmationDeclined:
+            // Nothing to undo: the selection never moved, so there is no state to restore and no
+            // "previous choice" to remember wrongly. The acknowledgement is deliberately *not*
+            // set — an agreement earned by dismissing a dialog is not an agreement, and the next
+            // attempt asks again.
+            next.pendingConfirmation = nil
         }
         next.rows = rows(selection: next.selection, draft: next.draft)
         return next
@@ -168,6 +210,11 @@ public enum CleanupTabReducer {
     {
         guard state.draft.isConfigured(kind) else {
             return .refuse(CleanupTabCopy.missingFields(kind))
+        }
+        // Refusal first, deliberately: confirming egress to an endpoint the user has not typed
+        // would ask them to approve sending text nowhere, and the write would fail anyway.
+        if kind.sendsTextOffTheMac && !state.hasAcknowledgedCloud {
+            return .confirm(kind)
         }
         var draft = state.draft
         draft.provider = kind

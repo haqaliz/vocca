@@ -65,6 +65,11 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     /// reason.
     public static let activationModeKey = "settings.activationMode"
 
+    /// The frozen key the cloud-cleanup acknowledgement lives under. Pinned by test as a literal,
+    /// for the same reason as the two above — and with one more: a renamed key here re-shows a
+    /// dialog every existing cloud user already read.
+    public static let cloudCleanupAcknowledgementKey = "settings.cloudCleanupAcknowledged"
+
     private let defaults: UserDefaults
     private let log: @Sendable (String) -> Void
 
@@ -103,6 +108,21 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     /// Persist the chosen activation mode. Best-effort, never throws.
     public func setActivationMode(_ activation: HotkeyConfiguration.Activation) {
         defaults.set(activation.persistedIdentifier, forKey: Self.activationModeKey)
+    }
+
+    /// Whether the cloud-cleanup confirmation has been read and accepted. `false` for a fresh
+    /// install and `false` for anything unreadable — see
+    /// `PersistedSettings.decodeCloudAcknowledgement(_:onInvalidValue:)` for why that direction.
+    public func hasAcknowledgedCloudCleanup() -> Bool {
+        PersistedSettings.decodeCloudAcknowledgement(
+            rawValue(forKey: Self.cloudCleanupAcknowledgementKey), onInvalidValue: log)
+    }
+
+    /// Record or withdraw the acknowledgement. Best-effort, never throws.
+    public func setAcknowledgedCloudCleanup(_ acknowledged: Bool) {
+        defaults.set(
+            PersistedSettings.encodeCloudAcknowledgement(acknowledged),
+            forKey: Self.cloudCleanupAcknowledgementKey)
     }
 
     // MARK: - The one piece of translation this file owns

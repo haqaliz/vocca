@@ -121,6 +121,47 @@ public enum PersistedSettings {
     /// at all.
     public static let defaultActivation: HotkeyConfiguration.Activation = .toggle
 
+    /// The stable on-disk spelling of a given cloud-cleanup acknowledgement.
+    ///
+    /// A string rather than a `Bool`, so it takes the same three-answer path as every other
+    /// setting: `object(forKey:)` cannot tell a stored `false` from a stored array from nothing at
+    /// all once it has been narrowed to `Bool`, and the difference between "not acknowledged" and
+    /// "unreadable" is the one this contract exists to keep.
+    public static func encodeCloudAcknowledgement(_ acknowledged: Bool) -> String {
+        acknowledged ? acknowledgedValue : notAcknowledgedValue
+    }
+
+    /// The spelling of an acknowledgement that was given.
+    public static let acknowledgedValue = "acknowledged"
+
+    /// The spelling of one that was not — written when a user withdraws it, so the absent value
+    /// keeps meaning "never asked".
+    public static let notAcknowledgedValue = "not-acknowledged"
+
+    /// **Whether the user has read and accepted the cloud-cleanup dialog** — the same three-answer
+    /// contract, with the safe direction chosen deliberately.
+    ///
+    /// Absent is `false`, silently: a fresh install has agreed to nothing, which is the normal
+    /// path. **Unreadable is also `false`, loudly** — and that direction is the point. Degrading a
+    /// corrupted preferences entry to `true` would spend an agreement the user never gave and send
+    /// their text off the machine without the dialog `PRODUCT_SPEC.md:273` requires; degrading to
+    /// `false` costs them one dialog they have seen before. Those are not comparable failures.
+    public static func decodeCloudAcknowledgement(
+        _ raw: String?,
+        onInvalidValue: (String) -> Void
+    ) -> Bool {
+        guard let raw else { return false }
+        switch raw {
+        case acknowledgedValue: return true
+        case notAcknowledgedValue: return false
+        default:
+            onInvalidValue(
+                "settings: unreadable cloud-cleanup acknowledgement \"\(raw)\"; treating it as "
+                    + "not acknowledged, so the confirmation is shown again")
+            return false
+        }
+    }
+
     /// Decode a persisted activation mode, tolerantly — the same three-answer contract as
     /// ``decodeEngineSelection(_:onInvalidValue:)``.
     public static func decodeActivation(

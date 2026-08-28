@@ -169,6 +169,66 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
             ["neither"])
     }
 
+    // MARK: - The cloud-cleanup acknowledgement (`cleanup-tab` R3)
+
+    /// **An acknowledgement, once given, survives a relaunch.** That is the whole of "one-time":
+    /// a flag that lived only in the window would nag exactly the user who already read the
+    /// dialog and agreed.
+    func testTheCloudAcknowledgementSurvivesARelaunch() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        UserDefaultsSettingsStore(defaults: defaults).setAcknowledgedCloudCleanup(true)
+
+        let reread = UserDefaultsSettingsStore(defaults: defaults)
+        XCTAssertTrue(reread.hasAcknowledgedCloudCleanup())
+    }
+
+    /// **A fresh install has acknowledged nothing, silently.** The absent value is the normal
+    /// path, not a failure, and reporting it would train a reader to ignore this category.
+    func testAFreshInstallHasAcknowledgedNothingSilently() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let logs = LogCollector()
+
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logs.append($0) })
+
+        XCTAssertFalse(store.hasAcknowledgedCloudCleanup())
+        XCTAssertTrue(logs.entries.isEmpty)
+    }
+
+    /// **An unreadable acknowledgement is "not acknowledged", loudly.**
+    ///
+    /// The load-bearing direction. A corrupted preferences entry degrades to *asking again*,
+    /// never to *already agreed* — the safe direction for a privacy dialog is the one that shows
+    /// it. Degrading the other way would silently spend an acknowledgement the user never gave.
+    func testAnUnreadableAcknowledgementIsNotAcknowledgedAndSaysSo() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(["not", "a", "string"], forKey: UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey)
+        let logs = LogCollector()
+
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logs.append($0) })
+
+        XCTAssertFalse(
+            store.hasAcknowledgedCloudCleanup(),
+            "a value Vocca cannot read is never an agreement it can spend")
+        XCTAssertEqual(logs.entries.count, 1, "and a value that was present and unreadable is loud")
+    }
+
+    /// **The acknowledgement can be withdrawn.** Writing `false` reads back as `false` — a user
+    /// who turns cloud cleanup off and wants the dialog again is not stuck with an agreement they
+    /// cannot revisit.
+    func testTheAcknowledgementCanBeWithdrawn() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+
+        store.setAcknowledgedCloudCleanup(true)
+        store.setAcknowledgedCloudCleanup(false)
+
+        XCTAssertFalse(UserDefaultsSettingsStore(defaults: defaults).hasAcknowledgedCloudCleanup())
+    }
+
     // MARK: - The frozen keys
 
     /// The two keys are frozen constants, pinned here as literals.
@@ -180,6 +240,9 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
     func testTheSettingsKeysAreFrozenConstants() {
         XCTAssertEqual(UserDefaultsSettingsStore.engineSelectionKey, "settings.engineSelection")
         XCTAssertEqual(UserDefaultsSettingsStore.activationModeKey, "settings.activationMode")
+        XCTAssertEqual(
+            UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey,
+            "settings.cloudCleanupAcknowledged")
     }
 
     /// The two keys are different keys.
@@ -187,9 +250,12 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
     /// A collision would make each setting overwrite the other, and both would then read back as
     /// an unreadable value taking the shipped default — a user who changed one setting losing the
     /// other, with the log blaming the value rather than the key.
-    func testTheTwoSettingsKeysAreDistinct() {
-        XCTAssertNotEqual(
+    func testTheSettingsKeysAreDistinct() {
+        let keys = [
             UserDefaultsSettingsStore.engineSelectionKey,
-            UserDefaultsSettingsStore.activationModeKey)
+            UserDefaultsSettingsStore.activationModeKey,
+            UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey,
+        ]
+        XCTAssertEqual(Set(keys).count, keys.count, "every key is its own")
     }
 }

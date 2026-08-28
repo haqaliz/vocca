@@ -119,6 +119,42 @@ public enum CleanupTabCopy {
         "Vocca reads your API key from the macOS Keychain. It is never written to Vocca's "
         + "settings file."
 
+    // MARK: - The one-time cloud confirmation (`PRODUCT_SPEC.md:273`)
+
+    /// The dialog's title. Asks the question rather than announcing a setting: the user is about
+    /// to make the one choice in this app that moves their words off their own machine.
+    public static let cloudConfirmationTitle = "Send your text to a cloud service?"
+
+    /// **What gets sent — exactly.**
+    ///
+    /// The spec asks for a dialog naming exactly what leaves, and this is measured against what
+    /// `BYOKCleanupProvider` actually puts on the wire: the transcript text and a fixed
+    /// instruction prompt as the two chat messages, the model name, and the key in an
+    /// `Authorization` header.
+    ///
+    /// **The audio sentence is the load-bearing one.** "Cloud cleanup" sounds to most people like
+    /// it might mean their voice, and it never does — Vocca transcribes on the machine and only
+    /// the resulting text is sent. Saying so is the difference between a dialog that informs a
+    /// decision and one that just alarms, and a dialog people dismiss unread is the same as no
+    /// dialog at all.
+    public static func cloudConfirmationBody(endpoint: String) -> String {
+        """
+        The text of every dictation will be sent to \(endpoint) to be rewritten, along with your         API key and the name of the model you chose.
+
+        Your audio is never sent. Vocca transcribes on this Mac, and only the resulting text         leaves it. Nothing else — no file names, no other application's contents, no recordings.
+
+        You can switch back to Basic at any time.
+        """
+    }
+
+    /// The accepting button. Says what it does, so a person skimming the two buttons still learns
+    /// the outcome — the ``SpeechTabCopy/keepItButton`` argument, on a dialog where "OK" and
+    /// "Cancel" are the two words that tell you least.
+    public static let cloudConfirmAccept = "Send my text"
+
+    /// The declining button — and it names what staying means, not merely that nothing happens.
+    public static let cloudConfirmDecline = "Keep everything on this Mac"
+
     // MARK: - Field labels
 
     /// The endpoint field's label.
