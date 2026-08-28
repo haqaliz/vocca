@@ -154,7 +154,14 @@ final class MenuBarStateTests: XCTestCase {
             Set(MenuBarState.allCases.filter(\.isActive)), [.listening, .transcribing])
         XCTAssertEqual(
             Set(MenuBarState.allCases.filter(\.isBlocked)),
-            [.noAccessibility, .noMicrophone, .downloadingModel, .preparingEngine, .secureInput])
+            // `modelMissing` joined the blocked set with the `speech-tab` aspect: a model the user
+            // removed refuses the next press exactly as a model that never arrived does. It is a
+            // separate *state* because the remedy differs — download it again, rather than wait —
+            // but the icon's blocked/active partition does not care about remedies.
+            [
+                .noAccessibility, .noMicrophone, .downloadingModel, .modelMissing, .preparingEngine,
+                .secureInput,
+            ])
     }
 
     /// Secure Input counts as blocked even though it needs no action: the hotkey genuinely will

@@ -517,6 +517,10 @@ public enum AppBootstrap {
                     SystemSettingsPane.open(at: SystemSettingsPane.accessibilityPanePath)
                 case .noMicrophone:
                     SystemSettingsPane.open(at: SystemSettingsPane.microphonePanePath)
+                // The one blocker whose remedy is inside Vocca: the Speech tab is where the model
+                // is fetched again, so the button opens it rather than System Settings.
+                case .modelMissing:
+                    root.showSettings()
                 case .downloadingModel, .preparingEngine, .ready, .listening, .transcribing,
                     .secureInput:
                     break
@@ -1446,6 +1450,42 @@ public final class DictationLoopRoot {
         startEnginePreparation()
     }
 
+    /// **The selected engine's model was deleted** — the Speech tab's [Remove], reported back.
+    ///
+    /// Removing a model the app has already loaded does not un-load it: the engine is in memory
+    /// and would keep transcribing until the process ended. That is precisely the in-between
+    /// window `spec.md` R5 forbids — a Settings page reading `[ download ]` over an engine that
+    /// still works, and a next launch that suddenly refuses with no explanation on the page that
+    /// promised otherwise. So the gate closes now, and the next press refuses honestly.
+    ///
+    /// A tier the user is **not** using changes nothing: deleting Whisper while dictating with
+    /// Parakeet is housekeeping, and closing the gate for it would break a working Vocca.
+    ///
+    /// `isModelMissing` is set as a fact the app was *told*, never inferred from an unprepared
+    /// engine — see ``MenuBarState/modelMissing``, whose whole distinction rests on that.
+    public func engineModelRemoved(tier: EngineTier) {
+        guard tier == resolver.selection.tier else { return }
+        markEngineUnavailable()
+        updateMenuBarConditions { $0.isModelMissing = true }
+    }
+
+    /// **A model download started or stopped**, so the surfaces that report waits can say which
+    /// wait this is.
+    ///
+    /// Only a download of the tier dictation is waiting on blocks anything. A background fetch of
+    /// the other engine must leave every surface saying "ready", or a working Vocca spends the
+    /// whole transfer claiming otherwise (`EngineStateAgreementTests`).
+    ///
+    /// A download in flight also clears ``MenuBarState/modelMissing``: bytes really are moving now,
+    /// so waiting *is* the remedy again.
+    public func engineDownloadChanged(tier: EngineTier, isRunning: Bool) {
+        guard tier == resolver.selection.tier else { return }
+        updateMenuBarConditions {
+            $0.isDownloadingModel = isRunning
+            if isRunning { $0.isModelMissing = false }
+        }
+    }
+
     /// The wiring the current mode drives.
     private var activeWiring: Wiring {
         switch activeMode {
@@ -1466,6 +1506,10 @@ public final class DictationLoopRoot {
         updateMenuBarConditions {
             $0.isEnginePrepared = true
             $0.isPreparingEngine = false
+            // A prepared engine has its model: whatever was removed has been fetched again, or a
+            // different tier was selected. Leaving the flag set would keep "No speech model" on
+            // an icon over an engine that is transcribing.
+            $0.isModelMissing = false
         }
     }
 
@@ -1487,6 +1531,9 @@ public final class DictationLoopRoot {
         updateMenuBarConditions {
             $0.isEnginePrepared = false
             $0.isPreparingEngine = true
+            // A preparation in flight is the newer fact about the same engine, and it is a wait
+            // with a remedy. Whatever was missing is either being fetched or is a different tier.
+            $0.isModelMissing = false
         }
     }
 
@@ -1892,6 +1939,19 @@ private final class EffectRouter {
                 // The readiness gate refused — the honest cause is the model not being ready
                 // (PRD R5's .modelUnavailable), shown by the panel.
                 panel.presentReasonOnly(.modelUnavailable)
+                // **And the pill is returned to IDLE**, which it was not until
+                // `EngineStateAgreementTests` asked. A press folds OPENING before the refusal is
+                // known, and the widget reducer contains no time-based transition by design (the
+                // never-auto-dismiss rule) — so the branch above left the pill claiming a
+                // microphone was opening until the *next* press, over a session that never began.
+                // A surface stuck mid-gesture while a panel explains the failure is this
+                // repository's dominant bug class, in the one moment a user is looking.
+                //
+                // IDLE rather than the widget's own notice: that notice reads "The microphone
+                // didn't open — try again", and for a model that is missing the microphone is not
+                // the cause and trying again is not the remedy. The panel owns the explanation;
+                // the pill owes only an honest resting state.
+                widgetStore.fold(WidgetProjection.project(event: .finishedWithoutDelivery))
             }
         case .unchanged, .started:
             foldEffect(effect, appName: "")
@@ -2110,28 +2170,6 @@ final class EngineReadiness {
     func markUnavailable() {
         state = .unavailable
     }
-}
-
-/// **What the engine is doing, for the surfaces that report it** — the three-way answer PRD M11
-/// asks for.
-///
-/// Two states are enough for the readiness *gate*, which only ever asks "may the microphone open?".
-/// They are not enough for the person. After an engine switch the model is already on disk, nothing
-/// is wrong, and the only true thing to say is "a moment"; a failed load is a wait that will never
-/// end. Reporting both as one state is how an in-between window comes to look like a failure, which
-/// M11 names as this repository's dominant bug class — an `LSUIElement` app where a successful
-/// launch and a dead one look exactly the same.
-///
-/// The gate is closed for everything but ``ready``, so a fourth state added here cannot accidentally
-/// open a microphone.
-public enum EngineReadinessState: Sendable, Hashable {
-    /// No preparation is in flight: none has started, or the last one failed. The next press is
-    /// refused, and waiting will not change that.
-    case unavailable
-    /// A preparation is running right now. The next press is refused, and waiting *is* the remedy.
-    case preparing
-    /// The selected engine is prepared. The microphone may open.
-    case ready
 }
 
 /// The microphone, gated on engine readiness — the "the mic never opens" half of the spec.

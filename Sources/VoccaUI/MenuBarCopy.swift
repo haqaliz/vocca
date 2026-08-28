@@ -45,6 +45,9 @@ public enum MenuBarCopy {
         case .noAccessibility: return "exclamationmark.triangle"
         case .noMicrophone: return "mic.slash"
         case .downloadingModel: return "arrow.down.circle"
+        // A slashed cloud rather than a second download arrow: the shape has to distinguish it
+        // from `downloadingModel` at a glance, because colour carries nothing in a template image.
+        case .modelMissing: return "icloud.slash"
         case .preparingEngine: return "hourglass"
         case .secureInput: return "lock"
         }
@@ -60,6 +63,7 @@ public enum MenuBarCopy {
         case .noAccessibility: return "Vocca can't hear the hotkey"
         case .noMicrophone: return "No microphone"
         case .downloadingModel: return "Getting ready"
+        case .modelMissing: return "No speech model"
         case .preparingEngine: return "Warming up"
         case .secureInput: return "Hotkey paused by another app"
         }
@@ -86,6 +90,8 @@ public enum MenuBarCopy {
                 + "Vocca is allowed to use it."
         case .downloadingModel:
             return "Downloading the speech model. Dictation works as soon as it finishes."
+        case .modelMissing:
+            return "The speech model isn't on this Mac. Download it again in Settings > Speech."
         case .preparingEngine:
             return "Loading the speech model. Dictation works as soon as it's ready."
         case .secureInput:
@@ -105,6 +111,8 @@ public enum MenuBarCopy {
         case .noAccessibility: return "Open System Settings…"
         case .noMicrophone: return "Open Privacy Settings…"
         case .downloadingModel: return "Show progress…"
+        // Unlike a warm-up, this one has something to press: the tab the model is fetched from.
+        case .modelMissing: return "Open Speech settings…"
         // `preparingEngine` offers nothing on purpose: a warm-up has no progress window to open
         // and no setting to change. It ends on its own, exactly as Secure Input does, and a button
         // would be an action that does nothing.

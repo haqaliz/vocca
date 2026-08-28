@@ -56,6 +56,27 @@ public enum SpeechTabInstall: Sendable, Equatable {
     case failed
 }
 
+/// **What the Speech tab says about the engine the user has selected** — one of the three
+/// renderings `spec.md` R6 requires to agree.
+///
+/// Four answers rather than the readiness gate's three, because a download is a wait with a number
+/// on it and a warm-up is a wait without one, and a user reading a settings page can act on the
+/// difference. The mapping from the gate's ``EngineReadinessState`` is total and lives in one
+/// place (``SpeechTabReducer/engineStatus(readiness:selection:downloads:)``), so this cannot drift
+/// from what the menu bar and the next press report.
+public enum SpeechTabEngineStatus: Sendable, Equatable {
+    /// The selected engine is prepared; a press opens the microphone.
+    case ready
+    /// Its `prepare()` is running. A press is refused, and waiting is the remedy.
+    case preparing
+    /// Its model is arriving, this far along. A press is refused, and waiting is the remedy.
+    case downloading(Double)
+    /// Nothing is in flight and the engine cannot transcribe — a removed model, or a preparation
+    /// that failed. A press is refused, and waiting is **not** the remedy, which is the whole
+    /// reason this is not the same case as the two above.
+    case unavailable
+}
+
 /// One row of the Speech tab: one **tier**, not one engine.
 ///
 /// The spec's mock draws one row per engine because each engine had one tier when it was written.
@@ -99,6 +120,10 @@ public struct SpeechTabState: Sendable, Equatable {
     public var rows: [SpeechTabRow]
     /// The last thing that went wrong, in words. `nil` once something succeeds.
     public var errorMessage: String?
+    /// The readiness gate's answer, as the root reports it. Injected, never inferred: the gate is
+    /// the single fact all three surfaces read, and a tab that guessed at it from its own download
+    /// slots would be the second source of truth R6 exists to prevent.
+    public var readiness: EngineReadinessState
 
     /// The state the window opens in: the shipped default selection and no claim about any tier.
     public static let initial = SpeechTabState(selection: .defaultSelection)
@@ -109,8 +134,15 @@ public struct SpeechTabState: Sendable, Equatable {
         self.bytes = [:]
         self.downloads = [:]
         self.errorMessage = nil
+        self.readiness = .unavailable
         self.rows = SpeechTabReducer.rows(
             selection: selection, presence: [:], bytes: [:], downloads: [:])
+    }
+
+    /// What the tab says about the selected engine — the R6 rendering.
+    public var engineStatus: SpeechTabEngineStatus {
+        SpeechTabReducer.engineStatus(
+            readiness: readiness, selection: selection, downloads: downloads)
     }
 
     /// The row for a tier, or `nil` — total over ``EngineTier/allCases`` in practice, but spelled
@@ -154,6 +186,8 @@ public enum SpeechTabAction: Sendable, Equatable {
     case removalCompleted(EngineTier)
     /// The store could not delete it, in the store's own words.
     case removalFailed(EngineTier, String)
+    /// The root's readiness gate moved. The tab reports it; it never decides it.
+    case engineStatusChanged(EngineReadinessState)
 }
 
 /// The Speech tab's decisions — pure, clock-free, and holding no store of its own.
@@ -208,6 +242,9 @@ public enum SpeechTabReducer {
             next.downloads[tier] = nil
             next.errorMessage = nil
 
+        case .engineStatusChanged(let readiness):
+            next.readiness = readiness
+
         case .removalFailed(_, let message):
             // Nothing about the tier moves. The model is still on disk, so the row that says so
             // is the accurate one; only the failure is new.
@@ -217,6 +254,33 @@ public enum SpeechTabReducer {
             selection: next.selection, presence: next.presence, bytes: next.bytes,
             downloads: next.downloads)
         return next
+    }
+
+    /// The selected engine's status: the gate's answer, with a download of **that tier** taking
+    /// precedence over a warm-up.
+    ///
+    /// The precedence is the menu bar's own, deliberately (`MenuBarStateReducer`: "A download
+    /// outranks a warm-up: it is the far longer wait and the one with progress worth showing").
+    /// Copying its reasoning rather than inventing a second one is what makes the two surfaces
+    /// agree by construction instead of by coincidence.
+    ///
+    /// A download of a tier the user has **not** selected changes nothing here, and that is the
+    /// half a naive wiring gets wrong: fetching Whisper in the background while dictating with
+    /// Parakeet blocks nothing, and a page saying otherwise would report five minutes of
+    /// unavailability that never happened.
+    static func engineStatus(
+        readiness: EngineReadinessState,
+        selection: EngineSelection,
+        downloads: [EngineTier: SpeechTabInstall]
+    ) -> SpeechTabEngineStatus {
+        if case .downloading(let fraction) = downloads[selection.tier] {
+            return .downloading(fraction)
+        }
+        switch readiness {
+        case .ready: return .ready
+        case .preparing: return .preparing
+        case .unavailable: return .unavailable
+        }
     }
 
     /// The rows a fact set produces — one per tier, in ``EngineTier/allCases`` order, which is the
