@@ -1334,8 +1334,30 @@ set -euo pipefail
 # SMOKE_CHECKLIST.md section 15 (steps 105-110) is that execution, and step 107 is the one that
 # matters.
 #
+# The removal-during-preparation fix adds one (1500 -> 1501), and one is the right number because
+# the defect had exactly one shape. The stale-preparation guard had been asked only one question --
+# "is this still the selected resolver?" -- and a *removal* changes no selection: the user deletes
+# the model of the engine they are already using, so the preparation in flight is still holding the
+# current resolver, passes the guard, and calls markEnginePrepared() over bytes that are gone. The
+# gate reopens, the menu bar returns to "ready", and the Speech tab goes on offering to download the
+# model it is claiming to run. Three surfaces disagreeing about one instant, which is the class
+# EngineStateAgreementTests exists to make impossible -- and it is where the defect first showed
+# itself, intermittently, because the race is a race.
+#
+# The new row is deterministic instead: the engine is held inside prepare() until the removal has
+# been delivered, so the ordering is written down rather than hoped for. It sits beside the switch
+# race in EngineSwitchTests because it is the same guard, and reading the two together is what says
+# the guard has two reasons rather than one.
+#
+# Nothing was added for the drains that were corrected in the same commit, and that is the point of
+# mentioning them here: EngineStateAgreementTests waited on the resolver's own isPrepared while
+# asserting on the gate flag that markEnginePrepared() sets a turn later, so the wait could return
+# before the thing it was waiting for. A drain must wait on what the assertions read. The same
+# correction was applied to the one WarmStartLaunchTests drain that clears the way for a press; the
+# two that assert on the resolver itself were left alone, because there the resolver is the subject.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1500
+MINIMUM_EXECUTED_TESTS=1501
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

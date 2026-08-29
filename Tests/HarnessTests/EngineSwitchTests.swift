@@ -520,6 +520,82 @@ final class EngineSwitchTests: XCTestCase {
             until: { harness.root.menuBarConditions.isEnginePrepared },
             "the selected engine's own preparation is the only thing that opens the gate")
     }
+
+    // MARK: - The removal-during-preparation race
+
+    /// **The same guard, the other reason it is needed.** A preparation already in flight for the
+    /// engine whose model the user has just *deleted* must never open the readiness gate either.
+    ///
+    /// The sequence is as ordinary as the switch above, and shorter: Vocca launches, the preload
+    /// starts warming Parakeet — seconds for a cold CoreML load, minutes if the artifact is still
+    /// downloading — and in that window the user opens the Speech tab and presses [Remove] on the
+    /// engine they are using. ``DictationLoopRoot/engineModelRemoved(tier:)`` closes the gate and
+    /// records `isModelMissing`, which is correct. Then the preload finishes, successfully, for a
+    /// model that is no longer on disk.
+    ///
+    /// A removal does **not** replace the resolver — there is no new selection, only a model that
+    /// has gone — so resolver identity alone answers "still current?" with `true`, and the
+    /// preparation reaches `markEnginePrepared()`. The gate reopens over an engine whose bytes were
+    /// deleted, the menu bar goes back to "ready", and the Speech tab still says `[ download ]`:
+    /// three surfaces disagreeing about the same instant, which is the class
+    /// `EngineStateAgreementTests` exists to make impossible. The next press then opens the
+    /// microphone for an engine that cannot transcribe.
+    ///
+    /// Driven explicitly rather than by timing: the engine is held inside `prepare()` until the
+    /// removal has been delivered, so the race is a sequence, not a coincidence.
+    func testAPreparationCompletingAfterItsModelIsRemovedNeverOpensTheGate() async {
+        let parakeet = GatedEngine.parakeet()
+        let harness = Harness(parakeet: parakeet, whisper: StubEngine.whisper())
+
+        harness.root.startEnginePreparation()
+        await harness.drain(
+            until: { await parakeet.prepareCount == 1 },
+            "the launch preload must be in flight — and blocked inside prepare()")
+        XCTAssertFalse(
+            harness.root.menuBarConditions.isEnginePrepared, "it has not finished yet")
+
+        // The user removes the model of the engine that preload is warming.
+        harness.root.engineModelRemoved(tier: .parakeetV3)
+        XCTAssertEqual(
+            harness.root.engineReadinessState, .unavailable,
+            "the removal closes the gate with nothing in flight worth waiting for")
+
+        // ...and only now does the preparation for the deleted model succeed.
+        await parakeet.release()
+        await harness.settle()
+
+        XCTAssertFalse(
+            harness.root.menuBarConditions.isEnginePrepared,
+            """
+            a preparation for a model the user had already deleted reopened the readiness gate. \
+            The next press would open the microphone for an engine whose bytes are gone.
+            """)
+        XCTAssertTrue(
+            harness.root.menuBarConditions.isModelMissing,
+            "and the app must not forget it was told the model is gone")
+        XCTAssertEqual(
+            MenuBarStateReducer.state(for: harness.root.menuBarConditions), .modelMissing,
+            """
+            the menu bar went back to reporting a working Vocca over a model that is not on disk, \
+            while the Speech tab still offers to download it — the disagreement this pins.
+            """)
+        XCTAssertEqual(
+            harness.root.engineReadinessState, .unavailable,
+            "and the readiness projection the Speech tab reads says the same thing")
+
+        harness.oneCycle()
+        XCTAssertEqual(
+            harness.source.beginCount, 0,
+            "a press in that window must still be refused before the microphone is asked")
+
+        let identities = harness.assembled.identities
+        XCTAssertFalse(
+            identities.contains("parakeet-tdt-0.6b-v3"),
+            """
+            no pipeline may be installed over the removed engine either; got \(identities). \
+            Installing one leaves a route into a model that no longer exists.
+            """)
+    }
 }
 
 // MARK: - The doubles

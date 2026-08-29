@@ -204,8 +204,12 @@ final class WarmStartLaunchTests: XCTestCase {
         let harness = Harness(engine: engine)
 
         harness.root.startEnginePreparation()
+        // The gate flag, not the resolver's own `isPrepared`: the press below is refused until
+        // `markEnginePrepared()` runs, which is a turn *after* the resolver reports prepared. A
+        // drain on the resolver can therefore return while the press it is clearing the way for
+        // would still be refused.
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared },
+            until: { harness.root.menuBarConditions.isEnginePrepared },
             "the launch preload must complete before the session")
 
         harness.oneCycle()

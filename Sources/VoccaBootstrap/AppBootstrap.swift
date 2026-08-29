@@ -1298,6 +1298,17 @@ public final class DictationLoopRoot {
     /// *engine* precisely so that it has no resolver to go stale against, and
     /// ``prepareAndAssemble()`` re-reads this slot after every suspension.
     public private(set) var resolver: DictationEngineResolver
+
+    /// **How many times the selected engine's model has been taken away**, bumped by
+    /// ``engineModelRemoved(tier:)`` and captured by every preparation at its top.
+    ///
+    /// It exists because resolver identity cannot answer the question a removal asks. A *switch*
+    /// mints a fresh resolver, so `===` is enough to spot a preparation for an engine nobody
+    /// selected. A removal changes no selection at all — the same engine, with its bytes deleted —
+    /// so the in-flight preparation is still holding the current resolver and would pass that
+    /// check. This counter is what changes underneath it: a preparation whose captured value no
+    /// longer matches prepared a model that has since been removed, and must open nothing.
+    private var modelRemovalCount: UInt64 = 0
     /// Focused-app resolution — the key-down half of S1.
     public let targetResolution: TargetResolution
     /// The FAILSAFE surface the loop presents on.
@@ -1626,6 +1637,9 @@ public final class DictationLoopRoot {
     /// engine — see ``MenuBarState/modelMissing``, whose whole distinction rests on that.
     public func engineModelRemoved(tier: EngineTier) {
         guard tier == resolver.selection.tier else { return }
+        // Before the gate is closed, so that a preparation already in flight for these bytes can
+        // never win a race against the close and reopen it — see ``modelRemovalCount``.
+        modelRemovalCount &+= 1
         markEngineUnavailable()
         updateMenuBarConditions { $0.isModelMissing = true }
     }
@@ -1739,8 +1753,20 @@ public final class DictationLoopRoot {
     /// `isPrepared`. Check-then-act is atomic here because both this function and
     /// ``setEngineSelection(_:)`` are on the main actor, and no suspension separates a guard below
     /// from the statement it guards.
+    ///
+    /// ## The removal race, which identity alone cannot see
+    ///
+    /// Identity answers "is this still the selected engine?", and a **removal** does not change the
+    /// selection: the user deletes the model of the engine they are using, from the Speech tab,
+    /// while this preload is still warming it. ``engineModelRemoved(tier:)`` closes the gate, but
+    /// the resolver it closed it over is the same object this run captured, so `===` says "still
+    /// current" and the run would go on to reopen the gate over bytes that are gone — the menu bar
+    /// back to "ready" while the Speech tab offers to download the model it is claiming to run.
+    /// ``modelRemovalCount`` is captured alongside the resolver for exactly that case, and every
+    /// guard below compares both.
     private func prepareAndAssemble() async {
         let resolver = self.resolver
+        let removals = modelRemovalCount
         markEnginePreparing()
         do {
             try await resolver.prepareIfNeeded()
@@ -1751,10 +1777,10 @@ public final class DictationLoopRoot {
             // preparation succeeds — and the reported state drops from `preparing` to
             // `unavailable`, because nothing is in flight any more and a surface still saying "a
             // moment" would be promising a wait that never ends.
-            if isCurrent(resolver) { markEngineUnavailable() }
+            if isCurrent(resolver, removals) { markEngineUnavailable() }
             return
         }
-        guard isCurrent(resolver) else { return }
+        guard isCurrent(resolver, removals) else { return }
         if let assembly = pipelineAssembly {
             guard let engine = await resolver.engineIfReady() else {
                 logger.error(
@@ -1768,24 +1794,35 @@ public final class DictationLoopRoot {
             } catch {
                 logger.error(
                     "the dictation pipeline could not be assembled: \(String(describing: error), privacy: .public)")
-                if isCurrent(resolver) { markEngineUnavailable() }
+                if isCurrent(resolver, removals) { markEngineUnavailable() }
                 return
             }
-            guard isCurrent(resolver) else { return }
+            guard isCurrent(resolver, removals) else { return }
             router.install(pipeline: pipeline)
         }
         // Installed before the gate opens: no session that passes the gate can find itself without
-        // a pipeline when it ends.
+        // a pipeline when it ends. Guarded like every other step, and for the same reason: the
+        // assembly above suspends, and a removal delivered inside that window would otherwise be
+        // undone by the very next line.
+        guard isCurrent(resolver, removals) else { return }
         markEnginePrepared()
     }
 
-    /// Whether `candidate` is still the resolver this root is running — the stale-preparation
-    /// guard, logged when it answers `false` because an abandoned preparation is a real event
-    /// somebody reading a log deserves to see.
-    private func isCurrent(_ candidate: DictationEngineResolver) -> Bool {
+    /// Whether the preparation that captured `candidate` and `removals` is still the one this root
+    /// is running — the stale-preparation guard, in its two halves: the resolver may have been
+    /// **replaced** by a switch, or the model it prepared may have been **removed** underneath it.
+    /// Either answers `false`, and each is logged with its own reason, because an abandoned
+    /// preparation is a real event somebody reading a log deserves to see — and which of the two
+    /// happened is the first thing they will want to know.
+    private func isCurrent(_ candidate: DictationEngineResolver, _ removals: UInt64) -> Bool {
         guard candidate === resolver else {
             logger.info(
                 "abandoning a preparation for an engine that is no longer selected — the gate stays closed for it")
+            return false
+        }
+        guard removals == modelRemovalCount else {
+            logger.info(
+                "abandoning a preparation whose model was removed while it was in flight — the gate stays closed until the model is on disk again")
             return false
         }
         return true

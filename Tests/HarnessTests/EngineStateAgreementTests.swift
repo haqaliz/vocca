@@ -60,7 +60,8 @@ final class EngineStateAgreementTests: XCTestCase {
         let harness = AgreementHarness()
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared },
+            "the launch preload must complete")
 
         harness.root.engineModelRemoved(tier: .parakeetV3)
 
@@ -104,7 +105,8 @@ final class EngineStateAgreementTests: XCTestCase {
         let harness = AgreementHarness(whisper: LatchedEngine(identity: Self.whisperIdentity, gate: gate))
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared },
+            "the launch preload must complete")
 
         harness.root.setEngineSelection(Self.whisper)
         await harness.settle()
@@ -179,7 +181,8 @@ final class EngineStateAgreementTests: XCTestCase {
         let harness = AgreementHarness()
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared },
+            "the launch preload must complete")
 
         harness.root.engineDownloadChanged(tier: .whisperTurbo, isRunning: true)
 
