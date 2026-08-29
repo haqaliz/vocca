@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Foundation
+import VoccaCore
 import VoccaText
 import XCTest
 
@@ -151,5 +152,101 @@ final class CleanupConfigTests: XCTestCase {
             let config = CleanupConfig.tolerantDecode(input, log: { logs.append($0) })
             XCTAssertEqual(config.provider, .rules)
         }
+    }
+}
+
+/// **The Cleanup tab's draft and the file, translated in one place.**
+///
+/// The tab edits a `CleanupConfigDraft` (VoccaCore) because `VoccaUI` may not import the module
+/// that owns the file. The translation between the two is the seam where a settings surface could
+/// quietly become a second copy of the config, so it lives on `CleanupConfig` itself and every
+/// rule in it is tested here — in particular the ones about blocks that must *not* be written,
+/// because an invalid selected block degrades the whole config to rules with a loud log.
+final class CleanupConfigDraftTests: XCTestCase {
+
+    /// **A config becomes a draft with both blocks filled.**
+    func testAConfigBecomesADraftWithBothBlocks() {
+        let config = CleanupConfig(
+            provider: .byok,
+            ollama: OllamaCleanupConfig(endpoint: "http://localhost:11434", model: "llama3.1"),
+            byok: ByokCleanupConfig(endpoint: "https://api.example.com/v1", model: "gpt-4o-mini"))
+
+        let draft = config.draft
+
+        XCTAssertEqual(draft.provider, .byok)
+        XCTAssertEqual(draft.ollamaEndpoint, "http://localhost:11434")
+        XCTAssertEqual(draft.ollamaModel, "llama3.1")
+        XCTAssertEqual(draft.byokEndpoint, "https://api.example.com/v1")
+        XCTAssertEqual(draft.byokModel, "gpt-4o-mini")
+    }
+
+    /// **An absent Ollama block still offers the shipped endpoint.**
+    ///
+    /// The default lives in exactly one place (``CleanupConfig/defaultOllamaEndpoint``) and the
+    /// draft picks it up, so a user selecting Local AI on a fresh install has one field to fill
+    /// rather than two — and the one they fill is the one only they can know.
+    func testAnAbsentOllamaBlockStillOffersTheShippedEndpoint() {
+        let draft = CleanupConfig.defaultConfig.draft
+
+        XCTAssertEqual(draft.provider, .rules)
+        XCTAssertEqual(draft.ollamaEndpoint, CleanupConfig.defaultOllamaEndpoint)
+        XCTAssertEqual(draft.ollamaModel, "", "the model is the user's to name; nothing is guessed")
+        XCTAssertEqual(draft.byokEndpoint, "", "and so is the cloud endpoint")
+    }
+
+    /// **A draft becomes a config, and a round trip changes nothing.**
+    func testADraftRoundTripsThroughTheConfig() {
+        let draft = CleanupConfigDraft(
+            provider: .ollama,
+            ollamaEndpoint: "http://localhost:11434", ollamaModel: "llama3.1",
+            byokEndpoint: "https://api.example.com/v1", byokModel: "gpt-4o-mini")
+
+        XCTAssertEqual(CleanupConfig(draft: draft).draft, draft)
+    }
+
+    /// **A blank block is not written at all.**
+    ///
+    /// The load-bearing rule. An `ollama` block with an empty model does not decode, and a config
+    /// carrying one degrades *entirely* to rules with a loud log — so a user who typed a BYOK
+    /// endpoint and never touched Ollama would find their cloud rung silently off. Writing no
+    /// block is the difference.
+    func testABlankBlockIsNotWritten() {
+        let draft = CleanupConfigDraft(
+            provider: .byok,
+            ollamaEndpoint: "http://localhost:11434", ollamaModel: "",
+            byokEndpoint: "https://api.example.com/v1")
+
+        let config = CleanupConfig(draft: draft)
+
+        XCTAssertNil(config.ollama, "a half-filled block is no block")
+        XCTAssertEqual(config.byok?.endpoint, "https://api.example.com/v1")
+    }
+
+    /// **An empty BYOK model is an absent field, not an empty string.** The file's contract is
+    /// that a missing `model` lets the endpoint choose its own; `""` is a model name no endpoint
+    /// has.
+    func testAnEmptyBYOKModelIsAnAbsentField() {
+        let config = CleanupConfig(
+            draft: CleanupConfigDraft(provider: .byok, byokEndpoint: "https://api.example.com/v1"))
+
+        XCTAssertNil(config.byok?.model)
+    }
+
+    /// **A draft written and read back through the store is the same draft.** The whole path the
+    /// tab actually uses, in one assertion — because the two translations and the encode are three
+    /// places a field can be dropped, and only the round trip catches all three.
+    func testADraftSurvivesTheWholeStorePath() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-draft-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let draft = CleanupConfigDraft(
+            provider: .byok,
+            ollamaEndpoint: "http://localhost:11434", ollamaModel: "llama3.1",
+            byokEndpoint: "https://api.example.com/v1", byokModel: "gpt-4o-mini")
+
+        try await CleanupConfigStore(directory: directory).save(CleanupConfig(draft: draft))
+        let reloaded = await CleanupConfigStore(directory: directory).load().draft
+
+        XCTAssertEqual(reloaded, draft)
     }
 }

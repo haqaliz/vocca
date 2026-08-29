@@ -58,6 +58,33 @@ public enum MenuBarState: Sendable, Hashable, CaseIterable {
     /// blocker rather than a background nicety — but a self-resolving one.
     case downloadingModel
 
+    /// **The selected engine has no model on disk.** Nothing is downloading, nothing is warming
+    /// up, and waiting will not change it — the user must fetch it again.
+    ///
+    /// Added by the `speech-tab` aspect for a state the tab created: until there was a [Remove]
+    /// button, an engine with no model was always one that had *not arrived yet*, and reporting it
+    /// as ``downloadingModel`` — *"Dictation works as soon as it finishes"* — was true. For a
+    /// model a user deleted a moment ago it is a promise of a wait that never ends, which is M11's
+    /// named failure exactly.
+    ///
+    /// It is **not** what an engine that merely never prepared reads as: that one is still
+    /// ``downloadingModel``, because from the user's side a load that is retrying and bytes that
+    /// are moving are the same wait with the same remedy (`MenuBarStateTests` argues it, and this
+    /// case is reached only when the missing model is a *fact the app was told*, never inferred
+    /// from an absent preparation).
+    case modelMissing
+
+    /// The selected engine is warming up: its model is on disk and a preparation is running right
+    /// now. Every launch passes through this, and so does every engine switch.
+    ///
+    /// Distinguished from ``downloadingModel`` because the waits are different lengths and from
+    /// the *absence* of both because that one never ends by itself. Distinguished at all because of
+    /// PRD M11: after a switch nothing is wrong, and an icon reporting the same thing it reports
+    /// for a missing model would tell the user their switch broke something. It is the same failure
+    /// shape as an `LSUIElement` app whose dead launch looks exactly like a live one — this
+    /// repository's dominant bug class, which is why M11 calls it a must-have rather than polish.
+    case preparingEngine
+
     /// Another application holds the keyboard (`IsSecureEventInputEnabled`), so no tap in the
     /// session receives key events and the hotkey is temporarily deaf.
     ///
@@ -74,7 +101,9 @@ public enum MenuBarState: Sendable, Hashable, CaseIterable {
     public var isBlocked: Bool {
         switch self {
         case .ready, .listening, .transcribing: return false
-        case .noAccessibility, .noMicrophone, .downloadingModel, .secureInput: return true
+        case .noAccessibility, .noMicrophone, .downloadingModel, .modelMissing, .preparingEngine,
+            .secureInput:
+            return true
         }
     }
 
@@ -82,7 +111,9 @@ public enum MenuBarState: Sendable, Hashable, CaseIterable {
     public var isActive: Bool {
         switch self {
         case .listening, .transcribing: return true
-        case .ready, .noAccessibility, .noMicrophone, .downloadingModel, .secureInput: return false
+        case .ready, .noAccessibility, .noMicrophone, .downloadingModel, .modelMissing,
+            .preparingEngine, .secureInput:
+            return false
         }
     }
 }
@@ -107,8 +138,22 @@ public struct MenuBarConditions: Sendable, Hashable {
     public var isHotkeyDeafForPermission: Bool
     /// Whether the engine is prepared. `false` while the model downloads or fails to load.
     public var isEnginePrepared: Bool
-    /// Whether a model download is running.
+    /// Whether a model download is running **for the engine dictation is waiting on**.
+    ///
+    /// Not "any download". A user fetching the other engine in the background while dictating with
+    /// this one is not blocked, and an icon that reported it would spend the whole transfer saying
+    /// dictation is unavailable while dictation worked (`EngineStateAgreementTests`).
     public var isDownloadingModel: Bool
+    /// Whether the selected engine's model is known to be absent from disk — the [Remove] button's
+    /// aftermath. Carried as a fact the app was **told**, never inferred from an unprepared
+    /// engine: see ``MenuBarState/modelMissing``.
+    public var isModelMissing: Bool
+    /// Whether the selected engine's `prepare()` is running right now.
+    ///
+    /// Carried beside ``isEnginePrepared`` rather than folded into it, because the two answer
+    /// different questions: that one is "may a session start?", this one is "is waiting the
+    /// remedy?". Both false together is the state nobody should wait for.
+    public var isPreparingEngine: Bool
     /// Whether the microphone is usable. `false` when TCC denied it or the Mac has no input.
     public var isMicrophoneAvailable: Bool
     /// Whether another application holds the keyboard, so no tap receives key events.
@@ -120,6 +165,8 @@ public struct MenuBarConditions: Sendable, Hashable {
         isHotkeyDeafForPermission: Bool = false,
         isEnginePrepared: Bool = true,
         isDownloadingModel: Bool = false,
+        isModelMissing: Bool = false,
+        isPreparingEngine: Bool = false,
         isMicrophoneAvailable: Bool = true,
         isBlockedBySecureInput: Bool = false
     ) {
@@ -128,6 +175,8 @@ public struct MenuBarConditions: Sendable, Hashable {
         self.isHotkeyDeafForPermission = isHotkeyDeafForPermission
         self.isEnginePrepared = isEnginePrepared
         self.isDownloadingModel = isDownloadingModel
+        self.isModelMissing = isModelMissing
+        self.isPreparingEngine = isPreparingEngine
         self.isMicrophoneAvailable = isMicrophoneAvailable
         self.isBlockedBySecureInput = isBlockedBySecureInput
     }
@@ -161,7 +210,17 @@ public enum MenuBarStateReducer {
 
         if conditions.isHotkeyDeafForPermission { return .noAccessibility }
         if !conditions.isMicrophoneAvailable { return .noMicrophone }
-        if conditions.isDownloadingModel || !conditions.isEnginePrepared { return .downloadingModel }
+        // A download outranks a warm-up: it is the far longer wait and the one with progress worth
+        // showing, so when both are true the download is what the icon reports.
+        if conditions.isDownloadingModel { return .downloadingModel }
+        // Then the warm-up, which is a wait the user need do nothing about — and which must not
+        // read as the state below, where nothing is in flight and waiting is not the remedy (M11).
+        if conditions.isPreparingEngine { return .preparingEngine }
+        // Then a model that is known to be gone — after the warm-up, because a preparation in
+        // flight is the newer fact, and before the catch-all below, because "waiting is not the
+        // remedy" is the one thing that must not be reported as a wait.
+        if conditions.isModelMissing { return .modelMissing }
+        if !conditions.isEnginePrepared { return .downloadingModel }
         // Last of the four blockers: the only one that needs no action, and the only one that ends
         // on its own. A missing microphone or an unprepared engine outlasts a password field, so
         // the user hears about those first.

@@ -586,14 +586,27 @@ That is unchanged by the 2026-08-25 amendment making **toggle the shipped defaul
 
 ```
 ~/Library/Application Support/Vocca/
-  models/<engine-id>/<version>/     # downloaded, checksum-verified, resumable
+  models/<tier-storage-id>/<ver>/   # downloaded, checksum-verified, resumable
   config.json                       # settings
-  cleanup-config.json               # cleanup provider selection — hand-editable (llm-cleanup)
+  cleanup-config.json               # cleanup provider selection — the Cleanup tab writes it,
+                                    #   and it stays hand-editable (llm-cleanup, settings-live-controls)
   dictionary.json                   # user replacement rules — hand-editable
   strategies.json                   # per-app injection memory
   recovery/                         # transcript journal (bounded, purged)
   metrics.sqlite                    # local-only latency/success — never sent
 ```
+
+**Keyed by tier, not by engine** (`settings-live-controls`, 2026-08-29). An engine's tiers are
+different artifacts of different sizes under different names, so two tiers sharing a directory key
+share a directory *and a verified marker* — which is what the two Whisper manifests did, making one
+tier's download satisfy the other's presence check. `EngineTier.storageID` is the directory key;
+`EngineCandidate.id` remains the **attribution** key a transcript is signed with, correctly shared
+across an engine's tiers.
+
+**Not on disk:** the engine selection, its tier, and the activation mode live in `UserDefaults`
+behind the `SettingsStore` seam — a scalar-settings decision that needs a synchronous read at
+launch, following `CompletionFlagStore`'s precedent rather than the JSON-file idiom. They are the
+second and only other entry in the UserDefaults seam table.
 
 The BYOK cleanup rung's key lives **not here but in the login Keychain**, as
 `dev.vocca.Vocca.byok-key` (app-only access, `byok-provider`): the key is never readable from the

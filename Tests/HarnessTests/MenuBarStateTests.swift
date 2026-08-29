@@ -55,6 +55,47 @@ final class MenuBarStateTests: XCTestCase {
             .downloadingModel)
     }
 
+    /// **R4 (PRD M11).** An engine that is *warming* reads as its own state, not as the one an
+    /// engine that never arrived reads as.
+    ///
+    /// The two are the same sentence from the icon's side — "you cannot dictate yet" — and
+    /// completely different from the user's. After an engine switch the model is already on disk
+    /// and the only true thing to say is "a moment"; an icon that reported the same thing it
+    /// reports for a model that is missing would tell the user their switch broke something. M11
+    /// makes this a must-have rather than polish, because "no window may look identical to
+    /// working" is this repository's dominant bug class and it has the same shape.
+    func testAPreparingEngineIsItsOwnStateAndNotTheUnavailableOne() {
+        XCTAssertEqual(
+            MenuBarStateReducer.state(
+                for: MenuBarConditions(isEnginePrepared: false, isPreparingEngine: true)),
+            .preparingEngine)
+        XCTAssertNotEqual(
+            MenuBarStateReducer.state(
+                for: MenuBarConditions(isEnginePrepared: false, isPreparingEngine: true)),
+            MenuBarStateReducer.state(
+                for: MenuBarConditions(isEnginePrepared: false, isPreparingEngine: false)),
+            "preparing and unavailable must not render as one icon")
+    }
+
+    /// A model that is genuinely downloading outranks a warm-up: the download is the longer wait
+    /// and the one with progress worth showing, so it is what the icon reports when both are true.
+    func testADownloadOutranksAWarmUp() {
+        XCTAssertEqual(
+            MenuBarStateReducer.state(
+                for: MenuBarConditions(
+                    isEnginePrepared: false, isDownloadingModel: true, isPreparingEngine: true)),
+            .downloadingModel)
+    }
+
+    /// Warming is blocked — a press really is refused — but there is nothing to press: a warm-up
+    /// has no progress window and ends on its own, exactly as Secure Input does.
+    func testAPreparingEngineIsBlockedButOffersNoButton() {
+        XCTAssertTrue(MenuBarState.preparingEngine.isBlocked)
+        XCTAssertNil(
+            MenuBarCopy.actionTitle(for: .preparingEngine),
+            "a warm-up has no progress to show and no setting to open — it just finishes")
+    }
+
     // MARK: - Precedence, which is the whole point
 
     /// Activity outranks housekeeping: a download running for the *other* engine must not take the
@@ -113,7 +154,14 @@ final class MenuBarStateTests: XCTestCase {
             Set(MenuBarState.allCases.filter(\.isActive)), [.listening, .transcribing])
         XCTAssertEqual(
             Set(MenuBarState.allCases.filter(\.isBlocked)),
-            [.noAccessibility, .noMicrophone, .downloadingModel, .secureInput])
+            // `modelMissing` joined the blocked set with the `speech-tab` aspect: a model the user
+            // removed refuses the next press exactly as a model that never arrived does. It is a
+            // separate *state* because the remedy differs — download it again, rather than wait —
+            // but the icon's blocked/active partition does not care about remedies.
+            [
+                .noAccessibility, .noMicrophone, .downloadingModel, .modelMissing, .preparingEngine,
+                .secureInput,
+            ])
     }
 
     /// Secure Input counts as blocked even though it needs no action: the hotkey genuinely will

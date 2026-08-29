@@ -130,7 +130,14 @@ public struct ManifestFile: Codable, Sendable, Equatable, Hashable {
 /// `EngineIdentity` binding lives in `parakeet-engine` (`spec.md:20-21`). It crosses actor
 /// boundaries into ``ModelStore``, so it is `Sendable`.
 public struct ModelManifest: Codable, Sendable, Equatable, Hashable {
-    /// The store's directory key — `EngineIdentity.id` for the engine this artifact belongs to.
+    /// The store's directory key — ``EngineTier/storageID`` for the tier this artifact is.
+    ///
+    /// Keyed by **tier**, not by engine: an engine's tiers are different artifacts of different
+    /// sizes under different file names, so two tiers sharing this value share a directory and a
+    /// verified marker — which is exactly the defect the two Whisper manifests carried until
+    /// 2026-08-28. `ModelStoreTierKeyingTests` pins every shipped manifest's value to its tier's
+    /// `storageID`, and pins the values pairwise distinct, so the two names for one directory
+    /// cannot drift apart again.
     public let engineID: String
     /// The pinned version this artifact is. A version directory is immutable once verified
     /// (`PRODUCT_SPEC.md:273`), so this value must be stable for the artifact's lifetime.

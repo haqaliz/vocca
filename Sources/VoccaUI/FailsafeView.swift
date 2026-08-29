@@ -15,7 +15,7 @@
 import SwiftUI
 import VoccaCore
 
-/// The FAILSAFE pill's content, hosted by ``FailsafePanel`` (`DownloadProgressView`'s shape: the
+/// The FAILSAFE pill's content, hosted by ``FailsafePanel`` (``SpeechSettingsPage``'s shape: the
 /// SwiftUI view is thin — everything with a branch in it is above, in ``FailsafeCopy`` and the
 /// reducer, both tested headlessly; this file renders their answers).
 ///

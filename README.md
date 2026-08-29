@@ -33,7 +33,14 @@ Your audio never has to leave your Mac.
 > (Parakeet via FluidAudio and whisper.cpp), deterministic cleanup, the injection ladder with
 > its failsafe, and the live widget are all shipped behind tested seams, and the zero-network
 > probe drives a full dictation cycle end to end. Cleanup by a local Ollama model or a BYOK
-> endpoint ships too, opt-in behind a hand-edited config file and badged whenever it is on. There is still **no release**: no real-machine execution has
+> endpoint ships too, opt-in behind a hand-edited config file and badged whenever it is on.
+> **Engine switching ships** — the Speech tab picks the engine and the Whisper tier, downloads a
+> model and removes one, without a restart — and **whisper is selectable but unverified**: it has
+> never transcribed anything, its WER tolerances are seeded from Parakeet's table rather than
+> measured on its own output, and the digests in its shipped manifests have never been compared
+> against real bytes. That is unverified, not known-broken; `docs/SMOKE_CHECKLIST.md` steps
+> 102–104 are the comparison and the first real run. Until they pass, choosing Whisper is choosing
+> a 1.6 GB download nobody has checked. There is still **no release**: no real-machine execution has
 > happened (CI structurally cannot — no microphone, no Accessibility grant, no window server),
 > so the first real dictation is yours, per `docs/SMOKE_CHECKLIST.md` steps 62–68.
 >
@@ -146,7 +153,7 @@ delete it in Keychain Access.
 |-------|--------|-----|
 | Shell + core | Native SwiftUI, single Swift 6 process | Direct AX/CGEvent/Pasteboard access, no IPC on the latency path |
 | ASR (default) | [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) via [FluidAudio](https://github.com/FluidInference/FluidAudio) | CoreML on the Neural Engine; ~24× realtime on M4; low power |
-| ASR (second) | [whisper.cpp large-v3-turbo](https://github.com/ggml-org/whisper.cpp) | **Shipped** — a real second implementation behind `ASREngine`: proves the seam and hedges ecosystem risk. Real-engine WER not yet measured (founder run, [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) step 19) |
+| ASR (second) | [whisper.cpp large-v3-turbo](https://github.com/ggml-org/whisper.cpp) | **Shipped and selectable, unverified** — a real second implementation behind `ASREngine`: proves the seam and hedges ecosystem risk. It has never transcribed anything, and its manifests' digests have never been checked against bytes (founder run, [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) steps 19 and 102–104) |
 | TTS | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Small, fast time-to-first-audio, Apache-2.0 |
 | VAD / turn-taking | Silero VAD + Parakeet EOU 120M | Frame-level VAD alone doesn't do turn-taking |
 | Cleanup | Rules → Ollama → BYOK | **Shipped** — rules by default (~0 MB, <5 ms, no network); Ollama and BYOK are opt-in, degrade to the rules output on any failure, and are badged at point of use. LLM rewrite quality is unmeasured |

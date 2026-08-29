@@ -86,9 +86,4 @@ public enum SettingsCopy {
     /// The dictionary tab's empty state.
     public static let dictionaryEmpty =
         "No replacements yet. Add one for a name or a piece of jargon Vocca keeps mishearing."
-
-    /// The cleanup tab's note, while the choice is still made in a file rather than here.
-    public static let cleanupNotEditable =
-        "Choosing a different cleanup provider still means editing cleanup-config.json in "
-        + "Application Support. This tab shows what Vocca is actually using."
 }

@@ -55,9 +55,18 @@ public actor DictationEngineResolver {
     public typealias EngineBuilding =
         @Sendable (EngineSelection) async throws -> any ASREngine
 
-    /// The selection this process resolved — the picker's answer, fixed at launch
-    /// (`EnginePickerState.selection`, default `.parakeetV3`).
-    public let selection: EngineSelection
+    /// The selection this resolver runs — fixed for its whole life, by design.
+    ///
+    /// `nonisolated` so a caller in another module can read it without an `await`. It is an
+    /// immutable `Sendable` value, so there is nothing to isolate; the annotation is required only
+    /// because a cross-module actor `let` is isolated by default. The composition root reads it
+    /// synchronously on the main actor to answer "which engine is Vocca using?" — the Settings
+    /// label, and the guard that makes a no-op selection change a no-op.
+    ///
+    /// A *change* of selection is a new resolver, never a write here: resolve-once is the whole
+    /// contract above, and a mutable selection would let one process's `isPrepared` describe an
+    /// engine it never built.
+    public nonisolated let selection: EngineSelection
 
     /// The builder that maps ``selection`` to a running engine. Called at most once.
     private let building: EngineBuilding

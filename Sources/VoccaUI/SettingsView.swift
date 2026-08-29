@@ -31,8 +31,26 @@ public struct SettingsBindings {
     public var hotkeyDisplayName: String
     /// The engine currently transcribing, for the Speech tab.
     public var engineDisplayName: () -> String
-    /// The cleanup provider's name and whether it sends text off the machine.
-    public var cleanupSummary: () -> (name: String, endpoint: String?)
+    /// **What Vocca is actually cleaning with** — the resolved provider's name, its own egress
+    /// declaration, and the endpoint when there is one to name.
+    ///
+    /// `nil` when nothing has resolved (a composition with no resolver, which is every headless
+    /// harness): the page claims nothing rather than inventing an answer. Asynchronous because the
+    /// resolver is an actor and the answer is a fact about the process, not a captured copy — the
+    /// `engineDisplayName` argument, applied to the one tab whose wrong answer is a privacy claim.
+    public var cleanupSummary: () async -> CleanupSummary?
+    /// The cleanup config as the tab edits it — the same `cleanup-config.json` the resolver
+    /// reads, never a second copy that drifts from it.
+    public var loadCleanupConfig: () async -> CleanupConfigDraft
+    /// Writes it back. Throws what the store throws: a cleanup choice the user made that did not
+    /// reach the disk must say so.
+    public var saveCleanupConfig: (CleanupConfigDraft) async throws -> Void
+    /// Whether the one-time cloud confirmation has already been read and accepted
+    /// (`PRODUCT_SPEC.md:273`).
+    public var isCloudCleanupAcknowledged: () -> Bool
+    /// Records that it has. Best-effort: a failed write shows the dialog once more, which is the
+    /// safe direction.
+    public var setCloudCleanupAcknowledged: (Bool) -> Void
     /// Loads the user's replacements.
     public var loadDictionary: () async -> [ReplacementRule]
     /// Saves the user's replacements.
@@ -50,26 +68,86 @@ public struct SettingsBindings {
     /// next dictation rather than to the next launch.
     public var saveStrategies: ([AppStrategyEntry]) async throws -> Void
 
+    // MARK: - Speech
+
+    /// The engine and tier in use **right now**, read rather than captured: the window is built
+    /// once and kept for the process's lifetime, so a captured selection would leave the radio
+    /// pointing at the launch engine for ever — including straight after the user changed it here.
+    public var engineSelection: () -> EngineSelection
+    /// Switches the engine. Routed to `DictationLoopRoot.setEngineSelection(_:)`, which already
+    /// refuses mid-session, persists the choice and prepares the new engine eagerly (aspect 3).
+    public var setEngineSelection: (EngineSelection) -> Void
+    /// What the readiness gate says — the one fact the Speech tab, the menu bar and the next press
+    /// all render (`EngineStateAgreementTests`).
+    public var engineReadiness: () -> EngineReadinessState
+    /// The store's presence and disk answers, per tier. Asked, never cached: a model can be
+    /// removed by this very page.
+    public var modelSnapshot: () async -> [SpeechTabTierSnapshot]
+    /// A download session for one tier, or `nil` when one cannot be built (a manifest that will
+    /// not load). `nil` is offered to nobody — the row shows no download it cannot perform.
+    public var makeDownloadSession: (EngineTier) -> (any ModelDownloadSession)?
+    /// Deletes one tier's model. Throws what the store throws: a removal the user asked for that
+    /// did not happen must say so.
+    public var removeModel: (EngineTier) async throws -> Void
+    /// Whether a dictation is in flight — the R5 guard. Removal is refused while it is `true`.
+    public var isSessionInFlight: () -> Bool
+    /// A download for one tier started or stopped. Reported so the surfaces that describe waits
+    /// can tell a download from a warm-up — and so the menu bar does not report a background fetch
+    /// of an engine nobody selected as a reason dictation is unavailable.
+    public var downloadActivityChanged: (EngineTier, Bool) -> Void
+
     public init(
         isToggleMode: @escaping () -> Bool,
         setToggleMode: @escaping (Bool) -> Void,
         hotkeyDisplayName: String,
         engineDisplayName: @escaping () -> String,
-        cleanupSummary: @escaping () -> (name: String, endpoint: String?),
+        cleanupSummary: @escaping () async -> CleanupSummary?,
+        // The cleanup defaults claim **nothing** and change **nothing**, for the reason the Speech
+        // defaults do: a default that pretended to work would let a page report a provider and
+        // save a choice that nothing is behind. Unacknowledged is the safe direction too — the
+        // worst case is a dialog shown once more.
+        loadCleanupConfig: @escaping () async -> CleanupConfigDraft = { .empty },
+        saveCleanupConfig: @escaping (CleanupConfigDraft) async throws -> Void = { _ in },
+        isCloudCleanupAcknowledged: @escaping () -> Bool = { false },
+        setCloudCleanupAcknowledged: @escaping (Bool) -> Void = { _ in },
         loadDictionary: @escaping () async -> [ReplacementRule],
         saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
         loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
-        saveStrategies: @escaping ([AppStrategyEntry]) async throws -> Void = { _ in }
+        saveStrategies: @escaping ([AppStrategyEntry]) async throws -> Void = { _ in },
+        // The Speech defaults claim **nothing**, and that is deliberate. A default that pretended
+        // to work — a `ready` gate, a tier reported present — would let a page offer a dictation
+        // and a download that nothing is behind. Closed and empty is the safe direction, exactly
+        // as it is for the readiness gate itself.
+        engineSelection: @escaping () -> EngineSelection = { .defaultSelection },
+        setEngineSelection: @escaping (EngineSelection) -> Void = { _ in },
+        engineReadiness: @escaping () -> EngineReadinessState = { .unavailable },
+        modelSnapshot: @escaping () async -> [SpeechTabTierSnapshot] = { [] },
+        makeDownloadSession: @escaping (EngineTier) -> (any ModelDownloadSession)? = { _ in nil },
+        removeModel: @escaping (EngineTier) async throws -> Void = { _ in },
+        isSessionInFlight: @escaping () -> Bool = { false },
+        downloadActivityChanged: @escaping (EngineTier, Bool) -> Void = { _, _ in }
     ) {
         self.isToggleMode = isToggleMode
         self.setToggleMode = setToggleMode
         self.hotkeyDisplayName = hotkeyDisplayName
         self.engineDisplayName = engineDisplayName
         self.cleanupSummary = cleanupSummary
+        self.loadCleanupConfig = loadCleanupConfig
+        self.saveCleanupConfig = saveCleanupConfig
+        self.isCloudCleanupAcknowledged = isCloudCleanupAcknowledged
+        self.setCloudCleanupAcknowledged = setCloudCleanupAcknowledged
         self.loadDictionary = loadDictionary
         self.saveDictionary = saveDictionary
         self.loadStrategies = loadStrategies
         self.saveStrategies = saveStrategies
+        self.engineSelection = engineSelection
+        self.setEngineSelection = setEngineSelection
+        self.engineReadiness = engineReadiness
+        self.modelSnapshot = modelSnapshot
+        self.makeDownloadSession = makeDownloadSession
+        self.removeModel = removeModel
+        self.isSessionInFlight = isSessionInFlight
+        self.downloadActivityChanged = downloadActivityChanged
     }
 }
 
@@ -99,7 +177,8 @@ public struct SettingsView: View {
         switch tab {
         case .general: GeneralSettingsPage(bindings: bindings)
         case .speech: SpeechSettingsPage(bindings: bindings)
-        case .cleanup: CleanupSettingsPage(bindings: bindings)
+        case .cleanup:
+            CleanupSettingsPage(bindings: bindings, openDictionary: { self.tab = .dictionary })
         case .dictionary: DictionarySettingsPage(bindings: bindings)
         case .apps: AppsSettingsPage(bindings: bindings)
         }
@@ -152,64 +231,6 @@ private struct GeneralSettingsPage: View {
             Text(title)
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }
-    }
-}
-
-// MARK: - Speech
-
-/// Which engine is transcribing. Read-only: switching engines is the picker's own surface and is
-/// not wired into this window yet, so this reports rather than pretends.
-private struct SpeechSettingsPage: View {
-
-    let bindings: SettingsBindings
-
-    var body: some View {
-        Form {
-            Section("Engine") {
-                LabeledContent("Transcribing with", value: bindings.engineDisplayName())
-                Text("Everything is transcribed on this Mac. Audio never leaves it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-// MARK: - Cleanup
-
-/// What polishes the text, and whether that leaves the machine.
-///
-/// The egress line is the point of this tab. The badge on the pill tells a user that text is
-/// leaving *while it happens*; this is where they can check before it ever does.
-private struct CleanupSettingsPage: View {
-
-    let bindings: SettingsBindings
-
-    var body: some View {
-        let summary = bindings.cleanupSummary()
-        return Form {
-            Section("Cleanup") {
-                LabeledContent("Using", value: summary.name)
-                if let endpoint = summary.endpoint {
-                    Label {
-                        Text("Text is sent to \(endpoint).")
-                    } icon: {
-                        Image(systemName: "cloud")
-                    }
-                    .foregroundStyle(VoccaTheme.egress)
-                    .font(.caption)
-                } else {
-                    Label("Runs on this Mac. Nothing is sent anywhere.", systemImage: "checkmark.shield")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text(SettingsCopy.cleanupNotEditable)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
     }
 }
 

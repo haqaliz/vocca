@@ -1,5 +1,5 @@
 {
-  "engineID": "whisper-large-v3-turbo",
+  "engineID": "whisper-large-v3-turbo-q5_0",
   "version": "1",
   "files": [
     {

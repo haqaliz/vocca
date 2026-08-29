@@ -14,10 +14,15 @@
 
 import VoccaCore
 
-/// The identity this engine reports on every transcript — and the directory key the model store
-/// uses, which is why the `id` must never drift from `"whisper-large-v3-turbo"`: it is the
-/// machine key `EngineIdentity.swift:28`'s doc names, the manifest's `engineID` and the model
-/// store's directory all live on it.
+/// The identity this engine reports on every transcript. The `id` must not drift from
+/// `"whisper-large-v3-turbo"` because it is the machine key `EngineIdentity.swift:28`'s doc names
+/// and the value every whisper transcript is attributed to.
+///
+/// It is **not** the model store's directory key, though this comment said it was until
+/// 2026-08-28. One identity signs both whisper tiers — turbo and its q5_0 quantisation are the
+/// same engine — so keying storage by it gave two different artifacts one directory and one
+/// verified marker. Storage is keyed by tier (``EngineTier/storageID``); attribution is keyed by
+/// engine, which is this. Both tiers' transcripts still carry this identity, and that is correct.
 ///
 /// `isLocal == true` means no egress badge is ever drawn for this engine (`ARCHITECTURE.md:152-156`)
 /// — and it is a fact about the implementation, not a claim: transcription runs entirely on

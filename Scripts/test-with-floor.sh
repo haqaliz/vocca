@@ -1174,6 +1174,12 @@ set -euo pipefail
 # the shipped script — a renamed row missing from the checklist, a known-hostile row expecting
 # a rung, an invented rung — because a self-check that cannot fail proves nothing.
 #
+# The tier-keying aspect adds eleven (1345 -> 1356): the collision the two Whisper manifests
+# carried — one directory and one verified marker for two different artifacts — plus the
+# per-tier presence, disk-usage and removal queries the Speech tab asks, and the uniqueness
+# guard that stops the class recurring. The guard's own planted-duplicate row is included: a
+# gate that cannot fail proves nothing.
+#
 # The bundle-identifier verification adds four (1341 -> 1345): the seed cross-check caught in
 # both directions (a row claiming a hostile seed the Swift data does not name, and a seeded
 # application marked unseeded), a display name planted where a bundle identifier belongs, and
@@ -1181,8 +1187,177 @@ set -euo pipefail
 # check in the repository that can tell a correct identifier from a plausible one, and the one
 # that would have caught `com.google.docs` before it reached a plan.
 #
+# The settings-store aspect adds nineteen (1356 -> 1375). Eleven are the Core vocabulary's: the
+# on-disk spelling of every tier and every activation mode pinned as a literal rather than asked
+# of the enum, which is the only form of the test that a case rename cannot pass through; the
+# pairwise-distinctness guard for each type, each caught with a planted collision because a guard
+# that cannot fail proves nothing; the round trip over allCases, so a case added without a decode
+# arm is a setting the user can choose and lose; the tolerant decode's three answers, where the
+# assertion that earns its place is the loud one — an absent value is the shipped default reported
+# to nobody, an unreadable one is the shipped default plus a report naming the string it rejected,
+# and a silent reset is the failure the rule exists for; and the pin holding the duplicated
+# activation default against the root's DictationLoopRoot.defaultMode, which the test target is the
+# one place that may import both modules to check.
+#
+# Eight are the adapter's, and all but one are about the half only the adapter can get wrong: a
+# written value read back from a fresh instance rather than the one that wrote it, the silent fresh
+# install, the unknown identifier reported loudly through the store's own injected log, the two
+# frozen keys and their distinctness, and the rule that a failed read never rewrites what it failed
+# to read. The load-bearing row is the stored value of the wrong type. `string(forKey:)` answers nil
+# for a stored array exactly as it does for a key never written, so a corrupted preferences file
+# would be indistinguishable from a fresh install and would reset a user's settings in silence; that
+# test fails on its own against the obvious implementation, which is how it was written.
+#
+# The engine-resolution aspect adds twenty-six (1375 -> 1401), of which the load-bearing few are
+# worth naming. The readiness latch became two-way — a switch has to be able to close the gate it
+# could previously only open — and the test that guards the dangerous direction is a scan of the
+# shipped source rather than a behavioural check: a behavioural test can only exercise the openers
+# that already exist, and the hazard is the one nobody has written yet. Planting a second opener
+# fails it, in either spelling the type has used.
+#
+# The sharpest row is the stale-preparation race. The launch preload can still be warming Parakeet
+# when the user picks Whisper; the switch replaces the resolver and starts a second preparation, and
+# then the first one succeeds — for a resolver nobody is using. With the guard removed the test
+# fails three ways: the gate opens over an engine that was never prepared, a pipeline is installed
+# over the replaced one, and a press really does open the microphone. That is the whole reason the
+# row exists, and it is the reason the resolver is re-compared after every suspension rather than
+# merely swapped.
+#
+# The rest are the wiring: five hardcoded sites collapsed to one read, pinned by counting the reads
+# rather than checking a value — two sites reading differently is the failure a five-site change
+# invites, and one read cannot produce it; the activation mode read at launch and written back, each
+# row driving a real chord through the tap so the assertion is which microphone opened rather than
+# which mode the root claims; and a preparing state distinct from an unavailable one, because after
+# a switch the model is on disk, nothing is wrong, and an icon reporting "no model" would tell the
+# user their switch broke something. One test was deleted with the duplication it guarded: the
+# shipped activation default no longer exists twice.
+#
+# The speech-tab aspect adds twenty-six (1401 -> 1427). Fourteen are the tab's own decision table
+# and five its words, and the pair worth naming there are the two that could not have been written
+# against the picker that already existed: presence is keyed by *tier*, so one Whisper tier being
+# on disk must never make the other read `[ installed ]`, and `EnginePickerState` keys by engine —
+# one slot for both rows, which cannot express the distinction at all. Planting the engine-keyed
+# answer fails it. The management controls are asserted to be the spec sentence's own phrases
+# rather than three fresh literals, because two spellings of one string is how a copy change lands
+# in the prose and never on the buttons.
+#
+# The four load-bearing ones are the agreement rows. Each drives **one composed root** into an
+# in-between window and asserts what the Speech tab, the menu bar and the next press say
+# *together*, in a single comparison. Three separate tests could not do it: each would pass while
+# the surfaces described different instants, which is this repository's dominant bug class and the
+# reason M11 calls the window a must-have. They found two real defects on the first run. The pill
+# was left stranded in OPENING by every refused press — the widget reducer has no time-based
+# transition in it by design, and the router presented the failsafe panel without telling the
+# widget anything, so the pill went on claiming a microphone was opening until the next press. And
+# the menu bar had no word for a model that was deleted: an unprepared engine read as
+# `downloadingModel`, whose copy promises dictation "as soon as it finishes", which stops being
+# true the moment a [Remove] button exists. The fourth row is the half a naive wiring gets wrong —
+# a background download of an engine nobody selected must block nothing.
+#
+# The rest are the guards: removal refused while a dictation is in flight (and refused in the
+# *plan*, not only in the button, so a caller that skipped the control is refused too), M12's
+# cancel-then-remove expressed as a returned value rather than as three calls in the right order,
+# and the wiring read out of the shipped source because `showSettings()` builds a window CI cannot
+# construct. `DownloadProgressView.swift` was deleted whole — zero callers since C2 — and the
+# count did not move, which is what confirmed it was dead rather than merely unloved.
+#
+# The verification-smoke aspect adds eight (1427 -> 1435), and seven of them exist so that the
+# eighth means something. The eighth is the artifact check — every shipped manifest's declared
+# digest and byte count against the bytes on a real disk — and it is env-gated on VOCCA_MODEL_DIR,
+# so on this runner it does exactly one thing: it skips, visibly. That is the whole of what CI can
+# honestly do with a 1.6 GB GGUF, and a silent pass in its place is what let a 2-byte config.json
+# with the SHA-256 of the literal string {} sit in the Parakeet manifest for two weeks while the
+# badge stayed green.
+#
+# So the seven are the gate proving it can fail, over files the suite synthesises and then lies
+# about: a planted digest, two planted digests in one run with a clean file between them (the run
+# must continue past a failure and past a success — a manifest from a partial provisioning run has
+# more than one wrong line), a byte count that disagrees with the disk, a declared file that was
+# never written, a directory where a file was declared, and the SDK-nested layout the Parakeet
+# manifest uses — a verifier pointed at the version root alone would report a healthy install as
+# thirteen missing files, fail for the wrong reason, and be switched off. None of them touches a
+# network: the check reads local bytes, because a verification that fetched what it was verifying
+# would prove only that the fetch and the manifest agreed with each other.
+#
+# The count is what a check of this shape costs. The manifests are unverified rather than
+# defective, and the seven rows are the difference between being able to say that and guessing it.
+#
+# The cleanup-tab aspect adds sixty-five (1435 -> 1500), on the one surface ROADMAP.md principle 2
+# says must survive an audit of the actual code paths — so the count is worth accounting for
+# precisely rather than waving at.
+#
+# Seven give the config store a save path it deliberately shipped without, and two of those seven
+# are the reason the other five are not decoration. Both blocks survive a save of either rung — a
+# round trip CleanupConfig.tolerantDecode had promised in prose since C6 and nothing had ever
+# checked, so switching to the local default silently cost the endpoint a user had typed. And the
+# written document carries no key material under any spelling: the BYOK key lives in the Keychain,
+# this is a plain file in Application Support a user is invited to open, and the absence is asserted
+# rather than trusted to a type that might grow a field.
+#
+# Eight are F3 — the tab reported the literal "Built-in rules" regardless of what had resolved, so a
+# user on Ollama or BYOK read the local answer while the widget's egress badge, folded from the same
+# provider, correctly showed the cloud marker. Two surfaces describing one fact, and one of them
+# lying. The load-bearing pair are the two directions of one rule: an endpoint is never rendered for
+# a provider that does not dial (a degraded LLM block leaves a string in hand, and a cloud line over
+# a provider that never dials is the badge's failure in reverse), and a provider that declares
+# egress with no endpoint still says the text leaves — a surface that inferred the first fact from
+# the second would fall silent, showing the reassuring local line, in exactly the case it knows
+# least about. The wiring row is a source scan rather than a behavioural check, because the defect
+# was not a wrong value: it was a literal no configuration could move.
+#
+# Twenty-five are the reducer and its copy. Every string is pinned byte-for-byte to
+# PRODUCT_SPEC.md:263-274, and the one that earns its own test is the warning glyph, asserted as
+# U+26A0 + U+FE0F rather than as a character that looks right: without the variation selector macOS
+# draws a thin monochrome outline that reads as decoration, and a warning nobody reads is not one.
+# The reducer's own load-bearing row is that the selection moves on saveSucceeded and on nothing
+# else — the file is what the next launch reads, so a radio that moved on the click would need a
+# rollback on every failure path, and the rollback nobody writes is how a user ends up believing
+# they are on the local rung.
+#
+# Sixteen are R3, the one-time confirmation, and they are the ones this file would keep if it had to
+# keep only some. Three planted mutations fail them: removing the gate, resetting the selection on
+# decline, and treating a dismissal as agreement. The decline test drives from Ollama rather than
+# from the shipped default on purpose — a rollback that reset to rules would pass a test written
+# from rules and would silently take a user off Ollama for dismissing an unrelated dialog. The
+# persisted half degrades an unreadable acknowledgement to *not acknowledged*, loudly, because the
+# other direction spends an agreement the user never gave.
+#
+# Nine are the draft/config translation and the page's wiring — the seam where a settings surface
+# most easily becomes a second copy of the config. The row that earns its place is that a blank
+# block is not written at all: an ollama block with an empty model does not decode, and
+# tolerantDecode degrades the *whole* config to rules with a loud log, so a user who typed a cloud
+# endpoint and never touched Ollama would find their cloud rung silently off.
+#
+# What none of it proves is that any of this has been seen. The page is executed by nothing in CI
+# (the window-server rule) and a dialog is not its decision table: whether it is legible, and
+# whether SwiftUI presents it at all, are questions only a human at a window can answer.
+# SMOKE_CHECKLIST.md section 15 (steps 105-110) is that execution, and step 107 is the one that
+# matters.
+#
+# The removal-during-preparation fix adds one (1500 -> 1501), and one is the right number because
+# the defect had exactly one shape. The stale-preparation guard had been asked only one question --
+# "is this still the selected resolver?" -- and a *removal* changes no selection: the user deletes
+# the model of the engine they are already using, so the preparation in flight is still holding the
+# current resolver, passes the guard, and calls markEnginePrepared() over bytes that are gone. The
+# gate reopens, the menu bar returns to "ready", and the Speech tab goes on offering to download the
+# model it is claiming to run. Three surfaces disagreeing about one instant, which is the class
+# EngineStateAgreementTests exists to make impossible -- and it is where the defect first showed
+# itself, intermittently, because the race is a race.
+#
+# The new row is deterministic instead: the engine is held inside prepare() until the removal has
+# been delivered, so the ordering is written down rather than hoped for. It sits beside the switch
+# race in EngineSwitchTests because it is the same guard, and reading the two together is what says
+# the guard has two reasons rather than one.
+#
+# Nothing was added for the drains that were corrected in the same commit, and that is the point of
+# mentioning them here: EngineStateAgreementTests waited on the resolver's own isPrepared while
+# asserting on the gate flag that markEnginePrepared() sets a turn later, so the wait could return
+# before the thing it was waiting for. A drain must wait on what the assertions read. The same
+# correction was applied to the one WarmStartLaunchTests drain that clears the way for a press; the
+# two that assert on the resolver itself were left alone, because there the resolver is the subject.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1345
+MINIMUM_EXECUTED_TESTS=1501
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

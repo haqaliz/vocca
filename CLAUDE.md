@@ -245,6 +245,8 @@ This file orients a coding agent working in this repository. Read it first.
 >   dictionary store, the pipeline wiring and the eval harness; C6: the Ollama and BYOK rungs,
 >   opted into by a hand-edited `cleanup-config.json` — both recorded below). **The Cleanup-tab
 >   settings UI and C8 (strategy memory) remain unbuilt.** The ladder does not learn.
+>   *(Both amended since: C8 landed 2026-08-27, and the Cleanup tab landed 2026-08-29 with the
+>   `settings-live-controls` unit — recorded below.)*
 >   *(Amended by C8, landed 2026-08-27 — all five aspects: **the ladder learns, the user can
 >   overrule it, and the matrix that measures it exists**. Recorded in full below.)*
 >
@@ -453,9 +455,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   are out of scope (only the FAILSAFE and the five live states ship); C8 (strategy
 >   memory) shipped in full — the store, the order, the recording seam, the Apps tab and the
 >   22-row matrix (recorded below), with the ≥95% number itself still unmeasured;
->   C5 and C6 shipped in full except their settings surface — the
->   rules dictionary and the cleanup-provider choice are JSON-editable, the Cleanup tab waits
->   for the deferred settings surface; C7's
+>   C5 and C6 shipped in full **including their settings surface** since
+>   `settings-live-controls` (2026-08-29); the cleanup-provider choice is a control, and
+>   `cleanup-config.json` stays hand-editable as a second, supported path; C7's
 >   latency-instrumentation slice shipped
 >   (below), its warm-start and widget-streaming halves did not — the `warm-start-streaming`
 >   unit shipped the warm-start pin and gate plus the widget-streaming mechanism (above); the
@@ -536,6 +538,10 @@ This file orients a coding agent working in this repository. Read it first.
 >   choice still lives; the cleanup provider is still `cleanup-config.json`. The hotkey is
 >   displayed rather than rebindable. Each says so in words, because a control that looks editable
 >   and is not teaches a user the app is broken.
+>   *(Amended by the `settings-live-controls` unit, landed 2026-08-29: **both tabs are live.**
+>   Speech picks the engine and tier, downloads and removes models; Cleanup picks the rung and
+>   writes `cleanup-config.json`. `SettingsCopy.cleanupNotEditable` is deleted because it became
+>   false. **The hotkey is still not rebindable** — that claim stands.)*
 > - **First run and permissions do not exist.** The highest-value surface in the design direction
 >   is still unbuilt, and a fresh install still meets the same three silent gates.
 >   *(Amended by the `first-run-permissions` unit, landed 2026-08-27: the five-step onboarding
@@ -590,6 +596,9 @@ This file orients a coding agent working in this repository. Read it first.
 >   loop's real-machine execution is still the founder's machine.
 > - **`DownloadWindow.present` remains uncalled** — the MODEL step embeds its own progress, so the
 >   shipped download window still has no caller.
+>   *(Resolved by `settings-live-controls`, 2026-08-29: it never gained one, and the Speech tab
+>   embeds its own progress too, so `DownloadWindow` was **deleted** rather than left as a second
+>   answer to one question.)*
 > - **`restartDismissed` has no view control yet** — the state exists in the reducer's vocabulary
 >   (`OnboardingState`), and the UI that leads to it is not built.
 > - **Settings has no permission-status display** (N1, deferred).
@@ -754,6 +763,66 @@ This file orients a coding agent working in this repository. Read it first.
 >   next one is the first that anyone could install — which is why it waits on
 >   `SMOKE_CHECKLIST.md` steps 62–68 rather than on a version bump.
 >
+> **The `settings-live-controls` unit landed 2026-08-29 — settings that actually change things,
+> and the three defects found on the way there.** Six aspects, merged in order
+> (`model-store-keying` → `settings-store` → `engine-resolution` → `speech-tab` →
+> `verification-smoke` → `cleanup-tab`), planned in `docs/planning/settings-live-controls/`.
+> **C3's last unbuilt deliverable is built** — `CAPABILITY_ROADMAP.md:81`'s "Engine selection in
+> settings, switchable without restart" plus the per-engine tier choice — so `whisper.cpp` stopped
+> being an engine no user could select, and roadmap risk **R5** stopped being mitigated on paper
+> only.
+>
+> **Three defects, only one of them predicted.** (1) **The two Whisper tiers shared a model
+> directory**: both manifests declared `engineID: "whisper-large-v3-turbo"`, `version: "1"`, and
+> `ModelStore` keys directories on that pair — so the 1.6 GB turbo and the 574 MB q5_0 shared one
+> directory *and one verified marker*, `downloadIfMissing` short-circuited, and the engine was
+> handed bytes nobody chose. Invisible only because no user could pick a tier.
+> `EngineTier.storageID` now keys storage by **tier** while `EngineCandidate.id` keys attribution
+> by **engine**; the same bug was in `Scripts/provision-asr-fixtures.sh` — the script
+> `SMOKE_CHECKLIST.md` step 19 runs — where it would have produced an install the app could never
+> find. (2) **The pill was stranded in OPENING on every refused press**: a press folds OPENING
+> before the refusal is known and the widget reducer has no time-based transition by design, so
+> the gate-refused branch presented the FAILSAFE panel and told the widget nothing. Found by the
+> three-surface agreement test, by no earlier one. (3) **The Cleanup tab reported a literal** —
+> `cleanupSummary: { ("Built-in rules", nil) }` — so a user on Ollama or BYOK read "Built-in rules"
+> with no endpoint while the egress badge correctly showed cloud, on the tab whose stated purpose
+> is checking *before* text leaves.
+>
+> **What shipped:** the Speech tab (`PRODUCT_SPEC.md:254-262`) with per-tier install state,
+> download, disk used, remove and re-download — removal refused mid-session, confirmed, and
+> cancelling an in-flight transfer rather than deleting under it; the Cleanup tab
+> (`PRODUCT_SPEC.md:264-274`) with the three rungs, per-rung endpoint/model, and the one-time
+> confirmation naming what is sent, where declining leaves the previous choice intact *by
+> construction* (the selection moves only on a successful save, so no rollback code exists to get
+> wrong); a `SettingsStore` seam in Core with the UserDefaults adapter as the **second** file
+> permitted to name that family; and the activation mode finally persisted — it had been read from
+> a constant and discarded on every relaunch. `EngineReadiness` stopped being a one-way latch: it
+> is now `ready`/`preparing`/`unavailable`, because two states cannot tell a wait from a failure,
+> with `markReady()` still the **only** opener, pinned by a closed-set test. The
+> stale-preparation race — a launch preload completing for a resolver nobody uses, after a switch —
+> is closed by identity comparison after every suspension point. Test floor: 1500.
+>
+> **What the settings-live-controls unit is NOT, and must not be claimed:**
+> - **Whisper has still never transcribed anything.** `SMOKE_CHECKLIST.md` step 19 is unexecuted
+>   and `tolerances_20260810.md` records its tolerances as seeded from Parakeet's table, not
+>   measured. The Speech tab says so in words and claims nothing about quality in either
+>   direction; steps 102–104 are where that changes.
+> - **The manifest digests are unverified, not defective.** The predicted `{}`-placeholder does not
+>   reproduce — `44136fa3…` appears in no manifest, no entry has a 0- or 2-byte size, no digest
+>   repeats. What is open is *provenance*: `672367e` added both whisper manifests claiming
+>   "verified digests" with no script run, no source directory and no artifact — the same
+>   evidentiary shape as `ac381d0`, which shipped the Parakeet placeholder.
+>   `ManifestByteVerifier` checks them against real bytes behind an env gate that **skips visibly**
+>   and can genuinely fail (seven unconditional mechanism tests prove it).
+> - **None of the UI has been rendered.** No window server, TCC or microphone in CI (the
+>   window-server precedent): the reducers, the copy pins and the three-surface agreement are the
+>   tested half, and `SMOKE_CHECKLIST.md` steps **94–110** are the first execution of the Speech
+>   tab, the manifest verification, whisper on both tiers, and the Cleanup tab.
+> - **No post-switch warm-start number is claimed.** The C7 `WarmStartTargets` bound covers the
+>   **launch** path only; nothing here measures a switch.
+> - **The hotkey is still not rebindable**, and the Privacy tab (`PRODUCT_SPEC.md:277`) — including
+>   the real network-connection counter — is still unbuilt.
+
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no
 >   Apple Developer ID and no `notarytool` credential. Only its credential-detect-and-skip path

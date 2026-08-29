@@ -13,21 +13,13 @@
 // limitations under the License.
 
 import Foundation
+import VoccaCore
 
-/// Which cleanup provider the user opted into — the `cleanup-config.json` `provider` field,
-/// hand-edited until the Cleanup tab ships (`prd.md` M7).
-///
-/// `rules` is the zero-network default. `ollama` and `byok` are opt-in LLM rungs: the raw
-/// strings are the file's contract (`rules`, `ollama`, `byok` — pinned byte-for-byte, so a
-/// future settings surface writes exactly these).
-public enum CleanupProviderKind: String, Codable, Sendable, Equatable {
-    /// The deterministic rules engine — the default, zero network.
-    case rules = "rules"
-    /// A local LLM via Ollama (`ollama-provider`).
-    case ollama = "ollama"
-    /// The user's own cloud endpoint (`byok-provider`).
-    case byok = "byok"
-}
+// `CleanupProviderKind` — which rung the file names — lives in `VoccaCore`
+// (`CleanupProviderKind.swift`). It moved there when the Cleanup tab shipped: `VoccaUI` may import
+// only the core, and the alternative was a second three-case enum for the radio buttons to drift
+// against the file format. This file still owns the *file* — the decode, the degrade policy and
+// the blocks below.
 
 /// The Ollama block of `cleanup-config.json`: `{endpoint, model}`.
 public struct OllamaCleanupConfig: Sendable, Equatable {
@@ -109,6 +101,96 @@ public struct CleanupConfig: Sendable, Equatable {
         self.provider = provider
         self.ollama = ollama
         self.byok = byok
+    }
+
+    // MARK: - The Cleanup tab's draft
+
+    /// This config as the Cleanup tab edits it.
+    ///
+    /// The tab works in `CleanupConfigDraft` (VoccaCore) because `VoccaUI` may import only the
+    /// core, and the translation lives here — on the type that owns the file — so there is exactly
+    /// one place a field can be dropped between the surface and the disk.
+    ///
+    /// An absent Ollama block still offers ``defaultOllamaEndpoint``, so selecting Local AI on a
+    /// fresh install leaves one field to fill rather than two — and the one left is the one only
+    /// the user can know. Nothing else is guessed: an unset model and an unset cloud endpoint come
+    /// back empty, because a plausible-looking default in either would be a value the user never
+    /// chose being written to a file on their behalf.
+    public var draft: CleanupConfigDraft {
+        CleanupConfigDraft(
+            provider: provider,
+            ollamaEndpoint: ollama?.endpoint ?? Self.defaultOllamaEndpoint,
+            ollamaModel: ollama?.model ?? "",
+            byokEndpoint: byok?.endpoint ?? "",
+            byokModel: byok?.model ?? "")
+    }
+
+    /// The config a draft describes.
+    ///
+    /// **A block whose required fields are blank is not written at all**, and that is the rule
+    /// this initializer exists for. An `ollama` block with an empty model does not decode, and
+    /// `tolerantDecode(_:log:)` degrades the *whole* config to rules when the selected block is
+    /// invalid — so a user who typed a cloud endpoint and never touched Ollama would find their
+    /// cloud rung silently off. Omitting the empty block is the difference between that and a file
+    /// that says what they chose.
+    ///
+    /// An empty BYOK model is an **absent** field rather than an empty string, matching the file's
+    /// contract that a missing `model` lets the endpoint choose its own; `""` is a model name no
+    /// endpoint has.
+    public init(draft: CleanupConfigDraft) {
+        let ollama: OllamaCleanupConfig? =
+            draft.isConfigured(.ollama)
+            ? OllamaCleanupConfig(endpoint: draft.ollamaEndpoint, model: draft.ollamaModel)
+            : nil
+        let byok: ByokCleanupConfig? =
+            draft.isConfigured(.byok)
+            ? ByokCleanupConfig(
+                endpoint: draft.byokEndpoint,
+                model: draft.byokModel.isEmpty ? nil : draft.byokModel)
+            : nil
+        self.init(provider: draft.provider, ollama: ollama, byok: byok)
+    }
+
+    /// The file's bytes for this config — the encode half of ``tolerantDecode(_:log:)``, and the
+    /// only thing that ever writes `cleanup-config.json`.
+    ///
+    /// Untyped JSON (`JSONSerialization`) rather than a synthesized `Codable` conformance, for the
+    /// same reason the decode is: this file is a **hand-edited** surface, and the shape is the
+    /// contract — the three raw provider strings, an `ollama` block with `endpoint` and `model`,
+    /// a `byok` block with `endpoint` and an optional `model`. A synthesized encoder would emit
+    /// whatever the Swift type happens to look like next year.
+    ///
+    /// **Both blocks are written whenever they exist**, not just the selected one: switching to
+    /// the rules rung must not cost the user the endpoint they typed on the cloud one, which is
+    /// exactly what ``tolerantDecode(_:log:)`` already promises a round trip preserves.
+    ///
+    /// **A `nil` model is an absent key, not a null.** The decode reads a missing `model` as "the
+    /// endpoint defaults its own", and `null` is a wrong-typed field a hand-edit would have to
+    /// puzzle over.
+    ///
+    /// The formatting is the hand-editability contract: `.sortedKeys` so two saves of the same
+    /// config produce the same bytes, `.prettyPrinted` so a person can read it, and
+    /// `.withoutEscapingSlashes` so an endpoint reads as an endpoint rather than as
+    /// `http:\/\/localhost:11434`.
+    ///
+    /// **No key material is representable here.** The BYOK key lives in the Keychain behind the
+    /// `KeyProvider` seam; ``ByokCleanupConfig`` has no field for one, and
+    /// `CleanupConfigStoreTests` asserts the written document carries none.
+    public func encoded() throws -> Data {
+        var object: [String: Any] = ["provider": provider.rawValue]
+        if let ollama {
+            object["ollama"] = ["endpoint": ollama.endpoint, "model": ollama.model]
+        }
+        if let byok {
+            var block: [String: Any] = ["endpoint": byok.endpoint]
+            if let model = byok.model {
+                block["model"] = model
+            }
+            object["byok"] = block
+        }
+        return try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     }
 
     /// Decode `data` tolerantly: never throws, unknown keys ignored, and every invalid selected

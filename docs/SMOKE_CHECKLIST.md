@@ -1858,6 +1858,378 @@ deliverable rows. Bar: ≥19/20. Recorded, never gated.
 
 ---
 
+## 13. The Speech tab — the engine picker, its first execution
+
+`PRODUCT_SPEC.md:254-262` specifies this surface, and until the `speech-tab` aspect the tab was
+read-only and said so. The machinery under it — the tier-keyed model store, the settings store,
+the switch that replaces a resolver without a restart — shipped in three earlier aspects and has
+never been touched by a finger.
+
+Nothing here runs in CI, for the window-server reason and three more: the tab downloads a 470 MB
+model over a network the zero-network probe forbids, removes it from a real Application Support
+directory, and switches an engine whose CoreML load cannot reach a hosted runner. What CI proves
+is the half above the glass — `SpeechTabReducerTests` for every decision, `SpeechTabCopyTests` for
+every word, `EngineStateAgreementTests` for the three surfaces agreeing, and `SpeechTabWiringTests`
+for the gestures reaching the root. **The page itself has never been rendered.**
+
+Run these with the model already downloaded (step 17), and read the menu bar icon during each —
+the tab is only one of the three surfaces, and the point of steps 97–99 is what the *other two*
+say at the same moment.
+
+94. **The Speech tab renders, and reports what is actually on this Mac.**
+
+    *Gesture:* open Settings > Speech. Compare each row's badge and disk figure against
+    `~/Library/Application Support/Vocca/models/` in Finder.
+
+    *Pass:* Parakeet reads `[ installed ]` with a figure matching Finder's for its directory; both
+    Whisper tiers read `[ download ]` with no figure at all — not "0 bytes". Each engine row
+    carries its status line, and Whisper's says it has never been measured.
+
+    *Failure:* a badge or a figure that disagrees with Finder; a "0 bytes" beside a model that is
+    not there; or the two engines presented as equally exercised, which is R7's whole point and
+    the one claim in this tab nobody has earned.
+
+95. **One Whisper tier downloads without making the other read installed.**
+
+    The keying defect aspect 1 fixed, seen from the surface a user would have acted on.
+
+    *Gesture:* press [Download] on the Whisper **turbo** row and let it finish. Read both Whisper
+    rows.
+
+    *Pass:* turbo reads `[ installed ]` with its figure; **q5_0 still reads `[ download ]` with no
+    figure**. Two directories exist under `models/`, each with its own `verified` marker.
+
+    *Failure:* q5_0 reading `[ installed ]`. It would send the next dictation into
+    `.modelUnavailable` with no explanation on the page that promised otherwise.
+
+96. **The engine switch takes effect on the next press, with no restart.**
+
+    *Gesture:* with the Whisper model downloaded, select Whisper in the tab. Wait for the menu bar
+    to leave its warming state, then dictate a sentence into TextEdit. Quit and relaunch Vocca and
+    read the tab.
+
+    *Gesture (second half):* `log show --predicate 'subsystem == "dev.vocca.Vocca"' --last 2m`
+    and find the transcript's engine attribution.
+
+    *Pass:* the text lands, the log attributes it to `whisper-large-v3-turbo`, and the tab still
+    shows Whisper selected after the relaunch. **This is also whisper's first real transcription
+    ever** — `SMOKE_CHECKLIST.md` step 19 remains the WER run, but this is the first time the
+    engine has produced text for a user at all.
+
+    *Failure:* text attributed to Parakeet; a required restart; or a selection that reverts.
+
+97. **In-between window (a): the model is removed, and all three surfaces say the same thing.**
+
+    *Gesture:* with Parakeet selected and idle, press [Remove] on its row and confirm. Then read
+    the tab, the menu bar icon **and** its menu, and then press ⌥Space.
+
+    *Pass:* all four — the row flips to `[ download ]` with no figure; the menu bar shows the
+    missing-model icon and says *"The speech model isn't on this Mac"* (**not** "Downloading…
+    works as soon as it finishes", which would promise a wait that never comes); the press is
+    refused with the model-unavailable panel; and **the pill returns to idle rather than sitting
+    in OPENING**.
+
+    *Failure:* any surface describing a state that ended — especially a pill left mid-gesture. It
+    did exactly that until `EngineStateAgreementTests` asked, and this is the row that confirms
+    the fix on a real screen.
+
+98. **In-between window (b): the newly selected engine is warming, and nothing calls it broken.**
+
+    *Gesture:* switch engines and, in the seconds before the menu bar settles, read the tab and
+    the menu and press ⌥Space once.
+
+    *Pass:* the tab says the engine is getting ready, the menu bar shows the warming state with
+    *"Loading the speech model"*, and the press is refused with the model-unavailable panel and
+    the pill returning to idle. Nothing anywhere says a model is missing: it is on disk and the
+    switch worked.
+
+    *Failure:* a missing-model report during a warm-up. It would tell the user their switch broke
+    something.
+
+99. **In-between window (c): a background download blocks nothing.**
+
+    The half a naive wiring gets wrong.
+
+    *Gesture:* with Parakeet selected, prepared and idle, press [Download] on a Whisper row. While
+    it runs, read the menu bar and dictate a sentence.
+
+    *Pass:* the menu bar stays ready throughout, the dictation works normally, and the Whisper row
+    still shows its progress bar — unblocked is not the same as invisible.
+
+    *Failure:* a menu bar reporting the download as a reason dictation is unavailable. A working
+    Vocca would spend the whole transfer saying otherwise.
+
+100. **Removal is refused mid-dictation, and says why.**
+
+    *Gesture:* start a toggle dictation (⌥Space), and while it is recording press [Remove] on the
+    selected engine's row.
+
+    *Pass:* nothing is deleted and the tab shows *"Finish the dictation first. Vocca won't remove
+    a model while it's listening."* The dictation then completes normally.
+
+    *Failure:* a deletion under a live microphone, or a button that silently does nothing — a
+    control that refuses without explaining teaches a user the app is broken.
+
+101. **M12: removing a tier mid-download cancels the transfer rather than breaking it.**
+
+    *Gesture:* start a download on a Whisper row, and at roughly 30% press [Remove] on that same
+    row and confirm. Then read the log.
+
+    *Gesture (second half):* `log show --predicate 'subsystem == "dev.vocca.Vocca"' --last 2m`.
+
+    *Pass:* the row returns to `[ download ]`, the directory is gone from `models/`, and the log
+    records a **cancellation**, not `ModelDownloadError.transportFailed`.
+
+    *Failure:* a `transportFailed` in the log. It means the directory was deleted under the
+    running transfer, and the app blamed the transport for something the app did.
+
+---
+
+## 14. The manifests, and whisper's first real bytes
+
+*(Added 2026-08-29, `verification-smoke`.)* Two claims sit under the engine picker, and shipping a
+[Download] button turns both into a 1.6 GB risk a user pays for.
+
+The first is that **the shipped manifests are unverified, not defective.** The placeholder this
+repository already shipped once — `ac381d0`'s 2-byte `config.json` carrying the SHA-256 of the
+literal string `{}` — does **not** reproduce in any manifest here: that digest
+(`44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a`) appears nowhere, no entry
+declares a 0- or 2-byte size, and no digest repeats across files. What is open is provenance.
+`672367e` added both Whisper manifests with no provisioning run recorded behind it — the same
+evidentiary shape as `ac381d0` — and `Scripts/provision-asr-fixtures.sh` gained its whisper support
+the day *before* those files landed, with no record it was used. Neither reading is upgraded here.
+The comparison has simply never been made, and step 102 is where it is made.
+
+The second is that **whisper has never transcribed anything.** Step 19 is unexecuted, and the
+tolerances `WhisperCppEngineWERTests` asserts are seeded from Parakeet's table rather than measured
+on whisper's output (`docs/planning/second-asr-engine/fixture-harness/tolerances_20260810.md`).
+
+`ManifestDigestVerificationTests` is the machinery for step 102, and CI runs only half of it: the
+planted-mismatch rows, over synthesised files, which are what make a green badge say anything about
+the verifier at all. The artifact half skips visibly without `VOCCA_MODEL_DIR` and downloads
+nothing — it reads bytes already on this disk. Run these steps **in order**: a transcription
+failure after an unverified download cannot be attributed to anything.
+
+102. **The shipped manifests, checked against real bytes for the first time.**
+
+    *Gesture:* provision both Whisper tiers, then run the verification against the root they
+    landed in:
+
+    ```
+    ./Scripts/provision-asr-fixtures.sh --engine whisper-large-v3-turbo --tier turbo  --root <root>
+    ./Scripts/provision-asr-fixtures.sh --engine whisper-large-v3-turbo --tier q5_0   --root <root>
+    VOCCA_MODEL_DIR=<root>/whisper-large-v3-turbo/1 \
+      swift test --filter testEveryShippedManifestMatchesTheProvisionedBytes
+    ```
+
+    Run it a third time with `VOCCA_MODEL_DIR` pointed at the Parakeet install (step 17's), so all
+    three shipped manifests are answered for. The run prints `MANIFEST-VERIFY:` naming every tier
+    it did **not** find under that root — those tiers are still unverified after the run, and the
+    line exists so a partial check is never read as a full one.
+
+    *Pass:* the test passes for each root, and between the runs every tier has appeared in a
+    *verified* list rather than in an unverified one. A pass here is the first evidence in this
+    repository's history that a Whisper manifest describes the artifact it claims to.
+
+    *Failure:* any verdict line. `manifest declares N bytes, disk has M` is an entry that was
+    written rather than measured — the `ac381d0` shape exactly; `manifest declares sha256 …, disk
+    has …` with a matching length is a manifest generated from different bytes than the ones the
+    URL now serves. Either way the manifest is regenerated from the provisioning run's own output
+    and committed with the run recorded, never hand-edited to match.
+
+    *Void — not fail — if:* the provisioning run did not complete. A `.part` file anywhere under
+    the version directory, or a transfer that was interrupted, means the precondition (a complete
+    artifact) did not hold, and the verification result says nothing about the manifest. Re-run the
+    provisioning to completion first. Likewise void the run if `swift test` reported the test as
+    **skipped**: that is the env var not reaching the process, not a clean sheet.
+
+103. **Whisper produces text, on both tiers, through the Speech tab.**
+
+    Step 96 is turbo's row and calls itself whisper's first real transcription. This step adds what
+    no row covers yet — that the **tier** choice changes which bytes actually run — and it must not
+    be attempted until step 102 has passed for the tier in question.
+
+    *Gesture:* with the turbo tier installed and selected, dictate a sentence into TextEdit. Then
+    select the q5_0 tier in the Speech tab, wait for the menu bar to leave its warming state, and
+    dictate the same sentence again.
+
+    *Gesture (second half):* `log show --predicate 'subsystem == "dev.vocca.Vocca"' --last 5m` and
+    read both transcripts' engine attribution and the model directory each load came from.
+
+    *Pass:* both dictations land text, and the second load reads its bytes from
+    `whisper-large-v3-turbo-q5_0/1/` — a different directory and a different `verified` marker from
+    the first. Both transcripts are attributed to the whisper identity; the two tiers share it,
+    because attribution is keyed by engine and storage by tier, and that is correct.
+
+    *Failure:* the second dictation loading from the turbo directory, which is the tier-keying
+    defect returning at the only layer that can still hide it. Also a failure: a tier switch that
+    requires a restart, or a second dictation that produces no text at all after the first did —
+    the q5_0 artifact is a real model, and a tier the picker offers must work or not be offered.
+
+    **This step settles nothing about accuracy.** It says whisper runs. What it is worth is
+    ordering: step 104's numbers mean nothing until this passes, because a WER measured through a
+    load that took the wrong bytes measures the wrong model.
+
+104. **Re-baseline whisper's WER tolerances from step 19's run, with the run recorded.**
+
+    Step 19 is the run and stays its home; this step is what happens to the numbers afterwards, and
+    it exists because a real run that changes no number leaves the seeded table looking measured.
+    The procedure is
+    `docs/planning/settings-live-controls/verification-smoke/tolerances_20260829.md` — measure →
+    margin → founder-signed → land in exactly the two test files.
+
+    *Gesture:* run step 19. Record, in that file's measured-values table: the six per-fixture WERs
+    the runner printed, the machine (model identifier and chip), the **artifact hashes** — the
+    `sha256` of each file from the manifest step 102 has now verified, so the numbers name the
+    bytes they were measured on — and the date. Then apply the margin, take the founder's sign-off,
+    and land the signed numbers in `WhisperCppEngineWERTests.swift` and
+    `ParakeetEngineWERTests.swift` together.
+
+    *Pass:* the record carries a measured row, and the two tolerance tables carry numbers with a
+    measurement and a signature behind them. Until then, every whisper accuracy claim in this
+    repository is a claim about structure.
+
+    *Failure:* a run whose numbers exceed the seeded tolerances and a tolerance raised to fit them.
+    A failing real run is the correct outcome and re-baselines with data in hand; it is never a
+    reason to relax a number quietly. Also a failure: landing whisper's table without Parakeet's —
+    the two engines run the same six fixtures, and moving one alone hides a regression in the
+    other.
+
+    *Void — not fail — if:* step 102 has not passed for the artifact the run used. A WER measured
+    against unverified bytes measures an unknown model, and recording it would close a question
+    that is still open — this file's first rule, applied to the one table nobody has measured.
+
+---
+
+## 15. The Cleanup tab — the rungs become a choice, and the dialog before the cloud one
+
+*(Added 2026-08-29, `cleanup-tab`.)* Two things ship here that CI cannot execute, and they fail in
+opposite directions.
+
+The first is the **summary line**, which until this aspect was the literal `("Built-in rules", nil)`
+— so a user on Ollama or BYOK read "Built-in rules" with no endpoint while the widget's egress
+badge, folded from the same resolved provider, correctly showed the cloud marker. Two surfaces
+describing one fact, and one of them lying. That is fixed at the derivation, and the derivation is
+tested headlessly; what is *not* tested is that the two surfaces agree **on a running Mac**, because
+the widget needs a window server and the resolver needs a real `cleanup-config.json`. Step 106 is
+that comparison, and it is the only place it has ever been made.
+
+The second is the **one-time cloud confirmation** (`PRODUCT_SPEC.md:273`). Its decisions are pure
+and `CleanupCloudConfirmationTests` runs all of them — three planted mutations fail that gate. But
+a dialog is not its decision table: whether it is legible, whether the accepting button is the one
+a person's hand goes to, and whether it appears at all through SwiftUI's
+`confirmationDialog(_:isPresented:)` are questions only a human at a window can answer. **A
+confirmation nobody can read is the same as no confirmation**, and this surface is the one
+`ROADMAP.md` principle 2 says must survive an audit of the actual code paths — a regression here is
+positioning-fatal, not a UI bug.
+
+Nothing in this section may be run against a Vocca whose `cleanup-config.json` you care about. Copy
+it aside first; step 105 rewrites it.
+
+105. **The choice is a control, and it reaches the file.**
+
+    *Gesture:* quit Vocca. `cp ~/Library/Application\ Support/Vocca/cleanup-config.json /tmp/` if
+    one exists. Launch, open Settings → Cleanup. Read the three rungs against
+    `PRODUCT_SPEC.md:266-268`: the names, the two sentences each, and the ⚠️ on the cloud row.
+    Select **Local AI**, filling the endpoint and model fields first
+    (`http://localhost:11434`, any model name). Then `cat` the file.
+
+    *Pass:* the file names `"provider": "ollama"` with the endpoint and model you typed, is
+    pretty-printed with sorted keys, and its slashes are unescaped — it is still a file a person can
+    hand-edit, which is a supported path and not merely a legacy one. The ⚠️ renders as a yellow
+    warning triangle, not as a thin monochrome outline: the outline is what U+26A0 without its
+    variation selector looks like, and a warning that reads as decoration is not a warning.
+
+    *Failure:* a rung that cannot be selected because the fields appear only *after* selection —
+    which would make the LLM rungs unreachable. Also a failure: the file gaining a key, a token or
+    anything resembling one. The BYOK key lives in the Keychain; a plain file in Application Support
+    is not where it goes, and `CleanupConfigStoreTests` asserts the absence but cannot assert what a
+    future hand does.
+
+106. **The tab and the egress badge agree, on a machine, in both directions.**
+
+    This is F3's real execution. The defect was a literal, so nothing configuration could do would
+    move it; the fix is a derivation, and a derivation can still be wired to the wrong thing.
+
+    *Gesture:* with a **BYOK** rung selected and a key in the Keychain (step 76's key), restart
+    Vocca — the resolver resolves once at launch, which is exactly what the tab's own
+    "takes effect the next time Vocca restarts" line says. Open Settings → Cleanup and read the
+    "Using" line. Then dictate a sentence and watch the recording pill.
+
+    *Pass:* the tab names the BYOK provider and the endpoint you configured, and the pill carries
+    the ☁︎ marker while recording. Switch back to **Basic**, restart, and repeat: the tab says
+    "Runs on this Mac. Nothing is sent anywhere." and the pill carries no marker.
+
+    *Failure:* the tab and the pill disagreeing in either direction. The badge showing a cloud
+    marker over a tab reporting the local rung is the worse of the two — but a tab claiming egress
+    that is not happening is not harmless either: a warning that fires wrongly is one people learn
+    to ignore.
+
+    *Void — not fail — if:* you did not restart between the change and the reading. The resolver is
+    resolve-once by design, and comparing a fresh tab against a stale provider measures nothing.
+
+107. **The cloud confirmation appears, says what is sent, and declining costs nothing.**
+
+    The must-have, and the step this section exists for.
+
+    *Gesture:* with the acknowledgement cleared —
+    `defaults delete dev.vocca.Vocca settings.cloudCleanupAcknowledged` with Vocca quit — launch,
+    open Settings → Cleanup, and while on a rung that is **not** Basic (Local AI, so the previous
+    choice is something a reset would visibly destroy), select **Cloud (BYOK)**. Read the dialog.
+    Decline it.
+
+    *Pass:* a dialog appears before anything is written. It names the endpoint, says the text of
+    every dictation is sent there with the API key, and says plainly that the **audio is never
+    sent**. On declining: the radio is still on Local AI — not Basic, not blank — and
+    `cleanup-config.json` still says `"provider": "ollama"`. Select Cloud again: the dialog appears
+    **again**, because declining is not agreeing.
+
+    *Failure:* the file changing before the dialog is answered. Also a failure: declining leaving
+    the radio on Basic or on nothing — the previous choice is the one that was there, and a reset to
+    the default is a setting silently changed by a dialog the user refused.
+
+108. **It is one-time, and it means once.**
+
+    *Gesture:* accept the dialog. Confirm the file now says `"provider": "byok"`. Switch to Basic,
+    switch back to Cloud. Then quit Vocca, relaunch, and switch to Cloud once more.
+
+    *Pass:* the dialog does not appear on any of the three later selections. `defaults read
+    dev.vocca.Vocca settings.cloudCleanupAcknowledged` reads `acknowledged`.
+
+    *Failure:* the dialog appearing again after a relaunch, which would mean the acknowledgement
+    lives in the window rather than in the settings store — the difference between "one-time" and
+    "once per window", and the reason people stop reading dialogs.
+
+    *Void — not fail — if:* you cleared the key between steps. This step is about the flag, and a
+    rung that refuses for a missing endpoint never reaches the dialog to be asked about.
+
+109. **A rung that cannot work is refused in words, not written.**
+
+    *Gesture:* clear the Ollama **model** field and select Local AI. Then clear the BYOK endpoint
+    and select Cloud.
+
+    *Pass:* each is refused with a sentence naming what is missing, and `cleanup-config.json` is
+    unchanged both times.
+
+    *Failure:* either selection being written. An `ollama` block with no model does not decode, and
+    `CleanupConfig.tolerantDecode` degrades the **whole** config to rules with a loud log — so the
+    file would say Local AI, the radio would say Local AI, and Vocca would be running the built-in
+    rules. That is the exact class of defect this whole aspect exists to end, reappearing one layer
+    down.
+
+110. **Restore your config.**
+
+    *Gesture:* `cp /tmp/cleanup-config.json ~/Library/Application\ Support/Vocca/` if you saved one
+    in step 105, or delete the file to return to the shipped default. Restart and confirm the tab
+    reads "Runs on this Mac. Nothing is sent anywhere."
+
+    *Pass:* the machine is back where it started, and the zero-network default is what is running.
+
+    *Failure:* leaving a tester's machine pointed at a cloud endpoint after a smoke run — which is
+    a real cost, not a tidiness note: every subsequent dictation on that machine sends text to it.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

@@ -15,6 +15,7 @@
 import CryptoKit
 import Foundation
 import VoccaASR
+import VoccaCore
 import XCTest
 
 /// The provisioning script's contract (`spec.md:48-49`): `Scripts/provision-asr-fixtures.sh`
@@ -199,14 +200,67 @@ final class ProvisioningScriptTests: XCTestCase {
         ])
         XCTAssertEqual(result.status, 0, "the script must succeed: \(result.output)")
 
+        // Under the *tier's* storage key: storage is keyed by tier, so this manifest is emitted
+        // beside the q5_0 install, not beside the full-precision tier's.
         let manifest = try readEmittedManifest(
-            in: scratch, engineID: whisperEngineID, version: whisperVersion)
+            in: scratch, engineID: EngineTier.whisperTurboQ5.storageID, version: whisperVersion)
         XCTAssertEqual(
             manifest.files.map(\.name), ["ggml-large-v3-turbo-q5_0.bin"],
             "the q5_0 tier must require and manifest the q5_0 artifact")
         XCTAssertEqual(manifest.files[0].sha256, sha256Hex(of: fakeQ5))
         XCTAssertEqual(manifest.files[0].byteCount, fakeQ5.count)
         XCTAssertNil(manifest.sdkDirectory)
+    }
+
+    /// The script must install a tier **where the app looks for it**: storage is keyed by tier
+    /// (``EngineTier/storageID``), so the q5_0 artifact belongs under
+    /// `<root>/whisper-large-v3-turbo-q5_0/1/` and its emitted manifest must declare that same
+    /// key.
+    ///
+    /// This is the provisioning half of the tier-keying defect, and it is silent in exactly the
+    /// way the original was: a script that installs under the *engine* name is internally
+    /// consistent — the files are there, the marker is there, the manifest decodes — while the
+    /// running app reads a different directory and finds nothing. Nothing fails; the model is
+    /// merely absent forever. Both directions are pinned here so the script and the shipped
+    /// manifest cannot drift apart again.
+    func testTheQ5TierIsProvisionedUnderItsOwnStorageKey() throws {
+        let scratch = try makeScratchRoot()
+        let source = scratch.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data(fakeArtifactBytes()).write(
+            to: source.appendingPathComponent("ggml-large-v3-turbo-q5_0.bin"))
+
+        let root = scratch.appendingPathComponent("root", isDirectory: true)
+        let result = try runScript(arguments: [
+            "--engine", whisperEngineID,
+            "--tier", "q5_0",
+            "--source", source.path,
+            "--root", root.path,
+        ])
+        XCTAssertEqual(result.status, 0, "the script must succeed: \(result.output)")
+
+        let storageID = EngineTier.whisperTurboQ5.storageID
+        let versionDir = root
+            .appendingPathComponent(storageID, isDirectory: true)
+            .appendingPathComponent(whisperVersion, isDirectory: true)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: versionDir.appendingPathComponent("ggml-large-v3-turbo-q5_0.bin").path),
+            "the q5_0 artifact must land under <root>/\(storageID)/\(whisperVersion)/")
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: versionDir.appendingPathComponent(ModelStore.markerFileName).path),
+            "the verified marker must be written under the tier's own directory")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(whisperEngineID, isDirectory: true).path),
+            "the q5_0 install must not touch the full-precision tier's directory")
+
+        let manifest = try readEmittedManifest(
+            in: scratch, engineID: storageID, version: whisperVersion)
+        XCTAssertEqual(
+            manifest.engineID, storageID,
+            "the emitted manifest must declare the tier's storage key, not the engine's")
     }
 
     // MARK: - The parakeet path: regression, byte-identical shape

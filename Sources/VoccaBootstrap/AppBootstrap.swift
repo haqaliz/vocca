@@ -188,14 +188,37 @@ public enum AppBootstrap {
             })
         panelBox.value = panel
 
+        // MARK: The settings the user chose
+        //
+        // **Read once, here, and derived from everywhere else.** Five sites used to name
+        // `EngineSelection.defaultSelection` outright — the resolver, the download session's
+        // manifest, its base URL, the onboarding presence check and the Settings label — and the
+        // failure that arrangement invites is not a site reading the wrong value but two sites
+        // reading *different* ones: a download session fetching Parakeet's manifest while the
+        // resolver builds Whisper. One read cannot produce it, and `EngineSelectionWiringTests`
+        // pins the count.
+        //
+        // Reached through `ShippingSettings.store()` rather than by naming the adapter: the
+        // `UserDefaults` seam permits exactly two files to name that family, and this is not one
+        // of them (`InjectionSeamBoundaryTests`). The read is synchronous and cannot fail — an
+        // absent or unreadable value degrades to the shipped default, which is a working
+        // configuration.
+        let settings = ShippingSettings.store()
+        let selection = settings.engineSelection()
+
         // MARK: The engine lifecycle
         //
         // The resolver is built here, but its builder runs only when `prepareIfNeeded` does — and
         // that is `main`'s job, not `configure`'s: the engine's `prepare` is where model bytes
         // arrive, which is the one thing the probe must never trigger.
-        let resolver = DictationEngineResolver(selection: .defaultSelection) { selection in
-            try await engine(for: selection, store: store, clock: clock)
+        //
+        // Built through the same factory a *switch* uses, so the resolver the app launches with
+        // and the resolver a selection change mints are one recipe rather than two that agree by
+        // inspection.
+        let makeResolver: @Sendable (EngineSelection) -> DictationEngineResolver = { selection in
+            Self.makeResolver(selection: selection, store: store, clock: clock)
         }
+        let resolver = makeResolver(selection)
 
         // The download window's surface: the same store, manifest and transport the engine will
         // use, so a download the UI starts and a download the launch starts are single-flight.
@@ -203,9 +226,9 @@ public enum AppBootstrap {
         do {
             downloadSession = try StoreModelDownloadSession(
                 store: store,
-                manifest: ShippedModelManifest.load(for: EngineSelection.defaultSelection.tier),
+                manifest: ShippedModelManifest.load(for: selection.tier),
                 transport: DefaultModelTransport(
-                    baseURL: repositoryURL(for: EngineSelection.defaultSelection.tier)))
+                    baseURL: repositoryURL(for: selection.tier)))
         } catch {
             logger.error(
                 "the download session could not be built: \(String(describing: error), privacy: .public)")
@@ -352,7 +375,7 @@ public enum AppBootstrap {
         // `installedState(_:)` house pattern): `ModelStore.isPresent` is an actor read, so the
         // wiring answers it in a launch task, and a present model folds `.committed` — the flow
         // then resumes past the MODEL step. Disk-only: the zero-network probe stays green.
-        if let manifest = try? ShippedModelManifest.load(for: EngineSelection.defaultSelection.tier) {
+        if let manifest = try? ShippedModelManifest.load(for: selection.tier) {
             Task {
                 if await store.isPresent(engineID: manifest.engineID, version: manifest.version) {
                     onboardingStore.fold(.modelStatusChanged(.committed))
@@ -388,11 +411,12 @@ public enum AppBootstrap {
             targetResolution: targetResolution,
             panel: panel,
             pipeline: nil,
-            pipelineAssembly: {
+            // The prepared engine arrives as a parameter, deliberately. This closure outlives every
+            // resolver the process will build — a switch replaces the resolver, and a closure that
+            // had captured one would keep assembling pipelines over the engine the app launched
+            // with. Taking the engine leaves nothing here to go stale.
+            pipelineAssembly: { engine in
                 let custody = try await custodyTask.value
-                guard let engine = await resolver.engineIfReady() else {
-                    throw PipelineAssemblyError.engineNotPrepared
-                }
                 let injector: any TextInjector
                 switch injectorComposition {
                 case .ladder:
@@ -405,6 +429,8 @@ public enum AppBootstrap {
                     recorder: ledger, clock: clock,
                     cleanup: try await cleanupResolver.resolve())
             },
+            makeResolver: makeResolver,
+            settings: settings,
             downloadSession: downloadSession,
             recorder: ledger,
             sessionBox: sessionBox,
@@ -421,6 +447,13 @@ public enum AppBootstrap {
         // shape (both are window-adjacent surfaces, neither exists for the probe).
         root.onboardingStore = onboardingStore
         root.onboardingSink = onboardingSink
+        // The Speech tab's store: the same one every engine loads through, so a row's
+        // `[ installed ]`, the bytes beside [Remove] and the model the engine opens are all one
+        // directory. Assigned after construction, the `strategyMemory` shape.
+        root.modelStore = store
+        // The Cleanup tab's source of truth: the same resolver the pipeline cleans through and the
+        // egress badge folds from, so the tab cannot report a provider Vocca is not using (F3).
+        root.cleanupResolver = cleanupResolver
 
         // The strategy memory, reached back from the custody chain once it has assembled — the
         // Apps tab's write path (C8 R7). Without it a pin would reach the file and not the
@@ -491,7 +524,12 @@ public enum AppBootstrap {
                     SystemSettingsPane.open(at: SystemSettingsPane.accessibilityPanePath)
                 case .noMicrophone:
                     SystemSettingsPane.open(at: SystemSettingsPane.microphonePanePath)
-                case .downloadingModel, .ready, .listening, .transcribing, .secureInput:
+                // The one blocker whose remedy is inside Vocca: the Speech tab is where the model
+                // is fetched again, so the button opens it rather than System Settings.
+                case .modelMissing:
+                    root.showSettings()
+                case .downloadingModel, .preparingEngine, .ready, .listening, .transcribing,
+                    .secureInput:
                     break
                 }
             },
@@ -676,11 +714,24 @@ public enum AppBootstrap {
         }
     }
 
-    /// Why the pipeline assembly could not produce a pipeline.
-    private enum PipelineAssemblyError: Error {
-        /// `prepare` reported success but the resolver answered no engine — unreachable by
-        /// construction (`prepareIfNeeded` sets `prepared` only after the engine answers).
-        case engineNotPrepared
+    /// The resolver recipe, in one place: an ``EngineSelection`` plus the process's model store
+    /// and clock become the engine lifecycle that selection runs under.
+    ///
+    /// Extracted because there are now **two** callers and they must not drift: `configure` builds
+    /// the launch resolver, and ``DictationLoopRoot/setEngineSelection(_:)`` builds a fresh one on
+    /// every switch — `DictationEngineResolver.selection` is a `let` with no reset by design
+    /// (resolve-once), so a switch is a new resolver or it is nothing.
+    ///
+    /// Construction is side-effect-free and probe-safe for the same reason ``engine(for:store:clock:)``
+    /// is: the builder inside runs only when `prepareIfNeeded()` does.
+    public static func makeResolver(
+        selection: EngineSelection,
+        store: ModelStore,
+        clock: any MonotonicClock & Sendable
+    ) -> DictationEngineResolver {
+        DictationEngineResolver(selection: selection) { selection in
+            try await engine(for: selection, store: store, clock: clock)
+        }
     }
 
     /// The A4 composition decision — which injector the loop is composed with, chosen exactly
@@ -830,6 +881,22 @@ public final class Wiring {
 
 // MARK: - The composition root
 
+/// **A Speech-tab action asked of a composition that has no model store.**
+///
+/// Never reachable in the shipped graph — `configure` assigns the store the moment the root
+/// exists. Surfaced rather than swallowed because the alternative is a [Remove] that reports
+/// success and deletes nothing, which is the failure the whole tab's error path exists for.
+public enum SpeechSettingsUnavailable: Error, CustomStringConvertible {
+    /// No model store was composed.
+    case noModelStore
+
+    public var description: String {
+        switch self {
+        case .noModelStore: return "no model store is available in this composition"
+        }
+    }
+}
+
 /// The dictation loop, owned: the tap, the machines, the engine lifecycle, the ladder, the panel
 /// and the routing between them.
 ///
@@ -881,15 +948,44 @@ public final class DictationLoopRoot {
     /// offers the choice is still the settings surface's, which is why this is a default rather
     /// than a preference.
     ///
-    /// Read from ``defaultMode`` rather than written here, because this property and the routing
-    /// sink's initial `active` must name the same wiring: set independently, `activeMode` would
-    /// report a mode the tap's events were not going to, and `setActiveMode(_:)` would then refuse
-    /// the very switch that would repair it (`mode != activeMode` is already false).
-    public private(set) var activeMode: DictationMode = DictationLoopRoot.defaultMode
+    /// Assigned once in the initializer from the same local the routing sink's initial `active` is
+    /// derived from, never written independently: this property and the tap's actual route must
+    /// name the same wiring, or the root reports a mode its events are not going to and
+    /// `setActiveMode(_:)` then refuses the very switch that would repair it (`mode != activeMode`
+    /// is already false).
+    ///
+    /// Its launch value is the **persisted** mode when a store is wired, and ``defaultMode`` when
+    /// none is — an absent store is a fresh install, not a failure.
+    public private(set) var activeMode: DictationMode
 
-    /// The mode a freshly constructed root starts in — the one place the shipped default is
-    /// written, read by both ``activeMode`` and the routing sink's initial target.
-    public static let defaultMode: DictationMode = .toggle
+    /// The mode a fresh install starts in — **derived**, not declared.
+    ///
+    /// This used to be a second literal `.toggle`, duplicating
+    /// ``PersistedSettings/defaultActivation`` in a module `VoccaCore` may not import, with a test
+    /// in the one target that can see both holding them together. That duplication existed only
+    /// because the settings-store aspect could not reach the composition root; the root reads the
+    /// store now, so the fact lives in one place and an exhaustive mapping carries it here. Two
+    /// constants agreeing by test is a worse state than one constant, and the test that held them
+    /// is deleted with the duplication it guarded.
+    public static let defaultMode: DictationMode = mode(for: PersistedSettings.defaultActivation)
+
+    /// The root's vocabulary for one of Core's activation modes. Total, with no `default:`: the
+    /// third mode `Activation` anticipates (voice-activated, at P3) must say which wiring it drives
+    /// or this file stops compiling.
+    public static func mode(for activation: HotkeyConfiguration.Activation) -> DictationMode {
+        switch activation {
+        case .holdToTalk: return .holdToTalk
+        case .toggle: return .toggle
+        }
+    }
+
+    /// The inverse — what gets written when the mode changes. Total for the same reason.
+    public static func activation(for mode: DictationMode) -> HotkeyConfiguration.Activation {
+        switch mode {
+        case .holdToTalk: return .holdToTalk
+        case .toggle: return .toggle
+        }
+    }
 
     // MARK: - The menu bar's conditions
 
@@ -911,6 +1007,26 @@ public final class DictationLoopRoot {
     /// which composes its own ladder. The Apps tab writes through this so a pin reaches the
     /// running ladder; the file underneath it is the same one the memory persists to.
     public var strategyMemory: MemoryBackedInjectionStrategyOrder?
+
+    /// The model store every engine loads through, reached back from `configure` — the
+    /// ``strategyMemory`` precedent, and for the same reason: the Speech tab needs it and the
+    /// root's initializer is not where a composition detail belongs.
+    ///
+    /// `nil` only in a composition that built no store — every headless harness in the suite. The
+    /// tab's fallback is to claim nothing (an empty snapshot renders
+    /// ``SpeechTabInstall/unknown``, which is the honest "we could not ask") and to refuse a
+    /// removal out loud rather than to report a success that did not happen.
+    public var modelStore: ModelStore?
+
+    /// The one cleanup resolver for the process, reached back from `configure` — the
+    /// ``modelStore`` precedent, and for the same reason: the Cleanup tab needs it and the root's
+    /// initializer is not where a composition detail belongs.
+    ///
+    /// `nil` only in a composition that built no resolver — every headless harness in the suite,
+    /// and the tab's fallback there is to claim nothing rather than to invent an answer. The tab
+    /// asks it what actually resolved, which is what makes the page and the widget's egress badge
+    /// two renderings of one fact instead of two guesses (F3).
+    public var cleanupResolver: CleanupResolver?
 
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
@@ -934,8 +1050,43 @@ public final class DictationLoopRoot {
                         self?.setActiveMode(isToggle ? .toggle : .holdToTalk)
                     },
                     hotkeyDisplayName: AppBootstrap.shippedHotkeyDisplayName,
-                    engineDisplayName: { EngineSelection.defaultSelection.tier.engine.displayName },
-                    cleanupSummary: { ("Built-in rules", nil) },
+                    // The *live* selection, not the launch-time one: after a switch this label
+                    // must name the engine Vocca is now using, and the resolver's selection is
+                    // that fact rather than a copy of it.
+                    // Empty rather than a shipped-default guess when the root is gone: the
+                    // window cannot outlive the root in the shipped graph, and a label naming
+                    // an engine the user did not choose is the exact failure the single read
+                    // above exists to prevent.
+                    engineDisplayName: { [weak self] in
+                        self?.resolver.selection.tier.engine.displayName ?? ""
+                    },
+                    // Derived from the **resolved** provider, never a literal and never the file:
+                    // an `ollama` block with an undialable endpoint has already degraded to rules
+                    // by the time the resolver answers, and a tab echoing the file would tell a
+                    // user their text goes to a machine nothing ever dials (F3). With no resolver
+                    // — every headless harness — the page claims nothing rather than inventing an
+                    // answer, which for a privacy surface is the only safe direction.
+                    cleanupSummary: { [weak self] in
+                        await self?.cleanupResolver?.summary()
+                    },
+                    // The same `cleanup-config.json` the resolver reads — one file, translated
+                    // in one place (`CleanupConfig.draft` / `init(draft:)`), never a second copy
+                    // that drifts from it. The resolver is resolve-once, so a write here lands at
+                    // the next launch, which is what `CleanupTabCopy.appliesAtNextLaunch` says on
+                    // the page rather than leaving the user to discover.
+                    loadCleanupConfig: { await CleanupConfigStore().load().draft },
+                    saveCleanupConfig: { draft in
+                        try await CleanupConfigStore().save(CleanupConfig(draft: draft))
+                    },
+                    // The one-time cloud confirmation's memory, in the settings store beside the
+                    // engine and activation choices — so "one-time" means once, not once per
+                    // window.
+                    isCloudCleanupAcknowledged: { [weak self] in
+                        self?.settings?.hasAcknowledgedCloudCleanup() ?? false
+                    },
+                    setCloudCleanupAcknowledged: { [weak self] acknowledged in
+                        self?.settings?.setAcknowledgedCloudCleanup(acknowledged)
+                    },
                     // The same store the rules engine reads from, so an edit here is an edit the
                     // next dictation applies — not a second copy of the file that drifts from it.
                     loadDictionary: { await FileSystemDictionaryStore().load() },
@@ -956,9 +1107,101 @@ public final class DictationLoopRoot {
                             return
                         }
                         try await memory.replaceAll(strategies)
+                    },
+                    // MARK: Speech
+                    //
+                    // The selection is read off the resolver, which *is* the fact rather than a
+                    // copy of it — the window outlives every switch, so a captured value would
+                    // leave the radio pointing at the launch engine for ever.
+                    engineSelection: { [weak self] in
+                        self?.resolver.selection ?? .defaultSelection
+                    },
+                    // Aspect 3's switch, unchanged: it refuses mid-session, persists the choice,
+                    // replaces the resolver and prepares the new engine eagerly.
+                    setEngineSelection: { [weak self] selection in
+                        self?.setEngineSelection(selection)
+                    },
+                    engineReadiness: { [weak self] in
+                        self?.engineReadinessState ?? .unavailable
+                    },
+                    // Asked every time the page opens, never cached: a model can be removed by
+                    // this very page, and a stale answer is a row offering to remove bytes that
+                    // are already gone. The version comes from the shipped manifest, which is the
+                    // same one the engine and the downloader read — presence is version-scoped
+                    // (`ModelStore.isPresent(tier:version:)`) and asking about any other version
+                    // would answer about a directory nothing uses.
+                    modelSnapshot: { [weak self] in
+                        guard let store = self?.modelStore else { return [] }
+                        return await DictationLoopRoot.modelSnapshot(store: store)
+                    },
+                    makeDownloadSession: { [weak self] tier in
+                        guard let store = self?.modelStore else { return nil }
+                        do {
+                            return try StoreModelDownloadSession(
+                                store: store,
+                                manifest: ShippedModelManifest.load(for: tier),
+                                transport: DefaultModelTransport(
+                                    baseURL: AppBootstrap.repositoryURL(for: tier)))
+                        } catch {
+                            // Offered to nobody rather than offered and broken: the row shows no
+                            // download it cannot perform.
+                            return nil
+                        }
+                    },
+                    // Removal, and the two reports the other surfaces need. `engineModelRemoved`
+                    // is what keeps the menu bar from saying "ready" over a model that is gone —
+                    // it closes the readiness gate when the removed tier is the one in use, so
+                    // the next press refuses honestly (R5) instead of opening a microphone for an
+                    // engine that cannot transcribe.
+                    removeModel: { [weak self] tier in
+                        guard let store = self?.modelStore else {
+                            throw SpeechSettingsUnavailable.noModelStore
+                        }
+                        try await DictationLoopRoot.removeModel(tier: tier, store: store)
+                        self?.engineModelRemoved(tier: tier)
+                    },
+                    isSessionInFlight: { [weak self] in
+                        guard let self else { return false }
+                        return self.holdToTalk.machine.state != .idle
+                            || self.toggle.machine.state != .idle
+                    },
+                    // A download's start and finish, reported so the menu bar can tell the wait
+                    // it can do nothing about from the one it can. Only the selected tier's
+                    // download blocks anything; the root drops the rest.
+                    downloadActivityChanged: { [weak self] tier, isRunning in
+                        self?.engineDownloadChanged(tier: tier, isRunning: isRunning)
                     }))
         }
         settingsWindow?.show()
+    }
+
+    // MARK: - The Speech tab's store queries
+
+    /// Every tier's presence and disk figure, asked of the store at the version its **shipped
+    /// manifest** pins.
+    ///
+    /// Version-scoped because presence is: a verified version directory is immutable
+    /// (`PRODUCT_SPEC.md:273`), so asking about any other version would answer about a directory
+    /// nothing uses. A tier whose manifest will not load is **omitted** rather than reported
+    /// absent — "we could not ask" and "it is not there" are different answers, and the tab has a
+    /// state for the first one (``SpeechTabInstall/unknown``) precisely so it need not guess.
+    static func modelSnapshot(store: ModelStore) async -> [SpeechTabTierSnapshot] {
+        var snapshots: [SpeechTabTierSnapshot] = []
+        for tier in EngineTier.allCases {
+            guard let manifest = try? ShippedModelManifest.load(for: tier) else { continue }
+            let isPresent = await store.isPresent(tier: tier, version: manifest.version)
+            let bytes = await store.bytesOnDisk(tier: tier, version: manifest.version)
+            snapshots.append(
+                SpeechTabTierSnapshot(tier: tier, isPresent: isPresent, bytesOnDisk: bytes))
+        }
+        return snapshots
+    }
+
+    /// Deletes one tier's model, at the same version ``modelSnapshot(store:)`` reported the bytes
+    /// for — so the number beside [Remove] and the directory it frees are the same directory.
+    static func removeModel(tier: EngineTier, store: ModelStore) async throws {
+        let manifest = try ShippedModelManifest.load(for: tier)
+        try await store.remove(tier: tier, version: manifest.version)
     }
 
     // MARK: - The onboarding window (A5)
@@ -1042,8 +1285,30 @@ public final class DictationLoopRoot {
     /// The tap-health policy with its clock attached — the root's one object that keeps the
     /// disablement observer alive.
     public let tapHealth: TapHealthTimer
-    /// The engine lifecycle: resolve-once, single-flight prepare, the readiness gate's truth.
-    public let resolver: DictationEngineResolver
+    /// **The engine lifecycle currently in force** — resolve-once, single-flight prepare, the
+    /// readiness gate's truth.
+    ///
+    /// A `var`, and the one slot in this class that a caller must read *at call time* rather than
+    /// capture. `DictationEngineResolver.selection` is a `let` with no reset by design (resolve-once
+    /// — its own `isPrepared` describes the engine it built), so switching engines replaces the
+    /// resolver rather than mutating it, and anything holding the old instance is holding a
+    /// resolver for an engine nobody selected.
+    ///
+    /// Nothing in the composition captures one: ``pipelineAssembly`` is handed the prepared
+    /// *engine* precisely so that it has no resolver to go stale against, and
+    /// ``prepareAndAssemble()`` re-reads this slot after every suspension.
+    public private(set) var resolver: DictationEngineResolver
+
+    /// **How many times the selected engine's model has been taken away**, bumped by
+    /// ``engineModelRemoved(tier:)`` and captured by every preparation at its top.
+    ///
+    /// It exists because resolver identity cannot answer the question a removal asks. A *switch*
+    /// mints a fresh resolver, so `===` is enough to spot a preparation for an engine nobody
+    /// selected. A removal changes no selection at all — the same engine, with its bytes deleted —
+    /// so the in-flight preparation is still holding the current resolver and would pass that
+    /// check. This counter is what changes underneath it: a preparation whose captured value no
+    /// longer matches prepared a model that has since been removed, and must open nothing.
+    private var modelRemovalCount: UInt64 = 0
     /// Focused-app resolution — the key-down half of S1.
     public let targetResolution: TargetResolution
     /// The FAILSAFE surface the loop presents on.
@@ -1089,7 +1354,21 @@ public final class DictationLoopRoot {
     private let cancelRouterBox = WeakBox<DictationLoopRoot>()
     /// The pipeline's construction, run once the engine is prepared (`nil` when the pipeline was
     /// injected — the test shape).
-    private let pipelineAssembly: (@MainActor () async throws -> DictationPipeline)?
+    ///
+    /// It takes the prepared **engine** rather than reaching for a resolver. That is the whole of
+    /// the defence against a closure calling a replaced resolver: `configure` builds this closure
+    /// before the root exists and it lives for the process's lifetime, so a captured resolver would
+    /// still be the launch one after every switch. There is nothing to capture.
+    private let pipelineAssembly: (@MainActor (any ASREngine) async throws -> DictationPipeline)?
+
+    /// How a selection becomes a resolver — the recipe a switch re-runs. `nil` in a composition
+    /// with no factory wired, where ``setEngineSelection(_:)`` refuses loudly rather than pretending
+    /// to switch.
+    private let makeResolver: (@Sendable (EngineSelection) -> DictationEngineResolver)?
+
+    /// Where a chosen setting is written so it survives the launch. `nil` in the headless shape,
+    /// where a switch applies but is not persisted.
+    private let settings: (any SettingsStore)?
 
     private let logger = Logger(subsystem: "dev.vocca.Vocca", category: "loop")
 
@@ -1132,7 +1411,9 @@ public final class DictationLoopRoot {
         targetResolution: TargetResolution,
         panel: any FailsafePresenting,
         pipeline: DictationPipeline? = nil,
-        pipelineAssembly: (@MainActor () async throws -> DictationPipeline)? = nil,
+        pipelineAssembly: (@MainActor (any ASREngine) async throws -> DictationPipeline)? = nil,
+        makeResolver: (@Sendable (EngineSelection) -> DictationEngineResolver)? = nil,
+        settings: (any SettingsStore)? = nil,
         downloadSession: (any ModelDownloadSession)? = nil,
         recorder: (any LatencyRecorder)? = nil,
         sessionBox: LatencySessionBox? = nil,
@@ -1159,6 +1440,8 @@ public final class DictationLoopRoot {
         self.downloadSession = downloadSession
         self.latencyLedger = recorder as? LatencyLedger
         self.pipelineAssembly = pipelineAssembly
+        self.makeResolver = makeResolver
+        self.settings = settings
         self.readiness = readiness
         self.widgetClock = widgetClock
         self.runningAppName = runningAppName
@@ -1207,8 +1490,12 @@ public final class DictationLoopRoot {
         // Derived from the same `defaultMode` as `activeMode`, never named directly: the two are
         // one fact, and a root whose reported mode and actual route disagree is a hotkey that
         // silently drives the wrong machine.
+        // The launch mode, read from the store exactly once and used for **both** the reported
+        // mode and the tap's route — the two are one fact, and this local is where it lives.
+        let initialMode = settings.map { Self.mode(for: $0.activationMode()) } ?? Self.defaultMode
+        self.activeMode = initialMode
         let initialRoute: ScheduledWatchdog<AudioBuffer>
-        switch Self.defaultMode {
+        switch initialMode {
         case .holdToTalk: initialRoute = holdToTalk.scheduledWatchdog
         case .toggle: initialRoute = toggle.scheduledWatchdog
         }
@@ -1281,12 +1568,96 @@ public final class DictationLoopRoot {
                 "refusing to switch mode while a session is in flight — end it first")
             return
         }
+        // Written only once the change is actually adopted, below the refusals above: a store
+        // describing a mode the running app never entered would be honoured by the next launch.
+        settings?.setActivationMode(Self.activation(for: mode))
         activeMode = mode
         switch mode {
         case .holdToTalk:
             modeRouting.active = holdToTalk.scheduledWatchdog
         case .toggle:
             modeRouting.active = toggle.scheduledWatchdog
+        }
+    }
+
+    // MARK: - The engine
+
+    /// Switches the engine the **next** session will run.
+    ///
+    /// ``setActiveMode(_:)``'s shape, for the same reason: a change while a session is in flight is
+    /// refused and logged, so a user who changes this while dictating gets the change on their next
+    /// press rather than a broken session. Nothing is ever swapped under a running microphone.
+    ///
+    /// The order below is the whole of the safety argument, and it is deliberate:
+    ///
+    /// 1. **Refuse a no-op.** Re-choosing the running engine must not close the gate — otherwise
+    ///    clicking the engine already in use costs the user a re-warm before their next press.
+    /// 2. **Refuse mid-session**, both machines, exactly as the mode switch does.
+    /// 3. **Persist**, so the choice survives the launch even if everything after this fails.
+    /// 4. **Replace the resolver.** `DictationEngineResolver.selection` is a `let` and resolution is
+    ///    never repeated (only preparation is), so a switch is a new resolver or it is nothing.
+    /// 5. **Close the readiness gate.** The new engine is not prepared; until it is, a press must be
+    ///    refused before the microphone opens. Closing is always the safe direction.
+    /// 6. **Prepare eagerly** (PRD M10), so the first press after a switch is not refused for a
+    ///    model that is already sitting on disk.
+    ///
+    /// A `prepare()` that fails leaves the gate closed with the selection **still switched**: the
+    /// user asked for this engine, and silently reverting to the other one would be deciding for
+    /// them. The next press then refuses honestly and says why.
+    public func setEngineSelection(_ selection: EngineSelection) {
+        guard selection != resolver.selection else { return }
+        guard holdToTalk.machine.state == .idle, toggle.machine.state == .idle else {
+            logger.error(
+                "refusing to switch engine while a session is in flight — end it first")
+            return
+        }
+        guard let makeResolver else {
+            logger.error(
+                "no resolver factory is wired — this composition cannot switch engines")
+            return
+        }
+        settings?.setEngineSelection(selection)
+        resolver = makeResolver(selection)
+        markEnginePreparing()
+        startEnginePreparation()
+    }
+
+    /// **The selected engine's model was deleted** — the Speech tab's [Remove], reported back.
+    ///
+    /// Removing a model the app has already loaded does not un-load it: the engine is in memory
+    /// and would keep transcribing until the process ended. That is precisely the in-between
+    /// window `spec.md` R5 forbids — a Settings page reading `[ download ]` over an engine that
+    /// still works, and a next launch that suddenly refuses with no explanation on the page that
+    /// promised otherwise. So the gate closes now, and the next press refuses honestly.
+    ///
+    /// A tier the user is **not** using changes nothing: deleting Whisper while dictating with
+    /// Parakeet is housekeeping, and closing the gate for it would break a working Vocca.
+    ///
+    /// `isModelMissing` is set as a fact the app was *told*, never inferred from an unprepared
+    /// engine — see ``MenuBarState/modelMissing``, whose whole distinction rests on that.
+    public func engineModelRemoved(tier: EngineTier) {
+        guard tier == resolver.selection.tier else { return }
+        // Before the gate is closed, so that a preparation already in flight for these bytes can
+        // never win a race against the close and reopen it — see ``modelRemovalCount``.
+        modelRemovalCount &+= 1
+        markEngineUnavailable()
+        updateMenuBarConditions { $0.isModelMissing = true }
+    }
+
+    /// **A model download started or stopped**, so the surfaces that report waits can say which
+    /// wait this is.
+    ///
+    /// Only a download of the tier dictation is waiting on blocks anything. A background fetch of
+    /// the other engine must leave every surface saying "ready", or a working Vocca spends the
+    /// whole transfer claiming otherwise (`EngineStateAgreementTests`).
+    ///
+    /// A download in flight also clears ``MenuBarState/modelMissing``: bytes really are moving now,
+    /// so waiting *is* the remedy again.
+    public func engineDownloadChanged(tier: EngineTier, isRunning: Bool) {
+        guard tier == resolver.selection.tier else { return }
+        updateMenuBarConditions {
+            $0.isDownloadingModel = isRunning
+            if isRunning { $0.isModelMissing = false }
         }
     }
 
@@ -1307,7 +1678,48 @@ public final class DictationLoopRoot {
     /// calls it directly after constructing the root with an injected pipeline.
     public func markEnginePrepared() {
         readiness.markReady()
-        updateMenuBarConditions { $0.isEnginePrepared = true }
+        updateMenuBarConditions {
+            $0.isEnginePrepared = true
+            $0.isPreparingEngine = false
+            // A prepared engine has its model: whatever was removed has been fetched again, or a
+            // different tier was selected. Leaving the flag set would keep "No speech model" on
+            // an icon over an engine that is transcribing.
+            $0.isModelMissing = false
+        }
+    }
+
+    /// **What the engine is doing** — the projection the menu bar and the Settings surfaces read.
+    ///
+    /// Three answers rather than the gate's two, because "warming up after a switch" and "there is
+    /// no usable model" are the same thing to a microphone and completely different things to a
+    /// person (PRD M11).
+    public var engineReadinessState: EngineReadinessState { readiness.state }
+
+    /// Closes the readiness gate: a preparation is under way and the engine behind it is not ready.
+    ///
+    /// The counterpart to ``markEnginePrepared()``, and the safe direction of the pair — a closed
+    /// gate refuses a press before the microphone is asked for. Called by every preparation as it
+    /// begins, and synchronously by ``setEngineSelection(_:)`` so that no turn of the main actor
+    /// exists in which the gate is open over an engine the user has just replaced.
+    private func markEnginePreparing() {
+        readiness.markPreparing()
+        updateMenuBarConditions {
+            $0.isEnginePrepared = false
+            $0.isPreparingEngine = true
+            // A preparation in flight is the newer fact about the same engine, and it is a wait
+            // with a remedy. Whatever was missing is either being fetched or is a different tier.
+            $0.isModelMissing = false
+        }
+    }
+
+    /// Closes the readiness gate with **nothing in flight**: the preparation failed, so waiting is
+    /// not the remedy and no surface may say it is.
+    private func markEngineUnavailable() {
+        readiness.markUnavailable()
+        updateMenuBarConditions {
+            $0.isEnginePrepared = false
+            $0.isPreparingEngine = false
+        }
     }
 
     /// The launch half of the engine lifecycle: `prepare` in the background, then assemble the
@@ -1320,28 +1732,100 @@ public final class DictationLoopRoot {
         Task { await prepareAndAssemble() }
     }
 
+    /// One preparation, from the resolver that was current when it started.
+    ///
+    /// ## The stale-preparation race, and the guard that closes it
+    ///
+    /// This runs concurrently with itself. The launch preload can still be warming Parakeet — a
+    /// cold CoreML load is seconds, and the model may be downloading — when the user picks Whisper
+    /// in Settings; the switch replaces the resolver and starts a second run of this function.
+    /// Then the *first* one's `prepare()` returns, successfully, for a resolver nobody is using.
+    ///
+    /// Replacing the resolver does not stop that completion from reaching ``markEnginePrepared()``,
+    /// and if it reached it the gate would be open over an engine that was never prepared: the next
+    /// press would open the microphone for an engine that cannot transcribe, which is the one
+    /// outcome the readiness gate exists to prevent. So the resolver is captured **once**, at the
+    /// top, and re-compared to the slot after **every** suspension point. A run that is no longer
+    /// the current one abandons itself: it installs nothing and opens nothing.
+    ///
+    /// Identity is the right comparison because every switch mints a fresh resolver — including a
+    /// switch back to the engine that was running, which is a different object with its own
+    /// `isPrepared`. Check-then-act is atomic here because both this function and
+    /// ``setEngineSelection(_:)`` are on the main actor, and no suspension separates a guard below
+    /// from the statement it guards.
+    ///
+    /// ## The removal race, which identity alone cannot see
+    ///
+    /// Identity answers "is this still the selected engine?", and a **removal** does not change the
+    /// selection: the user deletes the model of the engine they are using, from the Speech tab,
+    /// while this preload is still warming it. ``engineModelRemoved(tier:)`` closes the gate, but
+    /// the resolver it closed it over is the same object this run captured, so `===` says "still
+    /// current" and the run would go on to reopen the gate over bytes that are gone — the menu bar
+    /// back to "ready" while the Speech tab offers to download the model it is claiming to run.
+    /// ``modelRemovalCount`` is captured alongside the resolver for exactly that case, and every
+    /// guard below compares both.
     private func prepareAndAssemble() async {
+        let resolver = self.resolver
+        let removals = modelRemovalCount
+        markEnginePreparing()
         do {
             try await resolver.prepareIfNeeded()
         } catch {
             logger.error(
                 "the engine could not be prepared: \(String(describing: error), privacy: .public)")
-            // The readiness gate stays closed — sessions refuse honestly with .modelUnavailable
-            // until a later preparation succeeds.
+            // The gate stays closed — sessions refuse honestly with .modelUnavailable until a later
+            // preparation succeeds — and the reported state drops from `preparing` to
+            // `unavailable`, because nothing is in flight any more and a surface still saying "a
+            // moment" would be promising a wait that never ends.
+            if isCurrent(resolver, removals) { markEngineUnavailable() }
             return
         }
+        guard isCurrent(resolver, removals) else { return }
         if let assembly = pipelineAssembly {
+            guard let engine = await resolver.engineIfReady() else {
+                logger.error(
+                    "the engine reported prepared but answered no engine — nothing was installed")
+                markEngineUnavailable()
+                return
+            }
+            let pipeline: DictationPipeline
             do {
-                router.install(pipeline: try await assembly())
+                pipeline = try await assembly(engine)
             } catch {
                 logger.error(
                     "the dictation pipeline could not be assembled: \(String(describing: error), privacy: .public)")
+                if isCurrent(resolver, removals) { markEngineUnavailable() }
                 return
             }
+            guard isCurrent(resolver, removals) else { return }
+            router.install(pipeline: pipeline)
         }
         // Installed before the gate opens: no session that passes the gate can find itself without
-        // a pipeline when it ends.
+        // a pipeline when it ends. Guarded like every other step, and for the same reason: the
+        // assembly above suspends, and a removal delivered inside that window would otherwise be
+        // undone by the very next line.
+        guard isCurrent(resolver, removals) else { return }
         markEnginePrepared()
+    }
+
+    /// Whether the preparation that captured `candidate` and `removals` is still the one this root
+    /// is running — the stale-preparation guard, in its two halves: the resolver may have been
+    /// **replaced** by a switch, or the model it prepared may have been **removed** underneath it.
+    /// Either answers `false`, and each is logged with its own reason, because an abandoned
+    /// preparation is a real event somebody reading a log deserves to see — and which of the two
+    /// happened is the first thing they will want to know.
+    private func isCurrent(_ candidate: DictationEngineResolver, _ removals: UInt64) -> Bool {
+        guard candidate === resolver else {
+            logger.info(
+                "abandoning a preparation for an engine that is no longer selected — the gate stays closed for it")
+            return false
+        }
+        guard removals == modelRemovalCount else {
+            logger.info(
+                "abandoning a preparation whose model was removed while it was in flight — the gate stays closed until the model is on disk again")
+            return false
+        }
+        return true
     }
 
     // MARK: - The inputs the sink does not carry
@@ -1653,6 +2137,19 @@ private final class EffectRouter {
                 // The readiness gate refused — the honest cause is the model not being ready
                 // (PRD R5's .modelUnavailable), shown by the panel.
                 panel.presentReasonOnly(.modelUnavailable)
+                // **And the pill is returned to IDLE**, which it was not until
+                // `EngineStateAgreementTests` asked. A press folds OPENING before the refusal is
+                // known, and the widget reducer contains no time-based transition by design (the
+                // never-auto-dismiss rule) — so the branch above left the pill claiming a
+                // microphone was opening until the *next* press, over a session that never began.
+                // A surface stuck mid-gesture while a panel explains the failure is this
+                // repository's dominant bug class, in the one moment a user is looking.
+                //
+                // IDLE rather than the widget's own notice: that notice reads "The microphone
+                // didn't open — try again", and for a model that is missing the microphone is not
+                // the cause and trying again is not the remedy. The panel owns the explanation;
+                // the pill owes only an honest resting state.
+                widgetStore.fold(WidgetProjection.project(event: .finishedWithoutDelivery))
             }
         case .unchanged, .started:
             foldEffect(effect, appName: "")
@@ -1825,11 +2322,51 @@ private final class EffectRouter {
 /// the flag is *used* — every read and write happens on the main actor (the gate's `beginCapture`
 /// runs in the machine's domain, the router and `markEnginePrepared` are the root's) — and is
 /// documented here because the compiler cannot see it.
+///
+/// ## Why it closes as well as opens
+///
+/// This was a one-way latch while a process ran exactly one engine for its whole life. The engine
+/// is now switchable at runtime (`settings-live-controls`, aspect 3), and a switch must be able to
+/// **close** the gate again: the engine whose `prepare()` succeeded is not the engine now
+/// selected, and leaving the gate open over the old one would let a press open the microphone for
+/// an engine that cannot transcribe.
+///
+/// The two directions are not symmetric, and the asymmetry is the whole safety argument. **Closing
+/// is always safe** — a closed gate refuses the press before the microphone is asked for, the user
+/// gets the honest `.modelUnavailable` notice, and the worst a spurious close can do is make
+/// someone wait. **Opening is the dangerous direction**, so it keeps exactly one caller:
+/// ``markReady()``, reached only from ``DictationLoopRoot/markEnginePrepared()``, reached in turn
+/// only after `prepareIfNeeded()` has succeeded. `EngineReadinessTests` pins that closed set by
+/// scanning this file, because the hazard is an opener nobody has written yet.
 final class EngineReadiness {
-    private(set) var isReady = false
+    /// The state itself — three answers, because two cannot tell a wait from a failure.
+    private(set) var state: EngineReadinessState = .unavailable
 
+    /// The gate's own question: may a session open the microphone? Only
+    /// ``EngineReadinessState/ready`` answers yes, so a state added to that enum is closed by
+    /// default rather than open by accident.
+    var isReady: Bool { state == .ready }
+
+    /// The one opener. See the type's note: every other transition closes.
     func markReady() {
-        isReady = true
+        state = .ready
+    }
+
+    /// Closes the gate because a preparation is **under way** — a launch preload, or the eager
+    /// preparation a selection change starts.
+    ///
+    /// Idempotent — a state assignment, not a counter. Nothing about a switch should depend on how
+    /// many times either transition was called.
+    func markPreparing() {
+        state = .preparing
+    }
+
+    /// Closes the gate because there is **nothing in flight**: a preparation failed, or none has
+    /// started. Identical to ``markPreparing()`` at the gate's own level, where both are simply
+    /// "closed", and different everywhere a person is told about it — one is a wait, the other is
+    /// something to act on.
+    func markUnavailable() {
+        state = .unavailable
     }
 }
 
