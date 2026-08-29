@@ -196,7 +196,7 @@ final class EngineSwitchTests: XCTestCase {
         let harness = Harness(parakeet: parakeet, whisper: StubEngine.whisper())
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared },
+            until: { harness.root.menuBarConditions.isEnginePrepared },
             "the launch preload must complete before the session")
         let launchResolver = harness.root.resolver
 
@@ -232,7 +232,7 @@ final class EngineSwitchTests: XCTestCase {
         let harness = Harness(parakeet: parakeet, whisper: whisper)
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared }, "the launch preload must complete")
 
         harness.oneCycle()
         await harness.drain(
@@ -241,7 +241,7 @@ final class EngineSwitchTests: XCTestCase {
 
         harness.root.setEngineSelection(Self.whisper)
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared },
+            until: { harness.root.menuBarConditions.isEnginePrepared },
             "the switch's eager preparation must open the gate again")
 
         harness.oneCycle()
@@ -270,7 +270,7 @@ final class EngineSwitchTests: XCTestCase {
         let harness = Harness(parakeet: parakeet, whisper: whisper)
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared }, "the launch preload must complete")
 
         let before = await whisper.prepareCount
         XCTAssertEqual(before, 0, "the engine nobody selected has not been warmed")
@@ -296,7 +296,7 @@ final class EngineSwitchTests: XCTestCase {
         let harness = Harness(parakeet: StubEngine.parakeet(), whisper: whisper)
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared }, "the launch preload must complete")
 
         harness.root.setEngineSelection(Self.whisper)
         XCTAssertFalse(
@@ -329,7 +329,7 @@ final class EngineSwitchTests: XCTestCase {
         let harness = Harness(parakeet: parakeet, whisper: whisper)
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared }, "the launch preload must complete")
 
         harness.root.setEngineSelection(Self.whisper)
         await harness.drain(
@@ -361,7 +361,7 @@ final class EngineSwitchTests: XCTestCase {
             settings: UserDefaultsSettingsStore(defaults: defaults))
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared }, "the launch preload must complete")
 
         harness.root.setEngineSelection(Self.whisper)
         await harness.settle()
@@ -381,7 +381,7 @@ final class EngineSwitchTests: XCTestCase {
         let harness = Harness(parakeet: parakeet, whisper: StubEngine.whisper())
         harness.root.startEnginePreparation()
         await harness.drain(
-            until: { await harness.root.resolver.isPrepared }, "the launch preload must complete")
+            until: { harness.root.menuBarConditions.isEnginePrepared }, "the launch preload must complete")
         let launchResolver = harness.root.resolver
 
         harness.root.setEngineSelection(EngineSelection.defaultSelection)
