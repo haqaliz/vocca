@@ -25,8 +25,13 @@ other aspect asks.
   - `unmodifiedTextEntryKey` — an unmodified letter, digit, punctuation, Space, Return, Tab or
     Delete. Binding one makes that key untypeable system-wide, because the tap is active and
     swallows what is bound (`ARCHITECTURE.md` §13).
-- **M7 — the safe single-key set**, one named table: F1–F20, Home, End, Page Up, Page Down,
-  Forward Delete, Help, and the keypad keys. Unmodified bindings from this set are `accepted`.
+- **M7 — the safe single-key set**, one named table: F1–F20, Home, End, Page Up, Page Down, Help,
+  and the keypad keys. Unmodified bindings from this set are `accepted`.
+  **Corrected 2026-08-30 (`plan_20260830.md` §0.1): Forward Delete was removed** — it is an editing
+  key, and swallowing it globally breaks deleting text in a tool whose job is putting text into
+  fields. The arrow keys are named here as permanently excluded for the same reason, so nobody adds
+  them later by pattern-matching `keyCodesCarryingFunctionImplicitly`, which is a different
+  question with a different answer.
   This is what satisfies `PRODUCT_SPEC.md:322`.
 - **M11 — the chord formatter**, one pure function `(keyCode, ModifierSet) -> String` rendering
   `⌃⌥⇧⌘` in the platform's canonical order plus a key name. Every surface uses it; no second
