@@ -1494,15 +1494,14 @@ public final class DictationLoopRoot {
         let deliver: (SessionEffect<AudioBuffer>) -> Void = { [weak router] in
             router?.deliver($0)
         }
-        let holdToTalk = Wiring(
-            configuration: configuration, ceiling: ceiling, clock: clock,
-            source: gate, keyState: keyState, timer: watchdogTimer, deferOpening: deferOpening,
+        let wirings = Self.makeWirings(
+            holdToTalk: configuration, toggle: toggleConfiguration, ceiling: ceiling, clock: clock,
+            holdSource: gate, toggleSource: toggleGate, keyState: keyState,
+            holdTimer: watchdogTimer, toggleTimer: toggleTimer, deferOpening: deferOpening,
             deliverEffect: deliver)
+        let holdToTalk = wirings.holdToTalk
         self.holdToTalk = holdToTalk
-        let toggle = Wiring(
-            configuration: toggleConfiguration, ceiling: ceiling, clock: clock,
-            source: toggleGate, keyState: keyState, timer: toggleTimer, deferOpening: deferOpening,
-            deliverEffect: deliver)
+        let toggle = wirings.toggle
         self.toggle = toggle
 
         // The tap delivers into whichever configuration is active; the inactive one receives
@@ -1577,6 +1576,50 @@ public final class DictationLoopRoot {
         // deliberately filled last, so no path that could fire before the initializer finished —
         // none exists, but the ordering is the point — would find a half-built root.
         cancelRouterBox.value = self
+    }
+
+    // MARK: - The two wirings, built in one place
+
+    /// **Both session wirings, from one construction** — the aspect's central design move.
+    ///
+    /// `init` builds the launch pair and ``rebind(to:)`` builds the replacement pair. If those two
+    /// call sites each constructed a `Wiring` inline they would drift, and a rebuilt wiring that
+    /// differs from a launched one is a defect that appears only *after* a rebind — the hardest
+    /// kind to see, because every test that never rebinds stays green.
+    ///
+    /// **Static, and it has to be.** The launch pair is assigned to stored properties, so this
+    /// cannot be an instance method: Swift will not let an initializer call one before every
+    /// property is initialized. Taking the collaborators as parameters is what lets `init` pass
+    /// locals and ``rebind(to:)`` pass the ones the root has been holding since.
+    ///
+    /// **Each wiring gets its own timer, and the parameters are two rather than one for that
+    /// reason.** A `RepeatingTimer` handed to a second ``ScheduledWatchdog`` while the first still
+    /// holds it is two owners on one clock: `start` on either cancels the other's schedule, and the
+    /// loser's machine is left with no ceiling and no physical-key poll — a session with nothing
+    /// able to end it, which is the Fatal risk this aspect exists to make unrepresentable.
+    private static func makeWirings(
+        holdToTalk holdConfiguration: HotkeyConfiguration,
+        toggle toggleConfiguration: HotkeyConfiguration,
+        ceiling: Duration,
+        clock: any MonotonicClock,
+        holdSource: any SessionAudioSource<AudioBuffer>,
+        toggleSource: any SessionAudioSource<AudioBuffer>,
+        keyState: any PhysicalKeyStateReader,
+        holdTimer: any RepeatingTimer,
+        toggleTimer: any RepeatingTimer,
+        deferOpening: @escaping RunLoopDeferral,
+        deliverEffect: @escaping (SessionEffect<AudioBuffer>) -> Void
+    ) -> (holdToTalk: Wiring, toggle: Wiring) {
+        (
+            Wiring(
+                configuration: holdConfiguration, ceiling: ceiling, clock: clock,
+                source: holdSource, keyState: keyState, timer: holdTimer,
+                deferOpening: deferOpening, deliverEffect: deliverEffect),
+            Wiring(
+                configuration: toggleConfiguration, ceiling: ceiling, clock: clock,
+                source: toggleSource, keyState: keyState, timer: toggleTimer,
+                deferOpening: deferOpening, deliverEffect: deliverEffect)
+        )
     }
 
     // MARK: - The modes
