@@ -205,6 +205,10 @@ public enum AppBootstrap {
         // configuration.
         let settings = ShippingSettings.store()
         let selection = settings.engineSelection()
+        // The bound chord, read **once**: both machines are configurations of one state machine
+        // and must carry the same binding, and two reads can answer differently the moment a
+        // rebind lands between them.
+        let hotkey = Self.hotkeyConfigurations(chord: settings.hotkeyChord())
 
         // MARK: The engine lifecycle
         //
@@ -396,8 +400,7 @@ public enum AppBootstrap {
         // so `configure` hands the root the assembly recipe instead of a pipeline. `main`'s
         // `startEnginePreparation` runs it.
         let root = DictationLoopRoot(
-            configuration: HotkeyConfiguration(
-                keyCode: Self.shippedHotkeyKeyCode, modifiers: [.option], activation: .holdToTalk),
+            configuration: hotkey.holdToTalk,
             ceiling: SessionCeiling.default,
             clock: clock,
             audioSource: microphone,
@@ -434,8 +437,7 @@ public enum AppBootstrap {
             downloadSession: downloadSession,
             recorder: ledger,
             sessionBox: sessionBox,
-            toggleConfiguration: HotkeyConfiguration(
-                keyCode: Self.shippedHotkeyKeyCode, modifiers: [.option], activation: .toggle),
+            toggleConfiguration: hotkey.toggle,
             toggleSource: toggleMicrophone,
             toggleTimer: MainRunLoopTimer(),
             runningAppName: SystemRunningAppName(),
@@ -517,7 +519,7 @@ public enum AppBootstrap {
     @MainActor
     private static func attachMenuBarItem(to root: DictationLoopRoot) {
         let item = MenuBarItem(
-            hotkey: shippedHotkeyDisplayName,
+            hotkey: { [weak root] in root?.hotkeyDisplayName ?? "" },
             onAction: { state in
                 switch state {
                 case .noAccessibility:
@@ -564,8 +566,28 @@ public enum AppBootstrap {
         }
     }
 
-    /// The shipped chord, in the form a person reads.
-    public static let shippedHotkeyDisplayName = "⌥Space"
+    // MARK: - The launch read
+
+    /// The two configurations the root runs, built from **one** chord.
+    ///
+    /// A tuple from a single call rather than two independent constructions, and that is the
+    /// whole reason this function exists: both machines are configurations of one state machine
+    /// and must be bound to the same chord. Two call sites each building their own is how they
+    /// come to disagree — and a hold-to-talk machine bound to a different chord than the toggle
+    /// machine is one that can never end a session the other started.
+    ///
+    /// Pure, so the launch read is testable without an `NSApplication`: `configure` needs a run
+    /// loop and no test in the suite calls it.
+    public static func hotkeyConfigurations(
+        chord: HotkeyChord
+    ) -> (holdToTalk: HotkeyConfiguration, toggle: HotkeyConfiguration) {
+        (
+            HotkeyConfiguration(
+                keyCode: chord.keyCode, modifiers: chord.modifiers, activation: .holdToTalk),
+            HotkeyConfiguration(
+                keyCode: chord.keyCode, modifiers: chord.modifiers, activation: .toggle)
+        )
+    }
 
     // MARK: - The shipped numbers
 
@@ -924,13 +946,25 @@ public enum SpeechSettingsUnavailable: Error, CustomStringConvertible {
 @MainActor
 public final class DictationLoopRoot {
 
-    /// The binding this process listens for — the shipped ⌥Space hold-to-talk configuration.
-    public let configuration: HotkeyConfiguration
+    /// The binding this process listens for **now**.
+    ///
+    /// Read from the hold-to-talk wiring rather than remembered, because ``rebind(to:)`` replaces
+    /// the wirings: a stored copy would go on naming the launch chord after a rebind, and a root
+    /// describing a binding nothing is bound to is the same class of defect as a root reporting a
+    /// mode its events do not reach.
+    public var configuration: HotkeyConfiguration { holdToTalk.configuration }
     /// The hold-to-talk wiring: machine, watchdog, sink, timer.
-    public let holdToTalk: Wiring
+    ///
+    /// `private(set) var` rather than `let` since `rebind-boundary`, and that is the *only*
+    /// mutability the rebind adds: every value stays immutable, and what changes is which immutable
+    /// object the root points at. `HotkeyConfiguration`'s fields and `SessionMachine.configuration`
+    /// gained no setter and must not — a binding mutated between a `keyDown` and its `keyUp` would
+    /// leave `SessionRules.decide` and the watchdog's ~150 ms poll disagreeing about what is held,
+    /// which is a session stranded on a key nobody is holding.
+    public private(set) var holdToTalk: Wiring
     /// The toggle wiring: the same composition, `activation: .toggle`, constructed and owned.
     /// It receives the tap's events only while it is the active mode.
-    public let toggle: Wiring
+    public private(set) var toggle: Wiring
     /// Which configuration currently receives the tap's events.
     ///
     /// **`.toggle` is the shipped default**: ⌥Space starts listening, ⌥Space again stops it. The
@@ -1049,7 +1083,37 @@ public final class DictationLoopRoot {
                         // their next press rather than a broken session.
                         self?.setActiveMode(isToggle ? .toggle : .holdToTalk)
                     },
-                    hotkeyDisplayName: AppBootstrap.shippedHotkeyDisplayName,
+                    // Read, never captured — the window is built once and kept for the process's
+                    // lifetime, so a chord captured here would go on naming the old binding on the
+                    // very page the user changed it on (the `engineSelection` argument, applied to
+                    // the fact this tab exists to show).
+                    hotkeyDisplayName: { [weak self] in self?.hotkeyDisplayName ?? "" },
+                    // The recorder reads a raw macOS modifier word and a key code off an NSEvent
+                    // and translates neither: the `fn` rule — where the hardware sets the function
+                    // bit by itself on the arrow keys and the navigation cluster — lives in the
+                    // one translation the tap already runs on, driven against CoreGraphics' own
+                    // constants by test. VoccaUI cannot import VoccaHotkey, so this is the seam
+                    // that keeps it from growing a second copy of it.
+                    chordForKeyEvent: { rawFlags, keyCode in
+                        HotkeyChord(
+                            keyCode: keyCode,
+                            modifiers: HotkeyFlagTranslation.modifiers(
+                                rawFlags: rawFlags, keyCode: keyCode))
+                    },
+                    // Asked once, and answered by Core: the rules plus what the system has already
+                    // claimed, with the refusal outranking the collision. The preferences domain is
+                    // read here, while a chord is being recorded — once per capture, never on the
+                    // dictation path — because the user may have changed a shortcut since launch.
+                    validateChord: { chord in
+                        HotkeyBindingRules.validate(
+                            chord, against: SystemShortcutDefaultsReader().occupiedChords())
+                    },
+                    // The answer is returned to the page, not left in a log: a rebind that appears
+                    // not to have registered invites a second attempt, made on a keyboard whose
+                    // binding the user is no longer sure of.
+                    rebind: { [weak self] chord in
+                        self?.rebind(to: chord) ?? .refused(.notBindable)
+                    },
                     // The *live* selection, not the launch-time one: after a switch this label
                     // must name the engine Vocca is now using, and the resolver's selection is
                     // that fact rather than a copy of it.
@@ -1250,7 +1314,8 @@ public final class DictationLoopRoot {
                         }
                     },
                     makeDownloadSession: { [weak self] in self?.downloadSession },
-                    restart: { AppRelaunch.relaunch() }))
+                    restart: { AppRelaunch.relaunch() },
+                    hotkeyDisplayName: { [weak self] in self?.hotkeyDisplayName ?? "" }))
             onboardingWindow = window
         }
         onboardingWindow?.show()
@@ -1276,8 +1341,11 @@ public final class DictationLoopRoot {
         menuBarConditions = next
         onMenuBarConditionsChanged?(next)
     }
-    /// The watchdog's timer, exposed so a test can turn it.
-    public let watchdogTimer: any RepeatingTimer
+    /// The hold-to-talk watchdog's timer, exposed so a test can turn it.
+    ///
+    /// Read from the wiring for ``configuration``'s reason: ``rebind(to:)`` mints a fresh timer per
+    /// wiring, and a stored copy would hand a caller the clock of a watchdog that no longer exists.
+    public var watchdogTimer: any RepeatingTimer { holdToTalk.timer }
     /// The ~1 s tap-health poll's timer.
     public let healthTimer: any RepeatingTimer
     /// The event tap, held for its lifetime (the unretained-context rule).
@@ -1340,6 +1408,21 @@ public final class DictationLoopRoot {
     public static let widgetClockCadence: Duration = .milliseconds(100)
 
     private let clock: any MonotonicClock
+    /// The four collaborators a rebuild needs and the initializer would otherwise have consumed.
+    /// Held because ``rebind(to:)`` builds its replacement wirings from exactly what the launch
+    /// pair was built from — everything but the configuration and the timers is reused, so a
+    /// rebound graph differs from a launched one in the binding and in nothing else.
+    private let ceiling: Duration
+    private let keyState: any PhysicalKeyStateReader
+    private let deferOpening: RunLoopDeferral
+    private let deliverEffect: (SessionEffect<AudioBuffer>) -> Void
+    /// Where a rebuild's **fresh** timers come from.
+    ///
+    /// A factory rather than the two injected timers, because handing an existing `RepeatingTimer`
+    /// to a second `ScheduledWatchdog` is two owners on one clock: the discarded watchdog's `deinit`
+    /// stops it, and if that release lands after the new session has started, the new machine is
+    /// left with no ceiling and no physical-key poll — a session with nothing able to end it.
+    private let makeWatchdogTimer: @MainActor () -> any RepeatingTimer
     private let readiness: EngineReadiness
     private let gate: EngineReadinessGate
     private let toggleGate: EngineReadinessGate
@@ -1422,16 +1505,19 @@ public final class DictationLoopRoot {
         toggleTimer: any RepeatingTimer,
         runningAppName: RunningAppNameReading,
         widgetClock: any RepeatingTimer,
-        liveLevel: any LiveLevelSource
+        liveLevel: any LiveLevelSource,
+        makeWatchdogTimer: @escaping @MainActor () -> any RepeatingTimer = { MainRunLoopTimer() }
     ) {
         precondition(
             pipeline == nil || pipelineAssembly == nil,
             "the pipeline is either injected or assembled — both is a composition bug")
 
         let readiness = EngineReadiness()
-        self.configuration = configuration
         self.clock = clock
-        self.watchdogTimer = watchdogTimer
+        self.ceiling = ceiling
+        self.keyState = keyState
+        self.deferOpening = deferOpening
+        self.makeWatchdogTimer = makeWatchdogTimer
         self.healthTimer = healthTimer
         self.tap = tap
         self.resolver = resolver
@@ -1469,15 +1555,15 @@ public final class DictationLoopRoot {
         let deliver: (SessionEffect<AudioBuffer>) -> Void = { [weak router] in
             router?.deliver($0)
         }
-        let holdToTalk = Wiring(
-            configuration: configuration, ceiling: ceiling, clock: clock,
-            source: gate, keyState: keyState, timer: watchdogTimer, deferOpening: deferOpening,
+        self.deliverEffect = deliver
+        let wirings = Self.makeWirings(
+            holdToTalk: configuration, toggle: toggleConfiguration, ceiling: ceiling, clock: clock,
+            holdSource: gate, toggleSource: toggleGate, keyState: keyState,
+            holdTimer: watchdogTimer, toggleTimer: toggleTimer, deferOpening: deferOpening,
             deliverEffect: deliver)
+        let holdToTalk = wirings.holdToTalk
         self.holdToTalk = holdToTalk
-        let toggle = Wiring(
-            configuration: toggleConfiguration, ceiling: ceiling, clock: clock,
-            source: toggleGate, keyState: keyState, timer: toggleTimer, deferOpening: deferOpening,
-            deliverEffect: deliver)
+        let toggle = wirings.toggle
         self.toggle = toggle
 
         // The tap delivers into whichever configuration is active; the inactive one receives
@@ -1554,6 +1640,50 @@ public final class DictationLoopRoot {
         cancelRouterBox.value = self
     }
 
+    // MARK: - The two wirings, built in one place
+
+    /// **Both session wirings, from one construction** — the aspect's central design move.
+    ///
+    /// `init` builds the launch pair and ``rebind(to:)`` builds the replacement pair. If those two
+    /// call sites each constructed a `Wiring` inline they would drift, and a rebuilt wiring that
+    /// differs from a launched one is a defect that appears only *after* a rebind — the hardest
+    /// kind to see, because every test that never rebinds stays green.
+    ///
+    /// **Static, and it has to be.** The launch pair is assigned to stored properties, so this
+    /// cannot be an instance method: Swift will not let an initializer call one before every
+    /// property is initialized. Taking the collaborators as parameters is what lets `init` pass
+    /// locals and ``rebind(to:)`` pass the ones the root has been holding since.
+    ///
+    /// **Each wiring gets its own timer, and the parameters are two rather than one for that
+    /// reason.** A `RepeatingTimer` handed to a second ``ScheduledWatchdog`` while the first still
+    /// holds it is two owners on one clock: `start` on either cancels the other's schedule, and the
+    /// loser's machine is left with no ceiling and no physical-key poll — a session with nothing
+    /// able to end it, which is the Fatal risk this aspect exists to make unrepresentable.
+    private static func makeWirings(
+        holdToTalk holdConfiguration: HotkeyConfiguration,
+        toggle toggleConfiguration: HotkeyConfiguration,
+        ceiling: Duration,
+        clock: any MonotonicClock,
+        holdSource: any SessionAudioSource<AudioBuffer>,
+        toggleSource: any SessionAudioSource<AudioBuffer>,
+        keyState: any PhysicalKeyStateReader,
+        holdTimer: any RepeatingTimer,
+        toggleTimer: any RepeatingTimer,
+        deferOpening: @escaping RunLoopDeferral,
+        deliverEffect: @escaping (SessionEffect<AudioBuffer>) -> Void
+    ) -> (holdToTalk: Wiring, toggle: Wiring) {
+        (
+            Wiring(
+                configuration: holdConfiguration, ceiling: ceiling, clock: clock,
+                source: holdSource, keyState: keyState, timer: holdTimer,
+                deferOpening: deferOpening, deliverEffect: deliverEffect),
+            Wiring(
+                configuration: toggleConfiguration, ceiling: ceiling, clock: clock,
+                source: toggleSource, keyState: keyState, timer: toggleTimer,
+                deferOpening: deferOpening, deliverEffect: deliverEffect)
+        )
+    }
+
     // MARK: - The modes
 
     /// Switches which configuration receives the tap's events.
@@ -1578,6 +1708,156 @@ public final class DictationLoopRoot {
         case .toggle:
             modeRouting.active = toggle.scheduledWatchdog
         }
+    }
+
+    // MARK: - The binding
+
+    /// **Binds the hotkey to a new chord, at an idle boundary** — `hotkey-rebinding` M4.
+    ///
+    /// ``setActiveMode(_:)``'s and ``setEngineSelection(_:)``'s shape, and for the same reason: a
+    /// change while a session is in flight is refused, so a user who rebinds mid-dictation gets the
+    /// new chord on their next press rather than a broken session. Nothing is ever swapped under a
+    /// running microphone.
+    ///
+    /// **This is a rebuild, not a value update, and that is a safety choice rather than a
+    /// limitation.** The binding is immutable end to end — `HotkeyConfiguration`'s fields are `let`
+    /// and `SessionMachine.configuration` is a `let` — so a mutation path would have to be added.
+    /// It would be smaller, and the watchdog would track it for free, since `theBindingIsStillHeld`
+    /// re-reads the configuration on every ~150 ms poll. But a mutation landing between a `keyDown`
+    /// and its `keyUp` leaves `SessionRules.decide` and that poll disagreeing about what is held,
+    /// and a session stranded on a key nobody is holding is roadmap C1-A, *stuck recording*, rated
+    /// Fatal for trust. Rebuilding on an idle boundary makes that unrepresentable rather than
+    /// merely unlikely.
+    ///
+    /// The order of the seven steps below is the whole of the argument:
+    ///
+    /// 1. **Refuse a no-op.** Re-choosing the running chord must not cost two rebuilt watchdogs and
+    ///    two discarded timers — which is exactly what a recorder's Save button does when a user
+    ///    opens it, looks at the binding and saves it back.
+    /// 2. **Refuse what the rules refuse**, before anything is built or written. The rules are
+    ///    asked, never re-derived: the recorder, the launch read and this method give one answer or
+    ///    they give three.
+    /// 3. **Refuse unless both machines are quiet** — see ``isQuiet(_:)``. Both, not the routed
+    ///    one: both are constructed at every launch, and a session in the unrouted machine is
+    ///    still a session.
+    /// 4. **Build both new wirings**, with nothing adopted yet.
+    /// 5. **Persist.**
+    /// 6. **Swap, and re-point the route** — one straight-line block with no suspension point in
+    ///    it, which is what makes the rebuild atomic (M4a).
+    /// 7. **Stop the retired timers**, after the swap.
+    ///
+    /// **Synchronous, and it must stay so.** A suspension point between step 3 and step 6 would let
+    /// a session start into a wiring that is about to be discarded — which is the failure the idle
+    /// guard exists to prevent, re-introduced one `await` at a time.
+    ///
+    /// The tap is not touched at all. It is binding-agnostic — its `eventsOfInterest` mask is built
+    /// from event kinds, never key codes — and it is owned above the wirings; re-creating it would
+    /// be a chance to lose a working tap, since `CGEvent.tapCreate` needs the Accessibility grant.
+    ///
+    /// - Returns: what happened, **returned rather than only logged** (M5), so the recorder can
+    ///   tell the user why a rebind did not take. A rebind that appears not to have registered
+    ///   invites a second attempt, made on a keyboard whose binding the user is no longer sure of.
+    @discardableResult
+    public func rebind(to chord: HotkeyChord) -> RebindOutcome {
+        guard chord != boundChord else { return .unchanged }
+
+        let validity = HotkeyBindingRules.validate(
+            keyCode: chord.keyCode, modifiers: chord.modifiers)
+        guard PersistedSettings.isAdoptable(validity) else {
+            let refusal = HotkeyChordFormatter.describe(
+                keyCode: chord.keyCode, modifiers: chord.modifiers)
+                + " (\(validity))"
+            logger.error("refusing to bind \(refusal, privacy: .public)")
+            return .refused(.notBindable)
+        }
+
+        guard Self.isQuiet(holdToTalk), Self.isQuiet(toggle) else {
+            logger.error(
+                "refusing to rebind the hotkey while a session is in flight — end it first")
+            return .refused(.sessionInFlight)
+        }
+
+        // Step 4. Everything fallible or expensive happens here, with nothing adopted yet: two new
+        // machines, two new watchdogs, two fresh timers. If this were to fail, the previous pair is
+        // still built and still routed.
+        let configurations = AppBootstrap.hotkeyConfigurations(chord: chord)
+        let rebuilt = Self.makeWirings(
+            holdToTalk: configurations.holdToTalk, toggle: configurations.toggle,
+            ceiling: ceiling, clock: clock, holdSource: gate, toggleSource: toggleGate,
+            keyState: keyState, holdTimer: makeWatchdogTimer(), toggleTimer: makeWatchdogTimer(),
+            deferOpening: deferOpening, deliverEffect: deliverEffect)
+
+        // Step 5. Persisted only now, and this is where the order deviates from `setActiveMode`.
+        // That method persists first because its adopt is infallible; this one does real
+        // construction, so persisting first would risk a store describing a chord the running app
+        // never adopted — the failure that method's own comment warns about, from the other side.
+        settings?.setHotkeyChord(chord)
+
+        // Step 6. **One straight-line block, with no `await` and no suspension point in it.** This
+        // is what makes the rebuild atomic (M4a): there is no window in which one wiring is new and
+        // the other old, and none in which the routing sink points at a discarded object. It is
+        // also why this method is synchronous and must stay so — a suspension between the idle
+        // guard above and these three lines would let a session start into a wiring about to be
+        // thrown away.
+        let previous = (holdToTalk: holdToTalk, toggle: toggle)
+        holdToTalk = rebuilt.holdToTalk
+        toggle = rebuilt.toggle
+        switch activeMode {
+        case .holdToTalk: modeRouting.active = rebuilt.holdToTalk.scheduledWatchdog
+        case .toggle: modeRouting.active = rebuilt.toggle.scheduledWatchdog
+        }
+
+        // Step 7. After the swap, so a timer that refuses to stop cannot leave the new graph
+        // unrouted: a leaked timer is a leak, and a dead hotkey on an `LSUIElement` app is
+        // indistinguishable from a working one. `stop()` rather than the non-asserting form
+        // because this is not a `deinit` — the method is `@MainActor` and the isolation the shipped
+        // timer asserts is genuinely held.
+        previous.holdToTalk.timer.stop()
+        previous.toggle.timer.stop()
+
+        return .rebound
+    }
+
+    /// **Whether this wiring has nothing in flight.**
+    ///
+    /// Two questions, because ``SessionState`` alone cannot answer the one that matters. A press
+    /// under `CaptureStartTiming.whenTheOwnerAsks` — which is what ships, because
+    /// `AVAudioEngine.start()` was measured at ~114 ms and a tap callback may not pay it — claims
+    /// the key, delivers `.opening`, and leaves the machine in `.idle` with an opening *owed* until
+    /// a later turn of the run loop. **Every press passes through that window**, and a rebuild
+    /// inside it discards the wiring that owes the opening: the deferral holds its
+    /// `ScheduledWatchdog` weakly, so the block finds nothing, the microphone never opens, and no
+    /// `.ended` is ever delivered — the widget is stranded in OPENING with no time-based transition
+    /// able to move it, which is the defect `settings-live-controls` found on the refused-press
+    /// path arrived at from the other side.
+    ///
+    /// So both are asked, of **both** machines. `setActiveMode(_:)` asks only about `state`, and
+    /// correctly: it re-points a route and discards nothing, so the pending opening it might race
+    /// still completes into a wiring that is still there.
+    private static func isQuiet(_ wiring: Wiring) -> Bool {
+        wiring.machine.state == .idle && !wiring.machine.hasPendingOpening
+    }
+
+    /// **The bound chord as a person reads it** — the one answer all three surfaces render
+    /// (`general-tab-recorder` M10): the General tab, the menu bar's VoiceOver label and
+    /// onboarding's "Hold …" lines.
+    ///
+    /// Computed from ``boundChord`` through ``HotkeyChordFormatter`` on every read, so there is no
+    /// stored string anywhere to go stale. All three surfaces are built once and kept for the
+    /// process's lifetime, and until this aspect all three read one captured literal — so the first
+    /// rebind would have left every one of them naming a chord nothing was bound to
+    /// (`HotkeySurfaceAgreementTests`).
+    public var hotkeyDisplayName: String {
+        HotkeyChordFormatter.describe(
+            keyCode: boundChord.keyCode, modifiers: boundChord.modifiers)
+    }
+
+    /// The chord the loop is listening for **now** — read from the wiring rather than remembered,
+    /// so a rebind cannot leave it describing a binding nothing is bound to.
+    private var boundChord: HotkeyChord {
+        HotkeyChord(
+            keyCode: holdToTalk.configuration.keyCode,
+            modifiers: holdToTalk.configuration.modifiers)
     }
 
     // MARK: - The engine

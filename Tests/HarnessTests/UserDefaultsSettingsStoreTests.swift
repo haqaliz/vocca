@@ -70,6 +70,22 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
         XCTAssertEqual(reread.activationMode(), .holdToTalk)
     }
 
+    /// A written hotkey chord reads back from a fresh instance — the aspect's whole user
+    /// outcome, since a rebind that does not survive a relaunch is not a rebind.
+    ///
+    /// ⌃⌘F13 rather than the shipped ⌥Space, so a store that writes nothing and answers the
+    /// default cannot pass this row.
+    func testAWrittenHotkeyChordReadsBackFromAFreshInstance() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        UserDefaultsSettingsStore(defaults: defaults)
+            .setHotkeyChord(HotkeyChord(keyCode: 0x69, modifiers: [.control, .command]))
+
+        let reread = UserDefaultsSettingsStore(defaults: defaults)
+        XCTAssertEqual(
+            reread.hotkeyChord(), HotkeyChord(keyCode: 0x69, modifiers: [.control, .command]))
+    }
+
     // MARK: - A fresh install
 
     /// With nothing stored, both settings answer the shipped defaults and **nothing is logged**.
@@ -229,6 +245,100 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
         XCTAssertFalse(UserDefaultsSettingsStore(defaults: defaults).hasAcknowledgedCloudCleanup())
     }
 
+    // MARK: - The chord, through the adapter
+
+    /// Every chord in the table survives a write and a read: the shipped ⌥Space, a modified
+    /// chord, and a **safe single key** — the accessibility shape (`PRODUCT_SPEC.md:257`), which
+    /// is the one an over-eager validity check on the read side would quietly reset.
+    func testEveryChordInTheTableRoundTripsThroughTheStore() {
+        for chord in [
+            PersistedSettings.defaultHotkeyChord,
+            HotkeyChord(keyCode: 0x69, modifiers: [.control, .command]),
+            HotkeyChord(keyCode: 0x7A, modifiers: []),
+        ] {
+            let (defaults, name) = makeScopedSuite()
+            defer { defaults.removePersistentDomain(forName: name) }
+            let logged = LogCollector()
+            UserDefaultsSettingsStore(defaults: defaults).setHotkeyChord(chord)
+
+            let reread = UserDefaultsSettingsStore(defaults: defaults, log: { logged.append($0) })
+            XCTAssertEqual(reread.hotkeyChord(), chord)
+            XCTAssertEqual(logged.entries, [], "a chord this store wrote must read back silently")
+        }
+    }
+
+    /// **Caps Lock never reaches the disk.** The bytes stored for ⌥ with Caps Lock on are the
+    /// bytes for ⌥.
+    ///
+    /// Asserted against the raw stored string rather than against the value read back, because
+    /// the read side masks too: a round-trip alone would pass with the bit sitting in the
+    /// preferences file, waiting for a future version that reads it more literally.
+    func testCapsLockIsMaskedBeforeStorage() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        UserDefaultsSettingsStore(defaults: defaults)
+            .setHotkeyChord(HotkeyChord(keyCode: 0x69, modifiers: [.option, .capsLock]))
+
+        XCTAssertEqual(
+            defaults.object(forKey: UserDefaultsSettingsStore.hotkeyModifiersKey) as? String,
+            String(ModifierSet.option.rawValue),
+            "a stored binding must never carry a bit that cannot match a key press")
+    }
+
+    /// One half of the pair deleted by hand — the shipped chord plus **exactly one** report.
+    ///
+    /// This is the shape the two-key format was chosen to make visible, driven here through the
+    /// real store because the pairing is the adapter's read, not the decode's.
+    func testHalfAStoredPairIsTheShippedChordAndIsLoggedOnce() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        UserDefaultsSettingsStore(defaults: defaults)
+            .setHotkeyChord(HotkeyChord(keyCode: 0x69, modifiers: [.control, .command]))
+        defaults.removeObject(forKey: UserDefaultsSettingsStore.hotkeyModifiersKey)
+
+        let logged = LogCollector()
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logged.append($0) })
+        XCTAssertEqual(store.hotkeyChord(), PersistedSettings.defaultHotkeyChord)
+        XCTAssertEqual(
+            logged.entries.count, 1, "half a pair is unreadable, not absent; got \(logged.entries)")
+    }
+
+    /// A chord stored as something that is not a string takes the **loud** path.
+    ///
+    /// The `string(forKey:)` trap, in the family where it costs the most: both halves would read
+    /// as `nil`, the pair would look absent rather than half-written, and the user's binding would
+    /// revert to ⌥Space in complete silence — on the one setting whose failure they cannot work
+    /// around, because the window that would let them set it again is opened with the keyboard.
+    func testAChordStoredAsANonStringIsTheShippedChordAndIsLogged() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(["not", "a", "key", "code"], forKey: UserDefaultsSettingsStore.hotkeyKeyCodeKey)
+        defaults.set(["neither"], forKey: UserDefaultsSettingsStore.hotkeyModifiersKey)
+
+        let logged = LogCollector()
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logged.append($0) })
+        XCTAssertEqual(store.hotkeyChord(), PersistedSettings.defaultHotkeyChord)
+        XCTAssertEqual(
+            logged.entries.count, 1,
+            "a present non-string is unreadable, not absent; got \(logged.entries)")
+    }
+
+    /// A chord the store cannot decode is left on disk exactly as it was found — the
+    /// `FileSystemDictionaryStore` rule, applied to the pair.
+    func testAFailedChordReadDoesNotRewriteTheStoredPair() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("space", forKey: UserDefaultsSettingsStore.hotkeyKeyCodeKey)
+        defaults.set("2", forKey: UserDefaultsSettingsStore.hotkeyModifiersKey)
+
+        _ = UserDefaultsSettingsStore(defaults: defaults, log: { _ in }).hotkeyChord()
+
+        XCTAssertEqual(
+            defaults.object(forKey: UserDefaultsSettingsStore.hotkeyKeyCodeKey) as? String, "space")
+        XCTAssertEqual(
+            defaults.object(forKey: UserDefaultsSettingsStore.hotkeyModifiersKey) as? String, "2")
+    }
+
     // MARK: - The frozen keys
 
     /// The two keys are frozen constants, pinned here as literals.
@@ -239,6 +349,8 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
     /// exists to catch.
     func testTheSettingsKeysAreFrozenConstants() {
         XCTAssertEqual(UserDefaultsSettingsStore.engineSelectionKey, "settings.engineSelection")
+        XCTAssertEqual(UserDefaultsSettingsStore.hotkeyKeyCodeKey, "settings.hotkey.keyCode")
+        XCTAssertEqual(UserDefaultsSettingsStore.hotkeyModifiersKey, "settings.hotkey.modifiers")
         XCTAssertEqual(UserDefaultsSettingsStore.activationModeKey, "settings.activationMode")
         XCTAssertEqual(
             UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey,
@@ -255,6 +367,8 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
             UserDefaultsSettingsStore.engineSelectionKey,
             UserDefaultsSettingsStore.activationModeKey,
             UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey,
+            UserDefaultsSettingsStore.hotkeyKeyCodeKey,
+            UserDefaultsSettingsStore.hotkeyModifiersKey,
         ]
         XCTAssertEqual(Set(keys).count, keys.count, "every key is its own")
     }

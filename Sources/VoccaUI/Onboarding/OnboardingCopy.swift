@@ -47,8 +47,13 @@ public enum OnboardingCopy {
     /// The Accessibility reason, `PRODUCT_SPEC.md:219-220` verbatim — the spec's mock splits it
     /// across two lines ("so ⌥Space works everywhere, and so / Vocca can type into other
     /// apps"); the rendered string is the flat sentence the two lines spell.
-    public static let accessibilityReason =
-        "so ⌥Space works everywhere, and so Vocca can type into other apps"
+    ///
+    /// The chord is a **parameter** rather than the spec's literal, because it is rebindable now
+    /// (`general-tab-recorder` M10). The spec's wording is unchanged; ⌥Space is what it renders
+    /// with the shipped binding, which is what the spec was describing.
+    public static func accessibilityReason(hotkey: String) -> String {
+        "so \(hotkey) works everywhere, and so Vocca can type into other apps"
+    }
 
     /// The Microphone reason, `PRODUCT_SPEC.md:221` verbatim — "Audio never leaves this Mac."
     /// is the local-first promise at the moment it matters most.
@@ -65,11 +70,17 @@ public enum OnboardingCopy {
 
     // MARK: - TRY IT and DONE (`PRODUCT_SPEC.md:237-242`)
 
-    /// The TRY IT prompt, `PRODUCT_SPEC.md:239` verbatim.
-    public static let tryItPrompt = "Hold ⌥Space and say something."
+    /// The TRY IT prompt, `PRODUCT_SPEC.md:239` verbatim, with the bound chord in the spec's
+    /// ⌥Space position.
+    public static func tryItPrompt(hotkey: String) -> String {
+        "Hold \(hotkey) and say something."
+    }
 
-    /// The DONE copy, `PRODUCT_SPEC.md:242` verbatim.
-    public static let doneCopy = "Vocca lives in your menu bar. Hold ⌥Space anywhere."
+    /// The DONE copy, `PRODUCT_SPEC.md:242` verbatim, with the bound chord in the spec's ⌥Space
+    /// position.
+    public static func doneCopy(hotkey: String) -> String {
+        "Vocca lives in your menu bar. Hold \(hotkey) anywhere."
+    }
 
     // MARK: - The M5c three-state Accessibility copy (NEW-COPY, `PRODUCT_SPEC.md:244`)
 

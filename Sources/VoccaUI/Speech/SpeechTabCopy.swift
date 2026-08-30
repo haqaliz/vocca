@@ -106,7 +106,7 @@ public enum SpeechTabCopy {
     ///
     /// Says what to do rather than only what failed. A disabled button with no sentence beside it
     /// teaches a user the app is broken, which is the same argument
-    /// ``SettingsCopy/hotkeyNotRebindable`` makes for saying so plainly.
+    /// ``SettingsCopy/hotkeyRefusal(_:)`` makes for naming the key to press instead.
     public static let removalRefusedWhileDictating =
         "Finish the dictation first. Vocca won't remove a model while it's listening."
 

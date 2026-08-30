@@ -542,6 +542,8 @@ This file orients a coding agent working in this repository. Read it first.
 >   Speech picks the engine and tier, downloads and removes models; Cleanup picks the rung and
 >   writes `cleanup-config.json`. `SettingsCopy.cleanupNotEditable` is deleted because it became
 >   false. **The hotkey is still not rebindable** — that claim stands.)*
+>   *(Amended by the `hotkey-rebinding` unit, landed 2026-08-30: **the hotkey is rebindable.**
+>   `SettingsCopy.hotkeyNotRebindable` is deleted because it became false — recorded below.)*
 > - **First run and permissions do not exist.** The highest-value surface in the design direction
 >   is still unbuilt, and a fresh install still meets the same three silent gates.
 >   *(Amended by the `first-run-permissions` unit, landed 2026-08-27: the five-step onboarding
@@ -820,8 +822,66 @@ This file orients a coding agent working in this repository. Read it first.
 >   tab, the manifest verification, whisper on both tiers, and the Cleanup tab.
 > - **No post-switch warm-start number is claimed.** The C7 `WarmStartTargets` bound covers the
 >   **launch** path only; nothing here measures a switch.
-> - **The hotkey is still not rebindable**, and the Privacy tab (`PRODUCT_SPEC.md:277`) — including
->   the real network-connection counter — is still unbuilt.
+> - **The hotkey is now rebindable** (the `hotkey-rebinding` unit, 2026-08-30 — below). The Privacy
+>   tab (`PRODUCT_SPEC.md:277`), including the real network-connection counter, is still unbuilt.
+
+> **The `hotkey-rebinding` unit landed 2026-08-30 — C1's last unshipped must-have, and a risk row
+> that had been false since C1.** **M10 "Rebindable hotkey"** was in the C1 PRD's *Must-have*
+> section (`audio-capture-hotkey/prd.md:137`) and was the recorded mitigation for risk **C1-E**
+> — *"`⌥Space` collides with Alfred/Raycast"* (`:321`). It reached no aspect spec: it was dropped at
+> decomposition with a reason (`hotkey-source/spec.md:88` — *"the configuration is already a value;
+> a settings surface is later"*), the value was built, and the surface never came. So the register
+> claimed a mitigation that did not exist, through five subsequent units.
+>
+> Five aspects shipped: `binding-vocabulary` (the pure validity decision, the named key tables and
+> the one chord formatter), `binding-store` (two `settings`-seam keys, the tolerant decode, the
+> launch read replacing both hardcoded call sites), `rebind-boundary` (the rebuild),
+> `shortcut-conflicts` (Apple's own shortcut table, read and warned about) and
+> `general-tab-recorder` (the recorder, the copy, and the live display name). Test floor 1501 →
+> 1625.
+>
+> **The rebind rebuilds rather than mutates, and that is the whole safety argument.**
+> `HotkeyConfiguration` is immutable and `SessionMachine.configuration` is a `let`, so a rebind
+> either mutates a running session or rebuilds a quiet one. Mutating re-opens **C1-A, "stuck
+> recording", rated Fatal (trust)**: a rebind landing between a `keyDown` and its `keyUp` leaves
+> `SessionRules.decide` and the watchdog's physical-key poll disagreeing about what is held.
+> `rebind(to:)` is synchronous with no suspension point between its guard and its swap, builds both
+> wirings before adopting either, and refuses unless **both** machines are quiet — and *quiet* is
+> `state == .idle` **and** `!hasPendingOpening`, because under `CaptureStartTiming.whenTheOwnerAsks`
+> every press passes through a window where the machine is idle with an opening owed. A rebuild
+> there discards the wiring that owes it, the deferral finds nothing, the microphone never opens,
+> and the pill strands in OPENING with no time-based transition able to move it. **The plan
+> specified the narrower guard; the test caught it.** The tap is never re-armed: `ModeRoutingSink`
+> is built once, the tap-health graph hangs off that sink rather than either wiring, so a rebind
+> re-points one field.
+>
+> **Single-key bindings ship, from a named safe set** — `PRODUCT_SPEC.md:322` requires them *"for
+> users who can't hold chords"*, and the tap is active and swallows what is bound, so a bare letter
+> would make that letter untypeable machine-wide with the recovery path behind a window that needs
+> the keyboard. The set is F1–F20, Home/End/PageUp/PageDown, Help and the keypad. **Forward Delete
+> and the arrows are excluded and pinned as excluded**, because the first draft took the set from
+> `keyCodesCarryingFunctionImplicitly` — which answers a different question (which keys macOS sets
+> `fn` on unasked) — and a test now fails if the two tables are ever "deduplicated" into agreement.
+> The recorder captures through a **first-responder override in Vocca's own window**, the
+> `FailsafePanel` precedent — not the tap, which would swallow the keyboard system-wide.
+>
+> **What the `hotkey-rebinding` unit is NOT, and must not be claimed:**
+> - **None of it has been executed.** The recorder is a window, the rebuild needs a live tap, and
+>   the shortcut read looks at the tester's own preferences — no window server, no Accessibility
+>   grant, no meaningful preferences on a hosted runner. `SMOKE_CHECKLIST.md` **steps 111–119** are
+>   the first execution of all three; step 116 is the hot-mic guard's only real run.
+> - **Conflict detection cannot see the risk it was written for.** No API enumerates hotkeys another
+>   process registered, so **Alfred and Raycast — the two apps C1-E names — are structurally
+>   invisible**. Rebinding lets a user *move off* a collision Vocca cannot *detect*.
+> - **Its coverage of Apple's own shortcuts is incomplete and the cause is unknown.** Spotlight's
+>   identifiers are absent from `com.apple.symbolichotkeys` on the authoring machine. The obvious
+>   explanation — that macOS records only customised shortcuts — was written down as fact and is
+>   **false**: identifier 118 is present holding the stock `⌃1`. Only identifiers 118–133 are named,
+>   from two Apple-shipped tables read on a machine; everything else warns unnamed.
+> - **The hotkey is one chord, not two.** `PRODUCT_SPEC.md:192`'s `⌥⇧Space` for Converse is P3; the
+>   stored shape does not foreclose it. Widget position, launch at login and sounds remain deferred.
+> - **`PRODUCT_SPEC.md:252` was amended** (founder-approved) because its unqualified "conflict
+>   detection against system shortcuts" is not deliverable.
 
 > **What is NOT proven, and must not be claimed:**
 > - **Notarization is unproven.** `Scripts/notarize.sh` has never run end to end — there is no

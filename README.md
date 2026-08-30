@@ -29,8 +29,9 @@ Your audio never has to leave your Mac.
 > ### ⚠️ Status: early — the loop exists, the product is not yet proven
 >
 > **The P0 dictation loop is wired and tested: press `⌥Space`, talk, press again, and the words are
-> transcribed locally and typed into the focused app** (hold-to-talk is the other mode, and the
-> General settings tab switches between them) — capture, hotkey, two ASR engines
+> transcribed locally and typed into the focused app** (hold-to-talk is the other mode, the
+> General settings tab switches between them, and the shortcut itself is rebindable there) —
+> capture, hotkey, two ASR engines
 > (Parakeet via FluidAudio and whisper.cpp), deterministic cleanup, the injection ladder with
 > its failsafe, and the live widget are all shipped behind tested seams, and the zero-network
 > probe drives a full dictation cycle end to end. Cleanup by a local Ollama model or a BYOK
@@ -136,7 +137,7 @@ delete it in Keychain Access.
 
 ## What it will do
 
-1. **Dictate anywhere** — press `⌥Space`, talk, press again. Polished text lands in whatever app has focus. (Prefer holding the key instead? Settings → General.)
+1. **Dictate anywhere** — press `⌥Space`, talk, press again. Polished text lands in whatever app has focus. (Prefer holding the key instead, or a different shortcut? Settings → General.)
 2. **Clean it up** — fillers gone, punctuation right, your names spelled your way. Deterministic by default; a local LLM if you want one.
 3. **Type reliably** — a four-rung injection ladder that ends, always, in your words being recoverable. Losing a transcript is treated as a bug with no acceptable rate.
 4. **Talk back** — local Kokoro TTS, real turn-taking, and barge-in you can interrupt.

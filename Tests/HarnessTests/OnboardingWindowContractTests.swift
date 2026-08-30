@@ -117,7 +117,8 @@ final class OnboardingWindowContractTests: XCTestCase {
                 openMicrophonePane: {},
                 requestMicrophoneAccess: {},
                 makeDownloadSession: { nil },
-                restart: { relaunches.fire() })
+                restart: { relaunches.fire() },
+                hotkeyDisplayName: { "⌥Space" })
             self.window = OnboardingWindow(
                 store: store,
                 sink: sink,

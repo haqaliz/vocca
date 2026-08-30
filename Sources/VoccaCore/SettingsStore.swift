@@ -49,6 +49,12 @@ public protocol SettingsStore {
     func activationMode() -> HotkeyConfiguration.Activation
     /// Persist the chosen activation mode.
     func setActivationMode(_ activation: HotkeyConfiguration.Activation)
+    /// The bound hotkey chord, or the shipped default (⌥Space). The activation mode is stored
+    /// separately and is **not** part of this value — see ``HotkeyChord``.
+    func hotkeyChord() -> HotkeyChord
+    /// Persist the bound chord. Best-effort, never throws: a failed write means the binding
+    /// reverts to ⌥Space at the next launch, which is a working hotkey rather than none.
+    func setHotkeyChord(_ chord: HotkeyChord)
     /// Whether the user has read and accepted the cloud-cleanup confirmation
     /// (`PRODUCT_SPEC.md:273`). `false` on a fresh install, and `false` for anything unreadable —
     /// the dialog is shown again rather than an agreement being assumed.

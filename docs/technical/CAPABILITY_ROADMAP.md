@@ -45,6 +45,17 @@ Beyond those, each capability either makes the loop *more reliable* (injection, 
 
 **Dependencies:** none. This is the first brick.
 
+*(Amended by the `hotkey-rebinding` unit, 2026-08-30: **M10 "Rebindable hotkey" shipped**, closing
+the last unbuilt must-have of the C1 PRD and the recorded mitigation for risk **C1-E** —
+`⌥Space` is Alfred's default and a common Raycast binding, so the chord was never Vocca's to
+assume. `⌥Space` is now the shipped default rather than the only option: it is persisted,
+rebindable from Settings → General without a restart, and a rebind is refused while a session is
+in flight. Single-key bindings are permitted from a named safe set, which is what
+`PRODUCT_SPEC.md:322` means by "for users who can't hold chords". Note the limit the mitigation
+does **not** reach: no API enumerates hotkeys another process registered, so the two apps C1-E
+names are structurally invisible — rebinding lets a user move off a collision Vocca cannot
+detect.)*
+
 ---
 
 ## C2. Local ASR behind `ASREngine` · P0, week 2

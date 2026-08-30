@@ -70,6 +70,17 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     /// dialog every existing cloud user already read.
     public static let cloudCleanupAcknowledgementKey = "settings.cloudCleanupAcknowledged"
 
+    /// The frozen keys the hotkey chord lives under. Pinned by test as literals, for the same
+    /// reason as the three above.
+    ///
+    /// **Two keys, not one.** A single encoded chord has no shape that says "half of me is
+    /// missing", so a partial write would decode to a chord nobody chose; a missing key beside a
+    /// present one is visible, and `PersistedSettings` reads it as malformed rather than absent.
+    public static let hotkeyKeyCodeKey = "settings.hotkey.keyCode"
+
+    /// The modifiers half of the pair.
+    public static let hotkeyModifiersKey = "settings.hotkey.modifiers"
+
     private let defaults: UserDefaults
     private let log: @Sendable (String) -> Void
 
@@ -108,6 +119,26 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     /// Persist the chosen activation mode. Best-effort, never throws.
     public func setActivationMode(_ activation: HotkeyConfiguration.Activation) {
         defaults.set(activation.persistedIdentifier, forKey: Self.activationModeKey)
+    }
+
+    /// The bound hotkey chord, or the shipped default (⌥Space).
+    ///
+    /// Both halves go through ``rawValue(forKey:)``, so a stored non-string takes the loud path
+    /// rather than reading as nothing stored — and, because the pair is read together, a
+    /// corrupted half is seen as half a pair rather than silently paired with the default's
+    /// other half.
+    public func hotkeyChord() -> HotkeyChord {
+        PersistedSettings.decodeHotkeyChord(
+            keyCodeRaw: rawValue(forKey: Self.hotkeyKeyCodeKey),
+            modifiersRaw: rawValue(forKey: Self.hotkeyModifiersKey),
+            onInvalidValue: log)
+    }
+
+    /// Persist the bound chord — both halves. Best-effort, never throws.
+    public func setHotkeyChord(_ chord: HotkeyChord) {
+        let encoded = PersistedSettings.encodeHotkeyChord(chord)
+        defaults.set(encoded.keyCode, forKey: Self.hotkeyKeyCodeKey)
+        defaults.set(encoded.modifiers, forKey: Self.hotkeyModifiersKey)
     }
 
     /// Whether the cloud-cleanup confirmation has been read and accepted. `false` for a fresh

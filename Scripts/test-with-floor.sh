@@ -1357,7 +1357,7 @@ set -euo pipefail
 # two that assert on the resolver itself were left alone, because there the resolver is the subject.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1501
+MINIMUM_EXECUTED_TESTS=1625
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

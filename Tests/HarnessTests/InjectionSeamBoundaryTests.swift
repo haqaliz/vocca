@@ -1473,9 +1473,24 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// the argument for putting the next one there too. Its decisions — the on-disk spellings and
     /// the tolerant decode — live above it in `VoccaCore/PersistedSettings.swift`, which is why
     /// the file below it is thin enough for the rule to cost nothing.
+    /// `systemShortcuts` is the third seam, added by the `shortcut-conflicts` aspect
+    /// (`plan_20260830.md` §1) and shipping in the same commit as the file that needs it. It is a
+    /// **separate seam rather than a third file in an existing one** for the reason the paragraph
+    /// above already gives and this aspect makes concrete: it answers a different question — what
+    /// has the *system* already claimed — reads a domain Vocca does not own
+    /// (`com.apple.symbolichotkeys`, Apple's, undocumented), and is read at a different moment,
+    /// while a chord is being recorded. Putting it in the settings seam because "we already have a
+    /// UserDefaults file" is exactly the reasoning that comment forbids.
+    ///
+    /// It is also the first row whose file is in an **adapter module rather than `VoccaUI`**, and
+    /// it has to be: `VoccaUI` may import only `VoccaCore` (`ModuleBoundaryTests`), so the reader
+    /// cannot live beside the recorder that asks it. Its decisions live above it in
+    /// `VoccaCore/SymbolicHotkeyDecoding.swift` and `VoccaHotkey/SystemShortcutProjection.swift`,
+    /// which is why the file itself is thin enough for the rule to cost nothing.
     private static let filesPermittedToNameUserDefaultsIdentifiersBySeam: [String: Set<String>] = [
         "completion": ["VoccaUI/Onboarding/CompletionFlagStore.swift"],
         "settings": ["VoccaUI/Settings/UserDefaultsSettingsStore.swift"],
+        "systemShortcuts": ["VoccaHotkey/SystemShortcutReader.swift"],
     ]
 
     /// The UserDefaults table flattened — every permitted file in every seam. The tree-wide scan

@@ -181,4 +181,117 @@ public enum PersistedSettings {
         }
         return activation
     }
+
+    // MARK: - The hotkey chord
+
+    /// The key code a fresh install's hotkey is bound to: Space, as in ⌥Space
+    /// (`PRODUCT_SPEC.md:127`).
+    ///
+    /// The same number as `AppBootstrap.shippedHotkeyKeyCode`, which is the composition root's
+    /// name for it — held together by test rather than by comment, because the two live in
+    /// modules that cannot import each other.
+    public static let defaultHotkeyKeyCode: UInt16 = 49
+
+    /// The modifiers a fresh install's hotkey is bound with: Option alone.
+    public static let defaultHotkeyModifiers: ModifierSet = [.option]
+
+    /// Every bit ``ModifierSet`` defines — what a stored modifiers word is checked against.
+    ///
+    /// Written out one modifier at a time because `ModifierSet` is an `OptionSet` and has no
+    /// `allCases` to derive this from. A stored word carrying any other bit is malformed: an
+    /// unknown bit is compared for equality against every real key press and can never match, so
+    /// accepting one would store a hotkey that is displayed correctly in Settings and is
+    /// completely dead — which is worse than falling back, because the user can see nothing wrong.
+    ///
+    /// A modifier added to `ModifierSet` must be added here too, or every user who had bound it
+    /// silently loses their binding. `PersistedHotkeyChordTests` is what fails first.
+    public static let knownModifierBits: ModifierSet = [
+        .control, .option, .shift, .command, .function, .capsLock,
+    ]
+
+    /// How the shipped chord is written in a report, so a user reading the log sees the binding
+    /// they have been given rather than two numbers.
+    private static var shippedChordDescription: String {
+        HotkeyChordFormatter.describe(
+            keyCode: defaultHotkeyKeyCode, modifiers: defaultHotkeyModifiers)
+    }
+
+    /// The chord a fresh install runs, and the chord every failure below degrades to.
+    public static var defaultHotkeyChord: HotkeyChord {
+        HotkeyChord(keyCode: defaultHotkeyKeyCode, modifiers: defaultHotkeyModifiers)
+    }
+
+    /// The two strings a chord is stored as — decimal, matching the store's habit of persisting
+    /// strings only.
+    ///
+    /// **Two values rather than one encoded chord**, so that a half-written pair degrades to the
+    /// shipped default rather than to a chord nobody chose: a single string with a missing half
+    /// has no shape that says so.
+    public static func encodeHotkeyChord(_ chord: HotkeyChord) -> (keyCode: String, modifiers: String) {
+        (String(chord.keyCode), String(chord.modifiers.rawValue))
+    }
+
+    /// Decode a persisted chord, tolerantly — the same three-answer contract as the settings
+    /// above, over a *pair* of stored strings.
+    public static func decodeHotkeyChord(
+        keyCodeRaw: String?,
+        modifiersRaw: String?,
+        onInvalidValue: (String) -> Void
+    ) -> HotkeyChord {
+        if (keyCodeRaw == nil) != (modifiersRaw == nil) {
+            let present = keyCodeRaw == nil ? "modifiers" : "keyCode"
+            let missing = keyCodeRaw == nil ? "keyCode" : "modifiers"
+            onInvalidValue(
+                "settings: half a stored hotkey binding (\(present) present, \(missing) "
+                    + "missing); falling back to \(shippedChordDescription)")
+            return defaultHotkeyChord
+        }
+        guard let keyCodeRaw, let modifiersRaw else { return defaultHotkeyChord }
+        guard let keyCode = UInt16(keyCodeRaw) else {
+            onInvalidValue(
+                "settings: unreadable hotkey key code \"\(keyCodeRaw)\"; falling back to "
+                    + shippedChordDescription)
+            return defaultHotkeyChord
+        }
+        guard let modifierBits = UInt16(modifiersRaw) else {
+            onInvalidValue(
+                "settings: unreadable hotkey modifiers \"\(modifiersRaw)\"; falling back to "
+                    + shippedChordDescription)
+            return defaultHotkeyChord
+        }
+        let modifiers = ModifierSet(rawValue: modifierBits)
+        guard modifiers.subtracting(knownModifierBits).isEmpty else {
+            onInvalidValue(
+                "settings: hotkey modifiers \"\(modifiersRaw)\" carry a bit this version does "
+                    + "not define; falling back to \(shippedChordDescription)")
+            return defaultHotkeyChord
+        }
+        let validity = HotkeyBindingRules.validate(keyCode: keyCode, modifiers: modifiers)
+        guard isAdoptable(validity) else {
+            onInvalidValue(
+                "settings: stored hotkey "
+                    + "\(HotkeyChordFormatter.describe(keyCode: keyCode, modifiers: modifiers)) "
+                    + "is not bindable (\(validity)); falling back to \(shippedChordDescription)")
+            return defaultHotkeyChord
+        }
+        return HotkeyChord(keyCode: keyCode, modifiers: modifiers)
+    }
+
+    /// Whether a stored chord of this validity may be adopted at launch.
+    ///
+    /// Exhaustive with no `default:`, so a fourth ``HotkeyBindingValidity`` case has to state its
+    /// answer here rather than inheriting one.
+    ///
+    /// **A warning is adopted.** Warnings and refusals lead to different controls in a recorder —
+    /// one disables Save, the other does not — and they must lead to different answers here for
+    /// the same reason. `shortcut-conflicts` will one day give the rules something to warn about;
+    /// the day it does, no user may find their binding silently reset to ⌥Space because Vocca
+    /// learned that Spotlight also uses it. Startup is not the place to re-litigate a choice the
+    /// user already made and can still see.
+    public static func isAdoptable(_ validity: HotkeyBindingValidity) -> Bool {
+        switch validity {
+        case .accepted, .warned: return true
+        case .refused: return false
+        }
+    }
 }

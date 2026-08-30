@@ -33,8 +33,12 @@ public final class MenuBarItem {
     /// prevent.
     private let item: NSStatusItem
 
-    /// The hotkey as the user sees it, for the copy that names it.
-    private let hotkey: String
+    /// The hotkey as the user sees it, for the copy that names it — **asked, never captured**.
+    ///
+    /// The status item is built once and retained until quit, so a captured string would keep
+    /// naming the launch chord in the VoiceOver label for the rest of the session, however many
+    /// times the user rebound it.
+    private let hotkey: () -> String
 
     /// What to run when the user picks the blocked state's button.
     private let onAction: (MenuBarState) -> Void
@@ -47,13 +51,18 @@ public final class MenuBarItem {
     /// under a user who has it open.
     private var state: MenuBarState?
 
+    /// The hotkey string the label was last drawn with. Part of the idempotence guard rather than
+    /// a separate refresh call, so a rebind heals the label on the next condition tick — the ~1 s
+    /// health poll — with nothing for a caller to forget to wire.
+    private var renderedHotkey: String?
+
     /// - Parameters:
-    ///   - hotkey: the chord in display form, e.g. `⌥Space`.
+    ///   - hotkey: the chord in display form, asked afresh on every render.
     ///   - onAction: invoked for a blocked state's call to action.
     ///   - onOpenSettings: invoked for the Settings item.
     ///   - onQuit: invoked for the Quit item.
     public init(
-        hotkey: String,
+        hotkey: @escaping () -> String,
         onAction: @escaping (MenuBarState) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
@@ -72,8 +81,10 @@ public final class MenuBarItem {
     /// Idempotent by state, so the ~1 s health poll that feeds this can call it every tick without
     /// rebuilding an open menu out from under the user's cursor.
     public func apply(_ next: MenuBarState) {
-        guard next != state else { return }
+        let hotkeyNow = hotkey()
+        guard next != state || hotkeyNow != renderedHotkey else { return }
         state = next
+        renderedHotkey = hotkeyNow
 
         if let button = item.button {
             // A **template** image: monochrome, tinted by the system for a light or dark menu bar
@@ -85,7 +96,7 @@ public final class MenuBarItem {
             image?.isTemplate = true
             button.image = image
             button.setAccessibilityLabel(
-                MenuBarCopy.accessibilityLabel(for: next, hotkey: hotkey))
+                MenuBarCopy.accessibilityLabel(for: next, hotkey: hotkeyNow))
         }
 
         item.menu = menu(for: next)
