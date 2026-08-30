@@ -143,17 +143,23 @@ public struct OnboardingBindings {
     /// guarded by the window.
     public var restart: () -> Void
 
+    /// The bound chord in display form, for the three §6 lines that name it — **asked, never
+    /// captured**, for the reason the settings window's is: the window outlives any one binding.
+    public var hotkeyDisplayName: () -> String
+
     public init(
         openAccessibilityPane: @escaping () -> Void,
         openMicrophonePane: @escaping () -> Void,
         requestMicrophoneAccess: @escaping () -> Void,
         makeDownloadSession: @escaping () -> (any ModelDownloadSession)?,
-        restart: @escaping () -> Void
+        restart: @escaping () -> Void,
+        hotkeyDisplayName: @escaping () -> String
     ) {
         self.openAccessibilityPane = openAccessibilityPane
         self.openMicrophonePane = openMicrophonePane
         self.requestMicrophoneAccess = requestMicrophoneAccess
         self.makeDownloadSession = makeDownloadSession
         self.restart = restart
+        self.hotkeyDisplayName = hotkeyDisplayName
     }
 }

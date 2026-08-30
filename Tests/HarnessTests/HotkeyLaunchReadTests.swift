@@ -134,19 +134,19 @@ final class HotkeyLaunchReadTests: XCTestCase {
         XCTAssertEqual(PersistedSettings.defaultHotkeyKeyCode, 49, "kVK_Space")
     }
 
-    /// The shipped display name is what the one renderer makes of the shipped chord.
+    /// The shipped chord still reads as ⌥Space, through the one renderer.
     ///
-    /// `shippedHotkeyDisplayName` is a literal `"⌥Space"` that the menu bar and onboarding read.
-    /// It is not deleted here — that is `general-tab-recorder`'s M10, where its replacement lands
-    /// — but it is pinned as *derivable*, so the day the default chord changes, a stale literal
-    /// telling users to press the old key fails here rather than shipping.
-    func testTheShippedDisplayNameIsTheFormattedDefaultChord() {
+    /// `AppBootstrap.shippedHotkeyDisplayName` — a literal the menu bar and onboarding both read —
+    /// was deleted by `general-tab-recorder`'s M10, because a captured string cannot follow a
+    /// rebind. What that literal was worth is kept here: the day the default chord changes, the
+    /// product's own documentation and copy still say ⌥Space, and this row fails rather than
+    /// shipping a first-run screen naming a key that does nothing.
+    func testTheShippedChordStillRendersAsTheDocumentedGlyphs() {
         XCTAssertEqual(
-            AppBootstrap.shippedHotkeyDisplayName,
             HotkeyChordFormatter.describe(
                 keyCode: PersistedSettings.defaultHotkeyKeyCode,
-                modifiers: PersistedSettings.defaultHotkeyModifiers))
-        XCTAssertEqual(AppBootstrap.shippedHotkeyDisplayName, "⌥Space")
+                modifiers: PersistedSettings.defaultHotkeyModifiers),
+            "⌥Space")
     }
 
     // MARK: - One read, no hardcodes

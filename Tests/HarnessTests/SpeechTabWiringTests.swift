@@ -81,7 +81,7 @@ final class SpeechTabWiringTests: XCTestCase {
         let bindings = SettingsBindings(
             isToggleMode: { true },
             setToggleMode: { _ in },
-            hotkeyDisplayName: "⌥Space",
+            hotkeyDisplayName: { "⌥Space" },
             engineDisplayName: { "Parakeet v3" },
             cleanupSummary: { nil },
             loadDictionary: { [] },

@@ -114,7 +114,7 @@ public struct OnboardingView: View {
         HStack(alignment: .top, spacing: 10) {
             statusMark(granted: store.state.accessibility != .notGranted)
             VStack(alignment: .leading, spacing: 4) {
-                Text(OnboardingCopy.accessibilityReason)
+                Text(OnboardingCopy.accessibilityReason(hotkey: bindings.hotkeyDisplayName()))
                 if store.state.accessibility == .grantedNotArmed {
                     Text(OnboardingCopy.accessibilityGrantedNotArmed)
                         .font(.caption)
@@ -163,7 +163,7 @@ public struct OnboardingView: View {
     /// the step is.
     private var tryItStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(OnboardingCopy.tryItPrompt)
+            Text(OnboardingCopy.tryItPrompt(hotkey: bindings.hotkeyDisplayName()))
             TextField("", text: $field.text)
                 .textFieldStyle(.roundedBorder)
             if store.state.tryItUnavailableReason == .modelUnavailable {
@@ -190,7 +190,7 @@ public struct OnboardingView: View {
     private var doneStep: some View {
         VStack(spacing: 12) {
             Spacer()
-            Text(OnboardingCopy.doneCopy)
+            Text(OnboardingCopy.doneCopy(hotkey: bindings.hotkeyDisplayName()))
                 .font(.title3)
                 .multilineTextAlignment(.center)
             Spacer()

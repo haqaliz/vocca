@@ -22,17 +22,16 @@ import XCTest
 /// menu bar and `Option+Space` in Settings has been handed two names for one key.
 final class HotkeyChordFormatterTests: XCTestCase {
 
-    /// **Criterion 7's load-bearing row.** The shipped binding must render byte-for-byte as the
-    /// string the menu bar already shows, so that the day `AppBootstrap.shippedHotkeyDisplayName`
-    /// starts coming from here, nothing a user sees changes.
+    /// **Criterion 7's load-bearing row.** The shipped binding renders byte-for-byte as the string
+    /// the menu bar has always shown.
     ///
-    /// Asserted against the shipped constant, not against a copy of it: a literal here would
-    /// agree with itself while disagreeing with the product.
+    /// It used to be asserted against `AppBootstrap.shippedHotkeyDisplayName`, a literal the menu
+    /// bar and onboarding read directly. `general-tab-recorder` deleted that constant — a captured
+    /// string cannot follow a rebind — so every surface now derives its answer from here, and this
+    /// row is what pins that the change was invisible to a user.
     func testTheShippedChordRendersAsTheMenuBarAlreadyShowsIt() {
         XCTAssertEqual(
-            HotkeyChordFormatter.describe(keyCode: 0x31, modifiers: [.option]),
-            AppBootstrap.shippedHotkeyDisplayName)
-        XCTAssertEqual(AppBootstrap.shippedHotkeyDisplayName, "⌥Space")
+            HotkeyChordFormatter.describe(keyCode: 0x31, modifiers: [.option]), "⌥Space")
     }
     /// The modifiers render in the platform's canonical order — `fn` first, then `⌃⌥⇧⌘` — whatever
     /// order they were inserted in. macOS writes chords this way everywhere (menus, the Keyboard

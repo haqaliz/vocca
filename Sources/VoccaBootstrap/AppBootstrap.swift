@@ -519,7 +519,7 @@ public enum AppBootstrap {
     @MainActor
     private static func attachMenuBarItem(to root: DictationLoopRoot) {
         let item = MenuBarItem(
-            hotkey: shippedHotkeyDisplayName,
+            hotkey: { [weak root] in root?.hotkeyDisplayName ?? "" },
             onAction: { state in
                 switch state {
                 case .noAccessibility:
@@ -565,9 +565,6 @@ public enum AppBootstrap {
             }
         }
     }
-
-    /// The shipped chord, in the form a person reads.
-    public static let shippedHotkeyDisplayName = "⌥Space"
 
     // MARK: - The launch read
 
@@ -1086,7 +1083,11 @@ public final class DictationLoopRoot {
                         // their next press rather than a broken session.
                         self?.setActiveMode(isToggle ? .toggle : .holdToTalk)
                     },
-                    hotkeyDisplayName: AppBootstrap.shippedHotkeyDisplayName,
+                    // Read, never captured — the window is built once and kept for the process's
+                    // lifetime, so a chord captured here would go on naming the old binding on the
+                    // very page the user changed it on (the `engineSelection` argument, applied to
+                    // the fact this tab exists to show).
+                    hotkeyDisplayName: { [weak self] in self?.hotkeyDisplayName ?? "" },
                     // The *live* selection, not the launch-time one: after a switch this label
                     // must name the engine Vocca is now using, and the resolver's selection is
                     // that fact rather than a copy of it.
@@ -1287,7 +1288,8 @@ public final class DictationLoopRoot {
                         }
                     },
                     makeDownloadSession: { [weak self] in self?.downloadSession },
-                    restart: { AppRelaunch.relaunch() }))
+                    restart: { AppRelaunch.relaunch() },
+                    hotkeyDisplayName: { [weak self] in self?.hotkeyDisplayName ?? "" }))
             onboardingWindow = window
         }
         onboardingWindow?.show()
@@ -1808,6 +1810,20 @@ public final class DictationLoopRoot {
     /// still completes into a wiring that is still there.
     private static func isQuiet(_ wiring: Wiring) -> Bool {
         wiring.machine.state == .idle && !wiring.machine.hasPendingOpening
+    }
+
+    /// **The bound chord as a person reads it** — the one answer all three surfaces render
+    /// (`general-tab-recorder` M10): the General tab, the menu bar's VoiceOver label and
+    /// onboarding's "Hold …" lines.
+    ///
+    /// Computed from ``boundChord`` through ``HotkeyChordFormatter`` on every read, so there is no
+    /// stored string anywhere to go stale. All three surfaces are built once and kept for the
+    /// process's lifetime, and until this aspect all three read one captured literal — so the first
+    /// rebind would have left every one of them naming a chord nothing was bound to
+    /// (`HotkeySurfaceAgreementTests`).
+    public var hotkeyDisplayName: String {
+        HotkeyChordFormatter.describe(
+            keyCode: boundChord.keyCode, modifiers: boundChord.modifiers)
     }
 
     /// The chord the loop is listening for **now** — read from the wiring rather than remembered,

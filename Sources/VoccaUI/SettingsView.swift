@@ -27,8 +27,13 @@ public struct SettingsBindings {
     public var isToggleMode: () -> Bool
     /// Switches activation mode. Refused mid-session by the root, which logs and does nothing.
     public var setToggleMode: (Bool) -> Void
-    /// The hotkey, in the form a person reads.
-    public var hotkeyDisplayName: String
+    /// The hotkey, in the form a person reads — **read, never captured**.
+    ///
+    /// A `String` here was a defect waiting for the recorder: the window is built once and kept
+    /// for the process's lifetime, so a chord captured at construction would go on naming the old
+    /// binding until the next launch — including on the very page the user had just changed it on.
+    /// The `engineSelection` argument, applied to the fact this tab exists to show.
+    public var hotkeyDisplayName: () -> String
     /// The engine currently transcribing, for the Speech tab.
     public var engineDisplayName: () -> String
     /// **What Vocca is actually cleaning with** — the resolved provider's name, its own egress
@@ -99,7 +104,7 @@ public struct SettingsBindings {
     public init(
         isToggleMode: @escaping () -> Bool,
         setToggleMode: @escaping (Bool) -> Void,
-        hotkeyDisplayName: String,
+        hotkeyDisplayName: @escaping () -> String,
         engineDisplayName: @escaping () -> String,
         cleanupSummary: @escaping () async -> CleanupSummary?,
         // The cleanup defaults claim **nothing** and change **nothing**, for the reason the Speech
@@ -197,7 +202,7 @@ private struct GeneralSettingsPage: View {
         Form {
             Section("Hotkey") {
                 LabeledContent(SettingsCopy.hotkeyLabel) {
-                    Text(bindings.hotkeyDisplayName)
+                    Text(bindings.hotkeyDisplayName())
                         .font(.system(.body, design: .rounded))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)

@@ -55,9 +55,12 @@ final class OnboardingCopyTests: XCTestCase {
     /// The Accessibility reason, `PRODUCT_SPEC.md:219-220` verbatim — the spec's mock splits it
     /// across two lines ("so ⌥Space works everywhere, and so / Vocca can type into other
     /// apps"); the rendered string is the flat sentence the two lines spell.
+    ///
+    /// The chord is a parameter since `general-tab-recorder` — it is rebindable now — so the spec's
+    /// sentence is asserted with the shipped chord in the position the spec wrote it.
     func testAccessibilityReasonMatchesTheSpec() {
         XCTAssertEqual(
-            OnboardingCopy.accessibilityReason,
+            OnboardingCopy.accessibilityReason(hotkey: "⌥Space"),
             "so ⌥Space works everywhere, and so Vocca can type into other apps")
     }
 
@@ -85,12 +88,15 @@ final class OnboardingCopyTests: XCTestCase {
 
     /// The TRY IT prompt, `PRODUCT_SPEC.md:239` verbatim.
     func testTryItPromptMatchesTheSpec() {
-        XCTAssertEqual(OnboardingCopy.tryItPrompt, "Hold ⌥Space and say something.")
+        XCTAssertEqual(
+            OnboardingCopy.tryItPrompt(hotkey: "⌥Space"), "Hold ⌥Space and say something.")
     }
 
     /// The DONE copy, `PRODUCT_SPEC.md:242` verbatim.
     func testDoneCopyMatchesTheSpec() {
-        XCTAssertEqual(OnboardingCopy.doneCopy, "Vocca lives in your menu bar. Hold ⌥Space anywhere.")
+        XCTAssertEqual(
+            OnboardingCopy.doneCopy(hotkey: "⌥Space"),
+            "Vocca lives in your menu bar. Hold ⌥Space anywhere.")
     }
 
     // MARK: - The M5c three-state Accessibility copy (NEW-COPY, `PRODUCT_SPEC.md:244`)
