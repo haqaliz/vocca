@@ -2299,10 +2299,13 @@ meaningful preferences exist on a hosted runner. These steps are the first execu
 
     *Failure:* a refusal instead of a warning, or a warning naming the wrong shortcut.
 
-    *Void — not fail — if:* you skipped the "change it first" step. **An untouched system shortcut
-    has no entry in `com.apple.symbolichotkeys` at all** — Spotlight's is absent on a stock machine
-    — so ⌘Space produces no warning and that is the measured, expected behaviour, not a bug. This
-    is the limit the Settings copy states in words, and step 117 is where you read it.
+    *Void — not fail — if:* Vocca stays silent on a shortcut you did **not** change. Coverage of
+    Apple's own shortcuts is known to be incomplete and is **not understood**: on the authoring
+    machine, Spotlight's identifiers (64/65) are absent from `com.apple.symbolichotkeys` entirely,
+    while other identifiers are present and hold their stock defaults — identifier 118 is `⌃1`,
+    "Switch to Desktop 1", untouched. So a missing warning on ⌘Space is a known gap with an unknown
+    cause, not a defect this step can adjudicate. **If you do get a warning where this step did not
+    predict one, that is information — write it here.**
 
 116. **A rebind during a dictation is refused, and the dictation is unharmed.**
 
