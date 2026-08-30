@@ -249,7 +249,7 @@ Target: **installed to first successful dictation in under two minutes**, with n
 
 One window, few tabs, everything on one screen per tab. No nested panels.
 
-**General** — hotkeys (both modes, with conflict detection against system shortcuts), widget position, launch at login, sounds.
+**General** — hotkeys (both modes; Vocca warns when a chord collides with one of macOS's own shortcuts, and says plainly that it cannot see shortcuts other applications have claimed), widget position, launch at login, sounds.
 
 **Speech** — engine picker with the tradeoff stated honestly:
 

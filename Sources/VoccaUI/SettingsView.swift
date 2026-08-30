@@ -34,6 +34,30 @@ public struct SettingsBindings {
     /// binding until the next launch — including on the very page the user had just changed it on.
     /// The `engineSelection` argument, applied to the fact this tab exists to show.
     public var hotkeyDisplayName: () -> String
+    /// **What a captured key event means as a chord.** The recorder reads a raw macOS modifier
+    /// word and a virtual key code off an `NSEvent` and hands them straight here — it translates
+    /// nothing itself.
+    ///
+    /// A seam rather than a local translation because the translation is not trivial: it carries
+    /// the `fn` rule, where the hardware sets the function bit by itself on the arrow keys and the
+    /// navigation cluster. That rule already exists, in `VoccaHotkey`, and is driven against
+    /// CoreGraphics' own constants by test. `VoccaUI` may import only `VoccaCore`
+    /// (`ModuleBoundaryTests`), so a second copy here would be a second dialect of the one
+    /// translation the whole hotkey story rests on.
+    public var chordForKeyEvent: (UInt64, UInt16) -> HotkeyChord
+
+    /// Whether a candidate chord may be bound, and what to say about it — the rules plus what the
+    /// system has already claimed, asked once (``HotkeyBindingRules/validate(_:against:)``).
+    public var validateChord: (HotkeyChord) -> HotkeyBindingValidity
+
+    /// Binds a chord, and says what happened.
+    ///
+    /// Routed to `DictationLoopRoot.rebind(to:)`, which refuses mid-session and takes effect on the
+    /// next press. **The answer is returned, not merely logged**: a rebind that appears not to have
+    /// registered invites a second attempt, and the second attempt is made on a keyboard whose
+    /// binding the user is no longer sure of.
+    public var rebind: (HotkeyChord) -> RebindOutcome
+
     /// The engine currently transcribing, for the Speech tab.
     public var engineDisplayName: () -> String
     /// **What Vocca is actually cleaning with** — the resolved provider's name, its own egress
@@ -105,6 +129,9 @@ public struct SettingsBindings {
         isToggleMode: @escaping () -> Bool,
         setToggleMode: @escaping (Bool) -> Void,
         hotkeyDisplayName: @escaping () -> String,
+        chordForKeyEvent: @escaping (UInt64, UInt16) -> HotkeyChord,
+        validateChord: @escaping (HotkeyChord) -> HotkeyBindingValidity,
+        rebind: @escaping (HotkeyChord) -> RebindOutcome,
         engineDisplayName: @escaping () -> String,
         cleanupSummary: @escaping () async -> CleanupSummary?,
         // The cleanup defaults claim **nothing** and change **nothing**, for the reason the Speech
@@ -135,6 +162,9 @@ public struct SettingsBindings {
         self.isToggleMode = isToggleMode
         self.setToggleMode = setToggleMode
         self.hotkeyDisplayName = hotkeyDisplayName
+        self.chordForKeyEvent = chordForKeyEvent
+        self.validateChord = validateChord
+        self.rebind = rebind
         self.engineDisplayName = engineDisplayName
         self.cleanupSummary = cleanupSummary
         self.loadCleanupConfig = loadCleanupConfig
@@ -201,13 +231,15 @@ private struct GeneralSettingsPage: View {
     var body: some View {
         Form {
             Section("Hotkey") {
-                LabeledContent(SettingsCopy.hotkeyLabel) {
-                    Text(bindings.hotkeyDisplayName())
-                        .font(.system(.body, design: .rounded))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 5))
-                }
+                HotkeyRecorderView(bindings: bindings)
+                // Both limits, because the check has two separate holes and one sentence covering
+                // them would leave a reader believing the untouched half is checked.
+                Text(SettingsCopy.hotkeyOtherAppsUnknown)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(SettingsCopy.hotkeyChangedSystemShortcutsOnly)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Activation") {

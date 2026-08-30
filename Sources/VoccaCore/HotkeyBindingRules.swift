@@ -61,4 +61,33 @@ public enum HotkeyBindingRules {
             ? .accepted
             : .refused(.unmodifiedTextEntryKey)
     }
+
+    /// The validity of a candidate binding, **against what the system has already claimed**.
+    ///
+    /// The recorder's whole question in one place, rather than two calls sequenced in a
+    /// composition root — because the order between them is a decision, and a decision in a
+    /// composition root is a decision no test reaches.
+    ///
+    /// **A refusal outranks a collision.** A bare text-entry key is refused whether or not macOS
+    /// also claims it: the refusal is the stronger answer, and a recorder that offered "macOS uses
+    /// this, take it anyway" over a key that would stop typing on the whole machine would be
+    /// offering exactly what the rules exist to prevent.
+    ///
+    /// - Parameters:
+    ///   - chord: the candidate.
+    ///   - occupied: what ``SystemShortcutReader`` reported. Empty means *nothing known*, which is
+    ///     indistinguishable from nothing being claimed — deliberately, because the two lead to the
+    ///     same answer, and because the reader can see only Apple's own remappable shortcuts and
+    ///     only the ones the user has changed.
+    public static func validate(
+        _ chord: HotkeyChord, against occupied: [SystemShortcut]
+    ) -> HotkeyBindingValidity {
+        let validity = validate(keyCode: chord.keyCode, modifiers: chord.modifiers)
+        guard case .accepted = validity else { return validity }
+
+        guard let warning = SystemShortcutRules.warning(for: chord, against: occupied) else {
+            return .accepted
+        }
+        return .warned(warning)
+    }
 }

@@ -1088,6 +1088,32 @@ public final class DictationLoopRoot {
                     // very page the user changed it on (the `engineSelection` argument, applied to
                     // the fact this tab exists to show).
                     hotkeyDisplayName: { [weak self] in self?.hotkeyDisplayName ?? "" },
+                    // The recorder reads a raw macOS modifier word and a key code off an NSEvent
+                    // and translates neither: the `fn` rule — where the hardware sets the function
+                    // bit by itself on the arrow keys and the navigation cluster — lives in the
+                    // one translation the tap already runs on, driven against CoreGraphics' own
+                    // constants by test. VoccaUI cannot import VoccaHotkey, so this is the seam
+                    // that keeps it from growing a second copy of it.
+                    chordForKeyEvent: { rawFlags, keyCode in
+                        HotkeyChord(
+                            keyCode: keyCode,
+                            modifiers: HotkeyFlagTranslation.modifiers(
+                                rawFlags: rawFlags, keyCode: keyCode))
+                    },
+                    // Asked once, and answered by Core: the rules plus what the system has already
+                    // claimed, with the refusal outranking the collision. The preferences domain is
+                    // read here, while a chord is being recorded — once per capture, never on the
+                    // dictation path — because the user may have changed a shortcut since launch.
+                    validateChord: { chord in
+                        HotkeyBindingRules.validate(
+                            chord, against: SystemShortcutDefaultsReader().occupiedChords())
+                    },
+                    // The answer is returned to the page, not left in a log: a rebind that appears
+                    // not to have registered invites a second attempt, made on a keyboard whose
+                    // binding the user is no longer sure of.
+                    rebind: { [weak self] chord in
+                        self?.rebind(to: chord) ?? .refused(.notBindable)
+                    },
                     // The *live* selection, not the launch-time one: after a switch this label
                     // must name the engine Vocca is now using, and the resolver's selection is
                     // that fact rather than a copy of it.
