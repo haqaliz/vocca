@@ -69,3 +69,4 @@ public enum HotkeyBindingValidity: Sendable, Equatable {
     /// Do not bind it, for this named reason.
     case refused(HotkeyBindingRefusal)
 }
+

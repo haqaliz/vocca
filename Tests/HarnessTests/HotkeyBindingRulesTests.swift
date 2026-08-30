@@ -421,4 +421,66 @@ final class HotkeyBindingRulesTests: XCTestCase {
             A refusal reason exists that no candidate above produces. Either the rules cannot             reach it — a reason a user can never be given — or a new reason was added without             the candidate that shows it happening. Add the candidate, not an exception.
             """)
     }
+    // MARK: - Single-source scans (criterion 9)
+
+    /// Each binding table is **declared in exactly one file**, scanned across the whole of
+    /// `Sources/`. A second declaration is a second answer to "which keys may a person give up",
+    /// and only one of them is the one the rules read.
+    ///
+    /// ## This scans an identifier, not a literal — deliberately
+    ///
+    /// The house pattern (``StrategyMemoryTargets``, ``WarmStartTargets``) scans for the *value*,
+    /// because a second spelling of `604_800` is a second home for one number. That does not
+    /// transfer here: `0x69` is `kVK_F13` and legitimately appears in both
+    /// ``HotkeyBindingTables`` and `HotkeyFlagTranslation.keyCodesCarryingFunctionImplicitly`,
+    /// which answer different questions and are required to overlap
+    /// (`plan_20260830.md` §0.2). A literal scan would either fail on correct code or be written
+    /// so loosely it caught nothing. So the *table* is what may not be duplicated, and the
+    /// identifier is what is counted.
+    ///
+    /// **Readers are deliberately not pinned.** Every later aspect of `hotkey-rebinding` — the
+    /// recorder, the store, the rebind boundary — reads these tables by design, so a pin on the
+    /// reader set would fail the next aspect for doing the right thing, and would be deleted
+    /// rather than obeyed. The hazard is a second *declaration*, and that is what is counted.
+    func testEachBindingTableIsDeclaredInExactlyOneFile() throws {
+        let expected: [String: String] = [
+            "safeUnmodifiedKeyCodes": "HotkeyBindingTables.swift",
+            "textEntryKeyCodes": "HotkeyBindingTables.swift",
+            "voccaReservedKeyCodes": "HotkeyBindingTables.swift",
+            "modifierKeyCodes": "HotkeyBindingTables.swift",
+        ]
+        for (identifier, home) in expected {
+            let sightings = try declarationSites(of: identifier)
+            XCTAssertEqual(
+                sightings, [home: 1],
+                """
+                `\(identifier)` is declared somewhere other than \(home), or more than once. A                 copy of a binding table is a second answer to which keys a person may give up,                 and the rules read only one of them. Got: \(sightings).
+                """)
+        }
+    }
+
+    /// Per-file counts of `let`/`var` declarations of `identifier` anywhere under `Sources/`,
+    /// comments stripped so a doc comment naming a table is not a second home. Vacuity-guarded:
+    /// a scan that read no files would report every table as uniquely declared.
+    private func declarationSites(of identifier: String) throws -> [String: Int] {
+        let sourcesRoot = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources")
+        let regex = try NSRegularExpression(
+            pattern: #"(?:static\s+)?(?:let|var)\s+"# + identifier + #"\b"#)
+
+        var sightings: [String: Int] = [:]
+        var filesScanned = 0
+        for file in SwiftSourceScanner.swiftFiles(under: sourcesRoot) {
+            filesScanned += 1
+            let stripped = SwiftSourceScanner.stripComments(
+                from: try String(contentsOf: file, encoding: .utf8))
+            let count = regex.numberOfMatches(
+                in: stripped, range: NSRange(stripped.startIndex..<stripped.endIndex, in: stripped))
+            if count > 0 { sightings[file.lastPathComponent] = count }
+        }
+        XCTAssertGreaterThan(
+            filesScanned, 0,
+            "The scan read no Swift files, so it would report any table as uniquely declared.")
+        return sightings
+    }
 }
