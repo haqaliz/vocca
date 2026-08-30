@@ -986,6 +986,16 @@ final class RecordingAudioSource: SessionAudioSource {
     /// What the next `endCapture()` hands over. `[]` is the empty press.
     var nextSamples: [Float] = [1, 2, 3]
 
+    /// Run from *inside* `endCapture()`, which is the only window in which a machine is observably
+    /// in ``SessionState/ending``: the funnel sets that state, closes the microphone, and is back
+    /// in `.idle` before it returns. Nothing outside the funnel can see it, so a test that wants to
+    /// ask a question *during* a handoff has to ask it from here.
+    ///
+    /// Fired once and then cleared, for the reason every other hook in this suite is: a hook that
+    /// re-entered the call it is inside of would recurse until the stack ran out, which reports
+    /// `signal 11` instead of naming the invariant that broke.
+    var duringEndCapture: (() -> Void)?
+
     func beginCapture() -> CaptureStart {
         if isOpen { overlappingBegins += 1 }
         guard nextStart == .opened else { return .unavailable }
@@ -998,6 +1008,9 @@ final class RecordingAudioSource: SessionAudioSource {
         if !isOpen { closesWithoutOpen += 1 }
         endCount += 1
         isOpen = false
+        let hook = duringEndCapture
+        duringEndCapture = nil
+        hook?()
         return AudioBuffer(
             samples: nextSamples, sampleRate: AudioBuffer.interchangeSampleRate)
     }
