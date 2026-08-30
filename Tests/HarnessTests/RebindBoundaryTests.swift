@@ -75,6 +75,34 @@ final class RebindBoundaryTests: XCTestCase {
             "and two microphones, so the two machines can never disagree about who owns the input")
     }
 
+    // MARK: - Phase 2: what a rebind can answer
+
+    /// **M5.** The refusals are a **closed set**, and this row is what makes a fourth reason
+    /// state itself here rather than arrive as a `default:` somewhere a user never sees.
+    ///
+    /// A rebind is *returned* rather than merely logged — the Speech tab's model-removal shape,
+    /// not activation mode's silent no-op — because a rebind that appears not to have registered
+    /// invites a second attempt, and the second attempt is made on a keyboard whose binding the
+    /// user is no longer sure of.
+    func testTheRefusalsAreAClosedSet() {
+        XCTAssertEqual(
+            Set(RebindRefusal.allCases), [.sessionInFlight, .notBindable],
+            "two reasons a rebind is refused — a third must be named here, and given copy, "
+                + "rather than reaching a user as a rebind that silently did nothing")
+    }
+
+    /// The three answers are distinguishable, which is the whole reason the outcome is a type
+    /// rather than a `Bool`: *nothing changed* and *we would not change it* lead to different
+    /// sentences on the page, and a caller that cannot tell them apart writes one of them wrong.
+    func testTheThreeOutcomesAreDistinguishable() {
+        XCTAssertNotEqual(RebindOutcome.rebound, .unchanged)
+        XCTAssertNotEqual(RebindOutcome.unchanged, .refused(.sessionInFlight))
+        XCTAssertNotEqual(
+            RebindOutcome.refused(.sessionInFlight), .refused(.notBindable),
+            "a refusal carries *which* refusal — the reason is the half the user needs")
+        XCTAssertEqual(RebindOutcome.refused(.notBindable), .refused(.notBindable))
+    }
+
     // MARK: - The harness
 
     /// One composed root over fakes, on the `ActivationPersistenceTests` shape: every event is
