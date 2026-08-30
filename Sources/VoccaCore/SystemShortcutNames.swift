@@ -35,11 +35,18 @@
 /// `spec.md` names 32/33 as Spotlight and `plan_20260830.md` names 64/65, each flagging the other
 /// as unverified. Both are wrong or unverifiable here. Identifier 32 reads `[65535, 126, 8650752]`
 /// on this machine — the Up arrow with `fn | control`, which is ⌃↑ and not ⌘Space. Identifiers 64
-/// and 65 are **absent from the live file entirely**, because macOS writes an entry only for a
-/// shortcut whose setting differs from the shipped default, and Spotlight's ⌘Space is untouched.
+/// and 65 are **absent from the live file entirely**, and **why is not understood**.
 ///
-/// So the shortcut this aspect was most wanted for is one it can neither name nor, on a default
-/// machine, see. That is worth stating plainly wherever this feature is described. What saves it
+/// The obvious explanation — that macOS records an entry only where a setting differs from the
+/// shipped default — was written here as fact and is **false**: identifier 118 is present on the
+/// same machine holding `⌃1`, the stock default for *Switch to Desktop 1*, untouched. Untouched
+/// shortcuts plainly do get entries. The retraction is kept rather than deleted because the
+/// deleted version of this comment is what a later reader would otherwise reconstruct from the
+/// same evidence.
+///
+/// So the shortcut this aspect was most wanted for is one it can neither name nor, on at least one
+/// real machine, see — with the cause unknown, which means coverage may be better or worse than
+/// this file can say. That is worth stating plainly wherever this feature is described. What saves it
 /// from being useless is that an **unnamed collision still warns**
 /// (``SystemShortcutRules/warning(for:against:)``): a chord Vocca cannot label is still reported
 /// as taken.
