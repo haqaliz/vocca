@@ -196,16 +196,13 @@ private struct GeneralSettingsPage: View {
     var body: some View {
         Form {
             Section("Hotkey") {
-                LabeledContent("Dictation shortcut") {
+                LabeledContent(SettingsCopy.hotkeyLabel) {
                     Text(bindings.hotkeyDisplayName)
                         .font(.system(.body, design: .rounded))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 5))
                 }
-                Text(SettingsCopy.hotkeyNotRebindable)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("Activation") {

@@ -172,7 +172,7 @@ public enum CleanupTabCopy {
     ///
     /// Says what to do rather than only what failed — a control that refuses with nothing beside
     /// it teaches a user the app is broken, which is the argument
-    /// ``SettingsCopy/hotkeyNotRebindable`` already makes.
+    /// ``SettingsCopy/hotkeyRefusal(_:)`` already makes.
     public static func missingFields(_ kind: CleanupProviderKind) -> String {
         switch kind {
         case .rules:
