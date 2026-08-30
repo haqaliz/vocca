@@ -52,7 +52,7 @@ public enum SystemShortcutProjection {
                     keyCode: entry.keyCode,
                     modifiers: HotkeyFlagTranslation.modifiers(
                         rawFlags: entry.rawModifierFlags, keyCode: entry.keyCode)),
-                name: nil)
+                name: SystemShortcutNames.name(forIdentifier: entry.identifier))
         }
     }
 }

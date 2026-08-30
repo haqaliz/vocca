@@ -123,4 +123,29 @@ final class SystemShortcutProjectionTests: XCTestCase {
 
         XCTAssertEqual(projected.map(\.chord.keyCode), [18, 19])
     }
+
+    // MARK: - The name reaches the shortcut, or does not
+
+    /// A projected shortcut carries the name for identifiers that have one, and `nil` for the rest.
+    ///
+    /// Both halves in one test because they are one claim: the projection asks
+    /// ``SystemShortcutNames``, and asks it about the identifier it was handed rather than about
+    /// anything it invents. A projection that named everything `nil` would pass a positive-only
+    /// test while making the whole names table dead code.
+    func testTheProjectionNamesWhatItCanAndLeavesTheRestUnnamed() {
+        let projected = SystemShortcutProjection.shortcuts(from: [
+            .init(identifier: 118, keyCode: 18, rawModifierFlags: 0x0004_0000),
+            .init(identifier: 133, keyCode: 22, rawModifierFlags: 0x000C_0000),
+            .init(identifier: 32, keyCode: 0x7E, rawModifierFlags: 0x0084_0000),
+        ])
+
+        XCTAssertEqual(
+            projected.map(\.name),
+            ["Switch to Desktop 1", "Switch to Desktop 16", nil],
+            """
+            118 and 133 are the two ends of the range verified against Apple's own tables; 32 is \
+            ⌃↑ on this machine and no shipped table names it, so it is reported unnamed rather \
+            than guessed at or dropped.
+            """)
+    }
 }
