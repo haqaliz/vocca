@@ -1,157 +1,177 @@
-# Understanding: speech-engine-switch
+# Understanding: feat/hotkey-rebinding
 
-**Phase 2 deep dig, 2026-08-28.** Read against `docs/ROADMAP.md`, `docs/technical/CAPABILITY_ROADMAP.md`,
-`docs/product/PRODUCT_SPEC.md` and the shipped source. Every claim below is cited; nothing is
-asserted from memory.
+**Date:** 2026-08-30 · **Phase:** P0 (capability C1, unshipped must-have M10)
+**Source:** `docs/planning/_card/issue.md` (inline brief — no GitHub issue exists)
+
+> Written after a four-agent dig over the hotkey path, the settings path, the enforced
+> conventions, and the macOS conflict-detection constraints. Every claim below carries a
+> file:line. Two claims in the original brief were **wrong** and are corrected here.
 
 ---
 
 ## 1. What the work is really asking
 
-Where the work sits: **P0, capability C3** — the ASR layer, `ASREngine` seam. Not P2, not the
-agent layer. It is squarely dictation-first and local-only: no network beyond the model download
-that already exists, no cloud in the OSS core, nothing that touches the hosted-tier seams.
+Not "add a feature". **Deliver an unshipped must-have and make a risk-register row true.**
 
-`CAPABILITY_ROADMAP.md:81` lists C3's second bullet as an unbuilt deliverable:
+- `docs/planning/audio-capture-hotkey/prd.md:137` — **M10 "Rebindable hotkey"**, in the C1
+  **Must-have** section: *"`⌥Space` is Alfred's default and a common Raycast binding."*
+- `docs/planning/audio-capture-hotkey/prd.md:321` — risk **C1-E** (`⌥Space` collides with
+  Alfred/Raycast, Med) records its mitigation as *"M10 rebinding"*.
+- M10 appears in **no** C1 aspect spec. It was dropped at decomposition, deliberately and with a
+  reason: `audio-capture-hotkey/hotkey-source/spec.md:88` — *"Hotkey rebinding UI. The
+  **configuration is already a value**; a settings surface is later."*
+- `docs/planning/audio-capture-hotkey/prd.md:263` — **N1** "Hotkey conflict detection against
+  system shortcuts" was separately listed as **nice-to-have**.
 
-> Engine selection in settings, **switchable without restart**, with an honest description of the
-> tradeoff (Parakeet: faster; Whisper: broader language and accuracy coverage).
-> A **per-engine model-tier choice**, so constrained machines can drop to a smaller Whisper model
-> rather than falling off a cliff.
+So C1-E is currently mitigated on paper only, exactly as roadmap risk R5 was before C3 and as R11
+is by the zero-network test. This unit closes it. **Note the asymmetry the PRD must preserve:
+rebinding is a must-have; conflict detection is a nice-to-have.** They are not one requirement,
+and the nice-to-have is the half that cannot be finished (§4.3).
 
-`PRODUCT_SPEC.md:254-262` specifies the surface exactly — and it is the authority on user-visible
-behaviour:
+## 2. Where it sits
 
-```
-◉ Parakeet v3      Fastest. 25 European languages.        [ installed ]
-○ Whisper turbo    Slower, broader language coverage.     [ download ]
+- **Phase P0**, `docs/ROADMAP.md` — P0's scope discipline permits *"no settings UI beyond
+  permissions **and one hotkey**"*. This is that hotkey.
+- **Layer:** capture only. It touches no ASR, cleanup, injection, or TTS code.
+- **Guardrail check** (`CLAUDE.md`): macOS-only ✅ · zero network ✅ (nothing here reaches a
+  socket) · local-first ✅ · dictation-first ✅ (P0, not the agent layer) · does not cripple the
+  local core ✅ · no cloud in the OSS core ✅. **No guardrail tension found.**
+- **Accessibility is a first-class driver here, not a nicety** — see §4.2.
 
-  Model management: disk used, remove, re-download.
-```
+## 3. The code, as it actually is
 
-So the unit is: **a persisted engine + tier selection, applied without a restart, surfaced as the
-Speech tab the product spec already draws.** The per-tier install state and model management are
-part of the specified surface, not an extension of it.
+**The binding is one immutable value, consumed in exactly two places.**
 
-## 2. Affected areas
-
-| Area | File | What it does today |
+| Thing | Where | State |
 |---|---|---|
-| The value | `Sources/VoccaCore/EngineSelection.swift:88` | `EngineSelection(tier:)`; `defaultSelection = .parakeetV3` (`:96`) |
-| Identity resolve | `Sources/VoccaUI/EnginePickerView.swift:28` | `EngineSessionStart.resolve(selection:)` — pure, tested, **called by nothing else** |
-| Picker reducer | `Sources/VoccaUI/EnginePickerState.swift` | Built and tested in C3; **no constructor anywhere in `Sources/`** |
-| Composition | `Sources/VoccaBootstrap/AppBootstrap.swift:196,206,208,355,937` | Five sites, all reading the hardcoded `EngineSelection.defaultSelection` |
-| Settings surface | `Sources/VoccaUI/SettingsView.swift:160-176` | Speech tab is read-only, and says so |
-| Manifests | `Sources/VoccaASR/Models/Manifests/*.json` | Three: one Parakeet, two Whisper tiers |
+| `HotkeyConfiguration` | `VoccaCore/HotkeyConfiguration.swift:20` | `Sendable, Hashable`; `keyCode`/`modifiers`/`activation` **all `let`** |
+| Constructed | `VoccaBootstrap/AppBootstrap.swift:399-400` (hold), `:437-438` (toggle) | both from `shippedHotkeyKeyCode: UInt16 = 49` (`:573`) + `[.option]` |
+| Consumed (1) | `VoccaCore/SessionRules.swift:157` `decide(_:state:config:)` | pure; compares `event.keyCode == config.keyCode` + chord |
+| Consumed (2) | `VoccaCore/SessionWatchdog.swift:444-449` `theBindingIsStillHeld` | hold-to-talk hot-mic poll, ~150 ms |
+| Held by | `VoccaCore/SessionMachine.swift:76` `public let configuration` | **immutable after init** |
+| Persisted | — | **nothing.** Only `Activation` is stored (`SettingsStore.swift:49-51`) |
 
-## 3. Findings the brief did not anticipate
+**`VoccaHotkey` is entirely binding-agnostic and needs no change.** The tap's `eventsOfInterest`
+mask is built from event *kinds*, never key codes (`CGEventTapSource.swift:188` +
+`TapEventClassification.swift`), so the tap forwards **the whole keyboard** unconditionally and
+per-key matching happens above the seam in `SessionRules`. `TapEventDispatch.swift:44-46` says so
+in its own comment. This is a large simplification versus what the brief assumed.
 
-### F1 — The two Whisper tiers collide in the model store (defect, blocking)
+### Two corrections to the brief
 
-`ModelStore` keys every model directory as `<root>/<engineID>/<version>/`
-(`Sources/VoccaASR/Models/ModelStore.swift:89-92`), and `isPresent` / `downloadIfMissing`
-(`:103`, `:158`) are keyed on that same pair. But **both** Whisper manifests declare the
-identical key:
+1. **"The rebind must separately reach the watchdog's physical-key poll, or the hot-mic guard
+   reads the old key code" — false.** `theBindingIsStillHeld` reads `machine.configuration`
+   **fresh on every poll** (`SessionWatchdog.swift:445`), and
+   `CGEventTapSource.isKeyDown(_:)` (`:426`) takes the key code as a *per-call parameter*. There
+   is no second stale copy anywhere. The guard tracks a rebind automatically **if the
+   configuration can change at all** — which it cannot.
+2. **"A modifier-only chord is refused" was stated as settled — it is entangled with a spec
+   requirement pointing the other way.** See §4.2. (Modifier-only — a chord with no non-modifier
+   key — is still correctly refused; *single-key, no-modifier* is a different case the spec
+   **requires** us to allow. The brief blurred them.)
 
-- `whisper-large-v3-turbo.json` → `engineID: "whisper-large-v3-turbo"`, `version: "1"`, one file
-  `ggml-large-v3-turbo.bin`, 1 624 555 275 bytes
-- `whisper-large-v3-turbo-q5_0.json` → `engineID: "whisper-large-v3-turbo"`, `version: "1"`, one
-  file `ggml-large-v3-turbo-q5_0.bin`, 574 041 195 bytes
+### The real hazard, restated
 
-`ShippedModelManifest.load(for:)` maps the tiers to the two different files correctly
-(`ShippedModelManifest.swift:60-69`) — the collision is in the *store key*, not the lookup. So
-once either tier is downloaded, `isPresent` answers `true` for the other, `downloadIfMissing`
-short-circuits at `:158`, and the engine is asked to load a `.bin` that is not on disk.
+`SessionMachine.configuration` is a `let`, and each `Wiring` bakes it in at construction
+(`AppBootstrap.swift:870-872`). So a rebind is **not** a value update — it is either a mutation
+path that does not exist yet, or a graph rebuild. And if it becomes a mutation, the live hazard is
+`SessionRules.decide` and the watchdog poll **disagreeing mid-session** about what is bound:
+a session stranded on a key nobody is holding is `ROADMAP.md`'s **C1-A, "stuck recording", rated
+Fatal (trust)**. This is the single most important decision in the unit.
 
-**This is invisible today because no user can select a tier at all.** This unit is what would
-expose it — and the specified Speech tab computes its `[installed]` / `[download]` badge from
-exactly that key. It has to be fixed inside this unit, not after it.
+### The activation-mode precedent, and where it stops being one
 
-### F2 — The predicted placeholder-digest defect is NOT present
+`DictationLoopRoot.setActiveMode(_:)` (`AppBootstrap.swift:1564-1581`) is the template: refuse
+no-op → **refuse while either machine is non-`.idle`** → persist → adopt → reroute. But it only
+**re-routes between two pre-built machines that already share the same chord**. It never changes a
+`keyCode`. Rebinding changes the match condition *inside* a route that is already built, so the
+precedent covers the guard and the ordering, not the mechanism.
 
-The brief's stated caveat (`CLAUDE.md`: the Whisper manifests "were generated the same way and
-have still never been downloaded — the same defect may be sitting in them") **does not reproduce.**
-Checked directly: SHA-256 of the literal `{}` is
-`44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a` and of the empty string
-`e3b0c44298…`; neither appears in any manifest, no entry has a 0- or 2-byte size, and no digest is
-duplicated across files. The declared byte counts (1.62 GB / 574 MB) match the published
-`ggml-large-v3-turbo` artifacts in magnitude.
+## 4. Open questions for the PRD
 
-What remains **unverified** is whether the digests match the bytes the repository actually serves —
-that needs a real download, and only an env-gated run on the founder's machine can answer it.
-Correcting the record: the risk is real but is "unverified", not "defective".
+### 4.1 How does a rebind reach a built machine? *(the load-bearing one)*
+Three shapes, materially different in risk: **(a)** make the configuration mutable behind a
+main-actor read at decide-time; **(b)** rebuild both `Wiring`s on rebind; **(c)** persist now,
+apply at next launch (restart-required). (a) is smallest but re-opens C1-A; (b) is clean but
+discards watchdog/timer state and needs an idle guard; (c) is safest and worst for the user.
 
-### F3 — The Cleanup tab reports a hardcoded answer (defect, adjacent)
+### 4.2 Single-key and non-modifier bindings — spec-required, and dangerous
+`PRODUCT_SPEC.md:322` (§10 Accessibility) is explicit: *"Hotkeys fully rebindable, **including to
+single keys or non-modifier combinations**, for users who can't hold chords."* That is a stated
+accessibility need, not an edge case, so a blanket "a modifier is required" rule **contradicts the
+spec**. But because the tap swallows the bound key (`ARCHITECTURE.md` §13: the tap must be active,
+not listen-only, or macOS inserts U+00A0), binding a bare letter makes that letter untypeable
+system-wide. `F13`–`F20` are the case the accessibility requirement actually wants; a bare `e` is
+the case that bricks the keyboard. **The PRD must draw this line explicitly** rather than let the
+recorder decide it by accident.
 
-`AppBootstrap.swift:938`: `cleanupSummary: { ("Built-in rules", nil) }`. It is a literal. A user
-who opted into Ollama or BYOK via `cleanup-config.json` sees the Cleanup tab say **"Built-in
-rules"** with no endpoint — while the widget's egress badge correctly shows the cloud marker.
-`SettingsView.swift:186` calls the egress line "the point of this tab… where they can check
-*before* it ever does", and today that line cannot appear. Out of scope for this unit, but it
-should be filed rather than silently observed.
+Certain refusals independent of any of the above: **Escape** (it is Vocca's own cancel key,
+`SessionKeyPolicy.swift:56`, and the recorder needs it to abort), and **modifier-only** chords
+(`HotkeyConfiguration` pairs a `keyCode` with a `ModifierSet` — there is no representation for
+"modifiers alone").
 
-### F4 — The activation mode is live but not persisted
+### 4.3 What "conflict detection" can honestly be
+Established as fact, not opinion:
+- `com.apple.symbolichotkeys` covers **only Apple's own remappable shortcuts** (Spotlight,
+  Mission Control, …). Undocumented, but plainly readable — no entitlement needed.
+- There is **no API to enumerate hotkeys other processes registered**, via Carbon
+  `RegisterEventHotKey` or via their own `CGEventTap`. Closed by design.
+- **Therefore Raycast and Alfred — the two apps C1-E actually names — are structurally
+  invisible.** The mitigation cannot detect the risk it was written for; it can only let the user
+  move off the collision.
 
-`AppBootstrap.swift:888`: `activeMode: DictationMode = DictationLoopRoot.defaultMode` — a
-constant, read from no store. The General tab's one live control is **lost on every relaunch**.
-Same class as this unit, and worth naming in the PRD as either in-scope or explicitly deferred.
+So detection ships as some subset of {seeded per-app table, `symbolichotkeys` read, empirical
+arm-and-observe probe}. Which subset, and how the copy states its own incompleteness, is a PRD
+decision. `TapHealthPolicy`'s `blockedBySecureInput` is the house precedent for "healthy but
+structurally cannot receive this key" (`TapHealthPolicy.swift:219`).
+**UNVERIFIED and flagged as such:** whether another process's `RegisterEventHotKey` reliably
+prevents our tap from seeing the key at all. Nobody has measured it; the probe's usefulness
+depends on it.
 
-## 4. The constraint that shapes the design
+### 4.4 Refusal shape — two precedents disagree
+Activation mode refuses **silently** (logs only, `AppBootstrap.swift:1568-1570`). The Speech tab's
+model removal refuses **visibly** (`SpeechTabState.swift:297` → `.refused` state), and its own copy
+cites activation mode as its template (`SpeechTabCopy.swift:105`). A rebind attempted mid-dictation
+should probably surface; the PRD should say which and why.
 
-**`CompletionFlagStore` is "the one file in `Sources/` permitted to name `UserDefaults`"**
-(`Sources/VoccaUI/Onboarding/CompletionFlagStore.swift:17-20`), pinned by the seam table in
-`Tests/HarnessTests/InjectionSeamBoundaryTests.swift:1540`. The FileManager table is pinned
-harder still — `:1294-1304` asserts it "must name **exactly** the four shipped seams". So a new
-persistence file is not a free choice: it either extends an existing seam or ships a lint-table
-amendment **in the same commit** (the house process, exactly as `CompletionFlagStore` itself did —
-its own doc comment records "the lint table amendment ships in the same commit").
+### 4.5 One chord or two?
+`PRODUCT_SPEC.md:252` says "hotkeys (both modes…)". §5's dual-mode table (`:192`) assigns `⌥Space`
+to Dictate and `⌥⇧Space` to Converse — **Converse is P3 and unbuilt**. Resolution: ship **one**
+binding, with a stored shape that does not foreclose a second. Note the two *activation* modes
+(hold/toggle) share one chord today and should continue to.
 
-## 5. Contradiction to resolve at the interview
+## 5. Two smaller findings that will bite if missed
 
-The brief I was handed said *restart-to-apply*, on the reasoning that `DictationEngineResolver`
-resolves once at launch. **The repo disagrees with the brief, twice:**
+- **`SettingsBindings.hotkeyDisplayName` is a plain `String`, not a closure**
+  (`SettingsView.swift:24-152`) — captured once at window construction, unlike every other live
+  field. The settings window is built once and kept for the process lifetime
+  (`AppBootstrap.swift:1031-1035`), so after a rebind it would display the **old** chord until
+  relaunch. It has to become a closure.
+- **`SettingsCopy` has no byte-for-byte pin test.** Grep of `Tests/` finds
+  `hotkeyNotRebindable` only in three unrelated doc comments. So deleting it — which this unit
+  must do, because it becomes false — is a change **no existing test would notice**. The house
+  convention (`AppsTabCopyTests`, `CleanupTabCopyTests`) is to pin copy; this tab never got one.
 
-- `CAPABILITY_ROADMAP.md:81` says "switchable **without restart**".
-- `Tests/HarnessTests/EngineSelectionConsumptionTests.swift:24-27` already pins the promise:
-  *"**No restart needed** (`CAPABILITY_ROADMAP.md:78`): a session begun after a selection change
-  reads the new selection — the resolver takes the current `EngineSelection` as its input, so
-  nothing about it is cached at launch."*
+## 6. Conventions this unit is bound by
 
-That doc comment describes `EngineSessionStart.resolve`, a pure function — it is **not** true of
-the shipped composition root, where `DictationEngineResolver(selection: .defaultSelection)` is
-constructed once at `AppBootstrap.swift:196`. So a passing test currently narrates a promise the
-wired app does not keep.
+- **Persistence must go in the existing `settings` seam's one file**
+  (`UserDefaultsSettingsStore.swift`) — a second `UserDefaults`-naming file fails
+  `InjectionSeamBoundaryTests.swift:1453-1481` outright. Tolerant decode belongs in
+  `PersistedSettings` (absent → default silent; malformed → default + exactly one loud report).
+- **Core owns the pure reducer**; `VoccaUI` may import only `VoccaCore`
+  (`ModuleBoundaryTests`). The recorder view is executed by nothing in CI (window-server
+  precedent) — decisions above the seam, adapter thin.
+- **Test floor is 1501** (`Scripts/test-with-floor.sh`), bumped in the same commit that adds tests.
+- Any tunable constant needs a **single-source scan test** (the `StrategyMemoryTargets` shape).
+- New `deinit`s may call only `tearDown`/`stopWithoutAssertingIsolation`/`deallocate`
+  (`DeinitIsolationTests`).
+- Apache-2.0 header verbatim on every new file; **smoke steps append after 110**.
 
-The precedent that resolves it is already in the tree: `setActiveMode`
-(`AppBootstrap.swift:1277-1291`) refuses to switch while a session is in flight, logs, and
-otherwise applies immediately — the user "gets the change on their next press rather than a broken
-session" (`:934`). **Next-session-boundary, no restart** is the house answer, and it satisfies
-C3's acceptance ("swaps the engine at runtime mid-session-boundary and asserts no caller above the
-seam observes anything except a different `engineIdentity`") without weakening the never-swap rule.
+## 7. Contradictions surfaced, not papered over
 
-## 6. Open questions for the PRD
-
-1. **Scope of the store.** Extend `CompletionFlagStore` into a general settings store, or ship a
-   second UserDefaults seam with the lint-table amendment? (F4 makes this a two-setting question,
-   not a one-setting question.)
-2. **Does the resolver gain a reset path**, or is it reconstructed per session boundary? This is
-   the load-bearing design decision.
-3. **How much of `PRODUCT_SPEC.md:260`'s "model management: disk used, remove, re-download"** is
-   in this unit versus deferred? Removal has a hard edge: deleting the model for the *active*
-   engine mid-session.
-4. **Is F1's key collision fixed by versioning the tier into `engineID`** (e.g.
-   `whisper-large-v3-turbo-q5_0`) — which changes an on-disk path users may already have — or by
-   adding a tier component to the store key? Migration matters either way.
-5. **F3 and F4**: in scope, or filed as separate units?
-
-## 7. Guardrail check
-
-- **macOS-only, local-first, dictation-first, open-core**: clean. No cloud in the OSS core; the
-  only network is the pre-existing model download, opt-in and user-initiated.
-- **Never cripple the local core**: this *strengthens* it — it makes the second local engine
-  reachable, which is the mitigation R5 (`docs/ROADMAP.md` risk register, Med/High) is supposed to
-  provide and currently provides only on paper.
-- **Two make-or-break battles**: touches neither latency nor injection adversely; the tier choice
-  is what lets a constrained machine avoid the latency cliff.
-- **Seam discipline** (`CAPABILITY_ROADMAP.md:400`, guardrail 7): this is the unit that turns
-  "two implementations shipped" from an assertion into something a user can exercise.
+1. **`PRODUCT_SPEC.md:252` promises "conflict detection against system shortcuts"; macOS cannot
+   deliver it** for the apps the risk names. The promise is not fully keepable and the spec line
+   should be amended by this unit rather than quietly under-delivered.
+2. **C1-E claims a mitigation that does not exist.** True since C1.
+3. **The brief's own acceptance test #2 conflicts with `PRODUCT_SPEC.md:322`** (§4.2). The spec
+   wins; the acceptance test gets rewritten.
