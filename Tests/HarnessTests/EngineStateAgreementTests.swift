@@ -383,6 +383,16 @@ private final class AgreementSettingsStore: SettingsStore, @unchecked Sendable {
     // is never the dangerous answer.
     private var acknowledgedCloud = false
 
+
+    // The hotkey chord is not what these tests are about, so the double remembers what it was
+    // handed and starts on the shipped chord — an ephemeral store that answered a *different*
+    // chord would silently change which key every row in this file presses.
+    private var chord = PersistedSettings.defaultHotkeyChord
+
+    func hotkeyChord() -> HotkeyChord { chord }
+
+    func setHotkeyChord(_ chord: HotkeyChord) { self.chord = chord }
+
     func hasAcknowledgedCloudCleanup() -> Bool { acknowledgedCloud }
 
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }

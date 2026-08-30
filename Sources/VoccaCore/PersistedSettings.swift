@@ -221,6 +221,16 @@ public enum PersistedSettings {
         HotkeyChord(keyCode: defaultHotkeyKeyCode, modifiers: defaultHotkeyModifiers)
     }
 
+    /// The two strings a chord is stored as — decimal, matching the store's habit of persisting
+    /// strings only.
+    ///
+    /// **Two values rather than one encoded chord**, so that a half-written pair degrades to the
+    /// shipped default rather than to a chord nobody chose: a single string with a missing half
+    /// has no shape that says so.
+    public static func encodeHotkeyChord(_ chord: HotkeyChord) -> (keyCode: String, modifiers: String) {
+        (String(chord.keyCode), String(chord.modifiers.rawValue))
+    }
+
     /// Decode a persisted chord, tolerantly — the same three-answer contract as the settings
     /// above, over a *pair* of stored strings.
     public static func decodeHotkeyChord(
