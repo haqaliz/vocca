@@ -205,6 +205,10 @@ public enum AppBootstrap {
         // configuration.
         let settings = ShippingSettings.store()
         let selection = settings.engineSelection()
+        // The bound chord, read **once**: both machines are configurations of one state machine
+        // and must carry the same binding, and two reads can answer differently the moment a
+        // rebind lands between them.
+        let hotkey = Self.hotkeyConfigurations(chord: settings.hotkeyChord())
 
         // MARK: The engine lifecycle
         //
@@ -396,8 +400,7 @@ public enum AppBootstrap {
         // so `configure` hands the root the assembly recipe instead of a pipeline. `main`'s
         // `startEnginePreparation` runs it.
         let root = DictationLoopRoot(
-            configuration: HotkeyConfiguration(
-                keyCode: Self.shippedHotkeyKeyCode, modifiers: [.option], activation: .holdToTalk),
+            configuration: hotkey.holdToTalk,
             ceiling: SessionCeiling.default,
             clock: clock,
             audioSource: microphone,
@@ -434,8 +437,7 @@ public enum AppBootstrap {
             downloadSession: downloadSession,
             recorder: ledger,
             sessionBox: sessionBox,
-            toggleConfiguration: HotkeyConfiguration(
-                keyCode: Self.shippedHotkeyKeyCode, modifiers: [.option], activation: .toggle),
+            toggleConfiguration: hotkey.toggle,
             toggleSource: toggleMicrophone,
             toggleTimer: MainRunLoopTimer(),
             runningAppName: SystemRunningAppName(),
@@ -566,6 +568,29 @@ public enum AppBootstrap {
 
     /// The shipped chord, in the form a person reads.
     public static let shippedHotkeyDisplayName = "⌥Space"
+
+    // MARK: - The launch read
+
+    /// The two configurations the root runs, built from **one** chord.
+    ///
+    /// A tuple from a single call rather than two independent constructions, and that is the
+    /// whole reason this function exists: both machines are configurations of one state machine
+    /// and must be bound to the same chord. Two call sites each building their own is how they
+    /// come to disagree — and a hold-to-talk machine bound to a different chord than the toggle
+    /// machine is one that can never end a session the other started.
+    ///
+    /// Pure, so the launch read is testable without an `NSApplication`: `configure` needs a run
+    /// loop and no test in the suite calls it.
+    public static func hotkeyConfigurations(
+        chord: HotkeyChord
+    ) -> (holdToTalk: HotkeyConfiguration, toggle: HotkeyConfiguration) {
+        (
+            HotkeyConfiguration(
+                keyCode: chord.keyCode, modifiers: chord.modifiers, activation: .holdToTalk),
+            HotkeyConfiguration(
+                keyCode: chord.keyCode, modifiers: chord.modifiers, activation: .toggle)
+        )
+    }
 
     // MARK: - The shipped numbers
 
