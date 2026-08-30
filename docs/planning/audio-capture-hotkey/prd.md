@@ -318,7 +318,7 @@ profile.
 | **C1-B** | Silent tap death after sleep/wake or re-signing; symptom is a healthy-looking tap whose callback never fires | High | M17 health poll + re-create; M3 stable dev identity |
 | **C1-C** | Secure Input kills the hotkey with no error | Med | M33 detection + distinct state |
 | **C1-D** | Engine start-on-demand is too slow, and warm-start is closed off by the orange dot | Med | M23 `prepare()` + persistent graph; S5 linger; **measure before optimizing** |
-| **C1-E** | `⌥Space` collides with Alfred/Raycast | Med | M10 rebinding |
+| **C1-E** | `⌥Space` collides with Alfred/Raycast | Med | M10 rebinding — **shipped 2026-08-30** (`docs/planning/hotkey-rebinding/`). The row was true on paper from C1 until then: M10 was a must-have that reached no aspect spec. Note the limit, because the mitigation is narrower than the risk: rebinding lets the user *move off* a collision, and nothing can *detect* this one — macOS exposes no way to enumerate hotkeys another process registered, so Alfred and Raycast, the two apps this row names, are structurally invisible. The shipped conflict check sees only macOS's own shortcuts, and only those the user has changed themselves. |
 | **C1-F** | The realtime path cannot be exercised offline (**[SDK]** sink node ≠ manual rendering) | Med | M19 — seam above the node; accept a small manual smoke checklist |
 | **C1-G** | The tap callback's OS deadline is **[UNVERIFIED]** | Med | M18 — do nothing in the callback; N4 for real latency data |
 | **C1-H** | **[UNVERIFIED]** Carbon `kEventHotKeyReleased` reliability on modifier-first release | Low | S1 is a fallback only, never primary |

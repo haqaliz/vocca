@@ -2230,6 +2230,137 @@ it aside first; step 105 rewrites it.
 
 ---
 
+## 16. The hotkey becomes rebindable — `hotkey-rebinding`
+
+Nothing in this section runs in CI. The recorder is a window, the rebuild needs a live tap, and the
+system-shortcut read looks at *your* preferences — no window server, no Accessibility grant and no
+meaningful preferences exist on a hosted runner. These steps are the first execution of all three.
+
+**Before you start:** note the chord you are on (Settings → General) so step 119 can put it back.
+
+111. **A rebind takes effect on the next press, with no restart.**
+
+    *Gesture:* Settings → General → click the shortcut and press `⌃⌥D`. Close Settings. Focus
+    TextEdit and press `⌃⌥D`, say a sentence, press again. Then press `⌥Space` and say something.
+
+    *Pass:* `⌃⌥D` starts and ends a dictation and the text lands. `⌥Space` does nothing at all —
+    no pill, no menu bar change — and, in a text field, types the non-breaking space it always did
+    before Vocca claimed it.
+
+    *Failure:* `⌥Space` still starting a session. The old wiring is still routed, which means the
+    rebuild swapped the configuration but not `modeRouting.active`.
+
+    *Void — not fail — if:* you never closed Settings. The window is the one surface allowed to
+    take focus, so a chord pressed while it is key goes to the recorder, not the tap.
+
+112. **It survives a relaunch.**
+
+    *Gesture:* quit Vocca entirely (menu bar → Quit). Reopen it. Press `⌃⌥D`.
+
+    *Pass:* the chord still works, and Settings → General still shows it.
+
+    *Failure:* being back on `⌥Space`. The chord was adopted in memory and never persisted, or the
+    launch read is not reaching both machines.
+
+113. **A single key works, unmodified — the accessibility requirement, executed for the first time.**
+
+    *Gesture:* rebind to **`F13`** (a bare press, no modifiers). Dictate with it.
+
+    *Pass:* `F13` alone starts and ends a dictation.
+
+    *Failure:* the recorder refusing `F13`, or accepting it and then never firing. The second is the
+    one to watch for: macOS sets the `fn` bit on F-keys with no user involvement, so a binding
+    stored as `fn`+F13 is unequal to the `[]` the adapter delivers after stripping it, and the
+    hotkey silently never matches. This is exactly the failure `ModifierSet`'s documentation
+    predicts, reached from the other side.
+
+    *Void — not fail — if:* your keyboard has no `F13`, or a third-party tool has claimed it. Use
+    `F14`–`F20` instead; any of them exercises the same rule.
+
+114. **A chord that would cost you a key is refused, in words.**
+
+    *Gesture:* try to bind a bare **`e`** (no modifiers). Then try bare **`Escape`**. Then try
+    holding only `⌘` and releasing.
+
+    *Pass:* each is refused with a sentence saying why, the shortcut is unchanged, and nothing is
+    written. Then bind `⌃⌥E` — a modified letter — and confirm it **is** accepted.
+
+    *Failure:* any of the three being accepted. A bare `e` makes the letter `e` untypeable on the
+    whole machine, and the way back is this window, which needs the keyboard.
+
+115. **A collision with one of macOS's own shortcuts is named.**
+
+    *Gesture:* first **change** a system shortcut so Vocca can see it: System Settings → Keyboard →
+    Keyboard Shortcuts → Mission Control, and set "Mission Control" to something distinctive like
+    `⌃⌥M`. Then attempt to bind that same chord in Vocca.
+
+    *Pass:* Vocca warns and names the shortcut, and **still lets you bind it** if you confirm — the
+    warning is advice, not a veto, because your machine is the authority on your shortcuts.
+
+    *Failure:* a refusal instead of a warning, or a warning naming the wrong shortcut.
+
+    *Void — not fail — if:* you skipped the "change it first" step. **An untouched system shortcut
+    has no entry in `com.apple.symbolichotkeys` at all** — Spotlight's is absent on a stock machine
+    — so ⌘Space produces no warning and that is the measured, expected behaviour, not a bug. This
+    is the limit the Settings copy states in words, and step 117 is where you read it.
+
+116. **A rebind during a dictation is refused, and the dictation is unharmed.**
+
+    *This is the only real execution of the hot-mic guard.* Everything CI can prove about it is
+    proven over fakes.
+
+    *Gesture:* start a toggle dictation and keep talking. With the session live, open Settings and
+    try to rebind. Then close Settings and end the dictation normally.
+
+    *Pass:* the rebind is refused **visibly** — a sentence in the tab, not just a log line — the
+    pill keeps recording throughout, and ending the session delivers the text as usual. The chord
+    is unchanged afterwards.
+
+    *Failure:* the rebind succeeding. A rebuild mid-session discards the machine that owns the
+    recording; the microphone is never closed and no `.ended` is ever delivered. That is a hot mic
+    and a lost transcript in one, and it is rated Fatal in the C1 risk register.
+
+    *Also check:* repeat it in the window **immediately after a press**, before the pill appears.
+    A press claims the key and leaves an opening owed until a later run-loop turn, and a rebuild
+    inside that window strands the pill in OPENING with nothing able to move it.
+
+117. **The three surfaces agree, and the tab states its own limits.**
+
+    *Gesture:* after a rebind, read the chord in Settings → General, in the menu bar's VoiceOver
+    label or tooltip, and in a fresh onboarding run (delete the completion flag to see it).
+
+    *Pass:* all three name the same chord, in the same notation. The General tab also says, in
+    plain words, that Vocca cannot see shortcuts other applications have claimed **and** that it
+    only sees macOS shortcuts you have changed yourself.
+
+    *Failure:* any surface showing the old chord — the display was captured once instead of read
+    live — or the tab claiming a complete conflict check.
+
+118. **Several rebinds in a row leave a hotkey that still works.**
+
+    *Gesture:* rebind four or five times in succession — `⌃⌥D`, `F13`, `⌥⇧V`, `⌃⌥D` again —
+    dictating once after each.
+
+    *Pass:* every chord works immediately after it is set, and the last one still works after a
+    relaunch.
+
+    *Failure:* a chord that stops working after several rebinds, which means a retired timer or
+    watchdog is still holding the route. **Watch for the silent shape of this:** Vocca is
+    `LSUIElement`, so a dead hotkey looks exactly like a working one until you press it. If nothing
+    happens, check the menu bar icon before assuming you mistyped.
+
+119. **Put your chord back.**
+
+    *Gesture:* rebind to whatever you noted before step 111 — `⌥Space` unless you had changed it.
+    If you changed a system shortcut in step 115, change that back too.
+
+    *Pass:* the machine is where it started.
+
+    *Failure:* leaving a tester on `F13`, or leaving Mission Control on a chord they did not
+    choose. Both are real costs to the next person to use that machine.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here
