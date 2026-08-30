@@ -31,11 +31,17 @@ import VoccaCore
 /// including when they are holding the chord the user is trying to bind. Nothing built on it may
 /// be written, in code or in copy, as though the check were complete.
 ///
-/// A second limit, found by reading the live file rather than by reasoning about it: macOS writes
-/// an entry here **only for a shortcut whose setting differs from the shipped default**. On the
-/// authoring machine (2026-08-30) the domain holds 37 entries and none of them is Spotlight, whose
-/// ⌘Space is untouched. So a shortcut the user has never changed is not merely unnamed — it is
-/// absent. That, too, degrades to silence.
+/// A second limit, observed rather than explained: **coverage of Apple's own shortcuts is
+/// incomplete**. On the authoring machine (2026-08-30) the domain holds 37 entries and Spotlight's
+/// identifiers 64/65 are not among them, so its ⌘Space is absent rather than merely unnamed. That,
+/// too, degrades to silence.
+///
+/// **Why they are absent is not understood, and nothing here may pretend otherwise.** An earlier
+/// revision of this comment claimed macOS writes an entry only where a setting differs from the
+/// shipped default. That was an inference presented as a measurement and it is false: identifier
+/// 118 is present on the same machine holding the stock default for *Switch to Desktop 1*. The
+/// claim had already reached a draft of the Settings tab's own copy before it was caught, which is
+/// why the correction is recorded here and not only deleted.
 ///
 /// ## Executed by nothing in CI
 ///

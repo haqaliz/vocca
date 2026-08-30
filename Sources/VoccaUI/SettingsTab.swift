@@ -159,17 +159,19 @@ public enum SettingsCopy {
     public static let hotkeyOtherAppsUnknown =
         "Vocca can't see shortcuts other apps have taken, so it can't warn you about those."
 
-    /// **The second limit sentence**, and the one a reader would not guess: macOS records a
-    /// shortcut in its own table only when the user has **changed** it. On the authoring machine
-    /// that table held 37 entries and Spotlight's untouched ⌘Space was not among them — so an
-    /// untouched system shortcut is not merely unnamed, it is absent, and the check cannot see it
-    /// either.
+    /// **The second limit sentence.** Vocca's view of macOS's *own* shortcuts is incomplete too:
+    /// Spotlight's identifiers are absent from `com.apple.symbolichotkeys` on the authoring
+    /// machine, and **why** is not understood — other identifiers are present holding their stock
+    /// defaults, which refutes the obvious explanation.
     ///
-    /// Without this sentence the page implies a complete check of macOS's own shortcuts, which is
-    /// the kind of half-truth this tab exists to not tell.
-    public static let hotkeyChangedSystemShortcutsOnly =
-        "It only knows about macOS shortcuts you've changed yourself — the ones still set the "
-        + "way Apple shipped them are invisible to it."
+    /// So this line asserts **no mechanism**, deliberately. An earlier revision of it said Vocca
+    /// sees only the shortcuts a user has changed themselves; that was an inference presented as a
+    /// measurement, and it is false. What is left is the observation itself, which is enough: the
+    /// page must not imply a complete check on the one tab whose job is telling the truth about
+    /// what Vocca knows.
+    public static let hotkeySystemShortcutsIncomplete =
+        "It can't promise to catch every one of macOS's own shortcuts either — some don't appear "
+        + "in the list Vocca can read."
 
     /// The dictionary tab's empty state.
     public static let dictionaryEmpty =

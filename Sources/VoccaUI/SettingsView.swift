@@ -237,7 +237,7 @@ private struct GeneralSettingsPage: View {
                 Text(SettingsCopy.hotkeyOtherAppsUnknown)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(SettingsCopy.hotkeyChangedSystemShortcutsOnly)
+                Text(SettingsCopy.hotkeySystemShortcutsIncomplete)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

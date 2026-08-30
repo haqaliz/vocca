@@ -125,30 +125,45 @@ final class SettingsCopyTests: XCTestCase {
     ///
     /// 1. There is no API to enumerate a hotkey another process registered, so Raycast, Alfred and
     ///    every other launcher are structurally invisible — including when they hold the very
-    ///    chord being bound.
-    /// 2. macOS records a shortcut in its own table **only when the user has changed it**. On the
-    ///    authoring machine the table held 37 entries and Spotlight's untouched ⌘Space was not one
-    ///    of them. So a shortcut nobody has touched is not merely unnamed — it is absent, and the
-    ///    check cannot see it either.
+    ///    chord being bound. Structural, and certain.
+    /// 2. Vocca's view of macOS's *own* shortcuts is incomplete as well: Spotlight's identifiers
+    ///    are absent from the table on the authoring machine, and why is **not understood**.
     ///
-    /// Without the second sentence the page implies a complete check of macOS's own shortcuts, on
-    /// the one tab whose job is telling the truth about what Vocca knows.
-    func testBothLimitsAreStatedAndNeitherImpliesACompleteCheck() {
+    /// The second sentence therefore asserts **no mechanism**, and this row is where that stays
+    /// true. An earlier revision said Vocca sees only the shortcuts a user has changed themselves,
+    /// explaining the gap by a rule about when macOS writes an entry. That rule is false — other
+    /// identifiers are present holding their stock defaults — and it came within one commit of
+    /// being read by users as a fact about their machine. A sentence that reports an observation
+    /// survives being wrong about the cause; one that explains a mechanism does not.
+    func testBothLimitsAreStatedAndNeitherAssertsAMechanism() {
         XCTAssertEqual(
             SettingsCopy.hotkeyOtherAppsUnknown,
             "Vocca can't see shortcuts other apps have taken, so it can't warn you about those.")
         XCTAssertEqual(
-            SettingsCopy.hotkeyChangedSystemShortcutsOnly,
-            "It only knows about macOS shortcuts you've changed yourself — the ones still set the "
-                + "way Apple shipped them are invisible to it.")
+            SettingsCopy.hotkeySystemShortcutsIncomplete,
+            "It can't promise to catch every one of macOS's own shortcuts either — some don't "
+                + "appear in the list Vocca can read.")
         XCTAssertNotEqual(
-            SettingsCopy.hotkeyOtherAppsUnknown, SettingsCopy.hotkeyChangedSystemShortcutsOnly,
+            SettingsCopy.hotkeyOtherAppsUnknown, SettingsCopy.hotkeySystemShortcutsIncomplete,
             """
             The two limit sentences collapsed into one. They are different holes: other \
-            applications cannot be enumerated at all, and macOS's own table holds only the \
-            shortcuts a user has changed. One sentence covering both would leave a reader \
-            believing the untouched half is checked.
+            applications cannot be enumerated at all, and macOS's own table is missing entries \
+            for reasons nobody here understands. One sentence covering both would leave a reader \
+            believing one of the two halves is checked.
             """)
+
+        for line in [
+            SettingsCopy.hotkeyOtherAppsUnknown, SettingsCopy.hotkeySystemShortcutsIncomplete,
+        ] {
+            XCTAssertFalse(
+                line.contains("changed yourself") || line.contains("Apple shipped"),
+                """
+                A limit sentence is explaining *why* macOS's shortcut table is incomplete. Nobody \
+                knows why. The retracted explanation — that macOS records only the shortcuts a \
+                user has customised — is refuted by identifiers present holding stock defaults, \
+                and it was one commit away from being shown to users as a fact about their Mac.
+                """)
+        }
     }
 
     // MARK: - The string that became false
@@ -225,6 +240,6 @@ final class SettingsCopyTests: XCTestCase {
         "toggleTitle", "toggleDetail", "holdTitle", "holdDetail", "dictionaryEmpty",
         "hotkeyLabel", "hotkeyRecordButton", "hotkeyRecordingPrompt", "hotkeyUseAnyway",
         "hotkeyCancel", "hotkeyRefusal", "hotkeySystemShortcutWarning", "hotkeyRebindRefusal",
-        "hotkeyOtherAppsUnknown", "hotkeyChangedSystemShortcutsOnly",
+        "hotkeyOtherAppsUnknown", "hotkeySystemShortcutsIncomplete",
     ]
 }
