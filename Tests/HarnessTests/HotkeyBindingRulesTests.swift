@@ -249,4 +249,176 @@ final class HotkeyBindingRulesTests: XCTestCase {
                 .isDisjoint(with: HotkeyBindingTables.safeUnmodifiedKeyCodes),
             "A modifier key is also in the safe set, so it would be accepted rather than refused.")
     }
+    // MARK: - The decision (M6)
+
+    /// The binding Vocca ships with is legal under its own rules. Space is a text-entry key, so
+    /// this is also the shape of criterion 6: the refusal is about being *unmodified*, never about
+    /// the key being one a person types with.
+    func testTheShippedBindingIsAccepted() {
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(keyCode: 0x31, modifiers: [.option]), .accepted)
+    }
+    /// **Criterion 2 — the bricking guard.** Every key in the text-entry table is refused when it
+    /// is offered bare, driven over the whole table rather than a sample. This is the one test in
+    /// the aspect whose failure is a user losing a key on their keyboard system-wide, so it takes
+    /// the table entire and asserts the reason as well as the refusal.
+    func testEveryUnmodifiedTextEntryKeyIsRefused() {
+        for code in HotkeyBindingTables.textEntryKeyCodes.sorted() {
+            XCTAssertEqual(
+                HotkeyBindingRules.validate(keyCode: code, modifiers: []),
+                .refused(.unmodifiedTextEntryKey),
+                """
+                Key code 0x\(String(code, radix: 16, uppercase: true)) can be bound with no                 modifier. The tap swallows what is bound, so that key stops typing everywhere on                 the machine — and the Settings window that would undo it needs the keyboard.
+                """)
+        }
+    }
+
+    /// **Criterion 3 — the other side of the same table.** Every safe key is accepted bare, driven
+    /// over the whole set. A gap here is the accessibility case failing: a user who cannot hold a
+    /// chord is told the one key they can press is illegal.
+    func testEverySafeKeyIsAcceptedUnmodified() {
+        for code in HotkeyBindingTables.safeUnmodifiedKeyCodes.sorted() {
+            XCTAssertEqual(
+                HotkeyBindingRules.validate(keyCode: code, modifiers: []), .accepted,
+                """
+                Key code 0x\(String(code, radix: 16, uppercase: true)) is in the safe set and was                 refused bare, so a single-key binding the set promises is not offered.
+                """)
+        }
+    }
+
+    /// An unmodified key that is in **no** table is refused, not accepted (`plan_20260830.md` §6).
+    /// The rule grants acceptance from a named list rather than withholding refusal from one, so
+    /// an unknown code — an unusual keyboard, a code above the real range — lands on the safe side.
+    func testAnUnknownKeyCodeIsRefusedWhenUnmodified() {
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(keyCode: 0xFF, modifiers: []),
+            .refused(.unmodifiedTextEntryKey))
+    }
+
+    /// The same unknown code **with** a modifier is accepted. Refusing it would block legitimate
+    /// bindings on non-US layouts and unusual keyboards, and a modified chord cannot brick a key:
+    /// the bare key still types.
+    func testAnUnknownKeyCodeIsAcceptedWhenModified() {
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(keyCode: 0xFF, modifiers: [.control, .option]), .accepted)
+    }
+    /// **Criterion 4 — Escape is refused in every one of the 32 modifier combinations**, bare and
+    /// modified alike. Vocca's cancel must not become conditional on which modifiers happen to be
+    /// down: a user who binds ⌘Escape and then presses Escape to abandon a dictation would find
+    /// the key doing one thing or the other depending on their left hand.
+    ///
+    /// The reason matters as much as the refusal — bare Escape must read `reservedByVocca`, not
+    /// `unmodifiedTextEntryKey`. "Escape types text" is a false sentence to show a user, and the
+    /// check order that produces it is the thing this pins: reserved is asked **before** the
+    /// unmodified test.
+    func testEscapeIsRefusedInEveryModifierCombination() {
+        for chord in Self.allBindableModifierCombinations {
+            XCTAssertEqual(
+                HotkeyBindingRules.validate(keyCode: 0x35, modifiers: chord),
+                .refused(.reservedByVocca),
+                """
+                Escape with modifiers \(chord.rawValue) is not refused as Vocca's own key.                 Either it became bindable — leaving a user no way out of a dictation — or it is                 refused for the wrong reason, which is what the user is shown.
+                """)
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Every combination of the five **bindable** modifiers — 32 of them, the empty set included.
+    /// Caps Lock is excluded on purpose: it is masked by ``ModifierSet/locking`` and is driven
+    /// separately by the Caps Lock test, which runs each case with and without it.
+    static let allBindableModifierCombinations: [ModifierSet] = {
+        let bits: [ModifierSet] = [.control, .option, .shift, .command, .function]
+        return (0..<(1 << bits.count)).map { mask in
+            var chord: ModifierSet = []
+            for (index, bit) in bits.enumerated() where mask & (1 << index) != 0 {
+                chord.insert(bit)
+            }
+            return chord
+        }
+    }()
+    /// **Criterion 5 — a chord of modifiers and nothing else is refused**, for each modifier key
+    /// on its own and under every combination of held modifiers. A recorder hands a lone ⌘ over as
+    /// `kVK_Command` with `[.command]` held, so both halves of the candidate say "modifier" and
+    /// the answer must not depend on which.
+    ///
+    /// Accepting one would write a ``HotkeyConfiguration`` whose key code is a modifier — a
+    /// binding no key-down can ever match, so the user's new hotkey simply does nothing, with no
+    /// error anywhere to explain it.
+    func testAModifierOnlyChordIsRefused() {
+        for code in HotkeyBindingTables.modifierKeyCodes.sorted() {
+            for chord in Self.allBindableModifierCombinations {
+                XCTAssertEqual(
+                    HotkeyBindingRules.validate(keyCode: code, modifiers: chord),
+                    .refused(.modifierOnly),
+                    """
+                    Key code 0x\(String(code, radix: 16, uppercase: true)) with modifiers                     \(chord.rawValue) was not refused as modifier-only. A configuration whose key                     code is a modifier is a hotkey that never fires and never says why.
+                    """)
+            }
+        }
+    }
+    /// **Criterion 8 — Caps Lock never changes an answer.** Every case in the aspect is driven
+    /// twice, with the bit and without, over a representative candidate of each kind: a safe key,
+    /// a text-entry key bare, a text-entry key modified, Escape, and a modifier key.
+    ///
+    /// This is ``ModifierSet/locking``'s existing rule applied one layer up. Caps Lock is a lock,
+    /// not a key someone holds to mean something, so a user who records their chord with it on
+    /// must get the same binding as one who records it off. Masking on only one side is the
+    /// failure it guards: a binding that works only while Caps Lock is on.
+    func testCapsLockNeverChangesAnAnswer() {
+        let candidates: [(String, UInt16, ModifierSet)] = [
+            ("F13 bare", 0x69, []),
+            ("D bare", 0x02, []),
+            ("control-option D", 0x02, [.control, .option]),
+            ("Space with option", 0x31, [.option]),
+            ("Escape bare", 0x35, []),
+            ("Escape with command", 0x35, [.command]),
+            ("Command key alone", 0x37, [.command]),
+        ]
+        for (label, code, chord) in candidates {
+            XCTAssertEqual(
+                HotkeyBindingRules.validate(keyCode: code, modifiers: chord),
+                HotkeyBindingRules.validate(
+                    keyCode: code, modifiers: chord.union(.capsLock)),
+                """
+                \(label) is judged differently with Caps Lock on. Caps Lock is a lock, not a held                 key — masking it on one side only produces a hotkey that works while it happens                 to be on.
+                """)
+        }
+    }
+    /// **Criterion 6 — a modified text-entry key is legal.** `⌃⌥D` is a chord a person would
+    /// reasonably choose, and the refusal is about being *unmodified*, never about the key being
+    /// one they type with. Refusing every text-entry key outright is the plausible over-correction
+    /// this pins against: it would leave almost nothing bindable.
+    func testAModifiedTextEntryKeyIsAccepted() {
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(keyCode: 0x02, modifiers: [.control, .option]), .accepted)
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(keyCode: 0x02, modifiers: []),
+            .refused(.unmodifiedTextEntryKey),
+            "The contrast is the point: the same key, bare, must still be refused.")
+    }
+
+    /// **Criterion 1 — the refusal set is exhaustive.** Every case of ``HotkeyBindingRefusal`` is
+    /// produced by some candidate, driven over `allCases` rather than a hand-written list. A new
+    /// reason added to the enum without a candidate that reaches it fails here, so a refusal
+    /// nothing can produce cannot be shipped — and neither can one no test knows how to trigger.
+    func testEveryRefusalReasonIsReachable() {
+        let candidates: [(UInt16, ModifierSet)] = [
+            (0x37, [.command]),  // kVK_Command alone       -> modifierOnly
+            (0x35, []),  // kVK_Escape              -> reservedByVocca
+            (0x02, []),  // kVK_ANSI_D bare         -> unmodifiedTextEntryKey
+        ]
+        let produced = Set(
+            candidates.compactMap { code, chord -> HotkeyBindingRefusal? in
+                guard case .refused(let reason) =
+                    HotkeyBindingRules.validate(keyCode: code, modifiers: chord)
+                else { return nil }
+                return reason
+            })
+        XCTAssertEqual(
+            produced, Set(HotkeyBindingRefusal.allCases),
+            """
+            A refusal reason exists that no candidate above produces. Either the rules cannot             reach it — a reason a user can never be given — or a new reason was added without             the candidate that shows it happening. Add the candidate, not an exception.
+            """)
+    }
 }
