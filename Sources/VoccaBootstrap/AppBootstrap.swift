@@ -562,7 +562,15 @@ public enum AppBootstrap {
                 }
             },
             onOpenSettings: { [weak root] in root?.showSettings() },
-            onQuit: { NSApplication.shared.terminate(nil) })
+            // The quit path ends the speculative feed explicitly, before `terminate` — the
+            // "no feed left running" claim true in the code that runs, not only as a property of
+            // process death (the OS releases the input device and stops the feed's timer
+            // structurally at exit either way; this line is executed by nothing in CI — the
+            // window-server rule — and is SMOKE_CHECKLIST step 123).
+            onQuit: { [weak root] in
+                root?.cancelFeeds()
+                NSApplication.shared.terminate(nil)
+            })
         root.menuBarItem = item
         root.onMenuBarConditionsChanged = { [weak item] conditions in
             item?.apply(MenuBarStateReducer.state(for: conditions))
@@ -2170,6 +2178,18 @@ public final class DictationLoopRoot {
     }
 
     // MARK: - The inputs the sink does not carry
+
+    /// **The quit path's feed teardown** — the menu bar's Quit calls it before `terminate`
+    /// (`speculative-feed` phase (d)). Cancelling both feeds is safe by construction (`cancel` is
+    /// idempotent and a never-started feed's empty stream simply finishes), and it makes "no feed
+    /// left running" true in the code that runs rather than only as a property of process death.
+    ///
+    /// Executed by nothing in CI (the window-server rule — `MenuBarItem` is built by `main()`);
+    /// `SMOKE_CHECKLIST.md` step 123 is its only execution.
+    func cancelFeeds() {
+        holdFeed?.cancel()
+        toggleFeed?.cancel()
+    }
 
     /// The user abandoned the session — Escape.
     @discardableResult
