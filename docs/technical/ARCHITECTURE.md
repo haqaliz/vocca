@@ -696,3 +696,17 @@ Flagged honestly rather than papered over. None blocks C1.
 3. **AX allowlist bootstrap.** Whether the initial allowlist is hand-curated, community-contributed, or learned entirely from strategy memory. Leaning hand-curated for the top ~10 apps, then learned.
 4. **Echo rejection on speakers** may need more than reference cancellation on some hardware. Budget real time for this in C10; it's the kind of problem that looks solved in a quiet room and isn't.
 5. **Recovery-journal retention.** Bounded and purged — but the exact window is a genuine privacy-versus-recoverability tradeoff that deserves a deliberate decision, not a default.
+
+> **Amended (`speculative-feed`, 2026-08-31) — the ring's consumer is handed over, deliberately
+> and pinned.** The SPSC warrant's "at most one consumer" claim (`AudioRingBuffer.swift`, claim 1)
+> now covers a consumer role that moves at the session boundary: `SpeculativeFeed` owns the
+> consumer side during `.recording` (draining on its 50 ms tick) and `MicrophoneSource.endCapture`
+> takes it back for the remainder drain. Both are main-actor, so the handover is serialized by
+> the actor and the happens-before edge is the machine's synchronous `.ended` transition; the
+> conversion stays contiguous because it is one `AudioFormatConverter` instance, chunked by the
+> feed and finished by `endCapture`. The alternative — a second feed-owned buffer written by the
+> interleaver — was rejected in the plan because it adds a second realtime-path writer, which the
+> warrant breaks on. This is a contract change to `MicrophoneSource`'s drain, pinned by test and
+> recorded in `docs/STATUS.md`; question 2 above stands exactly as written — no latency number
+> is claimed from the feed, and the gate's span contract stays post-key-up (resolved in the
+> benchmark-gate decision, `docs/STATUS.md`).

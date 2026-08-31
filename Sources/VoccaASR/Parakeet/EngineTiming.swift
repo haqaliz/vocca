@@ -22,7 +22,7 @@ import Foundation
 /// the H8b lint makes that a build failure rather than an intention.
 public actor EngineTiming {
 
-    /// The three spans the ledger tracks (PRD S1).
+    /// The spans the ledger tracks (PRD S1).
     public enum Kind: Sendable, Hashable {
         /// The first model load (CoreML compile included) — the one-time cost the spike
         /// measured at ~281 s cold, 0.111 s warm.
@@ -32,6 +32,11 @@ public actor EngineTiming {
         /// The first transcription after launch, measured separately so the warm-start claim
         /// (C7's "within 20% of steady-state") has its own column.
         case firstAfterLaunch
+        /// The idle re-warm's load (`rewarm-after-idle`): the model reloaded after five idle
+        /// minutes. Its own row so the re-warm cost is visible in the benchmark output beside
+        /// the suppression state — **recorded, never gated**: no verdict consumes these samples,
+        /// and the 1.2 launch bound is untouched.
+        case rewarm
     }
 
     private var ledger: [Kind: [Duration]] = [:]

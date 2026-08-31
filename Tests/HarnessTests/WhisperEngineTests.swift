@@ -33,11 +33,16 @@ private final class StubWhisperContext: WhisperContext, Sendable {
 
     private struct State {
         var prepareCallCount = 0
+        var reprepareCallCount = 0
         var transcribeCallCount = 0
         var preparedModelFileURL: URL?
         var prepareError: Error?
         var transcribeError: Error?
         var segments: [WhisperSegment]
+        var streamedScript: [[WhisperSegment]] = []
+        var streamedError: Error?
+        var transcribeStreamingCallCount = 0
+        var streamedSampleCounts: [Int] = []
     }
 
     private let lock = Mutex<State>(
@@ -50,6 +55,9 @@ private final class StubWhisperContext: WhisperContext, Sendable {
     private let clock: StubClock?
     private let prepareAdvance: Duration
     private let transcribeAdvance: Duration
+    /// The clock advance per `transcribeStreaming` call — the streaming timing row's fixed step,
+    /// in the `transcribeAdvance` shape.
+    private let streamAdvance: Duration
 
     init(
         segments: [WhisperSegment] = [],
@@ -57,21 +65,29 @@ private final class StubWhisperContext: WhisperContext, Sendable {
         transcribeError: Error? = nil,
         clock: StubClock? = nil,
         prepareAdvance: Duration = .zero,
-        transcribeAdvance: Duration = .zero
+        transcribeAdvance: Duration = .zero,
+        streamedScript: [[WhisperSegment]] = [],
+        streamedError: Error? = nil,
+        streamAdvance: Duration = .zero
     ) {
         self.clock = clock
         self.prepareAdvance = prepareAdvance
         self.transcribeAdvance = transcribeAdvance
+        self.streamAdvance = streamAdvance
         lock.withLock { state in
             state.segments = segments
             state.prepareError = prepareError
             state.transcribeError = transcribeError
+            state.streamedScript = streamedScript
+            state.streamedError = streamedError
         }
     }
 
     var prepareCallCount: Int { lock.withLock { $0.prepareCallCount } }
     var transcribeCallCount: Int { lock.withLock { $0.transcribeCallCount } }
     var preparedModelFileURL: URL? { lock.withLock { $0.preparedModelFileURL } }
+    var transcribeStreamingCallCount: Int { lock.withLock { $0.transcribeStreamingCallCount } }
+    var streamedSampleCounts: [Int] { lock.withLock { $0.streamedSampleCounts } }
 
     var prepareError: Error? {
         get { lock.withLock { $0.prepareError } }
@@ -81,6 +97,11 @@ private final class StubWhisperContext: WhisperContext, Sendable {
     var transcribeError: Error? {
         get { lock.withLock { $0.transcribeError } }
         set { lock.withLock { $0.transcribeError = newValue } }
+    }
+
+    var streamedError: Error? {
+        get { lock.withLock { $0.streamedError } }
+        set { lock.withLock { $0.streamedError = newValue } }
     }
 
     func prepare(modelFileURL: URL) throws {
@@ -93,11 +114,42 @@ private final class StubWhisperContext: WhisperContext, Sendable {
         if let error { throw error }
     }
 
+    func reprepare(modelFileURL: URL) throws {
+        let error: Error? = lock.withLock { state in
+            state.reprepareCallCount += 1
+            state.preparedModelFileURL = modelFileURL
+            if let clock { clock.now += prepareAdvance }
+            return state.prepareError
+        }
+        if let error { throw error }
+    }
+
     func transcribe(samples: [Float]) throws -> [WhisperSegment] {
         let answer: (error: Error?, segments: [WhisperSegment]) = lock.withLock { state in
             state.transcribeCallCount += 1
             if let clock { clock.now += transcribeAdvance }
             return (state.transcribeError, state.segments)
+        }
+        if let error = answer.error { throw error }
+        return answer.segments
+    }
+
+    /// The streaming half of the scripted seam: records the call and the buffer size it saw,
+    /// advances the shared clock by the injected step, throws `streamedError` when set, and
+    /// answers from `streamedScript` — one entry per call index, the last entry repeated when
+    /// the script is shorter than the call count (the engine's every-chunk decoding outruns a
+    /// short script, and the repetition keeps the answer well-defined rather than a trap).
+    func transcribeStreaming(samples: [Float]) throws -> [WhisperSegment] {
+        let answer: (error: Error?, segments: [WhisperSegment]) = lock.withLock { state in
+            let callIndex = state.transcribeStreamingCallCount
+            state.transcribeStreamingCallCount += 1
+            state.streamedSampleCounts.append(samples.count)
+            if let clock { clock.now += streamAdvance }
+            let scripted = state.streamedScript
+            let segments = scripted.isEmpty
+                ? []
+                : scripted[min(callIndex, scripted.count - 1)]
+            return (state.streamedError, segments)
         }
         if let error = answer.error { throw error }
         return answer.segments
@@ -152,7 +204,10 @@ final class WhisperEngineTests: XCTestCase {
     /// The engine the tests drive: a real ``ModelStore`` over a stub transport, a stub context,
     /// a hand-moved clock, and a shared ``EngineTiming`` the W4 tests read samples from — the
     /// shipped store/transport shape, the injected context, clock and ledger.
-    private func makeEngine(
+    ///
+    /// `fileprivate` so the streaming contract rows in ``WhisperEngineStreamingTests`` (same
+    /// file, same seam double) drive the same factory with an explicit root.
+    fileprivate func makeEngine(
         context: StubWhisperContext,
         transport: StubTransport,
         root: URL? = nil,
@@ -193,6 +248,7 @@ final class WhisperEngineTests: XCTestCase {
             .appendingPathComponent(modelFile)
     }
 
+    /// A 16 kHz mono buffer of the given samples.
     private func buffer(_ samples: [Float] = [1, 2, 3]) -> AudioBuffer {
         AudioBuffer(samples: samples, sampleRate: 16_000)
     }
@@ -200,7 +256,7 @@ final class WhisperEngineTests: XCTestCase {
     // MARK: - Attribution
 
     /// Every transcript carries ``WhisperCppEngineIdentity/whisper`` — I1's attribution, now on
-    /// the real engine — and the engine reports batch-only.
+    /// the real engine — and the engine streams: partials then one final, batch-by-construction.
     func testEveryTranscriptIsAttributedToTheWhisperEngine() async throws {
         let (engine, _) = makeEngine(
             context: StubWhisperContext(segments: [
@@ -223,9 +279,9 @@ final class WhisperEngineTests: XCTestCase {
             transcript.audioDuration, 3.0 / 16_000,
             "the duration comes from the buffer, never from the segments' span")
         XCTAssertEqual(transcript.missingSampleCount, 0)
-        XCTAssertFalse(
+        XCTAssertTrue(
             engine.supportsStreaming,
-            "the second engine is batch-only — streaming is C7's capability")
+            "the second engine streams — partials then one final, the final batch-by-construction")
         XCTAssertEqual(engine.identity, WhisperCppEngineIdentity.whisper)
     }
 
@@ -586,6 +642,474 @@ final class WhisperEngineTests: XCTestCase {
             afterTranscribes, afterPrepare,
             "transcribe must not cause a single transport call — the model is resident and the "
                 + "engine's only contact with the outside world is the injected store")
+    }
+}
+
+/// The whisper streaming contract rows (`whisper-streaming` plan Phase a): the engine's `stream`
+/// over the same injected seam double, driven by `StubWhisperContext`'s scripted streaming half.
+///
+/// Every row is headless — no model file, no GPU, no C call, ever. What they prove is the
+/// **engine half** of the streaming claim: partials then exactly one final; the final is the last
+/// decode's segments, mapped identically to the batch path (the *C* half — same params ⇒ same
+/// segments — is the by-construction claim, verified at `SMOKE_CHECKLIST.md` step 19, never in
+/// CI); a stream ending mid-utterance terminates cleanly; empty streams answer empty without
+/// touching the context; failures and cancellation terminate rather than hang; exactly one
+/// timing sample records the final decode; the completeness count accumulates; the transport is
+/// never called; and an unprepared engine refuses at the stream's start.
+final class WhisperEngineStreamingTests: XCTestCase {
+
+    private let engineID = "whisper-large-v3-turbo"
+    private let version = "1"
+    private let modelFile = "ggml-large-v3-turbo.bin"
+
+    private var tempRoots: [URL] = []
+
+    override func tearDown() {
+        for root in tempRoots {
+            try? FileManager.default.removeItem(at: root)
+        }
+        tempRoots = []
+        super.tearDown()
+    }
+
+    /// A fresh temporary store root, cleaned up after the test — the `WhisperEngineTests`
+    /// pattern, owned here so the shared factory is always handed an explicit root (a foreign
+    /// instance's own bookkeeping would otherwise leak the directory).
+    private func makeRoot() -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-whisper-engine-streaming-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        tempRoots.append(root)
+        return root
+    }
+
+    /// The chunk producer every row drives: a bounded `AsyncStream` yielding the buffers then
+    /// finishing — the seam's only end signal.
+    private func chunkStream(_ buffers: [AudioBuffer]) -> AsyncStream<AudioBuffer> {
+        AsyncStream { continuation in
+            for buffer in buffers {
+                continuation.yield(buffer)
+            }
+            continuation.finish()
+        }
+    }
+
+    /// A 16 kHz mono buffer of the given samples — the `WhisperEngineTests` helper, local here.
+    private func buffer(_ samples: [Float] = [1, 2, 3]) -> AudioBuffer {
+        AudioBuffer(samples: samples, sampleRate: 16_000)
+    }
+
+    /// Consumes a stream to its terminal, collecting the yields and the terminal error — the
+    /// same shape every row asserts on, so no row can forget to drain.
+    private func collect(
+        _ stream: AsyncThrowingStream<Transcript, Error>
+    ) async -> (yields: [Transcript], error: Error?) {
+        var yields: [Transcript] = []
+        var terminal: Error?
+        do {
+            for try await transcript in stream {
+                yields.append(transcript)
+            }
+        } catch {
+            terminal = error
+        }
+        return (yields, terminal)
+    }
+
+    /// The engine under test: the shared factory, driven with an explicit root.
+    private func makeEngine(
+        context: StubWhisperContext,
+        transport: StubTransport,
+        clock: StubClock = StubClock(),
+        timing: EngineTiming = EngineTiming()
+    ) -> (engine: WhisperCppEngine, root: URL) {
+        WhisperEngineTests().makeEngine(
+            context: context, transport: transport, root: makeRoot(), clock: clock, timing: timing)
+    }
+
+    // MARK: - The contract rows
+
+    /// **Partials then one final.** The scripted seam answers two decodes; three chunks are
+    /// fed, the third empty — silence past the answer, which must not decode (no C call for
+    /// silence, the batch empty-buffer policy in stream shape). The yielded order is
+    /// partial("hello"), partial("hello world"), final("hello world"): exactly one final, the
+    /// last element, every partial non-final, nothing after the final, every transcript
+    /// attributed to whisper, and the decodes saw the growing buffer (3, then 6 samples).
+    func testPartialsThenOneFinalInOrder() async throws {
+        let context = StubWhisperContext(streamedScript: [
+            [WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil)],
+            [
+                WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil),
+                WhisperSegment(text: "world", start: 0.4, end: 0.9, tokenProbability: nil),
+            ],
+        ])
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]))
+        try await engine.prepare()
+
+        let (yields, error) = await collect(engine.stream(chunkStream([
+            buffer([1, 2, 3]),
+            buffer([4, 5, 6]),
+            buffer([]),
+        ])))
+
+        XCTAssertNil(error)
+        XCTAssertEqual(
+            yields.map(\.text), ["hello", "hello world", "hello world"],
+            "partials then exactly one final, in order")
+        XCTAssertEqual(
+            yields.map(\.isFinal), [false, false, true],
+            "exactly one final and it is the last element; every partial is non-final")
+        XCTAssertTrue(
+            yields.allSatisfy { $0.engine == WhisperCppEngineIdentity.whisper },
+            "every transcript carries the whisper attribution (I1)")
+        XCTAssertEqual(
+            context.transcribeStreamingCallCount, 2,
+            "no decode for the trailing empty chunk — silence past the accumulated answer")
+        XCTAssertEqual(
+            context.streamedSampleCounts, [3, 6],
+            "each decode sees the whole buffer grown so far")
+    }
+
+    /// **Final equals batch by construction — the engine half.** The same audio two ways:
+    /// `stream` over three chunks with the script's last decode answering the same segments the
+    /// stub's batch `transcribe` returns for the whole buffer, then `transcribe` of the whole
+    /// buffer. The stream's final must equal the batch transcript text-for-text and
+    /// segment-for-segment, with attribution, duration and completeness equal.
+    ///
+    /// What this proves is the *engine* half only: the engine maps the last decode identically
+    /// to batch. The *C* half — the streaming params are field-for-field identical to the batch
+    /// params, so the same audio yields the same segments — is the by-construction claim,
+    /// verified on real audio at `SMOKE_CHECKLIST.md` step 19, never in CI.
+    func testTheStreamFinalEqualsTheBatchTranscriptionForTheSameAudio() async throws {
+        let batchSegments = [
+            WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil),
+            WhisperSegment(text: "world", start: 0.4, end: 0.9, tokenProbability: nil),
+        ]
+        let context = StubWhisperContext(
+            segments: batchSegments,
+            streamedScript: [
+                [WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil)],
+                batchSegments,
+            ])
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]))
+        try await engine.prepare()
+
+        let (yields, error) = await collect(engine.stream(chunkStream([
+            buffer([1, 2, 3]),
+            buffer([4, 5, 6]),
+            buffer([7, 8, 9]),
+        ])))
+        XCTAssertNil(error)
+        let streamFinal = try XCTUnwrap(yields.last)
+        let batchTranscript = try await engine.transcribe(buffer([1, 2, 3, 4, 5, 6, 7, 8, 9]))
+
+        XCTAssertEqual(
+            streamFinal.text, batchTranscript.text,
+            "the streamed final's text must equal the batch transcript's text")
+        XCTAssertEqual(
+            streamFinal.segments, batchTranscript.segments,
+            "segment-for-segment equality — the last decode maps identically to batch")
+        XCTAssertEqual(streamFinal.engine, batchTranscript.engine)
+        XCTAssertEqual(streamFinal.audioDuration, batchTranscript.audioDuration)
+        XCTAssertEqual(streamFinal.missingSampleCount, batchTranscript.missingSampleCount)
+        XCTAssertTrue(streamFinal.isFinal)
+    }
+
+    /// **A stream ending mid-utterance terminates cleanly.** The chunk source yields two chunks
+    /// and finishes — no key-up, no cancellation — and the stream must end with the partials so
+    /// far (one per decode), then exactly one final (the last decode's segments), without
+    /// throwing.
+    func testAStreamEndingMidUtteranceTerminatesCleanlyWithPartialsThenOneFinal() async throws {
+        let context = StubWhisperContext(streamedScript: [
+            [WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil)],
+            [
+                WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil),
+                WhisperSegment(text: "world", start: 0.4, end: 0.9, tokenProbability: nil),
+            ],
+        ])
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]))
+        try await engine.prepare()
+
+        let (yields, error) = await collect(engine.stream(chunkStream([
+            buffer([1, 2, 3]),
+            buffer([4, 5, 6]),
+        ])))
+
+        XCTAssertNil(error, "a chunk-source end is a clean finish, never a throw")
+        XCTAssertEqual(
+            yields.map(\.text), ["hello", "hello world", "hello world"],
+            "partials so far, then exactly one final — the last decode's segments")
+        XCTAssertEqual(yields.map(\.isFinal), [false, false, true])
+    }
+
+    /// **Empty stream:** zero chunks transcribe as one empty final, never a throw, and the
+    /// context is never called — the batch empty-buffer policy (`ASREngine.swift:28-37`) in
+    /// stream shape.
+    func testAnEmptyStreamYieldsExactlyOneEmptyFinalWithoutTouchingTheContext() async throws {
+        let context = StubWhisperContext(streamedScript: [
+            [WhisperSegment(text: "noise", start: 0, end: 1, tokenProbability: nil)],
+        ])
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]))
+        try await engine.prepare()
+
+        let (yields, error) = await collect(engine.stream(chunkStream([])))
+
+        XCTAssertNil(error)
+        XCTAssertEqual(yields.count, 1)
+        XCTAssertEqual(yields[0].text, "")
+        XCTAssertEqual(yields[0].segments, [])
+        XCTAssertTrue(yields[0].isFinal)
+        XCTAssertEqual(
+            context.transcribeStreamingCallCount, 0,
+            "no C call for silence — the empty stream is answered above the context")
+    }
+
+    /// **All-empty chunks:** the same answer as an empty stream — no decode, one empty final,
+    /// context untouched.
+    func testAllEmptyChunksYieldOneEmptyFinalWithoutTouchingTheContext() async throws {
+        let context = StubWhisperContext(streamedScript: [
+            [WhisperSegment(text: "noise", start: 0, end: 1, tokenProbability: nil)],
+        ])
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]))
+        try await engine.prepare()
+
+        let (yields, error) = await collect(engine.stream(chunkStream([
+            buffer([]),
+            buffer([]),
+            buffer([]),
+        ])))
+
+        XCTAssertNil(error)
+        XCTAssertEqual(yields.count, 1)
+        XCTAssertEqual(yields[0].text, "")
+        XCTAssertTrue(yields[0].isFinal)
+        XCTAssertEqual(context.transcribeStreamingCallCount, 0)
+    }
+
+    /// **A decode failure mid-stream** finishes the stream **throwing**
+    /// ``VoccaError/transcriptionFailed(_:underlying:)`` with the underlying error intact, and
+    /// nothing is yielded after the throw — no partial for the failing decode, no final (the
+    /// `WhisperEngineTests.swift:405-425` shape, streamed).
+    func testADecodeFailureMidStreamFinishesThrowingWithTheCauseIntact() async throws {
+        let context = StubWhisperContext(streamedError: StubContextError.transcribeFailed)
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]))
+        try await engine.prepare()
+
+        let (yields, error) = await collect(engine.stream(chunkStream([
+            buffer([1, 2, 3]),
+            buffer([4, 5, 6]),
+            buffer([7, 8, 9]),
+        ])))
+
+        XCTAssertTrue(
+            yields.isEmpty,
+            "nothing is yielded after the throw — no partial for the failing decode, no final")
+        guard case .transcriptionFailed(let identity, let underlying)? = error as? VoccaError else {
+            XCTFail("expected transcriptionFailed, got \(String(describing: error))")
+            return
+        }
+        XCTAssertEqual(identity, WhisperCppEngineIdentity.whisper)
+        XCTAssertEqual(
+            underlying as? StubContextError, .transcribeFailed,
+            "the underlying error must arrive intact, not as a string")
+    }
+
+    /// **Consumer cancellation** terminates the stream: bounded, no hang, no throw. The
+    /// deterministic half is the mid-utterance row; this row pins the no-hang shape — a
+    /// consumer that stops early cancels itself, the producer's cancellation yields its
+    /// accumulated final into a terminated continuation (a no-op), and the stream ends. The
+    /// iterator's own `CancellationError` is the consumer's self-inflicted exit, not a failure
+    /// of the stream.
+    func testCancellingTheConsumerTerminatesTheStreamWithoutHangingOrThrowing() async throws {
+        let context = StubWhisperContext(streamedScript: [
+            [WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil)],
+        ])
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]))
+        try await engine.prepare()
+
+        let stream = engine.stream(chunkStream([
+            buffer([1, 2, 3]),
+            buffer([4, 5, 6]),
+            buffer([7, 8, 9]),
+            buffer([10, 11, 12]),
+        ]))
+        let terminated = expectation(description: "the stream terminates after the consumer cancels")
+        let unexpected = Mutex<Error?>(nil)
+        _ = Task {
+            do {
+                for try await _ in stream {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            } catch is CancellationError {
+                // Self-inflicted: the consumer cancelled itself mid-iteration.
+            } catch {
+                unexpected.withLock { $0 = error }
+            }
+            terminated.fulfill()
+        }
+        await fulfillment(of: [terminated], timeout: 5)
+        XCTAssertNil(
+            unexpected.withLock { $0 },
+            "the stream must not throw a transcription error: \(String(describing: unexpected.withLock { $0 }))")
+    }
+
+    /// **Timing: exactly one sample — the final decode's.** Three decodes advance the shared
+    /// clock by the injected step each; the ledger must hold exactly one sample, the last
+    /// decode's elapsed, under `.firstAfterLaunch` for the first stream and `.warmTranscribe`
+    /// after a prior transcription — and an all-empty-chunks stream records nothing and does
+    /// not flip the split (the `transcribedSinceLoad` flip is success-only).
+    func testTheStreamRecordsExactlyOneTimingSampleForTheFinalDecode() async throws {
+        let clock = StubClock()
+        let timing = EngineTiming()
+        let context = StubWhisperContext(
+            clock: clock,
+            streamedScript: [
+                [WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil)],
+                [
+                    WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil),
+                    WhisperSegment(text: "world", start: 0.4, end: 0.9, tokenProbability: nil),
+                ],
+            ],
+            streamAdvance: .milliseconds(5))
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]),
+            clock: clock, timing: timing)
+        try await engine.prepare()
+
+        _ = await collect(engine.stream(chunkStream([
+            buffer([1, 2, 3]),
+            buffer([4, 5, 6]),
+            buffer([7, 8, 9]),
+        ])))
+
+        let first = await timing.samples(for: .firstAfterLaunch)
+        let warm = await timing.samples(for: .warmTranscribe)
+        XCTAssertEqual(
+            first, [.milliseconds(5)],
+            "exactly one sample, the final decode's clock delta — never the three decodes' sum")
+        XCTAssertEqual(warm, [])
+
+        // After a prior transcription the same stream records under the warm column.
+        let clock2 = StubClock()
+        let timing2 = EngineTiming()
+        let context2 = StubWhisperContext(
+            clock: clock2, transcribeAdvance: .milliseconds(3),
+            streamedScript: [[WhisperSegment(text: "hi", start: 0, end: 0.3, tokenProbability: nil)]],
+            streamAdvance: .milliseconds(5))
+        let (engine2, _) = makeEngine(
+            context: context2, transport: StubTransport(files: [modelFile: [0x01]]),
+            clock: clock2, timing: timing2)
+        try await engine2.prepare()
+        _ = try await engine2.transcribe(buffer([1, 2, 3]))
+        _ = await collect(engine2.stream(chunkStream([buffer([4, 5, 6])])))
+
+        let warm2 = await timing2.samples(for: .warmTranscribe)
+        XCTAssertEqual(warm2, [.milliseconds(5)])
+        let first2 = await timing2.samples(for: .firstAfterLaunch)
+        XCTAssertEqual(first2, [.milliseconds(3)])
+
+        // An all-empty-chunks stream records nothing and does not flip the split: the next
+        // real stream still lands in the first-after-launch column.
+        let clock3 = StubClock()
+        let timing3 = EngineTiming()
+        let context3 = StubWhisperContext(
+            clock: clock3,
+            streamedScript: [[WhisperSegment(text: "hi", start: 0, end: 0.3, tokenProbability: nil)]],
+            streamAdvance: .milliseconds(5))
+        let (engine3, _) = makeEngine(
+            context: context3, transport: StubTransport(files: [modelFile: [0x01]]),
+            clock: clock3, timing: timing3)
+        try await engine3.prepare()
+        _ = await collect(engine3.stream(chunkStream([buffer([]), buffer([])])))
+        _ = await collect(engine3.stream(chunkStream([buffer([1, 2, 3])])))
+
+        let first3 = await timing3.samples(for: .firstAfterLaunch)
+        let warm3 = await timing3.samples(for: .warmTranscribe)
+        XCTAssertEqual(
+            first3, [.milliseconds(5)],
+            "a zero-decode stream records nothing and must not consume the one-shot slot")
+        XCTAssertEqual(warm3, [])
+    }
+
+    /// **Missing-sample accumulation:** the completeness link (I1) survives streaming — the
+    /// running sum of the chunks' `missingSampleCount`, capped at the samples it describes,
+    /// is carried on every partial and on the final.
+    func testMissingSampleCountsAccumulateAcrossPartialsAndTheFinal() async throws {
+        let context = StubWhisperContext(streamedScript: [
+            [WhisperSegment(text: "hi", start: 0.0, end: 0.3, tokenProbability: nil)],
+        ])
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [modelFile: [0x01]]))
+        try await engine.prepare()
+
+        let (yields, error) = await collect(engine.stream(chunkStream([
+            AudioBuffer(samples: [1], sampleRate: 16_000, missingSampleCount: 1),
+            AudioBuffer(samples: [2], sampleRate: 16_000, missingSampleCount: 2),
+            AudioBuffer(samples: [3], sampleRate: 16_000, missingSampleCount: 3),
+        ])))
+
+        XCTAssertNil(error)
+        XCTAssertEqual(
+            yields.dropLast().map(\.missingSampleCount), [1, 2, 3],
+            "partials carry the running sum, one per decode")
+        XCTAssertEqual(
+            yields.last?.missingSampleCount, 3,
+            "the final carries min(6, samples.count = 3) — the cap keeps the count honest")
+    }
+
+    /// **A stream never calls the transport** — the offline row: the model is resident after
+    /// `prepare`, and streaming must not cause a single download call (`spec.md` criterion 5,
+    /// stream-shaped).
+    func testAStreamNeverCallsTheTransport() async throws {
+        let transport = StubTransport(files: [modelFile: [0x01]])
+        let (engine, _) = makeEngine(
+            context: StubWhisperContext(streamedScript: [
+                [WhisperSegment(text: "hello", start: 0, end: 0.4, tokenProbability: nil)],
+            ]),
+            transport: transport)
+        try await engine.prepare()
+        let afterPrepare = await transport.downloadCallCount
+        XCTAssertEqual(afterPrepare, 1)
+
+        _ = await collect(engine.stream(chunkStream([
+            buffer([1, 2, 3]),
+            buffer([4, 5, 6]),
+        ])))
+
+        let afterStream = await transport.downloadCallCount
+        XCTAssertEqual(
+            afterStream, afterPrepare,
+            "a stream must not cause a single transport call — the stream touches only the "
+                + "resident model and the injected context")
+    }
+
+    /// **Stream before prepare** finishes throwing ``VoccaError/modelUnavailable(_:reason:)``
+    /// with the engine's identity and a non-empty reason, before consuming any chunk — the
+    /// load-state guard, stream-shaped; the context is never called.
+    func testAStreamOnAnUnpreparedEngineFinishesThrowingModelUnavailable() async throws {
+        let context = StubWhisperContext()
+        let (engine, _) = makeEngine(
+            context: context, transport: StubTransport(files: [:]))
+
+        let (yields, error) = await collect(engine.stream(chunkStream([buffer([1, 2, 3])])))
+
+        XCTAssertTrue(yields.isEmpty)
+        guard case .modelUnavailable(let identity, let reason)? = error as? VoccaError else {
+            XCTFail("expected modelUnavailable, got \(String(describing: error))")
+            return
+        }
+        XCTAssertEqual(identity, WhisperCppEngineIdentity.whisper)
+        XCTAssertFalse(reason.isEmpty, "the reason must say what is missing")
+        XCTAssertEqual(
+            context.transcribeStreamingCallCount, 0,
+            "an unprepared engine must not reach the context at all")
     }
 }
 

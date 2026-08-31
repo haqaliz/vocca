@@ -249,6 +249,108 @@ final class MicrophoneSourceTests: XCTestCase {
         XCTAssertFalse(graph.isRunning, "the machine went idle over a live microphone")
     }
 
+    // MARK: - The mid-session consumer contract (speculative-feed phase (a))
+
+    /// **The remainder contract, pinned before the feed exists.** The speculative feed's role,
+    /// played by hand: a consumer drains part of the ring mid-"session", then `endCapture()` —
+    /// the conformance must hand over exactly the *unconsumed* remainder, drained exactly once,
+    /// with the refusal bookkeeping unchanged in meaning (this session's refusals,
+    /// baseline-subtracted, exactly as the three-clause RED pins).
+    ///
+    /// This is green against today's implementation (a drain followed by `endCapture` has
+    /// always left the remainder), and that is the point of the pin: it freezes the contract
+    /// the feed will be built against — the ownership change is deliberate, documented in the
+    /// same commit, and tested before the consumer that will actually drain mid-session exists.
+    func testAMidSessionConsumerDrainLeavesEndCaptureTheExactRemainderDrainedOnce() throws {
+        let graph = FakeCaptureGraph(
+            ring: AudioRingBuffer(capacity: 16), captureFormat: .interchange)
+        let source = try MicrophoneSource(graph: graph)
+
+        XCTAssertEqual(source.beginCapture(), .opened)
+
+        write([0, 1, 2, 3, 4, 5, 6, 7], to: graph.ring)
+        // The feed's role: drain what is readable mid-session.
+        XCTAssertEqual(graph.ring.drain(), [0, 1, 2, 3, 4, 5, 6, 7])
+        // The session continues after the mid-session drain — the producer writes a full ring
+        // and then one block too many, so the session's refusal count is non-zero.
+        write(Array(100..<116).map(Float.init), to: graph.ring)
+        write([200, 201], to: graph.ring)
+        XCTAssertEqual(graph.ring.refusedSampleCount, 2, "precondition: the third block was refused")
+
+        let buffer = source.endCapture()
+
+        XCTAssertEqual(
+            buffer.samples, Array(100..<116).map(Float.init),
+            """
+            The unconsumed remainder, and only it: the mid-session drain already took the first \
+            half, so the hand-over must not re-serve it and must not miss the tail.
+            """)
+        XCTAssertEqual(
+            buffer.missingSampleCount, 2,
+            """
+            The refusal bookkeeping is unchanged in meaning: the carried number is still this \
+            session's refusals, baseline-subtracted — a mid-session consumer changes what is in \
+            the ring, not what the hand-over must report.
+            """)
+        XCTAssertEqual(
+            graph.ring.drain(), [],
+            "the remainder is drained exactly once — a second endCapture-style drain finds nothing")
+    }
+
+    // MARK: - The feed's ownership (speculative-feed phase (b))
+
+    /// **The real ownership behavior** — the phase (a) contract test, now with the actual feed:
+    /// the feed drains two ticks through a real ring, `endCapture()` hands over exactly the
+    /// unconsumed tail, the completeness bookkeeping is unchanged in meaning (the session's
+    /// refusals, baseline-subtracted), and the stream plus the remainder concatenate to the
+    /// whole audio — the batch-equivalence precondition the end-to-end final relies on.
+    @MainActor
+    func testEndCaptureWithTheLiveFeedHandsOverTheExactRemainderAndTheWholeAudio() async throws {
+        let graph = FakeCaptureGraph(
+            ring: AudioRingBuffer(capacity: 16), captureFormat: .interchange)
+        let timer = FakeTimer()
+        let source = try MicrophoneSource(
+            graph: graph,
+            feedSchedule: (schedule: { timer.start(every: $0, $1) }, unschedule: { timer.stop() }))
+
+        XCTAssertEqual(source.beginCapture(), .opened)
+        source.feed.start()
+
+        write(Array(1...8).map(Float.init), to: graph.ring)
+        timer.tick()
+        write(Array(9...16).map(Float.init), to: graph.ring)
+        timer.tick()
+        // The tail: written after the last tick, so it is the unconsumed remainder — and a block
+        // too many, so the session's refusal count is non-zero.
+        write(Array(17...32).map(Float.init), to: graph.ring)
+        write([99, 100], to: graph.ring)
+        XCTAssertEqual(graph.ring.refusedSampleCount, 2, "precondition: the final block was refused")
+
+        let buffer = source.endCapture()
+        source.feed.terminate(with: buffer)
+
+        XCTAssertEqual(
+            buffer.samples, Array(17...32).map(Float.init),
+            "the unconsumed tail, and only it — the feed already drained the first two blocks")
+        XCTAssertEqual(
+            buffer.missingSampleCount, 2,
+            "the completeness bookkeeping is unchanged in meaning — the session's refusals, "
+                + "baseline-subtracted, exactly as without a mid-session consumer")
+        let chunks = await Self.collect(source.feed.chunks)
+        XCTAssertEqual(
+            chunks.flatMap(\.samples), Array(1...32).map(Float.init),
+            """
+            The feed's stream — the drained chunks plus the terminate-appended remainder — \
+            concatenates to the whole audio: batch-equivalence at the ownership seam, the \
+            precondition the end-to-end "final equals the batch result for the same audio" \
+            acceptance rests on.
+            """)
+        XCTAssertEqual(
+            chunks.last?.samples, buffer.samples,
+            "the endCapture remainder is the stream's last chunk — the engine receives the "
+                + "whole audio, in order")
+    }
+
     // MARK: - W3: capture-close measured on the stop path (loop-wiring Phase 2)
 
     /// **W3.** With an injected recorder, a hand-moved clock and a fixed id (minted via
@@ -401,6 +503,17 @@ final class MicrophoneSourceTests: XCTestCase {
         _ = samples.withUnsafeBufferPointer { pointer in
             ring.write(pointer.baseAddress!, count: pointer.count)
         }
+    }
+
+    /// The collected chunks of a finished stream — the stream is single-shot and buffers its
+    /// yields, so iterating after `terminate` sees everything.
+    @MainActor
+    private static func collect(_ stream: AsyncStream<AudioBuffer>) async -> [AudioBuffer] {
+        var chunks: [AudioBuffer] = []
+        for await chunk in stream {
+            chunks.append(chunk)
+        }
+        return chunks
     }
 
     private static func keyEvent(_ kind: RawKeyEvent.Kind, at timestamp: Duration) -> RawKeyEvent {

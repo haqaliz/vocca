@@ -35,9 +35,36 @@ public protocol WhisperContext {
     /// corrupt model file) must leave the context unusable but the engine retryable.
     func prepare(modelFileURL: URL) throws
 
+    /// Re-creates the inference context for the model at `modelFileURL` — the idle re-warm's
+    /// reload (`rewarm-after-idle`), translated. Called only on a prepared context (the engine's
+    /// load-state guard routes the unprepared case); **a failure must leave the previous context
+    /// usable** — the new context is built first and swapped in only on success.
+    func reprepare(modelFileURL: URL) throws
+
     /// Transcribes one buffer of 16 kHz mono samples into segments, translated.
     ///
     /// - Throws: a typed error the engine maps onto ``VoccaError/transcriptionFailed(_:underlying:)``
     ///   with the underlying cause intact — never a stringified reason.
     func transcribe(samples: [Float]) throws -> [WhisperSegment]
+
+    /// Transcribes one buffer as a streaming pass, returning the segments harvested for the
+    /// current buffer — the answer a batch decode of the same buffer yields (the streamed
+    /// final equals the batch transcription by construction).
+    ///
+    /// The engine calls this repeatedly on the growing buffer; each call is a full decode
+    /// of the audio seen so far, and the returned list is the partial for this pass. A
+    /// conformer may harvest segments as the decode proceeds (whisper's canonical pattern
+    /// registers a new-segment callback) or read them after — the seam promises only the
+    /// complete list. Same throwing contract as ``transcribe(samples:)``.
+    func transcribeStreaming(samples: [Float]) throws -> [WhisperSegment]
+}
+
+extension WhisperContext {
+    /// The default streaming pass: a plain ``transcribe(samples:)`` of the current buffer —
+    /// the full decode, no harvesting. It is the honest answer of a conformer that does not
+    /// register a callback, and it is what keeps the bridge compiling while the streaming
+    /// surface lands (the `whisper-streaming` arc: the CAPI's callback harvest replaces it).
+    public func transcribeStreaming(samples: [Float]) throws -> [WhisperSegment] {
+        try transcribe(samples: samples)
+    }
 }

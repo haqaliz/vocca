@@ -1356,8 +1356,40 @@ set -euo pipefail
 # correction was applied to the one WarmStartLaunchTests drain that clears the way for a press; the
 # two that assert on the resolver itself were left alone, because there the resolver is the subject.
 #
+# The streamed-vs-batch equivalence machinery adds twenty-two (1651 -> 1673): the pure comparison,
+# the token-diff shape, the verdict decision (including the seeded unequal pair that must FAIL — a
+# gate that cannot fail proves nothing), the run summary, the renderer, and the single-source scans
+# for the placeholder tolerance table and the stream chunk constant. The env-gated real-run rows
+# (steps 125-126's execution) count as executed only when they run; their skip path is the
+# twenty-two's CI shape.
+#
+# The fixture-driving runner and its env-gated shell add eight (1673 -> 1681): seven runner rows
+# over scripted engines (equal script → GO, unequal script → NO-GO without throwing, batch-only →
+# all-VOID, and the loud named failures for a missing tolerance, zero finals, two finals and a
+# misattributed transcript — invariant I1), plus the two-var-gated real-engine shell, which counts
+# as executed on its skip path in CI.
+#
+# The suppression discipline adds four (1681 -> 1685): an unreadable suppression read voids every
+# row with the "treat every number below as void" reason, a suppressed run records with the
+# "SUPPRESSED — darwin background" label beside the numbers (never voided by throttling alone,
+# never presented as clean), an unexpected priority records with its label, and the env-gated
+# shell's skip names the provisioning script — the loud-instruction half of the gate.
+#
+# The key-up cost accounting adds two (1685 -> 1687): the injected clock's reads are
+# deterministic, so the batch/key-up/streamed durations are pinned as exact hand-asserted deltas
+# (the key-up cost = last chunk's delivery to the final, the honest finish()-decode figure), and
+# the zero-partials note renders exactly when no partials were observed — "the key-up decode
+# covers the full window (X ms)", a measured fact, not an assumption.
+#
+# The whisper streaming adapter's contract rows add twelve (1687 -> 1699): the eleven
+# seam-double rows over StubWhisperContext's scripted streaming half (partials then one final;
+# final equals batch by construction, engine half; mid-utterance end; empty stream; all-empty
+# chunks; mid-stream decode failure; consumer cancellation; final-decode timing; missing-sample
+# accumulation; transport silence; stream before prepare) plus the mapper's partial-flag
+# passthrough row. The flip of WhisperEngineTests' supportsStreaming pin adds no count.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1625
+MINIMUM_EXECUTED_TESTS=1731
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

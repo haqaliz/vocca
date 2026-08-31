@@ -54,4 +54,53 @@ public enum ParakeetTranscriptMapper {
             audioDuration: buffer.audioDuration,
             missingSampleCount: missingSampleCount)
     }
+
+    /// Builds the `Transcript` for one sliding-window update — the streaming partial.
+    ///
+    /// Every SDK update, confirmed or volatile alike, maps to a partial: nothing the SDK says
+    /// mid-stream is final, so the seam's `isFinal` is `false` here by construction and the
+    /// adapter never asks the SDK whether an update is final (spec requirement 2 — the volatile
+    /// `isConfirmed` semantics stay inside the SDK; the seam has no such field, and it must not
+    /// leak into the mapping).
+    ///
+    /// A partial is provisional by nature: no stable segmentation, no duration, completeness 0 —
+    /// the ``StreamingStubEngine`` partial shape (`ASRTestDoubles.swift:220-222`). Only the final
+    /// transcript carries the sample count and the capture's completeness count.
+    public static func partial(text: String, engine: EngineIdentity) -> Transcript {
+        Transcript(
+            text: text,
+            segments: [],
+            engine: engine,
+            isFinal: false,
+            audioDuration: 0,
+            missingSampleCount: 0)
+    }
+
+    /// Builds the `Transcript` for the stream's final answer.
+    ///
+    /// Exactly one of these closes a stream, from the adapter's own termination path — never from
+    /// the SDK's update stream. The duration comes from the **sample count** (`sampleCount /
+    /// ``AudioBuffer/interchangeSampleRate`` — the seam's fixed 16 kHz), never from the text's
+    /// length; and empty text is a valid empty final transcript, never an error — the stream form
+    /// of the seam's empty-buffer policy.
+    public static func final(
+        text: String,
+        forSampleCount sampleCount: Int,
+        engine: EngineIdentity,
+        missingSampleCount: Int = 0
+    ) -> Transcript {
+        let duration = Double(sampleCount) / Double(AudioBuffer.interchangeSampleRate)
+        return Transcript(
+            text: text,
+            segments: [
+                TranscriptSegment(
+                    text: text,
+                    range: 0..<duration,
+                    confidence: nil)
+            ],
+            engine: engine,
+            isFinal: true,
+            audioDuration: duration,
+            missingSampleCount: missingSampleCount)
+    }
 }

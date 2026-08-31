@@ -354,6 +354,7 @@ therefore a first execution, not a re-check.
     - Provision the whisper artifacts, then run the whisper test:
       `./Scripts/provision-asr-fixtures.sh --engine whisper-large-v3-turbo` (and the q5_0 tier),
       then `WhisperCppEngineWERTests` with `VOCCA_MODEL_DIR` set to the store-shaped install.
+      That runner stays batch-only — its run is this step's WER half.
     - *Pass:* all six fixtures within their tolerances, attribution carrying `whisper-large-v3-turbo`
       — with the numbers still **provisional**: copied from Parakeet's first real run as the
       mechanism's required starting point (`PRD M6`), not yet replaced by measured whisper values.
@@ -362,6 +363,27 @@ therefore a first execution, not a re-check.
       table in exactly the two test files.
     - Until this step has been run once, everything this repository says about whisper's accuracy
       is a claim about structure, not about measurement.
+
+    *(Amended 2026-08-31, `whisper-streaming`.)* The same run now covers the **streamed cycle** —
+    the first real execution of the streaming adapter's by-construction claim, which CI never
+    reaches:
+
+    - **The streamed cycle.** Run one fixture's audio through `engine.stream` split into chunks
+      (the 1 s chunk shape the equivalence harness uses); partials must appear — one per decode,
+      each the full growing buffer's segments — and the streamed final must equal the batch
+      transcript of the same audio **text-for-text** (same params, same audio, same `whisper_full`
+      machinery — the parity the bridge's comment pins; this is the by-construction check on real
+      audio, never before run).
+    - **Short-audio rows (the sub-minimum observation).** Run 0.2 s / 0.5 s / 1 s clips through
+      both `transcribe` and `stream` and record what whisper does: transcribes, pads to empty, or
+      refuses-and-throws. If it refuses, the measured constant (`WhisperCppEngine`'s stream
+      comment, one place, both paths — the `ParakeetEngine.isBelowSDKMinimum` mirror) is set per
+      the tolerances procedure (`docs/planning/second-asr-engine/fixture-harness/tolerances_20260810.md`).
+    - **The cost row.** Record the total streamed-decode time vs one batch decode of the same
+      utterance on one fixture — the O(n²) observation the adapter's doc comment names. Recorded,
+      never gated; no caller may assume key-up savings.
+    - The rows above are **unverified until this step runs** — nothing in CI measures them, and
+      the headless contract rows prove the engine half only.
 
 20. **The engine picker panel — switch, tier, download.** `EnginePickerView` is executed by nothing
     in CI (a hosted runner has no window server), and its headless half is tested: the
@@ -2361,6 +2383,170 @@ meaningful preferences exist on a hosted runner. These steps are the first execu
 
     *Failure:* leaving a tester on `F13`, or leaving Mission Control on a chord they did not
     choose. Both are real costs to the next person to use that machine.
+
+120. **First real dictation with the speculative feed live** (batch engine; engines do not stream
+    yet — the feed's lifecycle is what these steps observe, never partials that cannot appear).
+
+    *Gesture:* press the hotkey, speak 3–5 s, release.
+
+    *Verify the state was entered:* the log carries the feed's start and stop lines
+    (`log stream --subsystem dev.vocca.Vocca | grep "the feed"` — the lines land in
+    `SpeculativeFeed.start` / `terminate` / `cancel`).
+
+    *Pass (tighter than the failure):* the mic dot is gone and the widget is IDLE within 5 s of
+    key-up (the failure this guards is an orphaned feed = hot mic); the final lands in the field
+    exactly as before the feed; no failure notice.
+
+    *Failure:* a feed that never started is caught by the missing start log; a feed that never
+    stopped is caught by the mic dot.
+
+121. **Escape mid-session with the feed live.**
+
+    *Gesture:* start a session, speak, press Esc.
+
+    *Verify the state was entered:* the feed's stop log appears and the widget shows the
+    discard-to-IDLE transition.
+
+    *Pass (tighter than the failure):* nothing is injected (the field is unchanged), the mic dot
+    is out, and the widget is IDLE — the orphaned-feed and injected-after-cancel failures both
+    leave the mic dot or the field non-empty.
+
+122. **Sub-0.3 s press with the feed live.**
+
+    *Gesture:* tap the hotkey and release immediately.
+
+    *Verify the state was entered:* the feed flushed a sub-minimum stream (the terminate-with-
+    remainder path — the stop log's remainder count is small or zero).
+
+    *Pass (tighter than the failure):* **no** `.transcriptionFailed` notice appears and the widget
+    returns to IDLE — the failure this guards is the regression to "Voice processing failed" on a
+    quick tap.
+
+123. **Quit mid-recording** (executed by nothing in CI — the window-server rule).
+
+    *Gesture:* start a session, then quit from the menu bar while recording.
+
+    *Verify the state was entered:* the feed's stop log appears (the quit path's `feed.cancel()`
+    runs before `terminate`) and the mic dot goes out.
+
+    *Pass:* the process exits cleanly.
+
+    *Failure:* a feed still ticking at process exit — the quit path's cancel is the claim that
+    "no feed left running" is true in the code that runs, not only as a property of process death.
+
+124. **First real streaming run** (the `SlidingWindowAsrManager` conversation — PCM buffers in,
+    updates out, `finish()` final — executed by nothing in CI, the tap-adapter precedent).
+
+    *Gesture:* with provisioned models, run the env-gated streaming row —
+    `VOCCA_MODEL_DIR=<store-shaped version directory> Scripts/test-with-floor.sh --filter ParakeetStreamingWERTests`
+    — then drive the `sixty-second` fixture through the same chunked stream (1 s chunks) to
+    observe the partials half. No latency or equivalence claim may be written from this run —
+    the numbers are the equivalence-measurement aspect's.
+
+    *Verify the state was entered:* the env-gated row did **not** print its skip message (the
+    skip is the tell-tale — a skipped test ran nothing) and the run completed a stream.
+
+    *Pass (tighter than the failure):* the clean-fixture row yields exactly one final whose text
+    is non-empty and attributed to Parakeet — the failure this guards is a silent stream: no
+    final, an empty one, or a hang. On the long fixture, partials are observed after ~13 s (the
+    SDK default's first window: 11 s chunk + 2 s right context) and the stream still ends with
+    exactly one final — the failure this guards is a stream that never finishes or a final that
+    drops the confirmed text.
+
+    *Failure:* a hang (the SDK's update stream never terminates on its own — the adapter must not
+    wait on it), a missing final, or an empty final on audio the batch path transcribes.
+
+---
+
+## 17. The streamed-vs-batch equivalence verdict — `equivalence-measurement`
+
+Nothing in this section runs in CI. The real model cannot reach a hosted runner, so the
+equivalence measurement is the first execution of the recorded, never-gated verdict on open
+question 2 (`ARCHITECTURE.md`): does the streaming final equal a batch transcription of the same
+audio? The mechanism is proven headlessly (a seeded unequal pair must FAIL — `EquivalenceMeasurementTests`);
+these steps are the founder's machine producing the first measured numbers, in exactly the
+`tolerances_20260831.md` procedure.
+
+125. **The first streamed-vs-batch equivalence run.**
+
+    *Gesture:* provision a model as in steps 17-18, then
+    `VOCCA_MODEL_DIR=<version_dir> VOCCA_LATENCY_BENCH=1 swift test --filter EquivalenceRealEngineTests`.
+
+    *Verify the state was entered:* the run does **not** print either skip message (the skips are
+    the tell-tale — a skipped test ran nothing).
+
+    *Pass (tighter than the failure):* the table prints one row per discovered fixture with the
+    suppression column reading **not-suppressed throughout** (a throttled run is **voided, never
+    recorded** — step 71's discipline), the whisper note is present, both transcripts print
+    beside every row with Parakeet attribution, the sixty-second row carries partials + key-up
+    cost + batch cost, and the go/no-go row is GO, NO-GO, or VOID-with-reason — each an
+    acceptable recorded outcome (the verdict records, never gates; a FAIL here blocks *claiming
+    the latency win*, never shipping the feed — PRD Goal 1).
+
+    *Where no sharp criterion exists:* the WER values themselves — this is the first
+    measurement, and the provisional table is placeholder-seeded by decision. The step says so
+    rather than inventing a threshold, per rule 2's corollary, and names the re-baseline
+    (`tolerances_20260831.md` procedure) as the follow-up.
+
+    *Void — not fail — if:* the adapter has not landed (every row reads VOID with the
+    "engine does not stream" reason — a batch-vs-batch comparison would prove nothing), or the
+    suppression state is unreadable (every number below is void).
+
+126. **The record: the go/no-go row enters the tracked table.**
+
+    *Pass:* the measured row — machine, model artifact, per-fixture WER / exact / shape /
+    key-up cost / suppression — lands in the measured-values table of
+    `docs/planning/speculative-asr/equivalence-measurement/tolerances_20260831.md`; a NO-GO
+    verdict additionally lands as a recorded risk-table entry with the latency claim dropped
+    (the founder's roadmap amendment, not a code change). Until this row exists, the equivalence
+    question is open and must be called open.
+
+---
+
+## 18. The idle re-warm — `rewarm-after-idle`
+
+Nothing in this section runs in CI. The policy, the resolver ladder and the engine re-warm path
+are all proven headlessly (the headless suite drives the policy's clock, the resolver's ladder and
+both engines' re-warm over the seam doubles); these steps are the founder's machine producing the
+first real observations — a model reloaded after idle, and the measured reload cost (PRD Q5) —
+under **rule 1**: the machine must actually have sat idle for the threshold before a row means
+anything.
+
+127. **The first idle re-warm, in the natural flow.**
+
+    *Gesture:* run Vocca (model provisioned), dictate once, verify delivery. Leave Vocca
+    untouched for **more than 5 minutes**, recording the actual elapsed idle time in the row
+    (rule 1: verify the state was entered — a re-warm row with 4 minutes of idle proves nothing).
+    Watch the log (`log stream --predicate 'subsystem == "dev.vocca.Vocca"'`) for the
+    `idle re-warm: firing` and completion lines, which must appear only after the observed
+    5-minute mark. Then dictate again: the session is never refused, delivery works, and the log
+    shows the re-warm completing either before or during the session (the ordering pin,
+    observed).
+
+    *Pass:* the fire line is timestamped past the measured 5 minutes, the second dictation
+    delivers, and the engine stayed ready throughout.
+
+    *Failure:* a fire before the threshold (the policy's clock is wrong), a refused press (the
+    re-warm touched the gate), or a second fire in one window (the exactly-once rule broke).
+
+128. **The measured re-warm cost (Q5's number).**
+
+    *Gesture:* run the env-gated benchmark (`VOCCA_LATENCY_BENCH=1 VOCCA_MODEL_DIR=...` — the
+    WER provisioning path) with the re-warm row printed.
+
+    *Verify the state was entered:* the env-gated row did **not** print its skip message (the
+    skip is the tell-tale — a skipped test ran nothing) and the re-warm row's samples are
+    non-empty (the real re-warm ran and recorded).
+
+    *Pass:* the row shows the `.rewarm` sample with a readable suppression state. Record the
+    number (the `tolerances` procedure: measure → margin → founder-signed). The 5-minute
+    constant in `IdleReWarmTargets` is **provisional** (PRD Q5 — reload cost unmeasured); the
+    founder re-baselines it from this observation, in exactly that one file, recorded not gated.
+
+    *Failure:* an empty re-warm row (the re-warm did not run or did not record), an unreadable
+    suppression state beside it (a throttled number recorded as clean), or a re-warm slow enough
+    to be felt at the next press (the ordering pin's cost half — a re-baseline of the constant
+    is the remedy, never a gate).
 
 ---
 

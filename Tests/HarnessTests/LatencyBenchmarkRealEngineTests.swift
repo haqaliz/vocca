@@ -138,6 +138,68 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
                 + "is a void run, not a row")
     }
 
+    /// **B3s, the streaming half.** The env-gated real run's streaming variant
+    /// (`speculative-feed` phase (f)): the same fixtures driven key-down → feed → key-up →
+    /// `routeStreaming` with the feed live, printing the closed-span rows — **recorded, never
+    /// gated** — which now measure key-up→final with the feed live. The gate and its span
+    /// contract stay post-key-up, unchanged.
+    func testTheRealEngineBenchmarkPrintsStreamingRowsWithTheFeedLive() async throws {
+        guard ProcessInfo.processInfo.environment["VOCCA_LATENCY_BENCH"] != nil else {
+            throw XCTSkip(
+                "set VOCCA_LATENCY_BENCH=1 to run the real-engine latency benchmark — the model "
+                    + "cannot reach a hosted runner, so CI runs the skip path")
+        }
+        guard
+            let modelDir = ProcessInfo.processInfo.environment["VOCCA_MODEL_DIR"]
+        else {
+            throw XCTSkip(
+                "set VOCCA_MODEL_DIR to a store-shaped version directory — see "
+                    + "Scripts/provision-asr-fixtures.sh")
+        }
+        let modelDirectory = URL(fileURLWithPath: modelDir)
+
+        let manifestURL = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json")
+        let manifest = try ModelManifest.load(from: Data(contentsOf: manifestURL))
+        let store = ModelStore(
+            rootURL: modelDirectory
+                .deletingLastPathComponent()
+                .deletingLastPathComponent())
+        let timing = EngineTiming()
+        let engine = ParakeetEngine(
+            store: store,
+            manifest: manifest,
+            transport: DefaultModelTransport(
+                baseURL: URL(string: "https://unused.invalid")!),
+            clock: ContinuousMonotonicClock(),
+            timing: timing)
+        try await engine.prepare()
+
+        let result = try await RealEngineLatencyBenchmark.runStreaming(
+            engine: engine,
+            fixtures: try LatencyBenchmarkTests.fixtureCases(),
+            stopAdvance: LatencyBenchmarkTests.captureCloseAdvance,
+            injectAdvance: LatencyBenchmarkTests.fastInjectAdvance,
+            timing: timing,
+            feedTimer: FakeTimer())
+
+        let rows = result.rows
+        XCTAssertEqual(
+            rows.map(\.span), [.captureClose, .asr, .inject],
+            "one printed row per closed span, in order — the closed-span contract holds with the "
+                + "feed live")
+        XCTAssertTrue(
+            rows.allSatisfy { $0.p50 != nil && $0.p95 != nil },
+            "every streaming row carries measured p50/p95 — a row with no samples prints n/a, "
+                + "never zero")
+        XCTAssertFalse(
+            rows.contains {
+                if case .unreadable = $0.suppression { return true } else { return false }
+            },
+            "no streaming row may carry an unreadable suppression state as an answer — an "
+                + "unreadable state is a void run, not a row")
+    }
+
     /// **W3, the warm-start record.** The env-gated real run also prints the engine's
     /// `firstAfterLaunch` and `warmTranscribe` samples, the ratio, and the suppression state
     /// beside it — **recorded, never gated**: this test asserts the record's shape, never its
@@ -201,6 +263,63 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
                     + "record, not a row")
         }
     }
+
+    /// **Q5's measured number, row-shaped.** The env-gated real run also drives the engine's
+    /// re-warm once and prints its `.rewarm` samples with the suppression state beside it —
+    /// **recorded, never gated**: this test asserts the row's shape, never its value, and nothing
+    /// throws on a slow re-warm. The samples are non-empty because the real re-warm genuinely ran
+    /// and recorded (the vacuity half); the founder re-baselines the five-minute constant in
+    /// `IdleReWarmTargets` from this observation (`SMOKE_CHECKLIST.md` step 128).
+    func testTheRealEngineBenchmarkRecordsTheRewarmRowWithSuppressionState() async throws {
+        guard ProcessInfo.processInfo.environment["VOCCA_LATENCY_BENCH"] != nil else {
+            throw XCTSkip(
+                "set VOCCA_LATENCY_BENCH=1 to run the real-engine latency benchmark — the model "
+                    + "cannot reach a hosted runner, so CI runs the skip path")
+        }
+        guard
+            let modelDir = ProcessInfo.processInfo.environment["VOCCA_MODEL_DIR"]
+        else {
+            throw XCTSkip(
+                "set VOCCA_MODEL_DIR to a store-shaped version directory — see "
+                    + "Scripts/provision-asr-fixtures.sh")
+        }
+        let modelDirectory = URL(fileURLWithPath: modelDir)
+
+        let manifestURL = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json")
+        let manifest = try ModelManifest.load(from: Data(contentsOf: manifestURL))
+        let store = ModelStore(
+            rootURL: modelDirectory
+                .deletingLastPathComponent()
+                .deletingLastPathComponent())
+        let timing = EngineTiming()
+        let engine = ParakeetEngine(
+            store: store,
+            manifest: manifest,
+            transport: DefaultModelTransport(
+                baseURL: URL(string: "https://unused.invalid")!),
+            clock: ContinuousMonotonicClock(),
+            timing: timing)
+        try await engine.prepare()
+
+        let fixtures = try LatencyBenchmarkTests.fixtureCases()
+        let result = try await RealEngineLatencyBenchmark.run(
+            engine: engine,
+            fixtures: fixtures,
+            stopAdvance: LatencyBenchmarkTests.captureCloseAdvance,
+            injectAdvance: LatencyBenchmarkTests.fastInjectAdvance,
+            timing: timing)
+
+        XCTAssertFalse(
+            result.rewarm.samples.isEmpty,
+            "the real engine's re-warm ran and recorded — a row with no samples would prove "
+                + "nothing (vacuity)")
+        if case .unreadable = result.rewarm.suppression {
+            XCTFail(
+                "no unreadable suppression state beside the re-warm row — an unreadable state is "
+                    + "a void record, not a row")
+        }
+    }
 }
 
 // MARK: - The real-engine benchmark runner
@@ -223,10 +342,23 @@ enum RealEngineLatencyBenchmark {
         let suppression: DarwinSuppression
     }
 
-    /// The run's full answer: the per-span rows plus the W3 warm-start record.
+    /// The run's full answer: the per-span rows plus the W3 warm-start record and the idle
+    /// re-warm's row.
     struct Result {
         let rows: [Row]
         let warmStart: WarmStartRecord
+        let rewarm: RewarmRecord
+    }
+
+    /// **The idle re-warm's record**: the real engine's `.rewarm` ``EngineTiming`` samples —
+    /// the measured reload cost (Q5's number) — and the suppression state read beside it, the
+    /// ``WarmStartRecord`` shape. **Recorded, never gated**: nothing throws on a slow re-warm,
+    /// and no verdict consumes these samples. The founder re-baselines the five-minute constant
+    /// in ``IdleReWarmTargets`` from this row (`SMOKE_CHECKLIST.md` step 128); the test asserts
+    /// its shape, never its value.
+    struct RewarmRecord {
+        let samples: [Duration]
+        let suppression: DarwinSuppression
     }
 
     /// **The W3 warm-start record**: the real engine's cross-session ``EngineTiming`` samples,
@@ -347,7 +479,129 @@ enum RealEngineLatencyBenchmark {
             print("ratio: \(ratio)x (EXCEEDS the \(bound)x bound — RECORDED, not gated)")
         }
         print("darwin suppression state at record: \(describeSuppression(warmStartRecord.suppression))")
-        return Result(rows: rows, warmStart: warmStartRecord)
+
+        let rewarmRecord = await Self.rewarmRecord(engine: engine, timing: timing)
+        return Result(rows: rows, warmStart: warmStartRecord, rewarm: rewarmRecord)
+    }
+
+    /// **The idle re-warm half of the real run** (`rewarm-after-idle` phase (d)): after the
+    /// fixture cycles, the engine re-warms once (the first real re-warm execution — the SMOKE
+    /// step's measurement) and its `.rewarm` samples are printed with the suppression state read
+    /// fresh beside them. `try?` — **recorded, never gated**: nothing throws on a slow re-warm,
+    /// and a non-``EngineRewarmable`` engine simply records no samples (the engine-store row is
+    /// the resolver's loud refusal, not this runner's).
+    private static func rewarmRecord(
+        engine: any ASREngine, timing: EngineTiming
+    ) async -> RewarmRecord {
+        if let rewarmable = engine as? any EngineRewarmable {
+            try? await rewarmable.rewarm()
+        }
+        let samples = await timing.samples(for: .rewarm)
+        let suppression = darwinSuppressionState()
+        print("")
+        print("== Idle re-warm (after five idle minutes — Q5's reload cost) ==")
+        print(
+            "rewarm samples:         "
+                + samples.map { "\(milliseconds($0)) ms" }.joined(separator: ", ")
+                + (samples.isEmpty ? "(no .rewarm samples — the engine did not re-warm)" : ""))
+        print("darwin suppression state at record: \(describeSuppression(suppression))")
+        return RewarmRecord(samples: samples, suppression: suppression)
+    }
+
+    /// **The streaming variant of the real run** (`speculative-feed` phase (f)): the same
+    /// harness with the feed live — the fixture lands in the ring in increments with the feed's
+    /// fake timer firing between them, and the cycle drives key-down → feed → key-up →
+    /// `routeStreaming`. The real engine's batch-default stream buffers the feed's chunks and
+    /// transcribes once, so the printed rows now measure **key-up → final with the feed live** —
+    /// the ASR span arrives through the route, post-key-up, and the gate's closed-span contract
+    /// is asserted unchanged. Recorded, never gated, exactly like the batch run.
+    @MainActor
+    static func runStreaming(
+        engine: any ASREngine,
+        fixtures: [ASRFixtureCase],
+        stopAdvance: Duration,
+        injectAdvance: Duration,
+        timing: EngineTiming,
+        feedTimer: FakeTimer
+    ) async throws -> Result {
+        let harness = try LatencyBenchmarkTests.BenchmarkHarness(
+            ringCapacity: LatencyBenchmarkTests.ringCapacity(for: fixtures),
+            stopAdvance: stopAdvance,
+            realEngine: engine,
+            injectAdvance: injectAdvance,
+            feedTimer: feedTimer)
+
+        var mintedIDs: [SessionRecord.ID] = []
+        for (index, fixture) in fixtures.enumerated() {
+            let minted = await harness.runStreamingCycle(
+                samples: fixture.buffer.samples, expectedRecords: index + 1)
+            XCTAssertNotNil(minted, "\(fixture.name): the opening must mint the record's id")
+            mintedIDs.append(minted ?? SessionRecord.ID(rawValue: -1))
+        }
+
+        let records = await harness.ledger.snapshot()
+        XCTAssertEqual(records.count, fixtures.count, "one record per driven streaming cycle")
+        XCTAssertEqual(
+            records.map { $0.id }, mintedIDs,
+            "begin/finalize symmetry holds under the real engine on the streaming route too")
+
+        let rows: [Row] = [SpanName.captureClose, .asr, .inject].map { span in
+            let values: [Duration] = records.compactMap { record in
+                guard let found = record.spans.first(where: { $0.name == span }) else { return nil }
+                return found.presence == .recorded ? found.elapsed : nil
+            }
+            return Row(
+                span: span,
+                p50: percentile(values, 0.5),
+                p95: percentile(values, 0.95),
+                suppression: darwinSuppressionState())
+        }
+
+        let verdict = LatencyBenchmarkGate.evaluate(records, thresholds: Self.thresholds)
+        print("")
+        print("== Real-engine latency benchmark, streaming (key-up → final, feed live) ==")
+        print("engine: \(engine.identity.id)")
+        print("fixtures: \(fixtures.map(\.name).joined(separator: ", "))")
+        print("darwin suppression state at start: \(describeSuppression(darwinSuppressionState()))")
+        print("span          p50      p95      suppression")
+        for row in rows {
+            let name = String(describing: row.span)
+                .padding(toLength: 13, withPad: " ", startingAt: 0)
+            let p50 = (row.p50.map { "\(milliseconds($0)) ms" } ?? "n/a")
+                .padding(toLength: 8, withPad: " ", startingAt: 0)
+            let p95 = (row.p95.map { "\(milliseconds($0)) ms" } ?? "n/a")
+                .padding(toLength: 8, withPad: " ", startingAt: 0)
+            print("  \(name) \(p50) \(p95) \(describeSuppression(row.suppression))")
+        }
+        print(
+            "verdict vs the provisional p50 table (RECORDED, not gated — the founder re-baselines): "
+                + (verdict.passed ? "PASS" : "FAIL"))
+
+        let firstAfterLaunch = await timing.samples(for: .firstAfterLaunch)
+        let steadyState = await timing.samples(for: .warmTranscribe)
+        let warmStartRecord = WarmStartRecord(
+            firstAfterLaunch: firstAfterLaunch,
+            steadyState: steadyState,
+            verdict: WarmStartRatio.evaluate(
+                firstAfterLaunch: firstAfterLaunch, steadyState: steadyState),
+            suppression: darwinSuppressionState())
+        print(
+            "warm-start ratio: \(describeWarmStart(warmStartRecord.verdict)), suppression "
+                + "\(describeSuppression(warmStartRecord.suppression))")
+        let rewarmRecord = await Self.rewarmRecord(engine: engine, timing: timing)
+        return Result(rows: rows, warmStart: warmStartRecord, rewarm: rewarmRecord)
+    }
+
+    /// The warm-start verdict, spelled for a print row.
+    private static func describeWarmStart(_ verdict: WarmStartRatio.Verdict) -> String {
+        switch verdict {
+        case .insufficientSamples:
+            return "INSUFFICIENT SAMPLES — recorded, neither pass nor fail"
+        case .withinBound(let ratio):
+            return "\(ratio)x (WITHIN the \(WarmStartTargets.maxFirstAfterLaunchMultiple)x bound)"
+        case .exceedsBound(let ratio, let bound):
+            return "\(ratio)x (EXCEEDS the \(bound)x bound — RECORDED, not gated)"
+        }
     }
 }
 

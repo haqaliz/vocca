@@ -33,8 +33,12 @@ import VoccaCore
 /// that property holds and the release cannot fail — which is the whole reason the conformance's
 /// trap clause covers only the conversion (see ``MicrophoneSource``).
 public protocol CaptureGraphSeam: AnyObject {
-    /// Where the realtime producer writes. The conformance is the consumer: it drains this at
-    /// ``MicrophoneSource/endCapture()`` and reads ``AudioRingBuffer/refusedSampleCount`` from it.
+    /// Where the realtime producer writes. **The consumer role is handed over mid-session**
+    /// (`speculative-feed`): the ``MicrophoneSource``'s own feed owns it while the session is
+    /// recording — draining at the feed's cadence — and the conformance takes it back at
+    /// ``MicrophoneSource/endCapture()``, which drains the *remainder* and reads
+    /// ``AudioRingBuffer/refusedSampleCount`` from it. Both consumers are main-actor, so the
+    /// handover is serialized; see `AudioRingBuffer`'s warrant, claim 1.
     var ring: AudioRingBuffer { get }
 
     /// What is actually in the ring, as a claim the rest of the package reads. The conformance
@@ -119,6 +123,17 @@ extension AudioCaptureGraph: CaptureGraphSeam {}
 /// reaching another's transcript — is anchored here, at the one point in a session's life that
 /// cannot be skipped.
 ///
+/// ## The remainder contract (`speculative-feed`, 2026-08-31)
+///
+/// `endCapture()` no longer drains the ring *whole*: since the feed landed, a mid-session
+/// consumer (the ``feed``) has already drained part of it on its 50 ms tick. This method drains
+/// the **rest** — exactly once, as the machine's funnel runs it synchronously at every terminal —
+/// and the conversion is **contiguous with the feed's** because it is the same
+/// ``AudioFormatConverter`` instance, chunked through `convert` during the session and finished
+/// here. The refused-count bookkeeping is unchanged in meaning: the carried
+/// ``AudioBuffer/missingSampleCount`` is still this session's refusals, baseline-subtracted —
+/// a mid-session consumer changes what is in the ring, not what the hand-over must report.
+///
 /// ## Where this type runs, and where it does not
 ///
 /// It names no AVFoundation type — everything below it is ``CaptureGraphSeam`` or Vocca's own
@@ -155,6 +170,14 @@ public final class MicrophoneSource: SessionAudioSource {
     /// recording.
     private let sessionIDProvider: (@Sendable () -> SessionRecord.ID?)?
 
+    /// **The ring's mid-session consumer** (`speculative-feed`): drains the ring on its 50 ms
+    /// tick while a session is recording, converting through the same ``converter`` this type
+    /// finishes at `endCapture` — so the feed's chunks and the remainder are one contiguous
+    /// conversion. Constructed here because this type is the one object that legitimately holds
+    /// both the ring and the converter. The router starts and terminates it; see
+    /// ``SpeculativeFeed`` for the ownership handover and the timer's closure-pair injection.
+    public let feed: SpeculativeFeed
+
     /// - Parameter graph: the capture graph, already constructed with its configuration-change
     ///   callback (a device switch mid-session is the machine's trigger, not this type's).
     /// - Parameter recorder: the latency ledger's seam, `nil` by default — the loop-wiring
@@ -163,19 +186,36 @@ public final class MicrophoneSource: SessionAudioSource {
     ///   default with the same absence effect.
     /// - Parameter sessionIDProvider: where the in-flight session's record id comes from at
     ///   `endCapture()`, `nil` by default.
+    /// - Parameter feedSchedule: the feed's timer as the ``RepeatingTimer`` seam's two
+    ///   operations — `(schedule, unschedule)`. `nil` (the default) builds the feed with no-op
+    ///   closures: the feed exists but never drains (the safe degradation — a session routed
+    ///   through it still reaches the engine whole via the remainder). The composition root
+    ///   wires the shipped `MainRunLoopTimer` behind the pair.
+    /// - Parameter feedSubMinimum: the feed's sub-minimum suppression predicate over the
+    ///   accumulated sample count, `nil` (the default) for no suppression.
     /// - Throws: ``AudioFormatConversionError`` if the graph's format cannot be converted to the
     ///   interchange format.
     public init(
         graph: any CaptureGraphSeam,
         recorder: (any LatencyRecorder)? = nil,
         clock: (any MonotonicClock)? = nil,
-        sessionIDProvider: (@Sendable () -> SessionRecord.ID?)? = nil
+        sessionIDProvider: (@Sendable () -> SessionRecord.ID?)? = nil,
+        feedSchedule: (
+            schedule: (Duration, @escaping () -> Void) -> Void,
+            unschedule: () -> Void
+        )? = nil,
+        feedSubMinimum: (@Sendable (Int) -> Bool)? = nil
     ) throws {
         self.graph = graph
         self.converter = try AudioFormatConverter(inputFormat: graph.captureFormat)
         self.recorder = recorder
         self.clock = clock
         self.sessionIDProvider = sessionIDProvider
+        self.feed = SpeculativeFeed(
+            ring: graph.ring, converter: converter,
+            schedule: feedSchedule?.schedule ?? { _, _ in },
+            unschedule: feedSchedule?.unschedule ?? {},
+            subMinimum: feedSubMinimum)
     }
 
     /// Open the microphone.
@@ -203,8 +243,10 @@ public final class MicrophoneSource: SessionAudioSource {
     ///   input is closed — see ``CaptureGraphSeam`` — and it must come before any read-back, both
     ///   so that the return is never a lie about the release and so that the refusal counter is
     ///   stable when it is read.
-    /// - **Then** the ring is drained whole and converted, and the hand-over is built with
-    ///   `missingSampleCount` equal to this session's refusals.
+    /// - **Then the ring's *remainder* is drained and converted** — the ``feed`` has already
+    ///   drained the ring's readable half on its ticks while the session was recording, so this
+    ///   drain takes the rest, exactly once, and the conversion is contiguous with the feed's
+    ///   because it is the same converter (`finish` flushes the resampler's tail).
     /// - **A failure anywhere in the conversion traps** (``preconditionFailure``): `endCapture()`
     ///   cannot report it, and a return would be the machine's "released and done" signal over
     ///   audio that was never produced.

@@ -39,7 +39,7 @@ public enum WhisperTranscriptMapper {
         Double(max(0, centiseconds)) / 100.0
     }
 
-    /// Builds the `Transcript` for one batch transcription.
+    /// Builds the `Transcript` for one transcription — batch or streaming pass.
     ///
     /// - Parameters:
     ///   - segments: The bridge's per-segment answer. Empty is legitimate — near-silent audio is a
@@ -49,10 +49,13 @@ public enum WhisperTranscriptMapper {
     ///     segments' span, which whisper may pad or omit.
     ///   - missingSampleCount: The capture-completeness count the capture bridge feeds through
     ///     the buffer; 0 means complete.
+    ///   - isFinal: `false` for a streaming partial, `true` for a batch transcript and the
+    ///     stream's final — the default keeps every existing batch call site byte-identical.
     public static func map(
         segments: [WhisperSegment],
         duration: Double,
-        missingSampleCount: Int = 0
+        missingSampleCount: Int = 0,
+        isFinal: Bool = true
     ) -> Transcript {
         Transcript(
             text: segments.map(\.text).joined(separator: " "),
@@ -63,7 +66,7 @@ public enum WhisperTranscriptMapper {
                     confidence: segment.tokenProbability)
             },
             engine: WhisperCppEngineIdentity.whisper,
-            isFinal: true,
+            isFinal: isFinal,
             audioDuration: duration,
             missingSampleCount: missingSampleCount)
     }

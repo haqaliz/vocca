@@ -352,14 +352,17 @@ final class DictationPipelineStreamingTests: XCTestCase {
     // MARK: - The no-branch pin (the EngineSwapTests pattern)
 
     /// The degradation is the seam's default, not a caller branch: neither the route file nor
-    /// this streaming test source may name the seam's streaming flag. The needle is built from
-    /// two parts so this very test does not trip its own scan; the assertion is on the
-    /// contiguous token, which is what a caller branch would have to write.
+    /// this streaming test source nor the composition root may name the seam's streaming flag.
+    /// The needle is built from two parts so this very test does not trip its own scan; the
+    /// assertion is on the contiguous token, which is what a caller branch would have to write.
+    /// `AppBootstrap.swift` joined the scan with the speculative feed — the router branches on
+    /// feed presence and outcome content, never on the seam's flag.
     func testTheRouteAndStreamingTestSourceContainNoBranchOnTheSeamsStreamingFlag() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let files = [
             "Sources/VoccaCore/DictationPipeline.swift",
             "Tests/HarnessTests/DictationPipelineStreamingTests.swift",
+            "Sources/VoccaBootstrap/AppBootstrap.swift",
         ]
         let flag = "supports" + "Streaming"
 
