@@ -1363,8 +1363,14 @@ set -euo pipefail
 # (steps 125-126's execution) count as executed only when they run; their skip path is the
 # twenty-two's CI shape.
 #
+# The fixture-driving runner and its env-gated shell add eight (1673 -> 1681): seven runner rows
+# over scripted engines (equal script → GO, unequal script → NO-GO without throwing, batch-only →
+# all-VOID, and the loud named failures for a missing tolerance, zero finals, two finals and a
+# misattributed transcript — invariant I1), plus the two-var-gated real-engine shell, which counts
+# as executed on its skip path in CI.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1673
+MINIMUM_EXECUTED_TESTS=1681
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

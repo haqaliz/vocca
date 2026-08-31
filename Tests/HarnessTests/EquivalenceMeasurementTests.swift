@@ -362,7 +362,8 @@ final class EquivalenceMeasurementTests: XCTestCase {
         let root = try PackageRootLocator.find(from: #filePath)
         let namedFile = "EquivalenceMeasurement.swift"
         let pinningTest = "EquivalenceMeasurementTests.swift"
-        let allowedSightings: Set<String> = [namedFile, pinningTest]
+        let consumer = "EquivalenceRealEngineRunner.swift"
+        let allowedSightings: Set<String> = [namedFile, pinningTest, consumer]
         let pattern = #"\bstreamChunkSamples\b"#
 
         var sightings: [String: Int] = [:]
@@ -379,11 +380,237 @@ final class EquivalenceMeasurementTests: XCTestCase {
         XCTAssertFalse(sightings.isEmpty, "vacuity guard: the scan saw no files at all")
         XCTAssertEqual(
             Set(sightings.keys), allowedSightings,
-            "streamChunkSamples must live in exactly the named file and its pinning test, got: "
-                + "\(sightings)")
+            "streamChunkSamples must be defined in exactly the named file, consumed by the runner "
+                + "and pinned here, got: \(sightings)")
+    }
+
+    // MARK: - The runner over scripted engines
+
+    /// The equal script (partials + final == batch) through `StreamingStubEngine`: every row
+    /// PASSes, the partial count is recorded, and the summary is GO.
+    func testTheRunnerOverAnEqualStreamingScriptProducesAllPassRowsAndGo() async throws {
+        let engine = StreamingStubEngine(
+            identity: EngineIdentity(id: "stub", displayName: "Stub", isLocal: true),
+            partials: ["the quick", "the quick brown"],
+            finalText: "the quick brown fox")
+        let result = try await EquivalenceRealEngineRunner.run(
+            engine: engine,
+            fixtures: [makeFixture(name: "clean")],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .notSuppressed },
+            clock: BenchmarkClock())
+        XCTAssertEqual(result.fixtures.count, 1)
+        let record = result.fixtures[0]
+        XCTAssertEqual(record.verdict, .pass)
+        XCTAssertEqual(record.row.wer, 0)
+        XCTAssertEqual(record.row.exactEqual, true)
+        XCTAssertEqual(record.row.shape, .identical)
+        XCTAssertEqual(
+            record.partialsObserved, 2,
+            "the equal script's partials are recorded — partials then exactly one final")
+        XCTAssertEqual(result.verdict, .go)
+    }
+
+    /// The unequal script through a scripted double (the batch text differs from the streamed
+    /// final — `StreamingStubEngine` structurally cannot differ, its `transcribe` and its
+    /// stream's final share one text): FAIL rows, summary NO-GO, and **the run does not throw** —
+    /// a blown equivalence is recorded, never a test failure.
+    func testTheRunnerOverAnUnequalStreamingScriptProducesFailRowsAndNoGoWithoutThrowing()
+        async throws
+    {
+        let engine = RunnerScriptedEngine(
+            batchText: "the quick brown fox",
+            partials: ["the quick"],
+            finals: ["the quick red fox"])
+        let result = try await EquivalenceRealEngineRunner.run(
+            engine: engine,
+            fixtures: [makeFixture(name: "clean")],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .notSuppressed },
+            clock: BenchmarkClock())
+        XCTAssertEqual(result.fixtures[0].verdict, .fail)
+        XCTAssertEqual(result.fixtures[0].row.wer, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(result.fixtures[0].row.shape, .prefixThenDiverge(commonTokens: 2))
+        XCTAssertEqual(result.fixtures[0].partialsObserved, 1)
+        XCTAssertEqual(result.verdict, .noGo(fixtures: ["clean"]))
+    }
+
+    /// A batch-only engine (`StubEngine`) drives every row to VOID with the streaming reason —
+    /// the guard-the-guard: a non-streaming engine compares batch against batch, and that must
+    /// never be able to read as a PASS.
+    func testTheRunnerOverABatchOnlyEngineVoidsEveryRowWithTheStreamingReason() async throws {
+        let engine = StubEngine.parakeet()
+        let result = try await EquivalenceRealEngineRunner.run(
+            engine: engine,
+            fixtures: [makeFixture(name: "clean")],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .notSuppressed },
+            clock: BenchmarkClock())
+        XCTAssertEqual(
+            result.fixtures[0].verdict,
+            .void(reason: "engine does not stream — batch-vs-batch comparison proves nothing"))
+        XCTAssertEqual(
+            result.verdict,
+            .void(reasons: ["engine does not stream — batch-vs-batch comparison proves nothing"]))
+    }
+
+    /// A fixture with no tolerance and no `"clean"` fallback in the table fails loudly — a new
+    /// fixture never defaults to a free pass.
+    func testTheRunnerFailsLoudlyWhenTheToleranceTableLacksTheFixtureAndTheCleanFallback()
+        async throws
+    {
+        let engine = RunnerScriptedEngine(
+            batchText: "a", partials: [], finals: ["a"])
+        do {
+            _ = try await EquivalenceRealEngineRunner.run(
+                engine: engine,
+                fixtures: [makeFixture(name: "clean")],
+                toleranceTable: ["spike-clip": 0.05],
+                suppression: { .notSuppressed },
+                clock: BenchmarkClock())
+            XCTFail("a table without the fixture or the clean fallback must fail loudly")
+        } catch let error as EquivalenceRealEngineRunnerError {
+            XCTAssertEqual(error, .missingTolerance(fixture: "clean"))
+        }
+    }
+
+    /// A stream that yields no final is a loud named failure carrying the fixture and the
+    /// partial ledger — never a fabricated verdict row.
+    func testTheRunnerFailsLoudlyWhenTheStreamYieldsNoFinal() async throws {
+        let engine = RunnerScriptedEngine(
+            batchText: "the quick brown fox", partials: ["the quick"], finals: [])
+        do {
+            _ = try await EquivalenceRealEngineRunner.run(
+                engine: engine,
+                fixtures: [makeFixture(name: "clean")],
+                toleranceTable: ProvisionalEquivalenceTolerances.table,
+                suppression: { .notSuppressed },
+                clock: BenchmarkClock())
+            XCTFail("a stream with no final must fail loudly")
+        } catch let error as EquivalenceRealEngineRunnerError {
+            XCTAssertEqual(
+                error, .noFinal(fixture: "clean", partialsObserved: 1),
+                "the error names the fixture and the partial ledger")
+        }
+    }
+
+    /// A stream that yields two finals is equally loud — exactly one final is the seam's
+    /// contract, and a comparison over two is not a comparison.
+    func testTheRunnerFailsLoudlyWhenTheStreamYieldsTwoFinals() async throws {
+        let engine = RunnerScriptedEngine(
+            batchText: "a", partials: [], finals: ["a", "a"])
+        do {
+            _ = try await EquivalenceRealEngineRunner.run(
+                engine: engine,
+                fixtures: [makeFixture(name: "clean")],
+                toleranceTable: ProvisionalEquivalenceTolerances.table,
+                suppression: { .notSuppressed },
+                clock: BenchmarkClock())
+            XCTFail("a stream with two finals must fail loudly")
+        } catch let error as EquivalenceRealEngineRunnerError {
+            XCTAssertEqual(
+                error, .multipleFinals(fixture: "clean", finals: 2, partialsObserved: 0),
+                "the error names the fixture and the ledger")
+        }
+    }
+
+    /// A transcript attributed to another engine is a loud named failure on **both** sides —
+    /// invariant I1, enforced by the runner, never a silently misattributed row.
+    func testTheRunnerFailsLoudlyOnAMisattributedTranscript() async throws {
+        let other = EngineIdentity(id: "other", displayName: "Other", isLocal: true)
+        let engine = RunnerScriptedEngine(
+            batchText: "a", partials: [], finals: ["a"], transcriptIdentity: other)
+        do {
+            _ = try await EquivalenceRealEngineRunner.run(
+                engine: engine,
+                fixtures: [makeFixture(name: "clean")],
+                toleranceTable: ProvisionalEquivalenceTolerances.table,
+                suppression: { .notSuppressed },
+                clock: BenchmarkClock())
+            XCTFail("a misattributed transcript must fail loudly")
+        } catch let error as EquivalenceRealEngineRunnerError {
+            XCTAssertEqual(
+                error, .attributionMismatch(fixture: "clean", expected: engine.identity, actual: other),
+                "the error names the fixture and both identities")
+        }
     }
 
     // MARK: - Test helper
+
+    /// One fixture case for the runner-over-stub rows — the buffer's content is irrelevant to
+    /// the scripted engines, but the length drives the chunking (32 000 samples → two chunks).
+    private func makeFixture(name: String = "clean", sampleCount: Int = 32_000) -> ASRFixtureCase {
+        ASRFixtureCase(
+            name: name,
+            buffer: VoccaCore.AudioBuffer(
+                samples: [Float](repeating: 0, count: sampleCount), sampleRate: 16_000),
+            goldenText: "unused by the runner — the comparison is batch vs streamed final")
+    }
+
+    /// The scripted double for the runner rows: the batch side (`transcribe`) speaks
+    /// `batchText`, the streamed side yields `partials` then `finals` (each final one
+    /// `isFinal == true` transcript). `StreamingStubEngine` cannot carry an unequal script —
+    /// its `transcribe` and its stream's final share one text — so the unequal, no-final,
+    /// two-final and misattributed rows live here, one file, with the script as the test's
+    /// ground truth.
+    private actor RunnerScriptedEngine: ASREngine {
+        let identity: EngineIdentity
+        let supportsStreaming = true
+        let batchText: String
+        let partials: [String]
+        let finals: [String]
+        let transcriptIdentity: EngineIdentity
+
+        init(
+            batchText: String,
+            partials: [String],
+            finals: [String],
+            transcriptIdentity: EngineIdentity? = nil
+        ) {
+            self.identity = EngineIdentity(id: "runner-scripted", displayName: "Runner scripted", isLocal: true)
+            self.batchText = batchText
+            self.partials = partials
+            self.finals = finals
+            self.transcriptIdentity = transcriptIdentity ?? self.identity
+        }
+
+        func prepare() async throws {}
+
+        func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+            Transcript(
+                text: batchText, segments: [], engine: transcriptIdentity, isFinal: true,
+                audioDuration: buffer.audioDuration)
+        }
+
+        nonisolated func stream(
+            _ chunks: AsyncStream<AudioBuffer>
+        ) -> AsyncThrowingStream<Transcript, Error> {
+            AsyncThrowingStream { continuation in
+                let task = Task {
+                    await self.runStream(chunks, continuation: continuation)
+                }
+                continuation.onTermination = { @Sendable _ in task.cancel() }
+            }
+        }
+
+        private func runStream(
+            _ chunks: AsyncStream<AudioBuffer>,
+            continuation: AsyncThrowingStream<Transcript, Error>.Continuation
+        ) async {
+            for await _ in chunks {}
+            for partial in partials {
+                continuation.yield(Transcript(
+                    text: partial, segments: [], engine: transcriptIdentity, isFinal: false,
+                    audioDuration: 0))
+            }
+            for final in finals {
+                continuation.yield(Transcript(
+                    text: final, segments: [], engine: transcriptIdentity, isFinal: true,
+                    audioDuration: 0))
+            }
+            continuation.finish()
+        }
+    }
 
     /// Builds one fixture record through the shipped machinery: the comparison first, then the
     /// verdict over the given tolerance and preconditions — never a hand-constructed verdict.
