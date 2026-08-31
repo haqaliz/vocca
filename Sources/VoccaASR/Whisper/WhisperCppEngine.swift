@@ -182,10 +182,15 @@ public actor WhisperCppEngine: ASREngine {
         // audio whisper would have transcribed — so if step 19 shows whisper *does* refuse short
         // audio, the fix is its own measured constant here, mirroring Parakeet's.
         //
-        // The stream path runs the same policy: the first decode happens on the first feed
-        // chunk (no accumulation threshold), so if whisper refuses short audio rather than
-        // padding, a stream throws on its first iteration — unverified until step 19, then one
-        // measured constant in exactly one place, applied to both paths.
+        // The stream path runs the same policy, and its sub-minimum row is unverified exactly like
+        // the batch's: the first decode happens on the first feed chunk (no accumulation
+        // threshold, no throttle — decode every chunk), so whisper's short-audio behavior —
+        // pad to the 30 s window and return zero segments, or refuse — is unmeasured for the
+        // stream too, and a refusal would throw on the first iteration, honestly surfacing as
+        // `.reasonOnly(.transcriptionFailed)` rather than hiding. If step 19 shows a refusal,
+        // the fix is one measured constant mirroring `ParakeetEngine.isBelowSDKMinimum`,
+        // applied to both `transcribe` and `stream`, in exactly one place — never a threshold
+        // guessed from reasoning about the C library.
         if buffer.samples.isEmpty {
             return WhisperTranscriptMapper.map(
                 segments: [], duration: buffer.audioDuration,
