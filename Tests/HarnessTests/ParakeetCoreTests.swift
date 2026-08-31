@@ -142,6 +142,82 @@ final class ParakeetCoreTests: XCTestCase {
                 + "degradation, not a streaming one's")
     }
 
+    /// The partial form: every SDK sliding-window update — confirmed or volatile alike — maps to
+    /// a provisional transcript. `isFinal == false`, no segmentation (a partial has no stable
+    /// segmentation), `audioDuration == 0` (provisional by nature — the ``StreamingStubEngine``
+    /// partial shape, `ASRTestDoubles.swift:220-222`), completeness 0 (only the final carries the
+    /// capture's count). The form cannot produce a final: the seam's "partials then exactly one
+    /// final" is structural in the mapper, not a caller discipline.
+    func testThePartialFormYieldsANonFinalTranscriptWithoutSegmentsOrDuration() {
+        let transcript = ParakeetTranscriptMapper.partial(text: "hello wor", engine: identity)
+
+        XCTAssertEqual(transcript.text, "hello wor")
+        XCTAssertEqual(transcript.engine, identity)
+        XCTAssertFalse(
+            transcript.isFinal,
+            "a partial is never final — only the final transcript carries isFinal == true")
+        XCTAssertTrue(
+            transcript.segments.isEmpty,
+            "a partial has no stable segmentation — its text can change with the next window")
+        XCTAssertEqual(transcript.audioDuration, 0)
+        XCTAssertEqual(transcript.missingSampleCount, 0)
+    }
+
+    /// The final form: one segment spanning the whole utterance, duration from the sample count
+    /// (`sampleCount / 16_000`) — never from the text's length, which says nothing about time.
+    func testTheFinalFormYieldsOneSegmentedFinalWithDurationFromTheSampleCount() {
+        let transcript = ParakeetTranscriptMapper.final(
+            text: "hello world", forSampleCount: 32_000, engine: identity)
+
+        XCTAssertEqual(transcript.text, "hello world")
+        XCTAssertEqual(transcript.engine, identity)
+        XCTAssertTrue(transcript.isFinal)
+        XCTAssertEqual(
+            transcript.audioDuration, 2.0,
+            "the duration must come from the sample count — 32 000 samples at 16 kHz is 2 s")
+        XCTAssertEqual(transcript.segments.count, 1)
+        XCTAssertEqual(transcript.segments[0].text, "hello world")
+        XCTAssertEqual(transcript.segments[0].range, 0..<2.0)
+        XCTAssertNil(
+            transcript.segments[0].confidence,
+            "the SDK's updates expose no stable confidence on the final — nil is the 'none' signal")
+    }
+
+    /// Empty text maps to a valid empty final transcript, never an error — the batch precedent
+    /// (the SDK's answer to near-silent audio is empty, and the seam's stream form promises the
+    /// same: silence is a transcript, `ParakeetCoreTests`' empty-text row).
+    func testTheFinalFormTurnsEmptyTextIntoAValidEmptyFinalTranscript() {
+        let transcript = ParakeetTranscriptMapper.final(
+            text: "", forSampleCount: 0, engine: identity)
+
+        XCTAssertEqual(transcript.text, "")
+        XCTAssertEqual(transcript.audioDuration, 0)
+        XCTAssertEqual(transcript.engine, identity)
+        XCTAssertTrue(transcript.isFinal)
+    }
+
+    /// The sample-count form of the below-minimum decision — the stream's contract, headless:
+    /// a **total** below 4 800 samples must answer a single empty final regardless of anything
+    /// the SDK says (the stream form of the seam's empty-buffer policy, `ASREngine.swift:28-37`).
+    ///
+    /// The boundary is the measured one (4 799 below / 4 800 above — the batch rows above), and
+    /// the buffer form delegates to this one, so the two cannot drift apart: the stream's total
+    /// and the batch's buffer ask the same question.
+    func testTheSampleCountMinimumMatchesTheMeasuredBoundaryAndTheBufferForm() {
+        XCTAssertTrue(ParakeetEngine.isBelowSDKMinimum(sampleCount: 0, sampleRate: 16_000))
+        XCTAssertTrue(ParakeetEngine.isBelowSDKMinimum(sampleCount: 320, sampleRate: 16_000))
+        XCTAssertTrue(ParakeetEngine.isBelowSDKMinimum(sampleCount: 4_799, sampleRate: 16_000))
+        XCTAssertFalse(ParakeetEngine.isBelowSDKMinimum(sampleCount: 4_800, sampleRate: 16_000))
+        XCTAssertFalse(ParakeetEngine.isBelowSDKMinimum(sampleCount: 32_000, sampleRate: 16_000))
+
+        for total in [0, 320, 4_799, 4_800, 32_000] {
+            XCTAssertEqual(
+                ParakeetEngine.isBelowSDKMinimum(sampleCount: total, sampleRate: 16_000),
+                ParakeetEngine.isBelowSDKMinimum(buffer(Array(repeating: 0.1, count: total))),
+                "the buffer form and the sample-count form must agree — one decision, two carriers")
+        }
+    }
+
     // MARK: - Load state
 
     /// Two `prepare`s load once: the state's whole reason to exist.

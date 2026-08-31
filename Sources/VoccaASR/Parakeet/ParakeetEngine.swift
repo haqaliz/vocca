@@ -114,7 +114,15 @@ public actor ParakeetEngine: ASREngine {
     /// disagreement — the failure mode of a copy is answering empty for audio FluidAudio would
     /// happily have transcribed.
     static func isBelowSDKMinimum(_ buffer: AudioBuffer) -> Bool {
-        buffer.samples.count < Self.minimumRequiredSamples(sampleRate: buffer.sampleRate)
+        Self.isBelowSDKMinimum(sampleCount: buffer.samples.count, sampleRate: buffer.sampleRate)
+    }
+
+    /// The same decision in sample-count form — the stream's carrier: the adapter accumulates a
+    /// **total** sample count across the chunk stream and answers a single empty final below the
+    /// minimum regardless of anything the SDK says (the stream form of the seam's empty-buffer
+    /// policy). The buffer form delegates here so the batch and stream paths ask one question.
+    static func isBelowSDKMinimum(sampleCount: Int, sampleRate: Int) -> Bool {
+        sampleCount < Self.minimumRequiredSamples(sampleRate: sampleRate)
     }
 
     /// **The SDK's minimum, read live** — the one line the composition root may call to build
