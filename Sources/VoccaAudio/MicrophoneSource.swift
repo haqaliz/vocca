@@ -170,6 +170,14 @@ public final class MicrophoneSource: SessionAudioSource {
     /// recording.
     private let sessionIDProvider: (@Sendable () -> SessionRecord.ID?)?
 
+    /// **The ring's mid-session consumer** (`speculative-feed`): drains the ring on its 50 ms
+    /// tick while a session is recording, converting through the same ``converter`` this type
+    /// finishes at `endCapture` — so the feed's chunks and the remainder are one contiguous
+    /// conversion. Constructed here because this type is the one object that legitimately holds
+    /// both the ring and the converter. The router starts and terminates it; see
+    /// ``SpeculativeFeed`` for the ownership handover and the timer's closure-pair injection.
+    public let feed: SpeculativeFeed
+
     /// - Parameter graph: the capture graph, already constructed with its configuration-change
     ///   callback (a device switch mid-session is the machine's trigger, not this type's).
     /// - Parameter recorder: the latency ledger's seam, `nil` by default — the loop-wiring
@@ -178,19 +186,36 @@ public final class MicrophoneSource: SessionAudioSource {
     ///   default with the same absence effect.
     /// - Parameter sessionIDProvider: where the in-flight session's record id comes from at
     ///   `endCapture()`, `nil` by default.
+    /// - Parameter feedSchedule: the feed's timer as the ``RepeatingTimer`` seam's two
+    ///   operations — `(schedule, unschedule)`. `nil` (the default) builds the feed with no-op
+    ///   closures: the feed exists but never drains (the safe degradation — a session routed
+    ///   through it still reaches the engine whole via the remainder). The composition root
+    ///   wires the shipped `MainRunLoopTimer` behind the pair.
+    /// - Parameter feedSubMinimum: the feed's sub-minimum suppression predicate over the
+    ///   accumulated sample count, `nil` (the default) for no suppression.
     /// - Throws: ``AudioFormatConversionError`` if the graph's format cannot be converted to the
     ///   interchange format.
     public init(
         graph: any CaptureGraphSeam,
         recorder: (any LatencyRecorder)? = nil,
         clock: (any MonotonicClock)? = nil,
-        sessionIDProvider: (@Sendable () -> SessionRecord.ID?)? = nil
+        sessionIDProvider: (@Sendable () -> SessionRecord.ID?)? = nil,
+        feedSchedule: (
+            schedule: (Duration, @escaping () -> Void) -> Void,
+            unschedule: () -> Void
+        )? = nil,
+        feedSubMinimum: (@Sendable (Int) -> Bool)? = nil
     ) throws {
         self.graph = graph
         self.converter = try AudioFormatConverter(inputFormat: graph.captureFormat)
         self.recorder = recorder
         self.clock = clock
         self.sessionIDProvider = sessionIDProvider
+        self.feed = SpeculativeFeed(
+            ring: graph.ring, converter: converter,
+            schedule: feedSchedule?.schedule ?? { _, _ in },
+            unschedule: feedSchedule?.unschedule ?? {},
+            subMinimum: feedSubMinimum)
     }
 
     /// Open the microphone.
