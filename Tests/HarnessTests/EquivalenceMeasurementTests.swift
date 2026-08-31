@@ -384,6 +384,105 @@ final class EquivalenceMeasurementTests: XCTestCase {
                 + "and pinned here, got: \(sightings)")
     }
 
+    // MARK: - The suppression discipline (Phase (c))
+
+    /// An injected suppression read returning `.unreadable(errno:)` voids **every** row with the
+    /// "treat every number below as void" reason (the ``describeSuppression`` wording) — the
+    /// whole-run void: an unreadable state means the numbers cannot be trusted, so none of them
+    /// may read as an answer.
+    func testAnUnreadableSuppressionReadVoidsEveryRowWithTheTreatBelowAsVoidReason() async throws {
+        let engine = RunnerScriptedEngine(
+            batchText: "the quick brown fox", partials: [], finals: ["the quick brown fox"])
+        let result = try await EquivalenceRealEngineRunner.run(
+            engine: engine,
+            fixtures: [makeFixture(name: "clean")],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .unreadable(errno: 42) },
+            clock: BenchmarkClock())
+        XCTAssertEqual(
+            result.fixtures[0].verdict,
+            .void(reason: "suppression state unreadable — treat every number below as void"))
+        XCTAssertEqual(
+            result.verdict,
+            .void(reasons: ["suppression state unreadable — treat every number below as void"]))
+        if case .unreadable(let code) = result.fixtures[0].suppression {
+            XCTAssertEqual(code, 42, "the errno travels with the failure, never read at print time")
+        } else {
+            XCTFail("the unreadable state must be carried on the row")
+        }
+    }
+
+    /// A suppressed (darwin-background) process still records — the state was entered and is
+    /// named, so the row shows `1 (SUPPRESSED — darwin background)` beside the numbers. A
+    /// throttled number is recorded as throttled, never presented as clean, never voided by
+    /// throttling alone.
+    func testASuppressedRunRecordsRowsWithTheSuppressionLabelBesideThem() async throws {
+        let engine = StreamingStubEngine(
+            identity: EngineIdentity(id: "stub", displayName: "Stub", isLocal: true),
+            partials: ["the quick"],
+            finalText: "the quick brown fox")
+        let result = try await EquivalenceRealEngineRunner.run(
+            engine: engine,
+            fixtures: [makeFixture(name: "clean")],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .suppressed },
+            clock: BenchmarkClock())
+        XCTAssertEqual(
+            result.fixtures[0].verdict, .pass,
+            "throttling alone never voids a row — the state was entered and is named")
+        if case .suppressed = result.fixtures[0].suppression {
+        } else {
+            XCTFail("the suppressed state must be carried on the row")
+        }
+        let row = EquivalenceRowRenderer.renderRow(result.fixtures[0])
+        XCTAssertTrue(
+            row.contains("1 (SUPPRESSED — darwin background)"),
+            "the printed row labels the throttled state beside the numbers, got: \(row)")
+    }
+
+    /// An unexpected priority value is recorded with its label — never presented as clean,
+    /// never voided.
+    func testAnUnexpectedPriorityIsRecordedWithItsLabel() async throws {
+        let engine = RunnerScriptedEngine(
+            batchText: "a", partials: [], finals: ["a"])
+        let result = try await EquivalenceRealEngineRunner.run(
+            engine: engine,
+            fixtures: [makeFixture(name: "clean")],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .other(5) },
+            clock: BenchmarkClock())
+        XCTAssertEqual(result.fixtures[0].verdict, .pass)
+        if case .other(let value) = result.fixtures[0].suppression {
+            XCTAssertEqual(value, 5)
+        } else {
+            XCTFail("the unexpected-priority state must be carried on the row")
+        }
+        let row = EquivalenceRowRenderer.renderRow(result.fixtures[0])
+        XCTAssertTrue(
+            row.contains("5 (unexpected priority)"),
+            "the printed row labels the unexpected priority, got: \(row)")
+    }
+
+    /// The provisioning discipline, pinned as a string: the env-gated shell's missing-
+    /// `VOCCA_MODEL_DIR` skip message names `Scripts/provision-asr-fixtures.sh` — the
+    /// provisioning instruction is the loud part (`LatencyBenchmarkRealEngineTests.swift:93-95`
+    /// wording, verbatim), so a founder who hits the skip is told how to un-skip it.
+    func testTheEnvGatedShellSkippingNamesTheProvisioningScript() throws {
+        let file = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Tests/HarnessTests/EquivalenceRealEngineTests.swift")
+        let source = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(
+            source.contains("VOCCA_LATENCY_BENCH"),
+            "the first gate's skip names the latency var — the two-var gate shape")
+        XCTAssertTrue(
+            source.contains("\"set VOCCA_MODEL_DIR to a store-shaped version directory — see \""),
+            "the missing-model-dir skip's sentence is the precedent's wording, verbatim")
+        XCTAssertTrue(
+            source.contains("Scripts/provision-asr-fixtures.sh"),
+            "the missing-model-dir skip must name the provisioning script — an instruction, "
+                + "not a bare var name")
+    }
+
     // MARK: - The runner over scripted engines
 
     /// The equal script (partials + final == batch) through `StreamingStubEngine`: every row

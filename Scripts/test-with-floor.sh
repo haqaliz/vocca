@@ -1369,8 +1369,14 @@ set -euo pipefail
 # misattributed transcript — invariant I1), plus the two-var-gated real-engine shell, which counts
 # as executed on its skip path in CI.
 #
+# The suppression discipline adds four (1681 -> 1685): an unreadable suppression read voids every
+# row with the "treat every number below as void" reason, a suppressed run records with the
+# "SUPPRESSED — darwin background" label beside the numbers (never voided by throttling alone,
+# never presented as clean), an unexpected priority records with its label, and the env-gated
+# shell's skip names the provisioning script — the loud-instruction half of the gate.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1681
+MINIMUM_EXECUTED_TESTS=1685
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
