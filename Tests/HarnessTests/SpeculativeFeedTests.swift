@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import VoccaASR
 import VoccaCore
 import XCTest
 
@@ -188,7 +189,148 @@ final class SpeculativeFeedTests: XCTestCase {
             "empty drains are skipped — no empty chunk is ever yielded")
     }
 
+    // MARK: - Sub-minimum suppression (phase (e))
+
+    /// **The sub-minimum hold.** With `subMinimum` wired, ticks below the threshold accumulate
+    /// and yield nothing; the first tick at or past the crossing yields the **whole accumulated
+    /// prefix** — every sample reaches the engine, in order (batch-equivalence preserved), and
+    /// no partial exists before the threshold.
+    @MainActor
+    func testSubMinimumHoldsTicksBelowTheThresholdAndTheFirstChunkCarriesTheWholePrefix() async throws {
+        let ring = AudioRingBuffer(capacity: 1 << 12)
+        let converter = try AudioFormatConverter(inputFormat: .interchange)
+        let timer = FakeTimer()
+        let feed = SpeculativeFeed(
+            ring: ring, converter: converter,
+            schedule: { timer.start(every: $0, $1) },
+            unschedule: { timer.stop() },
+            subMinimum: { $0 < 4 })
+        feed.start()
+
+        write([1, 2], to: ring)
+        timer.tick()
+        write([3], to: ring)
+        timer.tick()
+        write([4], to: ring)
+        timer.tick()
+
+        feed.terminate(with: AudioBuffer(samples: [], sampleRate: 16_000))
+
+        let chunks = await Self.collect(feed.chunks)
+        XCTAssertEqual(
+            chunks.map(\.samples), [[1, 2, 3, 4]],
+            """
+            Below the threshold nothing is yielded; the first chunk after the crossing carries \
+            the whole accumulated prefix — asserted on both the sample count and the samples \
+            themselves, so the engine still receives every sample, in order.
+            """)
+    }
+
+    /// **A whole session below the minimum.** `terminate(with:)` flushes everything accumulated
+    /// regardless of the minimum — the stream's chunks concatenate to the full (short) audio —
+    /// and the route over that stream, whose engine answers empty below its own minimum (the
+    /// seam contract), ends `.emptySkip` exactly as today: the injector is untouched and the
+    /// record class is `.emptySkip`, never a failure notice.
+    @MainActor
+    func testAWholeSessionBelowTheMinimumIsFlushedAtTerminateAndTheRouteEmptySkips() async throws {
+        let ring = AudioRingBuffer(capacity: 1 << 12)
+        let converter = try AudioFormatConverter(inputFormat: .interchange)
+        let timer = FakeTimer()
+        let feed = SpeculativeFeed(
+            ring: ring, converter: converter,
+            schedule: { timer.start(every: $0, $1) },
+            unschedule: { timer.stop() },
+            subMinimum: { $0 < 100_000 })
+        feed.start()
+
+        write([1, 2, 3], to: ring)
+        timer.tick()
+        write([4, 5], to: ring)
+        let remainder = try converter.finish(ring.drain())
+        feed.terminate(with: AudioBuffer(samples: remainder, sampleRate: 16_000))
+
+        let chunks = await Self.collect(feed.chunks)
+        XCTAssertEqual(
+            chunks.map(\.samples), [[1, 2, 3], [4, 5]],
+            "terminate flushes everything accumulated plus the remainder — the stream carries "
+                + "the full short audio, nothing dropped")
+        XCTAssertEqual(chunks.flatMap(\.samples), [1, 2, 3, 4, 5])
+
+        let ledger = LatencyLedger()
+        let sessionID = await ledger.beginSession()
+        let engine = StreamingStubEngine(
+            identity: EngineIdentity(
+                id: "empty-final-stub", displayName: "Empty final stub", isLocal: true),
+            partials: [], finalText: "")
+        let injector = FeedTestInjector()
+        let pipeline = DictationPipeline(
+            engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
+            recorder: ledger, clock: ContinuousMonotonicClock())
+        let target = TargetContext(
+            bundleID: "com.example.Notes", windowTitle: "The Draft", isSecureInput: false)
+        let stream = AsyncStream<AudioBuffer> { continuation in
+            for chunk in chunks {
+                continuation.yield(chunk)
+            }
+            continuation.finish()
+        }
+        let surface = await pipeline.routeStreaming(
+            chunks: stream, target: target, sessionID: sessionID)
+
+        XCTAssertEqual(surface, PipelineSurface.idle, "a sub-minimum whole session is skipped, not failed")
+        let calls = await injector.callCount
+        XCTAssertEqual(
+            calls, 0,
+            "the injector is untouched — `\"\"` is never pasted")
+        let records = await ledger.snapshot()
+        XCTAssertEqual(
+            records.first?.outcome, .emptySkip,
+            "the record class is `.emptySkip` exactly as today — never a failure, never a delivery")
+    }
+
+    // MARK: - The cadence, in exactly one file (phase (e))
+
+    /// **The single-source scan.** The feed's 50 ms cadence must be named in exactly one file
+    /// under `Sources/` — the "constants live in exactly one place" doctrine, the
+    /// `ProvisionalCleanupTargets` scan shape — and that file's constant must be 50 ms.
+    /// The needle is built from two parts so this very test does not trip its own scan.
+    func testTheFeedCadenceLivesInExactlyOneFileAndIsFiftyMilliseconds() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let needle = "SpeculativeFeed" + ".cadence"
+
+        var sightings: [String: Int] = [:]
+        for file in SwiftSourceScanner.swiftFiles(under: root.appendingPathComponent("Sources")) {
+            let content = try String(contentsOf: file, encoding: .utf8)
+            if content.contains(needle) {
+                sightings[file.lastPathComponent, default: 0] += 1
+            }
+        }
+
+        XCTAssertFalse(sightings.isEmpty, "vacuity guard: the scan saw no files at all")
+        XCTAssertEqual(
+            Set(sightings.keys), ["SpeculativeFeed.swift"],
+            "the feed cadence must be named in exactly one file under Sources/, got: \(sightings)")
+        let definition = try String(
+            contentsOf: root.appendingPathComponent("Sources/VoccaAudio/SpeculativeFeed.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            definition.contains("static let cadence: Duration = .milliseconds(50)"),
+            "the one file's constant is 50 ms — a different value must be a reviewed edit here")
+    }
+
     // MARK: - Helpers
+
+    /// The route's injector, as a counter — the sub-minimum whole-session row asserts the
+    /// injector is untouched, and a counter is the honest witness.
+    private actor FeedTestInjector: TextInjector {
+        private(set) var callCount = 0
+
+        func inject(_ text: String, into target: TargetContext) async -> InjectionResult {
+            callCount += 1
+            return InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false, elapsed: .zero)
+        }
+    }
 
     /// The collected chunks of a finished stream — the stream is single-shot and buffers its
     /// yields, so iterating after `terminate`/`cancel` sees everything.

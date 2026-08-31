@@ -280,7 +280,8 @@ public enum AppBootstrap {
             // schedule/unschedule pair (the feed lives in VoccaAudio, which may not import
             // VoccaHotkey — see `SpeculativeFeed`). One timer per microphone, held by the
             // schedule closure for as long as the feed lives.
-            feedSchedule: Self.mainRunLoopFeedSchedule())
+            feedSchedule: Self.mainRunLoopFeedSchedule(),
+            feedSubMinimum: Self.feedSubMinimum(for: selection))
         {
             microphone = source
             holdFeed = source.feed
@@ -298,7 +299,8 @@ public enum AppBootstrap {
         if let toggleGraph, let source = try? MicrophoneSource(
             graph: toggleGraph, recorder: ledger, clock: clock,
             sessionIDProvider: { sessionBox.sessionID },
-            feedSchedule: Self.mainRunLoopFeedSchedule())
+            feedSchedule: Self.mainRunLoopFeedSchedule(),
+            feedSubMinimum: Self.feedSubMinimum(for: selection))
         {
             toggleMicrophone = source
             toggleFeed = source.feed
@@ -650,6 +652,29 @@ public enum AppBootstrap {
     ) {
         let timer = MainRunLoopTimer()
         return (schedule: { timer.start(every: $0, $1) }, unschedule: { timer.stop() })
+    }
+
+    /// **The sub-minimum suppression predicate for the resolved engine** — the policy carried
+    /// by the predicate, never branched on by the feed itself. Parakeet's threshold is read
+    /// **live** from the SDK through the one permitted line — `ParakeetEngine.minimumRequiredSamples`
+    /// (the H8b lint keeps `ASRConstants` in that one file; the composition root names
+    /// `ParakeetEngine` and never the SDK). Whisper's predicate is `false` — no suppression —
+    /// because whisper's below-minimum behavior is unmeasured and never reasoned about (PRD M4,
+    /// measured in the adapter aspect). Decided once here, from the same selection the resolver
+    /// is built from.
+    private static func feedSubMinimum(
+        for selection: EngineSelection
+    ) -> (@Sendable (Int) -> Bool)? {
+        switch selection.tier {
+        case .parakeetV3:
+            return { count in
+                count
+                    < ParakeetEngine.minimumRequiredSamples(
+                        sampleRate: AudioBuffer.interchangeSampleRate)
+            }
+        case .whisperTurbo, .whisperTurboQ5:
+            return { _ in false }
+        }
     }
 
     // MARK: - The Apps tab's read

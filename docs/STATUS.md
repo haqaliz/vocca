@@ -939,6 +939,26 @@ guard deterministically: while the route holds the final, the injector's ledger 
 partials are in the store, and the one injection carries the batch result for the same audio.
 `SMOKE_CHECKLIST.md` steps 120–123 are the first real executions. Test floor: 1626 → 1631 → 1632.
 
+**Sub-minimum suppression and the cadence pin landed in the aspect's fifth commit.** The
+composition root wires the feed's sub-minimum predicate for the resolved engine: Parakeet's
+threshold read **live** from the SDK through the one permitted line —
+`ParakeetEngine.minimumRequiredSamples` (the H8b lint keeps `ASRConstants` in that one file; the
+composition root names `ParakeetEngine`, never the SDK) — and whisper's `{ _ in false }` (no
+suppression; whisper's below-minimum behavior is unmeasured, never reasoned about). The feed
+itself never branches on engine identity; the predicate carries the policy. The hold-first-chunk
+logic (shipped with the feed) is now pinned: below the threshold nothing is yielded, the first
+chunk after the crossing carries the whole accumulated prefix (every sample reaches the engine,
+in order), and a whole sub-minimum session is flushed at `terminate` — the route over it ends
+`.emptySkip` exactly as today, injector untouched, never a failure notice. The 50 ms cadence is
+pinned by a single-source scan to exactly one file under `Sources/` (the `ProvisionalCleanupTargets`
+scan shape). The S3 copy finding was verified: `PRODUCT_SPEC.md` has no streaming-partials
+contract, so no copy is invented — the pins that exist are the reducer's (kept while
+RECORDING/TRANSCRIBING, cleared on every adoption, never into DELIVERED) plus the integration
+test's "no partial before the threshold" and "no partial survives into DELIVERED" rows. The
+plan's `minimumRequiredSamples(sampleRate: Double)` signature became `Int` — the SDK's live
+signature is `forSampleRate: Int`, and the threshold travels in the SDK's own units. Test floor:
+1632 → 1639.
+
 **What this phase is NOT, and must not be claimed:**
 - **No engine streams, so no partial has ever appeared with a real model.** The partials in the
   composed acceptance are a stub engine's script; the widget's provisional text is unobservable

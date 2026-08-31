@@ -114,8 +114,17 @@ public actor ParakeetEngine: ASREngine {
     /// disagreement — the failure mode of a copy is answering empty for audio FluidAudio would
     /// happily have transcribed.
     static func isBelowSDKMinimum(_ buffer: AudioBuffer) -> Bool {
-        buffer.samples.count
-            < ASRConstants.minimumRequiredSamples(forSampleRate: buffer.sampleRate)
+        buffer.samples.count < Self.minimumRequiredSamples(sampleRate: buffer.sampleRate)
+    }
+
+    /// **The SDK's minimum, read live** — the one line the composition root may call to build
+    /// the speculative feed's sub-minimum predicate (`speculative-feed` phase (e)):
+    /// `ASRConstants` is FluidAudio's and the H8b lint keeps that family in this file, so the
+    /// composition root names `ParakeetEngine` and never `ASRConstants`. The threshold travels
+    /// in the SDK's own units (raw samples at the interchange rate), exactly as
+    /// ``isBelowSDKMinimum(_:)`` compares it.
+    public static func minimumRequiredSamples(sampleRate: Int) -> Int {
+        ASRConstants.minimumRequiredSamples(forSampleRate: sampleRate)
     }
 
     /// The real loader: manual `AsrModels.load(from:)` from the Vocca-managed directory, with
