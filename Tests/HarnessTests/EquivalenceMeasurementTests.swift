@@ -384,6 +384,75 @@ final class EquivalenceMeasurementTests: XCTestCase {
                 + "and pinned here, got: \(sightings)")
     }
 
+    // MARK: - The key-up cost accounting (Phase (d))
+
+    /// The injected clock's reads are deterministic, so the accounting is pinned as exact
+    /// deltas: batch = two reads straddling `transcribe`; key-up = the last chunk's delivery to
+    /// the final (the `finish()` decode — the honest "cost at key-up"); streamed = first chunk
+    /// to final. The read order is fixed: batch start, batch end, streamed start, last-chunk
+    /// stamp (a one-chunk fixture), final.
+    func testTheRunnerRecordsTheKeyUpAndBatchAndStreamedDurationsThroughTheInjectedClock()
+        async throws
+    {
+        let engine = RunnerScriptedEngine(
+            batchText: "the quick brown fox", partials: ["the quick"], finals: ["the quick brown fox"])
+        let clock = ScriptedClock(readings: [
+            .zero, .milliseconds(1_000), .milliseconds(2_000), .milliseconds(3_000),
+            .milliseconds(4_000),
+        ])
+        let result = try await EquivalenceRealEngineRunner.run(
+            engine: engine,
+            fixtures: [makeFixture(name: "clean", sampleCount: 16_000)],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .notSuppressed },
+            clock: clock)
+        let record = result.fixtures[0]
+        XCTAssertEqual(
+            record.batchElapsed, .milliseconds(1_000),
+            "batch cost: the two reads straddling transcribe")
+        XCTAssertEqual(
+            record.keyUpElapsed, .milliseconds(1_000),
+            "key-up cost: the last chunk's delivery to the final — the finish() decode")
+        XCTAssertEqual(
+            record.streamedElapsed, .milliseconds(2_000),
+            "streamed cost: first chunk to final — recorded, nothing claimed from it")
+        XCTAssertEqual(record.partialsObserved, 1)
+    }
+
+    /// The zero-partials note renders **exactly** when `partialsObserved == 0` — "no partials
+    /// before key-up — the key-up decode covers the full window (X ms)", a measured fact, not an
+    /// assumption — and is absent when partials were observed.
+    func testTheZeroPartialsNoteRendersExactlyWhenNoPartialsWereObserved() async throws {
+        let noPartials = RunnerScriptedEngine(batchText: "a", partials: [], finals: ["a"])
+        let zeroResult = try await EquivalenceRealEngineRunner.run(
+            engine: noPartials,
+            fixtures: [makeFixture(name: "clean", sampleCount: 16_000)],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .notSuppressed },
+            clock: ScriptedClock(readings: [.zero, .zero, .zero, .zero, .zero]))
+        let zeroTable = EquivalenceRowRenderer.renderTable(zeroResult)
+        XCTAssertTrue(
+            zeroTable.contains(
+                "no partials before key-up — the key-up decode covers the full window (0 ms)"),
+            "a fixture with zero partials says so with the key-up cost beside it, got: \(zeroTable)")
+
+        let withPartials = RunnerScriptedEngine(batchText: "a", partials: ["a"], finals: ["a"])
+        let partialResult = try await EquivalenceRealEngineRunner.run(
+            engine: withPartials,
+            fixtures: [makeFixture(name: "clean", sampleCount: 16_000)],
+            toleranceTable: ProvisionalEquivalenceTolerances.table,
+            suppression: { .notSuppressed },
+            clock: ScriptedClock(readings: [.zero, .zero, .zero, .zero, .zero]))
+        let partialTable = EquivalenceRowRenderer.renderTable(partialResult)
+        XCTAssertFalse(
+            partialTable.contains("no partials before key-up"),
+            "the zero-partials note is absent when partials were observed, got: \(partialTable)")
+        XCTAssertTrue(
+            partialTable.contains("partials observed: 1 — key-up 0 ms vs batch 0 ms"),
+            "the partials-observed row shows the key-up cost vs the full batch cost, got: "
+                + "\(partialTable)")
+    }
+
     // MARK: - The suppression discipline (Phase (c))
 
     /// An injected suppression read returning `.unreadable(errno:)` voids **every** row with the
@@ -644,6 +713,25 @@ final class EquivalenceMeasurementTests: XCTestCase {
             buffer: VoccaCore.AudioBuffer(
                 samples: [Float](repeating: 0, count: sampleCount), sampleRate: 16_000),
             goldenText: "unused by the runner — the comparison is batch vs streamed final")
+    }
+
+    /// The accounting pin's clock: returns a fixed reading sequence, then holds the last reading —
+    /// the runner's read order is deterministic, so each duration is an exact, hand-asserted
+    /// delta. `@unchecked Sendable` for the ``BenchmarkClock`` reason: the reads are serialized
+    /// by the awaits between them (batch reads, then streamed start, then the producer's
+    /// last-chunk stamp, then the final), single-writer, sequential.
+    private final class ScriptedClock: MonotonicClock, @unchecked Sendable {
+        private let readings: [Duration]
+        private var index = 0
+
+        init(readings: [Duration]) {
+            self.readings = readings
+        }
+
+        var now: Duration {
+            defer { index += 1 }
+            return readings[min(index, readings.count - 1)]
+        }
     }
 
     /// The scripted double for the runner rows: the batch side (`transcribe`) speaks

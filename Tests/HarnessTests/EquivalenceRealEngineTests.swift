@@ -118,6 +118,28 @@ final class EquivalenceRealEngineTests: XCTestCase {
             },
             "no row may carry an unreadable suppression state as an answer — an unreadable state "
                 + "is a void run, not a row")
+
+        // The key-up-cost row's shape (never its values): the sixty-second fixture records what
+        // the streamed final actually costs at key-up vs the full batch — the "only the tail is
+        // unprocessed" premise, measured not assumed. A run whose engine does not stream has no
+        // durations (the VOID rows), so the shape assertion holds only on the streaming path.
+        if engine.supportsStreaming {
+            let sixtySecond = try XCTUnwrap(
+                rows.first { $0.row.fixtureName == "sixty-second" },
+                "the sixty-second fixture is part of the discovered suite")
+            XCTAssertNotNil(
+                sixtySecond.batchElapsed,
+                "the sixty-second row records the full-batch cost — the key-up row's comparison "
+                    + "half")
+            XCTAssertNotNil(
+                sixtySecond.keyUpElapsed,
+                "the sixty-second row records what the streamed final actually costs at key-up")
+            XCTAssertNotNil(
+                sixtySecond.streamedElapsed,
+                "the sixty-second row records first-chunk-to-final — recorded, nothing claimed "
+                    + "from it")
+        }
+
         print(
             "verdict: \(result.verdict) — RECORDED, never gated: a FAIL here blocks claiming "
                 + "the latency win, never shipping the feed")

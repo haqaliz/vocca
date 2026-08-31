@@ -1375,8 +1375,14 @@ set -euo pipefail
 # never presented as clean), an unexpected priority records with its label, and the env-gated
 # shell's skip names the provisioning script — the loud-instruction half of the gate.
 #
+# The key-up cost accounting adds two (1685 -> 1687): the injected clock's reads are
+# deterministic, so the batch/key-up/streamed durations are pinned as exact hand-asserted deltas
+# (the key-up cost = last chunk's delivery to the final, the honest finish()-decode figure), and
+# the zero-partials note renders exactly when no partials were observed — "the key-up decode
+# covers the full window (X ms)", a measured fact, not an assumption.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1685
+MINIMUM_EXECUTED_TESTS=1687
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

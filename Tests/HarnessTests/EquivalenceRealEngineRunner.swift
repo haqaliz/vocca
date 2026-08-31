@@ -103,7 +103,9 @@ enum EquivalenceRealEngineRunner {
             throw EquivalenceRealEngineRunnerError.missingTolerance(fixture: fixture.name)
         }
 
+        let batchStart = clock.now
         let batch = try await engine.transcribe(fixture.buffer)
+        let batchElapsed = clock.now - batchStart
         guard batch.engine == engine.identity else {
             throw EquivalenceRealEngineRunnerError.attributionMismatch(
                 fixture: fixture.name, expected: engine.identity, actual: batch.engine)
@@ -111,7 +113,8 @@ enum EquivalenceRealEngineRunner {
 
         // The streaming guard: a non-streaming engine would compare batch against batch, which
         // proves nothing — every row is VOID with the named reason (a pre-sibling ParakeetEngine
-        // records VOID loudly, never a silent equality).
+        // records VOID loudly, never a silent equality). No duration exists for a run that did
+        // not happen.
         guard engine.supportsStreaming else {
             let row = StreamedVsBatchComparison.compare(
                 fixtureName: fixture.name, batchText: batch.text, streamedFinalText: "")
@@ -129,8 +132,15 @@ enum EquivalenceRealEngineRunner {
 
         let sampleChunks = chunks(
             of: fixture.buffer.samples, size: EquivalenceMeasurementTargets.streamChunkSamples)
+        // The last chunk's delivery instant, captured inside the producer — the honest anchor of
+        // the key-up cost (the `finish()` decode). `@unchecked Sendable` for the ``BenchmarkClock``
+        // reason: written by the stream's producer, read by the consuming task after the final,
+        // serialized by the awaits between them — single-writer, sequential.
+        let lastChunkStamp = LastChunkStamp()
+        let streamedStart = clock.now
         let chunkStream = AsyncStream<VoccaCore.AudioBuffer> { continuation in
             for samples in sampleChunks {
+                lastChunkStamp.at = clock.now
                 continuation.yield(
                     VoccaCore.AudioBuffer(samples: samples, sampleRate: 16_000))
             }
@@ -139,9 +149,11 @@ enum EquivalenceRealEngineRunner {
 
         var partialsObserved = 0
         var finals: [Transcript] = []
+        var finalAt: Duration?
         for try await transcript in engine.stream(chunkStream) {
             if transcript.isFinal {
                 finals.append(transcript)
+                finalAt = clock.now
             } else {
                 partialsObserved += 1
             }
@@ -172,9 +184,9 @@ enum EquivalenceRealEngineRunner {
             row: row,
             verdict: StreamedVsBatchComparison.decide(
                 row: row, tolerance: tolerance, preconditions: preconditions),
-            batchElapsed: nil,
-            keyUpElapsed: nil,
-            streamedElapsed: nil,
+            batchElapsed: batchElapsed,
+            keyUpElapsed: finalAt.map { $0 - (lastChunkStamp.at ?? $0) },
+            streamedElapsed: finalAt.map { $0 - streamedStart },
             partialsObserved: partialsObserved,
             suppression: state)
     }
@@ -198,6 +210,17 @@ enum EquivalenceRealEngineRunner {
     private static func isReadable(_ state: DarwinSuppression) -> Bool {
         if case .unreadable = state { return false }
         return true
+    }
+
+    // MARK: - The last-chunk stamp
+
+    /// The last chunk's delivery instant, captured inside the chunk producer — the honest anchor
+    /// of the key-up cost (the `finish()` decode). `@unchecked Sendable` for the
+    /// ``BenchmarkClock`` reason: written by the stream's producer, read by the consuming task
+    /// after the final arrives, serialized by the awaits between them — single-writer,
+    /// sequential.
+    private final class LastChunkStamp: @unchecked Sendable {
+        var at: Duration?
     }
 
     // MARK: - The printed record
