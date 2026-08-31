@@ -891,6 +891,58 @@ The recorder captures through a **first-responder override in Vocca's own window
 - **`PRODUCT_SPEC.md:252` was amended** (founder-approved) because its unqualified "conflict
   detection against system shortcuts" is not deliverable.
 
+**The `whisper-streaming` aspect landed 2026-08-31 — the second engine genuinely streams
+behind the seam, in four commits.** `WhisperCppEngine.supportsStreaming` is now `true`, and
+`stream(_:)` runs the canonical repeated-`whisper_full` pattern over the seam: every non-empty
+chunk arrival decodes the whole growing buffer through the bridge and yields that decode's
+segments as a partial, and the key-up final is the last decode's segments — **equal to a batch
+transcription of the same audio by construction** (same params, same audio, same `whisper_full`
+machinery). The new C surface lives inside the seam's one file (`WhisperCAPI.swift`, the H8b
+one-file lint unchanged): `transcribeStreaming(samples:)` registers the pinned header's
+`new_segment_callback` with a per-call `SegmentHarvestBox` riding in `user_data`
+(`Unmanaged` pass-retained, released in a `defer` on every path; the callback fires on the
+calling thread inside `whisper_full`, which the engine actor serializes), harvesting the last
+`n_new` segments into the box. `single_segment` stays `false` in the streaming variant — the
+header's "useful for streaming" note applies to the stateful incremental pattern (N2), not this
+one, and forcing it would break final ≡ batch — and the streaming params construction is
+**deliberately duplicated, not extracted** (nothing in CI executes the CAPI, so a shared helper
+could drift the batch path with no test to catch it; the parity comment in both methods is the
+pin until step 19). The batch `transcribe` body is byte-for-byte untouched; the mapper gains
+`isFinal: Bool = true` so every existing batch call site stays byte-identical. The engine's
+loop: decode every non-empty chunk (no throttle — the O(n²) cost is acknowledged, not hidden),
+empty chunks never decode (the batch empty-buffer policy, stream-shaped), the missing-sample
+sum accumulates with a cap onto every yield (the I1 completeness link survives streaming),
+cancellation and mid-utterance ends both terminate as partials-then-one-final, never a throw,
+a decode failure finishes throwing with the cause intact and nothing after it, and an
+unprepared engine refuses at the stream's start. Timing (flagged decision): exactly one
+`EngineTiming` sample per stream — the last decode's elapsed, under the `transcribedSinceLoad`
+split, flipped only on success; a zero-decode stream records nothing. The headless contract
+rows (eleven, over `StubWhisperContext`'s scripted streaming half) prove the **engine** half:
+partials-then-one-final, final ≡ batch, mid-utterance end, empty streams, failure, consumer
+cancellation, timing, missing-sample, transport silence, unprepared refusal. `SMOKE_CHECKLIST.md`
+step 19 gains the **streamed cycle** — partials on real audio, the final text-for-text equal to
+batch, short-audio rows (0.2 s / 0.5 s / 1 s: transcribes / pads to empty / refuses-and-throws,
+and the measured constant if it refuses, one place, both paths) and the cost row (total
+streamed-decode time vs one batch decode — the O(n²) observation) — recorded, never gated,
+unverified until the step runs. Test floor: 1687 → 1699.
+
+**What this aspect is NOT, and must not be claimed:**
+- **The accuracy, short-audio and cost rows are unmeasured.** The C half of the by-construction
+  claim — same params ⇒ same segments — is verified only at step 19's streamed cycle, never in
+  CI; the headless rows prove the engine half. Whisper's short-audio behavior (pad vs refuse)
+  remains "reasoning about the C library, not a measurement" for both paths until the step's
+  0.2 s / 0.5 s / 1 s clips record it.
+- **The CAPI's streaming half is executed by nothing in CI** (the tap-adapter precedent): the
+  callback registration, the harvest box and the O(n²) cost are exercised by no test — the
+  contract rows drive the seam double, and the by-construction parity rests on the duplicated
+  params construction's comment, not on a CI-executed check.
+- **`whisper_full_with_state` (N2) is still deferred** — no stateful incremental decoding, no
+  drift measurement; and `whisper_full_parallel` is never used either.
+- **No caller may assume key-up savings** — the doc comments say so in words: partial passes are
+  O(n²) over the utterance and the key-up final pays the full decode.
+- **CLAUDE.md's status paragraphs were not amended here** — the integrator's front-door update
+  is the integrator's step.
+
 **The `equivalence-measurement` aspect landed 2026-08-31 — open question 2's measurement:
 the streamed-vs-batch verdict, recorded never gated, in five commits.** The harness drives every
 discovered fixture twice — batch `transcribe` and streamed (1 s chunks → exactly one final) —

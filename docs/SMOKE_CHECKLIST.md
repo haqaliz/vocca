@@ -354,6 +354,7 @@ therefore a first execution, not a re-check.
     - Provision the whisper artifacts, then run the whisper test:
       `./Scripts/provision-asr-fixtures.sh --engine whisper-large-v3-turbo` (and the q5_0 tier),
       then `WhisperCppEngineWERTests` with `VOCCA_MODEL_DIR` set to the store-shaped install.
+      That runner stays batch-only — its run is this step's WER half.
     - *Pass:* all six fixtures within their tolerances, attribution carrying `whisper-large-v3-turbo`
       — with the numbers still **provisional**: copied from Parakeet's first real run as the
       mechanism's required starting point (`PRD M6`), not yet replaced by measured whisper values.
@@ -362,6 +363,27 @@ therefore a first execution, not a re-check.
       table in exactly the two test files.
     - Until this step has been run once, everything this repository says about whisper's accuracy
       is a claim about structure, not about measurement.
+
+    *(Amended 2026-08-31, `whisper-streaming`.)* The same run now covers the **streamed cycle** —
+    the first real execution of the streaming adapter's by-construction claim, which CI never
+    reaches:
+
+    - **The streamed cycle.** Run one fixture's audio through `engine.stream` split into chunks
+      (the 1 s chunk shape the equivalence harness uses); partials must appear — one per decode,
+      each the full growing buffer's segments — and the streamed final must equal the batch
+      transcript of the same audio **text-for-text** (same params, same audio, same `whisper_full`
+      machinery — the parity the bridge's comment pins; this is the by-construction check on real
+      audio, never before run).
+    - **Short-audio rows (the sub-minimum observation).** Run 0.2 s / 0.5 s / 1 s clips through
+      both `transcribe` and `stream` and record what whisper does: transcribes, pads to empty, or
+      refuses-and-throws. If it refuses, the measured constant (`WhisperCppEngine`'s stream
+      comment, one place, both paths — the `ParakeetEngine.isBelowSDKMinimum` mirror) is set per
+      the tolerances procedure (`docs/planning/second-asr-engine/fixture-harness/tolerances_20260810.md`).
+    - **The cost row.** Record the total streamed-decode time vs one batch decode of the same
+      utterance on one fixture — the O(n²) observation the adapter's doc comment names. Recorded,
+      never gated; no caller may assume key-up savings.
+    - The rows above are **unverified until this step runs** — nothing in CI measures them, and
+      the headless contract rows prove the engine half only.
 
 20. **The engine picker panel — switch, tier, download.** `EnginePickerView` is executed by nothing
     in CI (a hosted runner has no window server), and its headless half is tested: the
