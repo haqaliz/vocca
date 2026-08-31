@@ -1131,11 +1131,20 @@ final class AudioFormatConverterTests: XCTestCase {
     /// request are PRD M5/M5b's permission surface — `AVCaptureDevice` is where the TCC
     /// authorization answer and the request live — and R6's planned amendment is this reviewed
     /// row, exactly as the R6 row of `docs/planning/first-run-permissions/prd.md` promises.
+    ///
+    /// The `parakeet-streaming` aspect adds the fourth file: the streaming adapter
+    /// (`VoccaASR/Parakeet/ParakeetEngine.swift`). The SDK's sliding-window stream API
+    /// (`SlidingWindowAsrManager.streamAudio(_:)`) takes `AVAudioPCMBuffer` — an AVFoundation
+    /// type — so the adapter that feeds it cannot be built without the framework, and the plan's
+    /// reviewed amendment is this row. `AVAudioFormat`/`AVAudioPCMBuffer` are system framework
+    /// types, not FluidAudio names, so the H8b SDK confinement is unaffected: the file may speak
+    /// both, each bounded by its own reviewed list.
     func testTheFilesThatImportAVFoundationAreExactlyTheExpectedSet() throws {
         let expected: Set<String> = [
             "VoccaAudio/AudioFormatConverter.swift",
             "VoccaAudio/AudioCaptureGraph.swift",
             "VoccaAudio/MicrophoneAuthorization.swift",
+            "VoccaASR/Parakeet/ParakeetEngine.swift",
         ]
 
         let sources = try PackageRootLocator.find(from: #filePath)

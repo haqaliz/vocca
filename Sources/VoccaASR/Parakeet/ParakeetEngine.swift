@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import AVFoundation
 import FluidAudio
 import Foundation
 import VoccaCore
@@ -36,6 +37,18 @@ import VoccaCore
 /// (measured in the F1 spike). Models reach the machine only through ``ModelStore`` and the
 /// injected transport; FluidAudio never fetches.
 ///
+/// ## The streaming surface
+///
+/// ``supportsStreaming`` is `true`: the sliding-window adapter (`SlidingWindowAsrManager`, SDK
+/// defaults only — the founder decision) drives ``stream(_:)``. The manager's lifecycle is **one
+/// fresh manager per `stream()` call**: the SDK's `finish()` permanently ends its input stream
+/// and `reset()` cannot revive it, so a manager serves exactly one session, with the retained
+/// ``AsrModels`` re-loaded into each fresh one (the per-session load cost is unmeasured — the
+/// env-gated run observes it and the equivalence-measurement aspect records it, never this one).
+/// Every decision the stream makes is above this file — the partial/final mapping and the
+/// sub-minimum answer are ``ParakeetTranscriptMapper`` and ``isBelowSDKMinimum`` — leaving this
+/// file translation only, exactly as the batch half.
+///
 /// ## The layout
 ///
 /// The spike measured that `AsrModels.load(from: D)` resolves the file home to
@@ -46,7 +59,10 @@ public actor ParakeetEngine: ASREngine {
 
     public nonisolated let identity: EngineIdentity
 
-    public nonisolated var supportsStreaming: Bool { false }
+    /// The seam's streaming flag — `true` since the sliding-window adapter: a streaming engine
+    /// implements ``stream(_:)`` itself, and **no caller branches on this flag** (the seam's
+    /// batch default is a batch engine's degradation, not a streaming one's).
+    public nonisolated var supportsStreaming: Bool { true }
 
     /// The store that downloads and verifies the model — the only way model bytes enter the
     /// machine (the first named network type, `ARCHITECTURE.md:16`, amended).
@@ -74,6 +90,11 @@ public actor ParakeetEngine: ASREngine {
 
     /// The loaded manager — `nil` until `prepare()` completes.
     private var manager: AsrManager?
+
+    /// The loaded models, retained for the streaming sessions: each `stream()` call constructs a
+    /// fresh ``SlidingWindowAsrManager`` and re-loads this in-memory value (a finished manager's
+    /// input stream cannot be revived), so the models must outlive the batch manager.
+    private var models: AsrModels?
 
     /// The TDT decoder state, threaded through every transcription call.
     private var decoderState: TdtDecoderState?
@@ -113,7 +134,7 @@ public actor ParakeetEngine: ASREngine {
     /// The threshold is the SDK's, read live rather than copied, so the two cannot drift into
     /// disagreement — the failure mode of a copy is answering empty for audio FluidAudio would
     /// happily have transcribed.
-    static func isBelowSDKMinimum(_ buffer: AudioBuffer) -> Bool {
+    static func isBelowSDKMinimum(_ buffer: VoccaCore.AudioBuffer) -> Bool {
         Self.isBelowSDKMinimum(sampleCount: buffer.samples.count, sampleRate: buffer.sampleRate)
     }
 
@@ -162,6 +183,7 @@ public actor ParakeetEngine: ASREngine {
         do {
             try await store.downloadIfMissing(manifest: manifest, transport: transport)
             let models = try await modelLoader(await loadDirectory())
+            self.models = models
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             self.manager = manager
@@ -196,7 +218,7 @@ public actor ParakeetEngine: ASREngine {
     ///   is carried onto the transcript — short audio never masquerades as complete (I1).
     /// - Any SDK failure surfaces as ``VoccaError/transcriptionFailed(_:underlying:)`` —
     ///   attributable to this engine, never swallowed.
-    public func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+    public func transcribe(_ buffer: VoccaCore.AudioBuffer) async throws -> Transcript {
         guard let manager, var decoderState else {
             throw VoccaError.modelUnavailable(
                 identity, reason: "the model is not loaded; call prepare() first")
@@ -225,6 +247,153 @@ public actor ParakeetEngine: ASREngine {
             throw VoccaError.transcriptionFailed(identity, underlying: error)
         }
     }
+
+    /// Streaming transcription — the seam's partials-then-exactly-one-final shape, in the
+    /// ``StreamingStubEngine/stream(_:)`` form (`ASRTestDoubles.swift:172-184`): `nonisolated`
+    /// because the seam's requirement is synchronous, with the producer task carrying the
+    /// asynchrony, and a consumer that stops early cancels the producer (``onTermination``).
+    public nonisolated func stream(
+        _ chunks: AsyncStream<VoccaCore.AudioBuffer>
+    ) -> AsyncThrowingStream<Transcript, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                await self.runStream(chunks, continuation: continuation)
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+
+    /// The stream body — actor-isolated, the ``StreamingStubEngine/runStream(_:continuation:)``
+    /// shape (`ASRTestDoubles.swift:197-238`), driven by a fresh ``SlidingWindowAsrManager`` per
+    /// call: the SDK's `finish()` permanently ends its input stream and `reset()` cannot revive
+    /// it, so a manager serves exactly one session, with the retained models re-loaded into it.
+    ///
+    /// Termination is driven **only by the chunk stream**: the chunk stream's end is the finish
+    /// signal (the seam has no caller-side finish call), and the updates stream ending on its own
+    /// ends the partials task silently — the adapter cannot hang on a silent SDK. Exactly one
+    /// final is yielded, from exactly one place, after the partials task has drained, so a
+    /// consumer never sees a partial after the final. The batch timing path is deliberately not
+    /// mirrored here: the pipeline owns the ASR span, and real numbers are the
+    /// equivalence-measurement aspect's.
+    private func runStream(
+        _ chunks: AsyncStream<VoccaCore.AudioBuffer>,
+        continuation: AsyncThrowingStream<Transcript, Error>.Continuation
+    ) async {
+        guard let models else {
+            continuation.finish(throwing: VoccaError.modelUnavailable(
+                identity, reason: "the model is not loaded; call prepare() first"))
+            return
+        }
+        let manager = SlidingWindowAsrManager(config: .default)
+        let engineIdentity = identity
+        let partialsTask = Task {
+            for await update in await manager.transcriptionUpdates {
+                guard !Task.isCancelled else { break }
+                continuation.yield(ParakeetTranscriptMapper.partial(
+                    text: update.text, engine: engineIdentity))
+            }
+        }
+        do {
+            try await manager.loadModels(models)
+            try await manager.startStreaming()
+        } catch {
+            partialsTask.cancel()
+            continuation.finish(throwing: VoccaError.transcriptionFailed(
+                identity, underlying: error))
+            return
+        }
+
+        var totalSampleCount = 0
+        var lastMissing = 0
+        for await chunk in chunks {
+            guard !Task.isCancelled else {
+                partialsTask.cancel()
+                continuation.finish(throwing: CancellationError())
+                return
+            }
+            totalSampleCount += chunk.samples.count
+            lastMissing = chunk.missingSampleCount
+            do {
+                let pcm = try Self.pcmBuffer(for: chunk)
+                await manager.streamAudio(pcm)
+            } catch {
+                partialsTask.cancel()
+                continuation.finish(throwing: VoccaError.transcriptionFailed(
+                    identity, underlying: error))
+                return
+            }
+        }
+        guard !Task.isCancelled else {
+            partialsTask.cancel()
+            continuation.finish(throwing: CancellationError())
+            return
+        }
+
+        let text: String
+        if Self.isBelowSDKMinimum(
+            sampleCount: totalSampleCount, sampleRate: AudioBuffer.interchangeSampleRate)
+        {
+            // The sub-minimum stream answers a single empty final, never a throw — even if the
+            // SDK's finish throws under the covers (`try?` + discard): the recognizer task still
+            // completes, which is all this call is for.
+            _ = try? await manager.finish()
+            text = ""
+        } else {
+            do {
+                text = try await manager.finish()
+            } catch {
+                partialsTask.cancel()
+                continuation.finish(throwing: VoccaError.transcriptionFailed(
+                    identity, underlying: error))
+                return
+            }
+        }
+        // Drain the partials task before the final: cancelling the consumer ends its iteration
+        // (an `AsyncStream` iteration ends on its consuming task's cancellation), and awaiting it
+        // guarantees every partial that will ever be yielded lands before the final — the seam's
+        // partials-then-final ordering, deterministic rather than raced.
+        partialsTask.cancel()
+        await partialsTask.value
+        guard !Task.isCancelled else {
+            continuation.finish(throwing: CancellationError())
+            return
+        }
+        continuation.yield(ParakeetTranscriptMapper.final(
+            text: text, forSampleCount: totalSampleCount, engine: identity,
+            missingSampleCount: lastMissing))
+        continuation.finish()
+    }
+
+    /// A 16 kHz mono Float32 `AVAudioPCMBuffer` carrying one seam chunk — the SDK's input shape
+    /// (`SlidingWindowAsrManager.streamAudio` accepts any format and converts; seam buffers are
+    /// already the interchange format, so this is a copy into the SDK's container, never a
+    /// conversion).
+    ///
+    /// AVFoundation names are permitted in this one file: the H8b discipline confines the SDK's
+    /// own names, and the buffer type the SDK's stream API speaks is a system framework type a
+    /// streaming adapter cannot translate without.
+    private static func pcmBuffer(for chunk: VoccaCore.AudioBuffer) throws -> AVAudioPCMBuffer {
+        let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+        let capacity = AVAudioFrameCount(max(1, chunk.samples.count))
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+            throw ParakeetStreamError.pcmBufferAllocationFailed
+        }
+        buffer.frameLength = AVAudioFrameCount(chunk.samples.count)
+        if !chunk.samples.isEmpty, let channel = buffer.floatChannelData?[0] {
+            chunk.samples.withUnsafeBufferPointer { source in
+                channel.update(from: source.baseAddress!, count: source.count)
+            }
+        }
+        return buffer
+    }
+}
+
+/// The stream adapter's own failure vocabulary — the one thing the SDK has no error for (a PCM
+/// buffer allocation failing). SDK errors map to ``VoccaError/transcriptionFailed(_:underlying:)``
+/// intact; this one is Vocca's, in the same wrapper.
+private enum ParakeetStreamError: Error {
+    case pcmBufferAllocationFailed
 }
 
 /// The default ``MonotonicClock`` implementation for the engine: `ContinuousClock`, the

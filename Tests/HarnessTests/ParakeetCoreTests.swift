@@ -31,6 +31,22 @@ final class ParakeetCoreTests: XCTestCase {
         AudioBuffer(samples: samples, sampleRate: 16_000)
     }
 
+    /// A headless real engine: stub store over a temp root, unused transport base URL (never
+    /// reached), the shipped manifest, the offline flag set in `init` — the
+    /// ``ParakeetEngineWERTests`` construction minus the model. Construction performs no network.
+    private func makeEngine() throws -> ParakeetEngine {
+        let manifestURL = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json")
+        let manifest = try ModelManifest.load(from: Data(contentsOf: manifestURL))
+        return ParakeetEngine(
+            store: ModelStore(
+                rootURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("vocca-engine-\(UUID().uuidString)")),
+            manifest: manifest,
+            transport: DefaultModelTransport(baseURL: URL(string: "https://unused.invalid")!),
+            clock: ContinuousMonotonicClock())
+    }
+
     // MARK: - Identity
 
     /// The identity constant carries the three fields with `isLocal == true` — no egress badge
@@ -125,21 +141,33 @@ final class ParakeetCoreTests: XCTestCase {
     /// unused transport base URL (never reached), the shipped manifest, the offline flag set in
     /// `init` — exactly the `ParakeetEngineWERTests` construction minus the model.
     func testTheEngineReportsStreamingSupport() throws {
-        let manifestURL = try PackageRootLocator.find(from: #filePath)
-            .appendingPathComponent("Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json")
-        let manifest = try ModelManifest.load(from: Data(contentsOf: manifestURL))
-        let engine = ParakeetEngine(
-            store: ModelStore(
-                rootURL: FileManager.default.temporaryDirectory
-                    .appendingPathComponent("vocca-streaming-pin-\(UUID().uuidString)")),
-            manifest: manifest,
-            transport: DefaultModelTransport(baseURL: URL(string: "https://unused.invalid")!),
-            clock: ContinuousMonotonicClock())
+        let engine = try makeEngine()
 
         XCTAssertTrue(
             engine.supportsStreaming,
             "the Parakeet adapter streams — the seam's batch default is a batch engine's "
                 + "degradation, not a streaming one's")
+    }
+
+    /// The one branch of the real adapter a headless test can execute: an unprepared engine's
+    /// `stream` finishes throwing `VoccaError.modelUnavailable` — the mirror of `transcribe`'s
+    /// not-loaded guard, so a stream on an unprepared engine fails loudly and attributed (the
+    /// pipeline's route already handles the throwing shape) rather than hanging or answering
+    /// garbage.
+    func testAnUnpreparedEngineStreamFinishesWithModelUnavailable() async throws {
+        let engine = try makeEngine()
+        let chunks = AsyncStream<AudioBuffer> { $0.finish() }
+
+        do {
+            for try await _ in engine.stream(chunks) {
+                XCTFail("an unprepared engine's stream must yield nothing before finishing")
+            }
+            XCTFail("an unprepared engine's stream must finish by throwing, not by ending")
+        } catch VoccaError.modelUnavailable(let caughtIdentity, _) {
+            XCTAssertEqual(
+                caughtIdentity, ParakeetEngineIdentity.parakeet,
+                "the failure must be attributed to this engine")
+        }
     }
 
     /// The partial form: every SDK sliding-window update — confirmed or volatile alike — maps to
