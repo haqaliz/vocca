@@ -2362,6 +2362,56 @@ meaningful preferences exist on a hosted runner. These steps are the first execu
     *Failure:* leaving a tester on `F13`, or leaving Mission Control on a chord they did not
     choose. Both are real costs to the next person to use that machine.
 
+120. **First real dictation with the speculative feed live** (batch engine; engines do not stream
+    yet — the feed's lifecycle is what these steps observe, never partials that cannot appear).
+
+    *Gesture:* press the hotkey, speak 3–5 s, release.
+
+    *Verify the state was entered:* the log carries the feed's start and stop lines
+    (`log stream --subsystem dev.vocca.Vocca | grep "the feed"` — the lines land in
+    `SpeculativeFeed.start` / `terminate` / `cancel`).
+
+    *Pass (tighter than the failure):* the mic dot is gone and the widget is IDLE within 5 s of
+    key-up (the failure this guards is an orphaned feed = hot mic); the final lands in the field
+    exactly as before the feed; no failure notice.
+
+    *Failure:* a feed that never started is caught by the missing start log; a feed that never
+    stopped is caught by the mic dot.
+
+121. **Escape mid-session with the feed live.**
+
+    *Gesture:* start a session, speak, press Esc.
+
+    *Verify the state was entered:* the feed's stop log appears and the widget shows the
+    discard-to-IDLE transition.
+
+    *Pass (tighter than the failure):* nothing is injected (the field is unchanged), the mic dot
+    is out, and the widget is IDLE — the orphaned-feed and injected-after-cancel failures both
+    leave the mic dot or the field non-empty.
+
+122. **Sub-0.3 s press with the feed live.**
+
+    *Gesture:* tap the hotkey and release immediately.
+
+    *Verify the state was entered:* the feed flushed a sub-minimum stream (the terminate-with-
+    remainder path — the stop log's remainder count is small or zero).
+
+    *Pass (tighter than the failure):* **no** `.transcriptionFailed` notice appears and the widget
+    returns to IDLE — the failure this guards is the regression to "Voice processing failed" on a
+    quick tap.
+
+123. **Quit mid-recording** (executed by nothing in CI — the window-server rule).
+
+    *Gesture:* start a session, then quit from the menu bar while recording.
+
+    *Verify the state was entered:* the feed's stop log appears (the quit path's `feed.cancel()`
+    runs before `terminate`) and the mic dot goes out.
+
+    *Pass:* the process exits cleanly.
+
+    *Failure:* a feed still ticking at process exit — the quit path's cancel is the claim that
+    "no feed left running" is true in the code that runs, not only as a property of process death.
+
 ---
 
 ## When this file is wrong

@@ -366,7 +366,9 @@ extension VoccaNetworkProbe {
             toggleTimer: ProbeTimer(),
             runningAppName: appName,
             widgetClock: ProbeTimer(),
-            liveLevel: MicrophoneLevelSource(graph: graph))
+            liveLevel: MicrophoneLevelSource(graph: graph),
+            holdFeed: microphone.feed,
+            toggleFeed: toggleMicrophone.feed)
         root.markEnginePrepared()
         sink.store = root.widgetStore
 

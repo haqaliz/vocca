@@ -907,11 +907,47 @@ new `MicrophoneSourceTests` contract test that plays the feed's role by hand —
 then `endCapture` hands over exactly the unconsumed remainder, drained once, with the refusal
 bookkeeping unchanged in meaning. Test floor: 1625 → 1626.
 
+**The feed and the wiring landed in the next two commits of the same branch.** `SpeculativeFeed`
+(`Sources/VoccaAudio/SpeculativeFeed.swift`) is the ring's mid-session consumer: a 50 ms drain
+tick (the one constant of the feed's own, pinned to the file by a single-source scan),
+chunked conversion through the microphone's own converter, an optional sub-minimum hold, and
+`terminate(with:)` — which flushes everything accumulated regardless of the minimum and appends
+the `endCapture` remainder as the stream's final chunk, so a session routed through the feed
+still reaches the engine whole (batch-equivalence, pinned bit-for-bit against a whole
+conversion). **Two plan deviations, both forced by the module rules:** the plan named the feed's
+timer `timer: any RepeatingTimer` (the `VoccaHotkey` seam) with a default `MainRunLoopTimer`, but
+`VoccaAudio` may import only `VoccaCore` among Vocca modules (rule 3) and `Package.swift` is
+deliberately untouched — so the timer is injected as the seam's two operations, a
+schedule/unschedule closure pair wired by the composition root over a real `MainRunLoopTimer`
+(the `deliverEffect` closure-injection house shape); and the plan's `@MainActor final class` is
+realized as a documented-confinement class (`MicrophoneSource`'s own pattern — it is constructed
+by `MicrophoneSource.init`, whose nonisolated seam forbids the annotation), with `tick()`
+asserting the main actor, the `MainRunLoopTimer` precedent. A feed built with no-op closures is
+inert: it never drains, and a session through it still reaches the engine whole via the
+remainder — the safe degradation, never a hot mic. The router arms the feed at `.opening` (a
+single active-feed slot set by the root on mode-routing changes — the §2c note's hook — and the
+started instance stored, so a terminal cannot stop the wrong feed) and terminates it on every
+terminal **synchronously in `deliver`**, before the spawned route task: `.completed` routes
+`routeStreaming` over the finished stream, `.cancelled` and `.captureUnavailable` cancel the
+feed and keep the batch route (routing a cancelled outcome through `routeStreaming` would
+finalize `.emptySkip` instead of `.aborted`, changing the record class). A composition without a
+feed keeps the batch route, byte for byte. The production `pipelineAssembly` wires a real
+partial sink (`BootstrapPartialSink`, the `WidgetStorePartialSink` shape) into the root's widget
+store. The no-branch scan now covers `AppBootstrap.swift`. The composed acceptance — a real root
+over fakes, scripted growing buffer, sub-minimum wired, gated ledger injector — asserts the
+guard deterministically: while the route holds the final, the injector's ledger is empty, the
+partials are in the store, and the one injection carries the batch result for the same audio.
+`SMOKE_CHECKLIST.md` steps 120–123 are the first real executions. Test floor: 1626 → 1631 → 1632.
+
 **What this phase is NOT, and must not be claimed:**
-- **The feed does not exist yet.** This commit changes no behavior — the pin is green against
-  today's `endCapture`, which is exactly what makes it a contract freeze rather than a
-  regression test. The feed, the router wiring, the cancellation completeness, the sub-minimum
-  suppression and the benchmark-gate decision are the aspect's next phases.
+- **No engine streams, so no partial has ever appeared with a real model.** The partials in the
+  composed acceptance are a stub engine's script; the widget's provisional text is unobservable
+  with a real engine until the streaming adapters land (deferred to the adapter aspects), and
+  the smoke steps verify the feed by its lifecycle logs, never by claiming partials that cannot
+  appear. "Partials appear during `.recording`" is pinned as the reducer's contract (provisional
+  text kept while RECORDING or TRANSCRIBING, cleared on every adoption, never into DELIVERED);
+  with the shipped wiring the route consumes the stream at key-up, so the partials land during
+  the route's display window.
 - **CLAUDE.md's status paragraphs were not amended here** — the ring-ownership contract is
   recorded in `docs/STATUS.md` and `ARCHITECTURE.md` §16; the integrator's front-door update is
   the integrator's step.

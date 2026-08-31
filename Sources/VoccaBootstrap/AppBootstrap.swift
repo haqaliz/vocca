@@ -15,6 +15,7 @@
 import AppKit
 import Combine
 import OSLog
+import Synchronization
 import VoccaASR
 import VoccaAudio
 import VoccaCore
@@ -271,11 +272,18 @@ public enum AppBootstrap {
             })
 
         let microphone: any SessionAudioSource<AudioBuffer>
+        var holdFeed: SpeculativeFeed?
         if let graph, let source = try? MicrophoneSource(
             graph: graph, recorder: ledger, clock: clock,
-            sessionIDProvider: { sessionBox.sessionID })
+            sessionIDProvider: { sessionBox.sessionID },
+            // The speculative feed's timer: the shipped main-run-loop timer behind the feed's
+            // schedule/unschedule pair (the feed lives in VoccaAudio, which may not import
+            // VoccaHotkey — see `SpeculativeFeed`). One timer per microphone, held by the
+            // schedule closure for as long as the feed lives.
+            feedSchedule: Self.mainRunLoopFeedSchedule())
         {
             microphone = source
+            holdFeed = source.feed
         } else {
             logger.error(
                 """
@@ -286,11 +294,14 @@ public enum AppBootstrap {
             microphone = RefusingAudioSource()
         }
         let toggleMicrophone: any SessionAudioSource<AudioBuffer>
+        var toggleFeed: SpeculativeFeed?
         if let toggleGraph, let source = try? MicrophoneSource(
             graph: toggleGraph, recorder: ledger, clock: clock,
-            sessionIDProvider: { sessionBox.sessionID })
+            sessionIDProvider: { sessionBox.sessionID },
+            feedSchedule: Self.mainRunLoopFeedSchedule())
         {
             toggleMicrophone = source
+            toggleFeed = source.feed
         } else {
             toggleMicrophone = RefusingAudioSource()
         }
@@ -394,6 +405,15 @@ public enum AppBootstrap {
         // window closed mid-dictation): the A4 documented refusal, never a swallowed transcript.
         let onboardingSink = OnboardingDeliverySink(store: onboardingStore)
 
+        // MARK: The widget-streaming partial sink
+        //
+        // The pipeline's widget-only sink (`PartialTranscriptSink`), folded into the root's
+        // widget store — the `WidgetStorePartialSink` shape: a mutex count, a weak store box
+        // (the root owns the store; the sink must not extend its lifetime), and the fold
+        // dispatched to the main actor — the store's one isolation domain. The box is filled
+        // after the root is built, because the store is created by the root's initializer.
+        let partialSink = BootstrapPartialSink()
+
         // MARK: The root
         //
         // The pipeline is assembled after the engine is prepared (it needs a *prepared* engine),
@@ -430,7 +450,8 @@ public enum AppBootstrap {
                 return DictationPipeline(
                     engine: engine, injector: injector, holder: custody.holder,
                     recorder: ledger, clock: clock,
-                    cleanup: try await cleanupResolver.resolve())
+                    cleanup: try await cleanupResolver.resolve(),
+                    partialSink: partialSink)
             },
             makeResolver: makeResolver,
             settings: settings,
@@ -442,8 +463,13 @@ public enum AppBootstrap {
             toggleTimer: MainRunLoopTimer(),
             runningAppName: SystemRunningAppName(),
             widgetClock: MainRunLoopTimer(),
-            liveLevel: liveLevel)
+            liveLevel: liveLevel,
+            holdFeed: holdFeed,
+            toggleFeed: toggleFeed)
         rootBox.value = root
+        // The partial sink's store box: filled now that the store exists — the `menuBarItem`
+        // shape (assigned after construction, the box pattern for a circular graph).
+        partialSink.store = root.widgetStore
         // The onboarding half of the root's surface: the store the window renders and the sink
         // the window's field registers into — filled after construction, the `menuBarItem`
         // shape (both are window-adjacent surfaces, neither exists for the probe).
@@ -604,6 +630,19 @@ public enum AppBootstrap {
     /// stays bounded either way; the number is named here so the composition root and the tests
     /// read one constant.
     public static let recoveryJournalCapacity = 5
+
+    /// The speculative feed's timer as the ``RepeatingTimer`` seam's two operations — a fresh
+    /// `MainRunLoopTimer` per microphone, retained by the schedule closure for as long as the
+    /// feed lives. `SpeculativeFeed` documents why the timer is a closure pair (the feed lives
+    /// in `VoccaAudio`, which may not import `VoccaHotkey`); this is the pair's only production
+    /// construction site.
+    private static func mainRunLoopFeedSchedule() -> (
+        schedule: (Duration, @escaping () -> Void) -> Void,
+        unschedule: () -> Void
+    ) {
+        let timer = MainRunLoopTimer()
+        return (schedule: { timer.start(every: $0, $1) }, unschedule: { timer.stop() })
+    }
 
     // MARK: - The Apps tab's read
 
@@ -965,6 +1004,12 @@ public final class DictationLoopRoot {
     /// The toggle wiring: the same composition, `activation: .toggle`, constructed and owned.
     /// It receives the tap's events only while it is the active mode.
     public private(set) var toggle: Wiring
+    /// The hold-to-talk microphone's speculative feed — the ring's mid-session consumer, armed
+    /// by the router at `.opening` and terminated at every terminal. `nil` in a composition
+    /// without feeds keeps the router on the batch route, byte for byte.
+    private let holdFeed: SpeculativeFeed?
+    /// The toggle microphone's own feed — the same absence semantics.
+    private let toggleFeed: SpeculativeFeed?
     /// Which configuration currently receives the tap's events.
     ///
     /// **`.toggle` is the shipped default**: ⌥Space starts listening, ⌥Space again stops it. The
@@ -1479,6 +1524,10 @@ public final class DictationLoopRoot {
     ///     terminal only when one is wired.
     ///   - sessionBox: The box the microphone reads the record's id from at `endCapture()`,
     ///     `nil` by default with the same absence effect.
+    ///   - holdFeed: The hold-to-talk microphone's speculative feed — the router arms it at
+    ///     `.opening` and terminates it at every terminal. `nil` (every headless composition)
+    ///     keeps the router on the batch route, byte for byte.
+    ///   - toggleFeed: The toggle microphone's own feed — the same absence semantics.
     public init(
         configuration: HotkeyConfiguration,
         ceiling: Duration,
@@ -1506,6 +1555,8 @@ public final class DictationLoopRoot {
         runningAppName: RunningAppNameReading,
         widgetClock: any RepeatingTimer,
         liveLevel: any LiveLevelSource,
+        holdFeed: SpeculativeFeed? = nil,
+        toggleFeed: SpeculativeFeed? = nil,
         makeWatchdogTimer: @escaping @MainActor () -> any RepeatingTimer = { MainRunLoopTimer() }
     ) {
         precondition(
@@ -1531,6 +1582,8 @@ public final class DictationLoopRoot {
         self.readiness = readiness
         self.widgetClock = widgetClock
         self.runningAppName = runningAppName
+        self.holdFeed = holdFeed
+        self.toggleFeed = toggleFeed
 
         let gate = EngineReadinessGate(inner: audioSource, readiness: readiness)
         self.gate = gate
@@ -1546,10 +1599,17 @@ public final class DictationLoopRoot {
         let liveWidget = LiveWidget(store: widgetStore, level: liveLevel)
         self.liveWidget = liveWidget
 
+        // The launch mode, read from the store exactly once and used for **both** the reported
+        // mode and the tap's route — the two are one fact, and this local is where it lives.
+        // Computed before the router below, which needs it for its active-feed slot (the feed
+        // the mode routes to is the feed the router arms at `.opening`).
+        let initialMode = settings.map { Self.mode(for: $0.activationMode()) } ?? Self.defaultMode
+
         let router = EffectRouter(
             panel: panel, targetResolution: targetResolution, readiness: readiness,
             pipeline: pipeline, runningAppName: runningAppName, widgetStore: widgetStore,
-            widgetClock: widgetClock, recorder: recorder, sessionBox: sessionBox)
+            widgetClock: widgetClock, recorder: recorder, sessionBox: sessionBox,
+            activeFeed: initialMode == .holdToTalk ? holdFeed : toggleFeed)
         self.router = router
 
         let deliver: (SessionEffect<AudioBuffer>) -> Void = { [weak router] in
@@ -1578,7 +1638,6 @@ public final class DictationLoopRoot {
         // silently drives the wrong machine.
         // The launch mode, read from the store exactly once and used for **both** the reported
         // mode and the tap's route — the two are one fact, and this local is where it lives.
-        let initialMode = settings.map { Self.mode(for: $0.activationMode()) } ?? Self.defaultMode
         self.activeMode = initialMode
         let initialRoute: ScheduledWatchdog<AudioBuffer>
         switch initialMode {
@@ -1705,8 +1764,10 @@ public final class DictationLoopRoot {
         switch mode {
         case .holdToTalk:
             modeRouting.active = holdToTalk.scheduledWatchdog
+            router.activeFeed = holdFeed
         case .toggle:
             modeRouting.active = toggle.scheduledWatchdog
+            router.activeFeed = toggleFeed
         }
     }
 
@@ -2277,6 +2338,13 @@ private final class EffectRouter {
     /// pipeline. Esc during TRANSCRIBING cancels it (`PRODUCT_SPEC.md:129`); the handle is what
     /// makes the in-flight transcribe cancellable at all.
     private var transcriptionTask: Task<Void, Never>?
+    /// **The feed the mode the tap routes to owns** — set by the root on mode-routing changes
+    /// (init and ``DictationLoopRoot/setActiveMode(_:)``), read once at `.opening`. `nil` in a
+    /// composition without feeds keeps every terminal on the batch route, byte for byte.
+    var activeFeed: SpeculativeFeed?
+    /// **The feed this session started** — stored at `.opening`, used by every terminal, never
+    /// re-read from the slot: a terminal cannot stop the wrong feed.
+    private var startedFeed: SpeculativeFeed?
 
     /// Whether a transcription is in flight — the router's half of "something is in flight" for
     /// the session's cancel key, read *before* any cancellation clears it.
@@ -2311,7 +2379,8 @@ private final class EffectRouter {
         widgetStore: WidgetStateStore,
         widgetClock: any RepeatingTimer,
         recorder: (any LatencyRecorder)?,
-        sessionBox: LatencySessionBox?
+        sessionBox: LatencySessionBox?,
+        activeFeed: SpeculativeFeed? = nil
     ) {
         self.panel = panel
         self.targetResolution = targetResolution
@@ -2321,6 +2390,7 @@ private final class EffectRouter {
         self.widgetClock = widgetClock
         self.recorder = recorder
         self.sessionBox = sessionBox
+        self.activeFeed = activeFeed
         self.pipelineTask = pipeline.map { pipeline in Task { pipeline } }
     }
 
@@ -2345,6 +2415,15 @@ private final class EffectRouter {
             // `.opening` delivery happens-before `beginCapture` happens-before `endCapture`
             // (spec §3), and the terminals below await the same mint rather than assuming the
             // write landed.
+            //
+            // The speculative feed's key-down half: arm the instance the mode-routing slot
+            // points at, and store it — every terminal stops exactly the feed this session
+            // started, never a re-read of the slot (a terminal cannot stop the wrong feed). A
+            // session that reaches `.recording` has been draining since `.opening` — the
+            // "key-down → `.recording`" the spec names.
+            let feed = activeFeed
+            startedFeed = feed
+            feed?.start()
             if let recorder {
                 let box = sessionBox
                 let mint = Task { await recorder.beginSession() }
@@ -2359,6 +2438,20 @@ private final class EffectRouter {
             pendingResolution = Task { await resolveTarget() }
             foldEffect(effect, appName: "")
         case .ended(let outcome):
+            let feed = startedFeed
+            startedFeed = nil
+            // **The feed's terminal, synchronously here in `deliver`** — ordering pin (2): the
+            // feed stops at the terminal, never when the spawned task happens to be scheduled.
+            // A completed session's `terminate(with:)` appends the outcome's audio — the
+            // remainder `endCapture` drained, before this `.ended` was delivered
+            // (`SessionMachine.swift:656-662`) — as the stream's final chunk and finishes the
+            // stream; a cancelled session's `cancel()` finishes the stream with nothing
+            // appended (routing a cancelled outcome through `routeStreaming` would transcribe
+            // an empty buffer and finalize `.emptySkip`, changing the record class).
+            switch outcome.content {
+            case .completed(_, let audio, _): feed?.terminate(with: audio)
+            case .cancelled: feed?.cancel()
+            }
             let resolution = pendingResolution
             pendingResolution = nil
             let mint = pendingBeginSession
@@ -2382,7 +2475,27 @@ private final class EffectRouter {
                     self.panel.presentReasonOnly(.exhausted)
                     return
                 }
-                let surface = await pipeline.route(.ended(outcome), target: target, sessionID: sessionID)
+                let surface: PipelineSurface
+                switch outcome.content {
+                case .cancelled:
+                    // The batch route's cancelled row — `.aborted`, engine nil — preserved
+                    // exactly as before the feed.
+                    surface = await pipeline.route(
+                        .ended(outcome), target: target, sessionID: sessionID)
+                case .completed:
+                    if let feed {
+                        // The feed's stream is already complete — `terminate` ran in `deliver`
+                        // above — so the route consumes the whole audio through the seam's
+                        // streaming shape. The route finalizes the record on every path, exactly
+                        // as the batch route did; only the seam's default stream has moved.
+                        surface = await pipeline.routeStreaming(
+                            chunks: feed.chunks, target: target, sessionID: sessionID)
+                    } else {
+                        // A composition without a feed keeps the batch route, byte for byte.
+                        surface = await pipeline.route(
+                            .ended(outcome), target: target, sessionID: sessionID)
+                    }
+                }
                 // The route finalized the record on every path it ran (its own table, W1) — the
                 // router's half is only to let the id go, so the next session begins a fresh
                 // record rather than inheriting this one's.
@@ -2398,6 +2511,11 @@ private final class EffectRouter {
             // transcription (`cancelTranscription`), and it is cleared by the task's own defer.
             transcriptionTask = task
         case .captureUnavailable:
+            // The feed's terminal for a session that never began: nothing was captured, so the
+            // stream is finished with nothing appended.
+            let feed = startedFeed
+            startedFeed = nil
+            feed?.cancel()
             if let recorder, let mint = pendingBeginSession {
                 // The one terminal that never reaches the pipeline: a capture that never
                 // happened still owes its record — finalized failed, attributed to no engine.
@@ -2771,4 +2889,35 @@ private final class WeakBox<T: AnyObject>: @unchecked Sendable {
     weak var value: T?
 
     init() {}
+}
+
+/// **The production partial sink** — the pipeline's widget-only `PartialTranscriptSink` folded
+/// into the root's `@MainActor` widget store, the `WidgetStorePartialSink` shape (the probe's
+/// streaming drive owns a copy of the same type).
+///
+/// The pipeline is assembled *after* the root (the `pipelineAssembly` shape), and the store is
+/// created *by* the root's initializer — so the store is reached through a weak box filled right
+/// after the root is built. Weak, like every box in this module: the root owns the store, and
+/// the sink must not extend its lifetime.
+///
+/// The dispatch is fire-and-forget by the seam's own contract (`PartialTranscriptSink`'s
+/// documentation): emitting adds no suspension to the streaming path, and the fold lands on the
+/// main actor — the store's one isolation domain.
+///
+/// `@unchecked Sendable` is the claim `LedgerPartialSink` makes for the same reason: the
+/// protocol's `presentPartial` is synchronous, so an actor double cannot witness it honestly;
+/// the mutex serializes the counter and the box is written once, before any partial can arrive.
+private final class BootstrapPartialSink: PartialTranscriptSink, @unchecked Sendable {
+    private let countLock = Mutex(0)
+
+    /// The root's widget store, filled after the root is built. `nil` until then, and a sink
+    /// whose box was never filled presents partials to nothing — the honest absent-store answer.
+    weak var store: WidgetStateStore?
+
+    func presentPartial(_ partial: String) {
+        countLock.withLock { $0 += 1 }
+        Task { @MainActor in
+            store?.presentPartial(partial)
+        }
+    }
 }
