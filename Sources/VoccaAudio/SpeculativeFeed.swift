@@ -29,6 +29,16 @@ import VoccaCore
 /// receives the whole audio (batch-equivalence). On a cancelled session the stream is finished
 /// with nothing appended.
 ///
+/// ## One feed, many sessions
+///
+/// The feed is constructed once per microphone and lives for the app's lifetime — the router
+/// arms the same instance at every `.opening` (the plan's "session-keyed start"). **Each `start`
+/// begins a new session: the stream is re-created, the sub-minimum hold is cleared, and the
+/// stopped flag is reset** — so a second dictation's `terminate(with:)` appends to a fresh
+/// stream rather than to the finished one of the session before. Within a session the
+/// one-shot discipline holds: `terminate`/`cancel` are idempotent, ticks after the terminal are
+/// no-ops ("nothing is read while idle"), and nothing is ever yielded after the finish.
+///
 /// ## The timer is a closure pair, and why
 ///
 /// The plan named the constructor parameter `timer: any RepeatingTimer` (the `VoccaHotkey`
@@ -67,8 +77,10 @@ public final class SpeculativeFeed {
 
     /// The stream the router routes through `routeStreaming`: one chunk per drain tick (held
     /// back until the sub-minimum predicate releases, then the whole accumulated prefix in the
-    /// first chunk), the terminal's remainder as the last chunk, then the stream ends.
-    public let chunks: AsyncStream<AudioBuffer>
+    /// first chunk), the terminal's remainder as the last chunk, then the stream ends. **One
+    /// stream per session** — `start()` re-creates it, so a feed that served one session's
+    /// route is fresh for the next (a consumed stream can never be routed twice).
+    public private(set) var chunks: AsyncStream<AudioBuffer>
 
     private let ring: AudioRingBuffer
     private let converter: AudioFormatConverter
@@ -76,7 +88,7 @@ public final class SpeculativeFeed {
     private let unschedule: () -> Void
     private let cadence: Duration
     private let subMinimum: (@Sendable (Int) -> Bool)?
-    private let continuation: AsyncStream<AudioBuffer>.Continuation
+    private var continuation: AsyncStream<AudioBuffer>.Continuation
 
     /// Converted samples not yet yielded: the sub-minimum hold. While
     /// ``subMinimum?(pending.count)`` holds, ticks accumulate and yield nothing; the first yield
@@ -87,8 +99,9 @@ public final class SpeculativeFeed {
 
     /// **The stopped flag the tick consults *before* draining** — "nothing is read while idle",
     /// the ``SessionWatchdog/wake()`` precedent. Set by `terminate`/`cancel` and by the
-    /// converter-error path; once set, ticks are no-ops and `start`/`terminate`/`cancel` are
-    /// no-ops too — no `AsyncStream` yield ever happens after the stream is finished.
+    /// converter-error path; within a session, ticks after it are no-ops and
+    /// `terminate`/`cancel` are no-ops too — no `AsyncStream` yield ever happens after the
+    /// stream is finished. Reset by `start()`: each session begins fresh.
     private var stopped = false
 
     private let logger = Logger(subsystem: "dev.vocca.Vocca", category: "feed")
@@ -120,11 +133,14 @@ public final class SpeculativeFeed {
         (self.chunks, self.continuation) = AsyncStream.makeStream(of: AudioBuffer.self)
     }
 
-    /// Arm the timer: a tick drains the ring, converts the drain, accumulates, and yields a
-    /// chunk per tick (or holds below the sub-minimum). A feed that has been terminated or
-    /// cancelled is never re-armed — `start` after a terminal is a no-op.
+    /// Arm the timer and **begin a new session**: the stream is re-created (a feed that served
+    /// one session's route is fresh for the next), the sub-minimum hold and the stopped flag
+    /// are cleared, and a tick now drains the ring, converts the drain, accumulates, and yields
+    /// a chunk per tick (or holds below the sub-minimum).
     public func start() {
-        guard !stopped else { return }
+        stopped = false
+        pending.removeAll(keepingCapacity: true)
+        (chunks, continuation) = AsyncStream.makeStream(of: AudioBuffer.self)
         logger.info("the feed started")
         schedule(cadence) { [weak self] in
             self?.tick()

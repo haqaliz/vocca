@@ -91,8 +91,11 @@ final class SpeculativeFeedTests: XCTestCase {
     // MARK: - The terminal's shape
 
     /// `terminate(with:)` appends the remainder as the stream's last chunk, finishes the stream,
-    /// and a feed that has stopped is inert: a second `terminate`, a `cancel` and a `start` are
-    /// all no-ops, and no chunk is ever yielded after the finish.
+    /// and within the session a feed that has stopped is inert: a second `terminate` and a
+    /// `cancel` are no-ops, and no chunk is ever yielded after the finish. **The feed is
+    /// per-session, not one-shot** — a later `start()` begins a new session with a fresh stream
+    /// (the production wiring holds one feed per microphone across many sessions), and the old
+    /// stream stays exactly as the terminal left it.
     @MainActor
     func testTerminateWithARemainderFinishesTheStreamAndFurtherCallsAreNoOps() async throws {
         let ring = AudioRingBuffer(capacity: 1 << 12)
@@ -118,16 +121,28 @@ final class SpeculativeFeedTests: XCTestCase {
             "each tick's conversion is one chunk in order, and the remainder is the last")
         XCTAssertEqual(timer.stopCount, 1, "the timer is stopped exactly once, at terminate")
 
-        // The idempotence rows: a second terminate, a cancel and a start are all no-ops.
+        // The within-session idempotence rows: a second terminate and a cancel are no-ops.
         feed.terminate(with: AudioBuffer(samples: [9], sampleRate: 16_000))
         feed.cancel()
-        feed.start()
         let after = await Self.collect(feed.chunks)
         XCTAssertTrue(
             after.isEmpty,
             "a second terminate or cancel yields nothing — the stream was finished exactly once")
         XCTAssertEqual(timer.stopCount, 1, "an idempotent terminate/cancel does not stop again")
-        XCTAssertEqual(timer.startCount, 1, "a terminated feed is never re-armed")
+
+        // The per-session row: a later start begins a new session — fresh stream, fresh hold —
+        // and the finished stream of the session before is untouched.
+        feed.start()
+        XCTAssertEqual(timer.startCount, 2, "a later start re-arms the feed for the next session")
+        write([10, 11], to: ring)
+        timer.tick()
+        write([12], to: ring)
+        timer.tick()
+        feed.terminate(with: nil)
+        let secondSession = await Self.collect(feed.chunks)
+        XCTAssertEqual(
+            secondSession.map(\.samples), [[10, 11], [12]],
+            "the new session's stream is fresh — the feed serves every session, not only the first")
     }
 
     /// **A mid-tick terminal cannot strand a chunk.** The timer fires once (one chunk yielded),

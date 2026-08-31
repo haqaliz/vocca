@@ -369,6 +369,155 @@ final class LatencyBenchmarkTests: XCTestCase {
             "the real-run set consumes the provisional p50 budget — the tighter half of the table")
     }
 
+    // MARK: - B2s: the gate's mechanism over the streaming variant (speculative-feed phase (f))
+
+    /// **The named decision, pinned headlessly.** The benchmark gate and the closed four-span
+    /// contract stay **post-key-up, unchanged**, with the feed live: `routeStreaming` measures
+    /// the ASR span from its own entry (key-up), the feed's pre-key-up work is display and
+    /// speculative accumulation — not a latency span, no claim — and the gate's closed-span
+    /// checks and p95-derived budgets are untouched. What changed is the harness: the streaming
+    /// variant writes the fixture to the ring in increments with the feed's fake timer firing
+    /// between them, drives key-down → feed → key-up → `routeStreaming`, and must leave exactly
+    /// the same closed span set — `[captureClose, asr, inject]` in order, no `cleanup` — with
+    /// exact seeded deltas (the ASR span is the stream-consumption advance times the chunk
+    /// count).
+    func testStreamingCyclesLeaveExactRecordedSpansInOrder() async throws {
+        let fixtures = try Self.fixtureCases()
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            streamChunkAdvance: .milliseconds(1),
+            injectAdvance: Self.fastInjectAdvance)
+
+        var mintedIDs: [SessionRecord.ID] = []
+        for (index, fixture) in fixtures.enumerated() {
+            let minted = await harness.runStreamingCycle(
+                samples: fixture.buffer.samples, expectedRecords: index + 1)
+            XCTAssertNotNil(minted, "\(fixture.name): the opening must mint the record's id")
+            mintedIDs.append(minted ?? SessionRecord.ID(rawValue: -1))
+        }
+
+        let records = await harness.ledger.snapshot()
+        XCTAssertEqual(
+            records.count, fixtures.count,
+            "one record per streaming cycle — nothing left in flight")
+        XCTAssertEqual(
+            records.map(\.id), mintedIDs,
+            "begin/finalize symmetry holds on the streaming route too")
+
+        for (record, fixture) in zip(records, fixtures) {
+            XCTAssertEqual(
+                record.spans.map(\.name), [.captureClose, .asr, .inject],
+                "\(fixture.name): the closed four-span contract is unchanged with the feed live — "
+                    + "capture-close, then asr (post-key-up, from routeStreaming's own entry), "
+                    + "then inject")
+            XCTAssertTrue(
+                record.spans.allSatisfy { $0.presence == .recorded },
+                "\(fixture.name): every span that ran is recorded — never a fabricated zero")
+            XCTAssertNil(
+                record.spans.first { $0.name == .cleanup },
+                "\(fixture.name): cleanup never ran — never recorded")
+            XCTAssertEqual(
+                record.engine, StubEngine.parakeet().identity,
+                "\(fixture.name): attribution is the stub engine's identity")
+            XCTAssertEqual(
+                record.spans[0].elapsed, Self.captureCloseAdvance,
+                "\(fixture.name): capture-close is the graph stop's seeded delta, unchanged")
+            XCTAssertEqual(
+                record.spans[1].elapsed,
+                Duration.milliseconds(Self.streamingChunkCount(fixture.buffer.samples.count)),
+                "\(fixture.name): the ASR span is the stream-consumption advance times the chunk "
+                    + "count — measured from routeStreaming's entry (key-up), never from the "
+                    + "feed's start")
+            XCTAssertEqual(
+                record.spans[2].elapsed, Self.fastInjectAdvance,
+                "\(fixture.name): the inject span is the injector's measured elapsed, unchanged")
+        }
+    }
+
+    /// **The streaming variant passes the gate** — the same named threshold sets the batch
+    /// harness passes, unchanged: the fast streaming fakes sit under the mechanism table's asr
+    /// budget **and** under the CI threshold set the runner consumes. The gate was not moved to
+    /// accommodate the feed; the feed's pre-key-up work simply never enters the measurement.
+    func testFastStreamingFakesPassTheRegressionGate() async throws {
+        let fixtures = try Self.fixtureCases()
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            streamChunkAdvance: .milliseconds(1),
+            injectAdvance: Self.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runStreamingCycle(
+                samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let records = await harness.ledger.snapshot()
+        let mechanismVerdict = LatencyBenchmarkGate.evaluate(
+            records, thresholds: Self.mechanismThresholds)
+        XCTAssertTrue(
+            mechanismVerdict.passed,
+            "fast streaming fakes must pass the injected mechanism table — the variant's spans "
+                + "are the batch harness's spans with the ASR span arriving through the stream")
+        let ciVerdict = LatencyBenchmarkGate.evaluate(
+            records, thresholds: LatencyBenchmarkGate.ciThresholds)
+        XCTAssertTrue(
+            ciVerdict.passed,
+            "fast streaming fakes must pass the named CI threshold set — unchanged with the "
+                + "feed live")
+    }
+
+    /// **The failing half — the load-bearing streaming row.** A seeded-slow streaming stub
+    /// (100 ms per stream-consumed chunk) against the mechanism table's ~50 ms asr budget must
+    /// make the gate **fail**, and the verdict must name the asr span with the measured elapsed.
+    /// A gate that cannot fail proves nothing; this is the proof the streaming variant can fail
+    /// it.
+    func testASeededSlowStreamingStubFailsTheGateAndNamesTheAsrSpan() async throws {
+        let fixtures = try Self.fixtureCases()
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            streamChunkAdvance: .milliseconds(100),
+            injectAdvance: Self.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runStreamingCycle(
+                samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let records = await harness.ledger.snapshot()
+        let verdict = LatencyBenchmarkGate.evaluate(
+            records, thresholds: Self.mechanismThresholds)
+        XCTAssertFalse(
+            verdict.passed,
+            "a ~100 ms-per-chunk streaming stub against a ~50 ms asr budget must fail the gate — "
+                + "a gate that cannot fail proves nothing")
+        let asrVerdicts = verdict.spans.filter { $0.span == .asr }
+        XCTAssertEqual(
+            asrVerdicts.count, fixtures.count,
+            "one asr verdict per record — the verdict names every blown span")
+        XCTAssertTrue(
+            asrVerdicts.allSatisfy { !$0.passed },
+            "every asr verdict must fail under the ~50 ms budget")
+        XCTAssertEqual(
+            asrVerdicts.first?.elapsed,
+            Duration.milliseconds(100 * Self.streamingChunkCount(fixtures[0].buffer.samples.count)),
+            "the verdict carries the measured 100 ms-per-chunk total, not a guess")
+        XCTAssertEqual(
+            asrVerdicts.first?.threshold, Self.mechanismThresholds.asr,
+            "the verdict names the 50 ms asr threshold it blew")
+    }
+
+    /// The number of stream-consumed chunks a fixture produces at the streaming variant's chunk
+    /// granularity — the ASR span's exact expected delta.
+    private static func streamingChunkCount(_ samples: Int) -> Int {
+        (samples + Self.streamingChunkSize - 1) / Self.streamingChunkSize
+    }
+
+    /// The streaming variant's chunk granularity: five seconds of interchange audio per feed
+    /// tick. The gate's subject is the span contract, not the cadence granularity — the cadence
+    /// itself is pinned elsewhere — so the chunks are sized to keep the fast variant's ASR span
+    /// under the mechanism table's budget with exact arithmetic.
+    static let streamingChunkSize = 80_000
+
     // MARK: - The composed benchmark harness
 
     /// One benchmark cycle through the composed root, recorded and clocked: the real
@@ -385,6 +534,9 @@ final class LatencyBenchmarkTests: XCTestCase {
         let sessionBox: LatencySessionBox
         let root: DictationLoopRoot
         private let drainBudget: Int
+        /// The feed's fake timer, when the composition wired the feed (`nil` in the batch
+        /// compositions) — the streaming cycles tick it between fixture writes.
+        let feedTimer: FakeTimer?
 
         /// The seeded (headless) composition: the stub engine with the clock in the loop.
         init(
@@ -448,13 +600,59 @@ clock: clock,
                 drainBudget: drainBudget)
         }
 
+        /// The streaming composition (`speculative-feed` phase (f)): the stub engine with the
+        /// clock advanced **per stream-consumed chunk** (the `ClockAdvancingEngine` shape moved
+        /// onto the streaming path), the feed wired over a fake timer, and the root holding the
+        /// feed — so a streaming cycle measures the closed span set with the feed live, with the
+        /// ASR span arriving through `routeStreaming`.
+        init(
+            ringCapacity: Int,
+            stopAdvance: Duration,
+            streamChunkAdvance: Duration,
+            injectAdvance: Duration
+        ) throws {
+            let clock = BenchmarkClock()
+            try self.init(
+                ringCapacity: ringCapacity,
+                stopAdvance: stopAdvance,
+                engine: StreamingClockAdvancingEngine(clock: clock, chunkAdvance: streamChunkAdvance),
+                injectAdvance: injectAdvance,
+                clock: clock,
+                drainBudget: 20_000,
+                feedTimer: FakeTimer())
+        }
+
+        /// The real-engine streaming composition (spec B3's streaming half, phase (f)): the same
+        /// harness with the real engine in place of the stub — the batch-default stream buffers
+        /// the feed's chunks and transcribes once, the wrapper measuring the actual wall-clock
+        /// transcription — and the feed live over the given fake timer.
+        init(
+            ringCapacity: Int,
+            stopAdvance: Duration,
+            realEngine: any ASREngine,
+            injectAdvance: Duration,
+            drainBudget: Int = 500_000,
+            feedTimer: FakeTimer
+        ) throws {
+            let clock = BenchmarkClock()
+            try self.init(
+                ringCapacity: ringCapacity,
+                stopAdvance: stopAdvance,
+                engine: WallClockAdvancingEngine(inner: realEngine, clock: clock),
+                injectAdvance: injectAdvance,
+                clock: clock,
+                drainBudget: drainBudget,
+                feedTimer: feedTimer)
+        }
+
         private init(
             ringCapacity: Int,
             stopAdvance: Duration,
             engine: any ASREngine,
             injectAdvance: Duration,
             clock: BenchmarkClock,
-            drainBudget: Int
+            drainBudget: Int,
+            feedTimer: FakeTimer? = nil
         ) throws {
             let keyboard = Keyboard()
             let configuration = HotkeyConfiguration(
@@ -466,11 +664,18 @@ clock: clock,
             let graph = BenchmarkGraph(
                 ring: AudioRingBuffer(capacity: ringCapacity),
                 clock: clock, stopAdvance: stopAdvance)
+            let feedSchedule = feedTimer.map { timer in
+                (
+                    schedule: { [timer] in timer.start(every: $0, $1) },
+                    unschedule: { [timer] in timer.stop() }
+                )
+            }
             let microphone = try MicrophoneSource(
                 graph: graph,
                 recorder: ledger,
                 clock: clock,
-                sessionIDProvider: { sessionBox.sessionID })
+                sessionIDProvider: { sessionBox.sessionID },
+                feedSchedule: feedSchedule)
             let injector = BenchmarkInjector(clock: clock, advance: injectAdvance)
             let holder = BenchmarkHolder()
             let pipeline = DictationPipeline(
@@ -505,8 +710,15 @@ clock: clock,
                 toggleTimer: FakeTimer(),
                 runningAppName: FakeRunningAppName(),
                 widgetClock: FakeTimer(),
-                liveLevel: BenchmarkLevelSource(level: 0))
+                liveLevel: BenchmarkLevelSource(level: 0),
+                holdFeed: feedTimer == nil ? nil : microphone.feed)
             root.markEnginePrepared()
+            // The shipped default mode is `.toggle`; the streaming cycles drive the hold-to-talk
+            // machine, so the mode is switched first — the router's active feed follows the
+            // mode (the speculative-feed §2c slot).
+            if feedTimer != nil {
+                root.setActiveMode(.holdToTalk)
+            }
 
             self.clock = clock
             self.keyboard = keyboard
@@ -514,7 +726,44 @@ clock: clock,
             self.ledger = ledger
             self.sessionBox = sessionBox
             self.root = root
+            self.feedTimer = feedTimer
             self.drainBudget = drainBudget
+        }
+
+        /// One full **streaming** hold-to-talk cycle carrying `samples` (`speculative-feed` phase
+        /// (f)): press → the opening mints the record's id → the fixture lands in the ring **in
+        /// increments with the feed's fake timer firing between them** → release → the router
+        /// terminates the feed (appending the remainder `endCapture` drained) and routes the
+        /// stream → the record finalizes through `routeStreaming`, the closed span set measured
+        /// with the feed live.
+        func runStreamingCycle(samples: [Float], expectedRecords: Int) async -> SessionRecord.ID? {
+            let feedTimer = try! XCTUnwrap(feedTimer)
+            keyboard.hold(HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .holdToTalk))
+            _ = root.holdToTalk.scheduledWatchdog.receive(
+                event(.keyDown, 49, [.option]))
+            await drain(
+                until: { sessionBox.sessionID != nil },
+                "the opening must mint and store the record's id before the key-up")
+            let minted = sessionBox.sessionID
+            var offset = 0
+            while offset < samples.count {
+                write(
+                    Array(samples[offset..<min(offset + LatencyBenchmarkTests.streamingChunkSize, samples.count)]),
+                    to: graph.ring)
+                offset += LatencyBenchmarkTests.streamingChunkSize
+                feedTimer.tick()
+            }
+            _ = root.holdToTalk.scheduledWatchdog.receive(
+                event(.keyUp, 49, [.option]))
+            keyboard.release(49)
+            await drain(
+                until: {
+                    if sessionBox.sessionID != nil { return false }
+                    return await ledger.snapshot().count == expectedRecords
+                },
+                "streaming cycle \(expectedRecords): the delivered session must finalize exactly one record")
+            return minted
         }
 
         /// One full hold-to-talk cycle carrying `samples`: press → the opening mints the record's
@@ -795,27 +1044,88 @@ private actor ClockAdvancingEngine: ASREngine {
     }
 }
 
+/// The streaming stub engine with the clock in the loop (`speculative-feed` phase (f)): the
+    /// `ClockAdvancingEngine` shape moved onto the streaming path — `stream(_:)` advances the
+    /// shared clock by the seeded ``chunkAdvance`` **per stream-consumed chunk**, then delegates
+    /// the transcription of the merged buffer to the shared ``StubEngine``, so the record's
+    /// ASR span (measured by `routeStreaming` from its own entry, key-up) is exactly
+    /// `chunkCount × chunkAdvance`, and attribution is the stub engine's identity. The seeded-slow
+    /// variant is the B2s seed: the same shape at 100 ms per chunk against the mechanism table's
+    /// ~50 ms asr budget.
+    private actor StreamingClockAdvancingEngine: ASREngine {
+        let identity: EngineIdentity
+        let supportsStreaming = true
+        private let inner: StubEngine
+        private let clock: BenchmarkClock
+        private let chunkAdvance: Duration
+
+        init(clock: BenchmarkClock, chunkAdvance: Duration) {
+            self.inner = StubEngine.parakeet()
+            self.identity = inner.identity
+            self.clock = clock
+            self.chunkAdvance = chunkAdvance
+        }
+
+        func prepare() async throws {
+            try await inner.prepare()
+        }
+
+        func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+            try await inner.transcribe(buffer)
+        }
+
+        nonisolated func stream(
+            _ chunks: AsyncStream<AudioBuffer>
+        ) -> AsyncThrowingStream<Transcript, Error> {
+            AsyncThrowingStream { continuation in
+                let task = Task { await self.runStream(chunks, continuation: continuation) }
+                continuation.onTermination = { @Sendable _ in task.cancel() }
+            }
+        }
+
+        /// The stream body: advance the clock per chunk, buffer, then delegate the whole
+        /// transcription to the stub — the batch-default shape with the clock in the loop.
+        private func runStream(
+            _ chunks: AsyncStream<AudioBuffer>,
+            continuation: AsyncThrowingStream<Transcript, Error>.Continuation
+        ) async {
+            var samples: [Float] = []
+            for await chunk in chunks {
+                clock.now += chunkAdvance
+                samples.append(contentsOf: chunk.samples)
+            }
+            do {
+                let transcript = try await inner.transcribe(
+                    AudioBuffer(samples: samples, sampleRate: AudioBuffer.interchangeSampleRate))
+                continuation.yield(transcript)
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+    }
+
 /// The W4 engine with the clock in the loop: its first `transcribe` costs ``firstCost`` and
-/// records ``EngineTiming/Kind/firstAfterLaunch``; every later one costs ``steadyCost`` and
-/// records ``EngineTiming/Kind/warmTranscribe`` — the cross-session samples the warm-start
-/// verdict is judged on, produced by the same harness the spans come from. The whole-second
-/// seeds make the recorded ratio an exact IEEE division (the ``WarmStartRatioTests``
-/// discipline), so the verdict's ratio is asserted exactly.
-///
-/// ``recordsFirstAfterLaunch`` is the insufficient-samples row: `false` records no
-/// first-after-launch sample at all — the ``LatencySpan/Presence/notPresent`` shape, never a
-/// fabricated ratio.
-private actor WarmStartRecordingEngine: ASREngine {
-    let identity: EngineIdentity
-    let supportsStreaming = false
-    /// The cross-session timing ledger the verdict is judged on — the tests read it back.
-    let timing: EngineTiming
-    private let inner: StubEngine
-    private let clock: BenchmarkClock
-    private let firstCost: Duration
-    private let steadyCost: Duration
-    private let recordsFirstAfterLaunch: Bool
-    private var transcribes = 0
+    /// records ``EngineTiming/Kind/firstAfterLaunch``; every later one costs ``steadyCost`` and
+    /// records ``EngineTiming/Kind/warmTranscribe`` — the cross-session samples the warm-start
+    /// verdict is judged on, produced by the same harness the spans come from. The whole-second
+    /// seeds make the recorded ratio an exact IEEE division (the ``WarmStartRatioTests``
+    /// discipline), so the verdict's ratio is asserted exactly.
+    ///
+    /// ``recordsFirstAfterLaunch`` is the insufficient-samples row: `false` records no
+    /// first-after-launch sample at all — the ``LatencySpan/Presence/notPresent`` shape, never a
+    /// fabricated ratio.
+    private actor WarmStartRecordingEngine: ASREngine {
+        let identity: EngineIdentity
+        let supportsStreaming = false
+        /// The cross-session timing ledger the verdict is judged on — the tests read it back.
+        let timing: EngineTiming
+        private let inner: StubEngine
+        private let clock: BenchmarkClock
+        private let firstCost: Duration
+        private let steadyCost: Duration
+        private let recordsFirstAfterLaunch: Bool
+        private var transcribes = 0
 
     init(
         clock: BenchmarkClock,

@@ -959,6 +959,32 @@ plan's `minimumRequiredSamples(sampleRate: Double)` signature became `Int` — t
 signature is `forSampleRate: Int`, and the threshold travels in the SDK's own units. Test floor:
 1632 → 1639.
 
+**The benchmark-gate decision, named (`speculative-feed` phase (f)): the gate and the closed
+four-span contract stay post-key-up, unchanged.** `routeStreaming` measures the ASR span from its
+own entry (key-up); the speculative feed's pre-key-up work is display + speculative accumulation
+and is **not** a latency span and carries **no claim**. The rejected alternatives are named: moving
+the ASR span start to feed start would redefine the span as session duration, making the 800 ms p95
+budget meaningless; a `speculative` span kind would break the closed-span check by construction and
+re-baseline every budget for a number CI cannot produce. What changed is the harness: the benchmark
+gains a streaming variant — a `StreamingClockAdvancingEngine` (the clock advanced per
+stream-consumed chunk), the fixture written to the ring in increments with the feed's fake timer
+firing between them, key-down → feed → key-up → `routeStreaming` — and the CI gate runs it over the
+stub asserting the **same** closed-span contract, with a seeded-slow streaming stub that genuinely
+fails the asr budget (a gate that cannot fail proves nothing). The env-gated real run
+(`VOCCA_LATENCY_BENCH` + `VOCCA_MODEL_DIR`, visible skip) now also drives the streaming variant;
+its p50/p95 rows record, never gate, and measure key-up→final with the feed live. The "no latency
+number claimed from CI" line stays true.
+
+**One plan deviation surfaced by the streaming variant's third cycle, and it is the plan's own
+contradiction, not a test artefact:** the plan's feed was pinned one-shot ("created once"; "further
+start()/terminate()/cancel() are no-ops") while the plan's own wiring holds one feed per
+microphone across many sessions — so the second dictation would have routed an exhausted stream
+and silently `.emptySkip`d. The feed is **per-session**: `start()` re-creates the stream, clears
+the sub-minimum hold and resets the stopped flag; within a session the one-shot discipline holds
+(terminate/cancel idempotent, ticks after the terminal no-ops, nothing yielded after the finish).
+The phase (b) pin was amended accordingly (the no-op-start row became the per-session row). Test
+floor: 1639 → 1643.
+
 **What this phase is NOT, and must not be claimed:**
 - **No engine streams, so no partial has ever appeared with a real model.** The partials in the
   composed acceptance are a stub engine's script; the widget's provisional text is unobservable
