@@ -2436,6 +2436,51 @@ meaningful preferences exist on a hosted runner. These steps are the first execu
 
 ---
 
+## 17. The streamed-vs-batch equivalence verdict — `equivalence-measurement`
+
+Nothing in this section runs in CI. The real model cannot reach a hosted runner, so the
+equivalence measurement is the first execution of the recorded, never-gated verdict on open
+question 2 (`ARCHITECTURE.md`): does the streaming final equal a batch transcription of the same
+audio? The mechanism is proven headlessly (a seeded unequal pair must FAIL — `EquivalenceMeasurementTests`);
+these steps are the founder's machine producing the first measured numbers, in exactly the
+`tolerances_20260831.md` procedure.
+
+125. **The first streamed-vs-batch equivalence run.**
+
+    *Gesture:* provision a model as in steps 17-18, then
+    `VOCCA_MODEL_DIR=<version_dir> VOCCA_LATENCY_BENCH=1 swift test --filter EquivalenceRealEngineTests`.
+
+    *Verify the state was entered:* the run does **not** print either skip message (the skips are
+    the tell-tale — a skipped test ran nothing).
+
+    *Pass (tighter than the failure):* the table prints one row per discovered fixture with the
+    suppression column reading **not-suppressed throughout** (a throttled run is **voided, never
+    recorded** — step 71's discipline), the whisper note is present, both transcripts print
+    beside every row with Parakeet attribution, the sixty-second row carries partials + key-up
+    cost + batch cost, and the go/no-go row is GO, NO-GO, or VOID-with-reason — each an
+    acceptable recorded outcome (the verdict records, never gates; a FAIL here blocks *claiming
+    the latency win*, never shipping the feed — PRD Goal 1).
+
+    *Where no sharp criterion exists:* the WER values themselves — this is the first
+    measurement, and the provisional table is placeholder-seeded by decision. The step says so
+    rather than inventing a threshold, per rule 2's corollary, and names the re-baseline
+    (`tolerances_20260831.md` procedure) as the follow-up.
+
+    *Void — not fail — if:* the adapter has not landed (every row reads VOID with the
+    "engine does not stream" reason — a batch-vs-batch comparison would prove nothing), or the
+    suppression state is unreadable (every number below is void).
+
+126. **The record: the go/no-go row enters the tracked table.**
+
+    *Pass:* the measured row — machine, model artifact, per-fixture WER / exact / shape /
+    key-up cost / suppression — lands in the measured-values table of
+    `docs/planning/speculative-asr/equivalence-measurement/tolerances_20260831.md`; a NO-GO
+    verdict additionally lands as a recorded risk-table entry with the latency claim dropped
+    (the founder's roadmap amendment, not a code change). Until this row exists, the equivalence
+    question is open and must be called open.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here
