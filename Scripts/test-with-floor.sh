@@ -1381,8 +1381,15 @@ set -euo pipefail
 # the zero-partials note renders exactly when no partials were observed — "the key-up decode
 # covers the full window (X ms)", a measured fact, not an assumption.
 #
+# The whisper streaming adapter's contract rows add twelve (1687 -> 1699): the eleven
+# seam-double rows over StubWhisperContext's scripted streaming half (partials then one final;
+# final equals batch by construction, engine half; mid-utterance end; empty stream; all-empty
+# chunks; mid-stream decode failure; consumer cancellation; final-decode timing; missing-sample
+# accumulation; transport silence; stream before prepare) plus the mapper's partial-flag
+# passthrough row. The flip of WhisperEngineTests' supportsStreaming pin adds no count.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1687
+MINIMUM_EXECUTED_TESTS=1699
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

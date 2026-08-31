@@ -28,7 +28,22 @@ import VoccaCore
 /// ``WhisperCppEngineIdentity`` — all headless, all in `WhisperCoreTests`, and in the engine's own
 /// `WhisperEngineTests`, which drive a **stub context** through the same public surface. The
 /// decisions here are reduced to: download-if-missing through the store once, prepare the
-/// injected context once, guard the empty buffer, map the segments. Nothing else.
+/// injected context once, guard the empty buffer, map the segments, and run the stream loop.
+/// Nothing else.
+///
+/// ## The streaming surface
+///
+/// ``supportsStreaming`` is `true`: ``stream(_:)`` runs the canonical repeated-`whisper_full`
+/// pattern over the seam — every non-empty chunk arrival decodes the whole growing buffer and
+/// yields that decode's segments as a partial, and the key-up final is the last decode's
+/// segments, equal to a batch transcription of the same audio **by construction** (same params,
+/// same audio, same `whisper_full` machinery; the bridge's parity comment is the pin). **Cost
+/// honesty:** the partial passes are O(n²) over the utterance and the key-up final pays the full
+/// decode — no caller may assume key-up savings. The by-construction claim is verified on real
+/// audio at `SMOKE_CHECKLIST.md` step 19, never in CI; the headless rows prove the engine half
+/// only. Sub-minimum audio is unmeasured for the stream path too (see the batch comment below):
+/// the first decode runs on the first feed chunk, and if whisper refuses rather than pads, the
+/// stream throws on its first iteration — recorded, never assumed, until step 19 runs.
 ///
 /// ## The whisper names stop here
 ///
@@ -52,7 +67,11 @@ public actor WhisperCppEngine: ASREngine {
 
     public nonisolated let identity: EngineIdentity
 
-    public nonisolated var supportsStreaming: Bool { false }
+    /// The seam's streaming flag — `true` since the whisper-streaming aspect: the engine
+    /// implements ``stream(_:)`` itself (partials then exactly one final, the final
+    /// batch-by-construction), and **no caller branches on this flag** (the seam's batch
+    /// default is a batch engine's degradation, not a streaming one's).
+    public nonisolated var supportsStreaming: Bool { true }
 
     /// The store that downloads and verifies the model — the only way model bytes enter the
     /// machine, and the engine's only contact with the outside world (`spec.md` criterion 5).
@@ -162,6 +181,11 @@ public actor WhisperCppEngine: ASREngine {
         // execution. A guessed threshold would be worse than none — it would answer empty for
         // audio whisper would have transcribed — so if step 19 shows whisper *does* refuse short
         // audio, the fix is its own measured constant here, mirroring Parakeet's.
+        //
+        // The stream path runs the same policy: the first decode happens on the first feed
+        // chunk (no accumulation threshold), so if whisper refuses short audio rather than
+        // padding, a stream throws on its first iteration — unverified until step 19, then one
+        // measured constant in exactly one place, applied to both paths.
         if buffer.samples.isEmpty {
             return WhisperTranscriptMapper.map(
                 segments: [], duration: buffer.audioDuration,
@@ -183,5 +207,95 @@ public actor WhisperCppEngine: ASREngine {
         } catch {
             throw VoccaError.transcriptionFailed(identity, underlying: error)
         }
+    }
+
+    /// Streaming transcription — the seam's partials-then-exactly-one-final shape, in the
+    /// ``StreamingStubEngine/stream(_:)`` form (`ASRTestDoubles.swift:172-184`): `nonisolated`
+    /// because the seam's requirement is synchronous, with the producer task carrying the
+    /// asynchrony, and a consumer that stops early cancels the producer (``onTermination``).
+    ///
+    /// **Cost honesty** (`whisper-streaming` spec requirement 4): every chunk arrival decodes
+    /// the whole growing buffer, so the partial passes are O(n²) over the utterance, and the
+    /// key-up final pays the full decode — **no caller may assume key-up savings**. The final
+    /// equals a batch transcription of the same audio **by construction** (same params, same
+    /// audio, same `whisper_full` machinery — the bridge's parity comment is the pin), a claim
+    /// verified on real audio at `SMOKE_CHECKLIST.md` step 19, never in CI.
+    public nonisolated func stream(
+        _ chunks: AsyncStream<AudioBuffer>
+    ) -> AsyncThrowingStream<Transcript, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                await self.runStream(chunks, continuation: continuation)
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+
+    /// The stream body — actor-isolated, in the batch default's shape (`ASREngine.swift:90-108`)
+    /// with the whisper loop: each non-empty chunk arrival appends to the growing buffer and
+    /// runs one full decode of it through the seam, yielding the decode's segments as a
+    /// partial; the chunk source's end (or cancellation) falls through to exactly one final —
+    /// the last decode's segments, batch-equivalent by construction. A decode failure finishes
+    /// the stream throwing ``VoccaError/transcriptionFailed(_:underlying:)`` with the cause
+    /// intact and nothing yielded after the throw; an empty stream (zero chunks, or only empty
+    /// ones) is answered above the context, exactly as the batch empty-buffer policy dictates.
+    private func runStream(
+        _ chunks: AsyncStream<AudioBuffer>,
+        continuation: AsyncThrowingStream<Transcript, Error>.Continuation
+    ) async {
+        guard loadState.hasLoaded else {
+            continuation.finish(throwing: VoccaError.modelUnavailable(
+                identity, reason: "the model is not loaded; call prepare() first"))
+            return
+        }
+        var samples: [Float] = []
+        var missingSampleCount = 0
+        var lastSegments: [WhisperSegment] = []
+        var lastDecodeElapsed: Duration?
+        for await chunk in chunks {
+            guard !Task.isCancelled else { break }
+            // No C call for silence — the batch empty-buffer policy (`:173-190`), stream-shaped:
+            // an empty chunk adds nothing and is not worth a full decode of the same buffer.
+            guard !chunk.samples.isEmpty else { continue }
+            samples.append(contentsOf: chunk.samples)
+            // The completeness link (I1), accumulated with a cap: a missing count never exceeds
+            // the samples it describes.
+            missingSampleCount = min(
+                missingSampleCount + chunk.missingSampleCount, samples.count)
+            let start = clock.now
+            do {
+                lastSegments = try context.transcribeStreaming(samples: samples)
+            } catch {
+                continuation.finish(throwing: VoccaError.transcriptionFailed(
+                    identity, underlying: error))
+                return
+            }
+            lastDecodeElapsed = clock.now - start
+            continuation.yield(WhisperTranscriptMapper.map(
+                segments: lastSegments,
+                duration: Double(samples.count) / Double(AudioBuffer.interchangeSampleRate),
+                missingSampleCount: missingSampleCount,
+                isFinal: false))
+        }
+        // Timing (decision: only the final decode is recorded): the last decode's elapsed under
+        // the transcribedSinceLoad split, flipped only on success — a zero-decode stream
+        // records nothing and does not consume the one-shot firstAfterLaunch slot.
+        if let lastDecodeElapsed {
+            if transcribedSinceLoad {
+                await timing.record(.warmTranscribe, elapsed: lastDecodeElapsed)
+            } else {
+                await timing.record(.firstAfterLaunch, elapsed: lastDecodeElapsed)
+                transcribedSinceLoad = true
+            }
+        }
+        // Exactly one final: the last decode's segments. Cancellation still yields it — a
+        // terminated continuation ignores the yield — and a consumer that ended the stream
+        // early is the pipeline's own guard's business, never a throw.
+        continuation.yield(WhisperTranscriptMapper.map(
+            segments: lastSegments,
+            duration: Double(samples.count) / Double(AudioBuffer.interchangeSampleRate),
+            missingSampleCount: missingSampleCount,
+            isFinal: true))
+        continuation.finish()
     }
 }

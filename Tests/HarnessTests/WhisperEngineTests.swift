@@ -245,7 +245,7 @@ final class WhisperEngineTests: XCTestCase {
     // MARK: - Attribution
 
     /// Every transcript carries ``WhisperCppEngineIdentity/whisper`` — I1's attribution, now on
-    /// the real engine — and the engine reports batch-only.
+    /// the real engine — and the engine streams: partials then one final, batch-by-construction.
     func testEveryTranscriptIsAttributedToTheWhisperEngine() async throws {
         let (engine, _) = makeEngine(
             context: StubWhisperContext(segments: [
@@ -268,9 +268,9 @@ final class WhisperEngineTests: XCTestCase {
             transcript.audioDuration, 3.0 / 16_000,
             "the duration comes from the buffer, never from the segments' span")
         XCTAssertEqual(transcript.missingSampleCount, 0)
-        XCTAssertFalse(
+        XCTAssertTrue(
             engine.supportsStreaming,
-            "the second engine is batch-only — streaming is C7's capability")
+            "the second engine streams — partials then one final, the final batch-by-construction")
         XCTAssertEqual(engine.identity, WhisperCppEngineIdentity.whisper)
     }
 
@@ -808,7 +808,8 @@ final class WhisperEngineStreamingTests: XCTestCase {
 
     /// **A stream ending mid-utterance terminates cleanly.** The chunk source yields two chunks
     /// and finishes — no key-up, no cancellation — and the stream must end with the partials so
-    /// far, then exactly one final (the last decode's segments), without throwing.
+    /// far (one per decode), then exactly one final (the last decode's segments), without
+    /// throwing.
     func testAStreamEndingMidUtteranceTerminatesCleanlyWithPartialsThenOneFinal() async throws {
         let context = StubWhisperContext(streamedScript: [
             [WhisperSegment(text: "hello", start: 0.0, end: 0.4, tokenProbability: nil)],
@@ -827,8 +828,10 @@ final class WhisperEngineStreamingTests: XCTestCase {
         ])))
 
         XCTAssertNil(error, "a chunk-source end is a clean finish, never a throw")
-        XCTAssertEqual(yields.map(\.text), ["hello", "hello world"])
-        XCTAssertEqual(yields.map(\.isFinal), [false, true])
+        XCTAssertEqual(
+            yields.map(\.text), ["hello", "hello world", "hello world"],
+            "partials so far, then exactly one final — the last decode's segments")
+        XCTAssertEqual(yields.map(\.isFinal), [false, false, true])
     }
 
     /// **Empty stream:** zero chunks transcribe as one empty final, never a throw, and the
@@ -1043,8 +1046,8 @@ final class WhisperEngineStreamingTests: XCTestCase {
 
         XCTAssertNil(error)
         XCTAssertEqual(
-            yields.map(\.missingSampleCount), [1, 2, 3],
-            "partials carry the running sum")
+            yields.dropLast().map(\.missingSampleCount), [1, 2, 3],
+            "partials carry the running sum, one per decode")
         XCTAssertEqual(
             yields.last?.missingSampleCount, 3,
             "the final carries min(6, samples.count = 3) — the cap keeps the count honest")
