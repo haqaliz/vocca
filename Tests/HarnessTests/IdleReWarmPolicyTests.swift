@@ -44,7 +44,7 @@ final class IdleReWarmPolicyTests: XCTestCase {
 
     /// The five-minute target itself, pinned. The value is **provisional** (PRD Q5 — the reload
     /// cost is unmeasured): the founder re-baselines it from the real run (`SMOKE_CHECKLIST.md`
-    /// steps 120/121), in exactly this one file, recorded not gated.
+    /// steps 127/128), in exactly this one file, recorded not gated.
     func testIdleDurationIsFiveMinutes() {
         let expected: Duration = .seconds(300)
         XCTAssertEqual(IdleReWarmTargets.idleDuration, expected)
