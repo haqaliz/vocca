@@ -114,6 +114,34 @@ final class ParakeetCoreTests: XCTestCase {
         XCTAssertEqual(transcript.missingSampleCount, 42)
     }
 
+    // MARK: - Streaming surface
+
+    /// The engine reports streaming support — the seam's promise (`ASREngine.swift:51-54`) is
+    /// that a conformer with `supportsStreaming == true` implements `stream(_:)` itself, and the
+    /// pipeline never branches on the flag: the flag is the adapter's contract with the route,
+    /// `true` since the sliding-window streaming adapter landed.
+    ///
+    /// Construction is headless and performs no network — a stub store over a temp root, an
+    /// unused transport base URL (never reached), the shipped manifest, the offline flag set in
+    /// `init` — exactly the `ParakeetEngineWERTests` construction minus the model.
+    func testTheEngineReportsStreamingSupport() throws {
+        let manifestURL = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json")
+        let manifest = try ModelManifest.load(from: Data(contentsOf: manifestURL))
+        let engine = ParakeetEngine(
+            store: ModelStore(
+                rootURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("vocca-streaming-pin-\(UUID().uuidString)")),
+            manifest: manifest,
+            transport: DefaultModelTransport(baseURL: URL(string: "https://unused.invalid")!),
+            clock: ContinuousMonotonicClock())
+
+        XCTAssertTrue(
+            engine.supportsStreaming,
+            "the Parakeet adapter streams — the seam's batch default is a batch engine's "
+                + "degradation, not a streaming one's")
+    }
+
     // MARK: - Load state
 
     /// Two `prepare`s load once: the state's whole reason to exist.

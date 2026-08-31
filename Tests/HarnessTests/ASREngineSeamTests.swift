@@ -170,6 +170,49 @@ final class ASREngineSeamTests: XCTestCase {
         XCTAssertEqual(transcript.missingSampleCount, 0)
     }
 
+    /// The streaming shape: a streaming engine yields partials as audio arrives, then exactly one
+    /// final transcript — and terminates.
+    ///
+    /// ``StreamingStubEngine`` is the seam's streaming double (`ASRTestDoubles.swift:126-238`):
+    /// the real streaming adapter (`ParakeetEngine.stream`) must mirror this shape, so the
+    /// contract is pinned here first, against the double, where CI can run it — partials
+    /// (`isFinal == false`), then exactly one `isFinal == true` transcript, then the stream ends
+    /// (the loop terminating is the stream terminating; XCTest cannot reach the line after the
+    /// loop without it).
+    func testAStreamingEngineYieldsPartialsThenExactlyOneFinalAndTerminates() async throws {
+        let engine = StreamingStubEngine(
+            identity: EngineIdentity(
+                id: "parakeet-tdt-0.6b-v3", displayName: "Parakeet TDT 0.6B v3", isLocal: true),
+            partials: ["hello", "hello world", "hello world from"],
+            finalText: "hello world from vocca")
+        let chunks = AsyncStream<AudioBuffer> { continuation in
+            continuation.yield(AudioBuffer(samples: [1], sampleRate: 16_000))
+            continuation.yield(AudioBuffer(samples: [2], sampleRate: 16_000))
+            continuation.yield(AudioBuffer(samples: [3], sampleRate: 16_000))
+            continuation.finish()
+        }
+
+        var transcripts: [Transcript] = []
+        for try await transcript in engine.stream(chunks) {
+            transcripts.append(transcript)
+        }
+
+        XCTAssertEqual(
+            transcripts.count, 4,
+            "three scripted partials then one final — and the loop terminating proves the "
+                + "stream terminates")
+        XCTAssertEqual(
+            transcripts.map(\.text),
+            ["hello", "hello world", "hello world from", "hello world from vocca"],
+            "the partials arrive in scripted order, and the final is last")
+        XCTAssertEqual(
+            transcripts.map(\.isFinal), [false, false, false, true],
+            "every preceding transcript is a partial; exactly one final closes the stream")
+        XCTAssertEqual(
+            transcripts.last?.engine, engine.identity,
+            "the streaming shape attributes every transcript to the engine that made it")
+    }
+
     /// The seam crosses actor boundaries: the stub's transcript survives a `Task.detached` round
     /// trip.
     ///

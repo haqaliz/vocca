@@ -50,10 +50,17 @@ private enum ParakeetSeamTestError: Error, CustomStringConvertible {
 /// `ModelHub`'s downloaders are in the family) has moved somewhere CI cannot see.
 ///
 /// The family is the identifier prefix list below: `AsrManager`, `AsrModels`, `ModelHub`,
-/// `TdtDecoderState`, `ASRResult` and `FluidAudio` itself — a prefix rule, so every member of
-/// each family is covered by construction. `ModelHub` is in the family because its download
-/// machinery is exactly the egress the offline promise exists to prevent: naming it outside the
-/// adapter would be the network decision escaping the one file that must hold it.
+/// `TdtDecoderState`, `ASRResult`, `FluidAudio` itself and `SlidingWindow` — a prefix rule, so
+/// every member of each family is covered by construction. `ModelHub` is in the family because
+/// its download machinery is exactly the egress the offline promise exists to prevent: naming it
+/// outside the adapter would be the network decision escaping the one file that must hold it.
+///
+/// `SlidingWindow` joined the family with the streaming adapter, and it is the family member the
+/// word-boundary rule almost missed: the scanner's regex matches a prefix at a word boundary, so
+/// `\bAsrManager[A-Za-z0-9_]*` does **not** match `SlidingWindowAsrManager` — the `w` before the
+/// `A` is a word character, so no boundary exists there, and the sliding-window names would have
+/// escaped the lint entirely. A prefix on the *leading* word (`SlidingWindow`) is what catches
+/// every member of the SDK's sliding-window surface.
 ///
 /// ## What this lint does and does not see
 ///
@@ -71,8 +78,14 @@ final class ParakeetSeamTests: XCTestCase {
     ]
 
     /// The identifier prefixes that constitute the seam.
+    ///
+    /// `SlidingWindow` joined the family with the streaming adapter — and it must be a prefix on
+    /// the *leading* word: the scanner matches a prefix at a word boundary, so a prefix on
+    /// `AsrManager` cannot see `SlidingWindowAsrManager` (no boundary between `w` and `A`), and
+    /// the planted-violation test pins that the leading prefix is what catches it.
     private static let forbiddenIdentifierPrefixes = [
         "AsrManager", "AsrModels", "ModelHub", "TdtDecoderState", "ASRResult", "FluidAudio",
+        "SlidingWindow",
     ]
 
     /// Every occurrence of a forbidden identifier in `source`, comments removed first.
@@ -150,7 +163,10 @@ final class ParakeetSeamTests: XCTestCase {
 
     /// The lint's negative control: planted source is caught — including the egress half of the
     /// family, `ModelHub`, whose presence outside the adapter is the privacy failure this lint
-    /// exists to prevent.
+    /// exists to prevent, and `SlidingWindowAsrManager`, whose *leading* prefix is the one the
+    /// word-boundary rule almost missed (a planted token that today's regex cannot see would make
+    /// the guard a placebo — it must be here, in the planted proof, or the extension proves
+    /// nothing).
     func testTheLintDetectsAPlantedSDKIdentifier() {
         let source = """
             import Foundation
@@ -158,12 +174,14 @@ final class ParakeetSeamTests: XCTestCase {
             public struct Leak {
                 public let models: AsrModels
                 public var hub: ModelHub { .shared }
+                public let window: SlidingWindowAsrManager
             }
             """
         let identifiers = Self.sdkIdentifiers(inSource: source)
         XCTAssertEqual(
-            identifiers, ["AsrModels", "ModelHub"],
-            "the detector must find the planted types, ModelHub included")
+            identifiers, ["AsrModels", "ModelHub", "SlidingWindowAsrManager"],
+            "the detector must find the planted types, ModelHub and the sliding-window family "
+                + "included")
     }
 
     /// A doc comment may name the SDK — the scanner strips comments, which is what lets the
