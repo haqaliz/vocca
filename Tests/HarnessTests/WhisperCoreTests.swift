@@ -113,6 +113,23 @@ final class WhisperCoreTests: XCTestCase {
             "the mapper defaults to complete; the capture bridge's count overrides it")
     }
 
+    /// The partial flag passes through: a streaming pass maps to a non-final transcript, while
+    /// the default keeps every existing batch call site final (`whisper-streaming` Phase b).
+    func testTheMapperPassesThePartialFlagThrough() {
+        let partial = WhisperTranscriptMapper.map(
+            segments: [WhisperSegment(text: "hi", start: 0.0, end: 0.25, tokenProbability: nil)],
+            duration: 0.25,
+            isFinal: false)
+        XCTAssertFalse(partial.isFinal, "a streaming pass maps to a partial transcript")
+
+        let batch = WhisperTranscriptMapper.map(
+            segments: [WhisperSegment(text: "hi", start: 0.0, end: 0.25, tokenProbability: nil)],
+            duration: 0.25)
+        XCTAssertTrue(
+            batch.isFinal,
+            "the default is final — every existing batch call site is byte-identical")
+    }
+
     // MARK: - Load state
 
     /// A fresh state reads unloaded and not-ready; a successful prepare lands on prepared.

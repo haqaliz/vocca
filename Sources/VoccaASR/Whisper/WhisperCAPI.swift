@@ -124,6 +124,65 @@ public final class WhisperCAPI: WhisperContext {
         }
     }
 
+    /// One streaming pass over the current buffer: a full decode with a new-segment callback
+    /// registered, harvesting each newly generated segment into a per-call box (whisper.cpp's
+    /// canonical stream pattern — repeated `whisper_full` on the growing buffer, this method
+    /// called once per pass). The returned list is everything the decode produced — the answer
+    /// a batch decode of the same buffer yields, **by construction**: the params here must stay
+    /// field-for-field identical to ``transcribe(samples:)``'s, the call is the same
+    /// `whisper_full` machinery, and the audio is the same buffer.
+    ///
+    /// - Throws: the same contract as ``transcribe(samples:)``.
+    public func transcribeStreaming(samples: [Float]) throws -> [WhisperSegment] {
+        guard let context else {
+            throw WhisperCAPIError.contextNotPrepared
+        }
+
+        // Must stay field-for-field identical to `transcribe(samples:)`'s params construction:
+        // the streamed final equals the batch transcription by construction only while this
+        // holds. The duplication is deliberate and is the pin — no test executes the CAPI, so a
+        // shared helper could drift the batch path with nothing in CI to catch it; a shared
+        // helper becomes safe only after SMOKE step 19's real run.
+        var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
+        params.n_threads = Int32(parameters.threads)
+        params.no_timestamps = false
+        // `single_segment` stays false: the header's "useful for streaming" note applies to the
+        // stateful incremental pattern (`whisper_full_with_state`, N2 — deferred), not to this
+        // one. Forcing single-segment here would change segmentation versus the batch path and
+        // break the final ≡ batch by-construction guarantee.
+        params.single_segment = false
+        // The C default is "en"; nil means auto-detect in this product's vocabulary, so nil is
+        // translated to the explicit "auto" sentinel. The buffer outlives the call below.
+        let languageBuffer: [CChar] = Array(parameters.language?.utf8CString ?? "auto".utf8CString)
+        params.language = languageBuffer.withUnsafeBufferPointer { $0.baseAddress }
+
+        // The per-call harvest box: a `@convention(c)` callback cannot capture, so the box rides
+        // in `new_segment_callback_user_data`, retained for the call and released on every path
+        // (the `defer` below). The callback fires on the calling thread inside `whisper_full`,
+        // which the engine actor serializes — "Not thread safe for same context" is satisfied
+        // by the single-executor rule. The box lives only within the call: no cross-call state,
+        // no leak, no use-after-free, and it never leaves the actor.
+        let box = SegmentHarvestBox()
+        let retained = Unmanaged.passRetained(box)
+        params.new_segment_callback = { ctx, _, nNew, userData in
+            guard let ctx, let userData else { return }
+            Unmanaged<SegmentHarvestBox>.fromOpaque(userData)
+                .takeUnretainedValue()
+                .harvest(context: ctx, nNew: nNew)
+        }
+        params.new_segment_callback_user_data = retained.toOpaque()
+        defer { retained.release() }
+
+        let status = samples.withUnsafeBufferPointer { buffer in
+            whisper_full(context, params, buffer.baseAddress, Int32(samples.count))
+        }
+        guard status == 0 else {
+            throw WhisperCAPIError.transcriptionFailed(code: status)
+        }
+
+        return box.segments
+    }
+
     /// Frees the C context. Runs wherever the last release happens, which is not this object's
     /// choice — so it takes the shipped teardown route (the `DeinitIsolationTests` rule, in the
     /// same shape as `MainRunLoopTimer`, `CGEventTapSource`, `ScheduledWatchdog` and
@@ -140,6 +199,36 @@ public final class WhisperCAPI: WhisperContext {
     private func tearDown() {
         if let context {
             whisper_free(context)
+        }
+    }
+}
+
+/// The per-call harvest box: collects the segments the new-segment callback reports during one
+/// `whisper_full` decode. A `@convention(c)` closure cannot capture, so the box rides in the
+/// callback's `user_data` pointer — retained per call by ``WhisperCAPI/transcribeStreaming(samples:)``
+/// and released on every path, never crossing a boundary.
+private final class SegmentHarvestBox {
+
+    /// The segments harvested so far, in decode order — the callback's report of `n_new`
+    /// segments is the last `n_new` of the context's segment list, so each new segment is
+    /// appended exactly once.
+    var segments: [WhisperSegment] = []
+
+    /// Appends the `n_new` segments the callback reports, translated exactly as the batch
+    /// readout in `transcribe(samples:)` translates them (the parity comment there applies —
+    /// both paths must produce identical values from the same context).
+    func harvest(context: OpaquePointer, nNew: Int32) {
+        let total = Int(whisper_full_n_segments(context))
+        let start = max(0, total - Int(nNew))
+        for index in start..<total {
+            let cIndex = Int32(index)
+            let text = whisper_full_get_segment_text(context, cIndex).map { String(cString: $0) } ?? ""
+            let startTime = WhisperTranscriptMapper.seconds(
+                fromCentiseconds: whisper_full_get_segment_t0(context, cIndex))
+            let endTime = WhisperTranscriptMapper.seconds(
+                fromCentiseconds: whisper_full_get_segment_t1(context, cIndex))
+            // Segment confidence is deliberately nil — see the batch readout's comment.
+            segments.append(WhisperSegment(text: text, start: startTime, end: endTime, tokenProbability: nil))
         }
     }
 }
