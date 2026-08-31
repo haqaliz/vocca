@@ -2412,6 +2412,28 @@ meaningful preferences exist on a hosted runner. These steps are the first execu
     *Failure:* a feed still ticking at process exit — the quit path's cancel is the claim that
     "no feed left running" is true in the code that runs, not only as a property of process death.
 
+124. **First real streaming run** (the `SlidingWindowAsrManager` conversation — PCM buffers in,
+    updates out, `finish()` final — executed by nothing in CI, the tap-adapter precedent).
+
+    *Gesture:* with provisioned models, run the env-gated streaming row —
+    `VOCCA_MODEL_DIR=<store-shaped version directory> Scripts/test-with-floor.sh --filter ParakeetStreamingWERTests`
+    — then drive the `sixty-second` fixture through the same chunked stream (1 s chunks) to
+    observe the partials half. No latency or equivalence claim may be written from this run —
+    the numbers are the equivalence-measurement aspect's.
+
+    *Verify the state was entered:* the env-gated row did **not** print its skip message (the
+    skip is the tell-tale — a skipped test ran nothing) and the run completed a stream.
+
+    *Pass (tighter than the failure):* the clean-fixture row yields exactly one final whose text
+    is non-empty and attributed to Parakeet — the failure this guards is a silent stream: no
+    final, an empty one, or a hang. On the long fixture, partials are observed after ~13 s (the
+    SDK default's first window: 11 s chunk + 2 s right context) and the stream still ends with
+    exactly one final — the failure this guards is a stream that never finishes or a final that
+    drops the confirmed text.
+
+    *Failure:* a hang (the SDK's update stream never terminates on its own — the adapter must not
+    wait on it), a missing final, or an empty final on audio the batch path transcribes.
+
 ---
 
 ## When this file is wrong

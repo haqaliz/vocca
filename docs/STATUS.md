@@ -891,6 +891,84 @@ The recorder captures through a **first-responder override in Vocca's own window
 - **`PRODUCT_SPEC.md:252` was amended** (founder-approved) because its unqualified "conflict
   detection against system shortcuts" is not deliverable.
 
+**The `parakeet-streaming` aspect landed 2026-08-31 — the real Parakeet streaming adapter behind
+the shipped seam, in four commits.** `ParakeetEngine.supportsStreaming` is now `true`, and
+`stream(_:)` is a real `SlidingWindowAsrManager` adapter (SDK-default window config only — the
+founder decision), with the seam contract preserved: partials then exactly one final, the
+sub-minimum answer an empty final never a throw, empty answers never errors, and no caller
+branches on `supportsStreaming` anywhere (the no-branch pin is a test, and it stayed green).
+
+**The plan's H8b lint finding was real and the amendment is planted-proof.** The scanner's regex
+matches a prefix at a word boundary, so `\bAsrManager[A-Za-z0-9_]*` cannot see
+`SlidingWindowAsrManager` — the `w` before `A` is a word character — and the new SDK names would
+have escaped the lint entirely. `forbiddenIdentifierPrefixes` gains `"SlidingWindow"`, and the
+planted-violation test was extended with a `SlidingWindowAsrManager` token that genuinely fails
+against the un-extended list (the guard that cannot fail proves nothing). The seam-shape contract
+pin (three scripted partials then one final over `StreamingStubEngine` — partials
+`isFinal == false`, exactly one `isFinal == true`, stream terminates) and the flag pin
+(`supportsStreaming == true`, constructed headlessly — stub store, unused transport, shipped
+manifest) land in the same commit; the flag pin stays RED until the adapter commit, by design.
+Test floor: 1643 → 1645.
+
+**The pure vocabulary landed next: the partial and final transcript forms and the sample-count
+minimum decision.** `ParakeetTranscriptMapper.partial(text:engine:)` yields `isFinal == false`,
+no segments, `audioDuration == 0`, completeness 0 — every SDK update, confirmed or volatile
+alike, maps to a partial and cannot produce a final (the volatile `isConfirmed` semantics stay
+inside the SDK; the seam has no such field). `final(text:forSampleCount:engine:missingSampleCount:)`
+yields one segment spanning `sampleCount / 16_000` — duration from the sample count, never the
+text's length — and empty text maps to a valid empty final, never an error (the batch
+precedent). `ParakeetEngine.isBelowSDKMinimum(sampleCount:sampleRate:)` is the stream's carrier
+of the batch decision — the buffer form now delegates to it, so the two cannot drift — pinned at
+the measured 4 799/4 800 boundary and at the agreement between the two forms. The batch mapper
+form and the batch `transcribe` path are byte-for-byte untouched. Test floor: 1645 → 1649.
+
+**The adapter landed as translation only.** `stream(_:)` is the `StreamingStubEngine` shape
+(`nonisolated`, producer `Task`, `onTermination` cancels the producer), and `runStream` is the
+actor-isolated body. The load-bearing lifecycle: a **fresh `SlidingWindowAsrManager` per
+`stream()` call** — the SDK's `finish()` permanently ends the manager's input stream and
+`reset()` cannot revive it, so a manager serves exactly one session, with the models retained by
+`prepare()` (`private var models: AsrModels?`) re-loaded into each fresh manager (the per-session
+load cost is unmeasured; the env-gated run observes it and the equivalence-measurement aspect
+records it — never claimed here). Partials are forwarded from `transcriptionUpdates` by a sibling
+task that is cancelled and awaited **before** the final is yielded — partials-then-final is
+deterministic rather than raced — and termination is driven only by the chunk stream, so a silent
+SDK cannot hang the adapter. The sub-minimum total answers one empty final (`try?` + discard —
+the recognizer task still completes, which is all the call is for); SDK throws map to
+`VoccaError.transcriptionFailed`; cancellation finishes throwing `CancellationError` at every
+boundary; the not-loaded guard finishes throwing `VoccaError.modelUnavailable` — the one branch a
+headless test executes. No `EngineTiming` recording on the stream path (the pipeline owns the ASR
+span). **Two deviations, both forced and both approved:** (1) `import AVFoundation` collided with
+the exact-set AVFoundation lint (`AudioFormatConverterTests` pins the importers' set, two ways) —
+the SDK's `streamAudio(_:)` speaks `AVAudioPCMBuffer`, so the plan's own mandate made the import
+unavoidable, and the set gained `VoccaASR/Parakeet/ParakeetEngine.swift` through the pin's own
+documented reviewed-amendment mechanism, recorded in the pin's doc comment; (2) `AudioBuffer`
+became ambiguous in that one file (`import AVFoundation` brings CoreAudio's C `AudioBuffer` into
+scope), resolved the way `ASRFixtureSuite` already does — the seam type is written
+`VoccaCore.AudioBuffer`. Test floor: 1649 → 1650.
+
+**The env-gated row and the SMOKE step close the aspect.** `ParakeetStreamingWERTests` (new)
+gates on `VOCCA_MODEL_DIR` exactly like `ParakeetEngineWERTests` (visible skip in CI, and a skip
+counts as executed): the `clean` fixture through `engine.stream` in 1 s chunks, asserting exactly
+one final, `isFinal == true`, text non-empty, attributed to Parakeet — **no WER comparison, no
+latency number, no equivalence verdict**. `SMOKE_CHECKLIST.md` step 124 is the first real
+streaming run: the env-gated row on the founder's machine (state-entered check: the skip is the
+tell-tale), then the `sixty-second` fixture for the partials half (partials after ~13 s — the
+default's first window: 11 s chunk + 2 s right context). Test floor: 1650 → 1651.
+
+**What this aspect is NOT, and must not be claimed:**
+- **The adapter is executed by nothing in CI** (the tap-adapter precedent). The
+  `SlidingWindowAsrManager` conversation — PCM buffer in, updates out, `finish()` final — runs
+  only in the env-gated row on the founder's machine; a green CI proves the decisions above the
+  seam, never the conversation. The sub-minimum and not-loaded branches are the only real-adapter
+  lines CI executes.
+- **Open question 2 (final-vs-batch equivalence) is NOT answered here.** The adapter is the
+  vehicle, not the verdict; nothing in this aspect's tests, docs or commits claims the final
+  equals the batch, and no latency figure is written from any run.
+- **The per-session `loadModels` cost is unmeasured**, by design — the env-gated run observes it
+  and the equivalence-measurement aspect records it.
+- **CLAUDE.md's status paragraphs were not amended here** — the integrator's front-door update is
+  the integrator's step.
+
 **The `speculative-feed` aspect landed 2026-08-31 — the pre-key-up feed's ring ownership,
 documented and pinned first.** This is the first aspect of the speculative-asr unit (C7's
 remainder): the feed that drains the ring during `.recording` and yields `AsyncStream<AudioBuffer>`
