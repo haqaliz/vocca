@@ -1,177 +1,122 @@
-# Understanding: feat/hotkey-rebinding
+# Understanding: feat/speculative-asr
 
-**Date:** 2026-08-30 · **Phase:** P0 (capability C1, unshipped must-have M10)
-**Source:** `docs/planning/_card/issue.md` (inline brief — no GitHub issue exists)
+**Date:** 2026-08-31 · **Phase:** P2 (capability C7, unshipped remainder)
+**Source:** `docs/planning/_card/issue.md` (inline brief from `vocca-next`)
 
-> Written after a four-agent dig over the hotkey path, the settings path, the enforced
-> conventions, and the macOS conflict-detection constraints. Every claim below carries a
-> file:line. Two claims in the original brief were **wrong** and are corrected here.
+> Written after a three-agent dig over the streaming pipeline, the resolved SDK surfaces
+> (FluidAudio 0.15.5 checked out in the primary's `.build/`; whisper.cpp v1.9.2 XCFramework
+> header), and the primary's uncommitted `docs/STATUS.md` / `CLAUDE.md`. Every claim below
+> carries a file:line. Two premises of the original brief were **substantially amended** by
+> the SDK findings and are recorded here.
 
 ---
 
 ## 1. What the work is really asking
 
-Not "add a feature". **Deliver an unshipped must-have and make a risk-register row true.**
+Close the last unshipped half of C7 (`docs/technical/CAPABILITY_ROADMAP.md:187-195`): the
+**speculative pre-key-up ASR feed** (begin ASR on the growing buffer while the user still
+speaks, finalize on key-up, partials widget-only), the **real `supportsStreaming == true`
+engine adapters** (Parakeet streams; whisper.cpp batches), and **re-warm-after-idle** — plus,
+before anything, the **open-question-2 measurement** (`ARCHITECTURE.md:695`: final-on-key-up
+must equal batch transcription of the same buffer, "or the latency win is bought with
+accuracy"). That measurement is a go/no-go the brief names first.
 
-- `docs/planning/audio-capture-hotkey/prd.md:137` — **M10 "Rebindable hotkey"**, in the C1
-  **Must-have** section: *"`⌥Space` is Alfred's default and a common Raycast binding."*
-- `docs/planning/audio-capture-hotkey/prd.md:321` — risk **C1-E** (`⌥Space` collides with
-  Alfred/Raycast, Med) records its mitigation as *"M10 rebinding"*.
-- M10 appears in **no** C1 aspect spec. It was dropped at decomposition, deliberately and with a
-  reason: `audio-capture-hotkey/hotkey-source/spec.md:88` — *"Hotkey rebinding UI. The
-  **configuration is already a value**; a settings surface is later."*
-- `docs/planning/audio-capture-hotkey/prd.md:263` — **N1** "Hotkey conflict detection against
-  system shortcuts" was separately listed as **nice-to-have**.
+## 2. What already exists (all verified in the worktree's sources)
 
-So C1-E is currently mitigated on paper only, exactly as roadmap risk R5 was before C3 and as R11
-is by the zero-network test. This unit closes it. **Note the asymmetry the PRD must preserve:
-rebinding is a must-have; conflict detection is a nice-to-have.** They are not one requirement,
-and the nice-to-have is the half that cannot be finished (§4.3).
+- `ASREngine.stream(_:)` + batch default, `supportsStreaming`, no-branch doctrine pinned by
+  test (`Sources/VoccaCore/ASREngine.swift:42-110`; `DictationPipelineStreamingTests.swift:358-374`).
+- `DictationPipeline.routeStreaming` consumes `stream` unconditionally, partials → widget only,
+  permanent zero-injection-before-final guard test (`Sources/VoccaCore/DictationPipeline.swift:207-255`;
+  `DictationPipelineStreamingTests.swift:133-159`).
+- **The production composition never uses it**: `EffectRouter.deliver` calls the batch
+  `pipeline.route(.ended(...))` (`AppBootstrap.swift:2385`); `partialSink` is wired `nil`
+  (`AppBootstrap.swift:430-433`); the only streaming composition is the zero-network probe
+  (`StreamingCycleDrive.swift:394`).
+- Warm start: `WarmStartTargets` 1.2 bound, `WarmStartRatio` evaluator, launch-preload pinned
+  (`Sources/VoccaCore/WarmStartRatio.swift:25-29`; `WarmStartLaunchTests.swift:172,237`). **No
+  re-warm path exists**: engines' `prepare()` is a no-op after first load (`ParakeetEngine.swift:142`,
+  `WhisperCppEngine.swift:119`), resolver `isPrepared` is sticky (`DictationEngineResolver.swift:80,99`).
+- Latency: closed four-span record, `LatencyLedger`, benchmark gate with `ProvisionalTolerances`
+  (p50 400 ms / p95 800 ms), env-gated real run that records, never gates (`LatencyBenchmarkTests.swift:603-608,673-727`;
+  `LatencyBenchmarkRealEngineTests.swift`).
+- Short-press guard: `ParakeetEngine.isBelowSDKMinimum` reads FluidAudio's 0.3 s live
+  (`ParakeetEngine.swift:116-119`; SDK `ASRConstants.swift:15,67-69`); sub-minimum sessions
+  answer empty → `.emptySkip` (`DictationPipeline.swift:345-348`).
 
-## 2. Where it sits
+## 3. What the dig found that the brief could not know (the amendments)
 
-- **Phase P0**, `docs/ROADMAP.md` — P0's scope discipline permits *"no settings UI beyond
-  permissions **and one hotkey**"*. This is that hotkey.
-- **Layer:** capture only. It touches no ASR, cleanup, injection, or TTS code.
-- **Guardrail check** (`CLAUDE.md`): macOS-only ✅ · zero network ✅ (nothing here reaches a
-  socket) · local-first ✅ · dictation-first ✅ (P0, not the agent layer) · does not cripple the
-  local core ✅ · no cloud in the OSS core ✅. **No guardrail tension found.**
-- **Accessibility is a first-class driver here, not a nicety** — see §4.2.
+**(A) The Parakeet streaming adapter is implementable — but the SDK's own design guts the
+latency premise for typical dictation.** FluidAudio 0.15.5 exposes `SlidingWindowAsrManager`
+(public actor, `streamAudio(_:)` / `transcriptionUpdates` / `finish()`), explicitly *not* a
+cache-aware streaming architecture — TDT uses an offline encoder with overlapping windows
+(`SlidingWindowAsrManager.swift:9-10` header; `ParakeetModelVariant.swift:4-9`). Default
+config: 11 s chunk + 2 s left + 2 s right, **first partial after ~13 s of audio**, one per
+~11 s; `hypothesisChunkSeconds` is dead config; the 15 s input cap constrains re-tuning
+(`SlidingWindowAsrManager.swift:710-853,358`). Sub-13 s utterances (most dictation) get
+**zero partials** and key-up still pays a full window decode. Partials are `volatile` until
+10 s context + confidence threshold (`:552-576,856-895`). **Open question 2 is not answered
+by the SDK**: `finish()` is built from heuristic token dedup, self-labeled "a temporary
+workaround" (`AsrManager+TokenProcessing.swift:113-114`); no TDT text promises final-vs-batch
+equality — only the different-model Unified engine does.
 
-## 3. The code, as it actually is
+**(B) whisper.cpp inverts the risk.** The canonical pattern (repeated `whisper_full` on the
+growing buffer + `new_segment_callback`, both present in the pinned v1.9.2 header) makes the
+key-up final **equal to a batch transcription by construction** — the strongest possible
+answer to open question 2 — but the key-up decode is *not* cheaper and partial passes are
+O(n²). Stateful `whisper_full_with_state` could change that, on an unmeasured drift basis.
+And no whisper model has ever transcribed on this machine (`SMOKE_CHECKLIST.md` step 19).
 
-**The binding is one immutable value, consumed in exactly two places.**
+**(C) The hardest ownership question is the ring buffer, not the engines.** The SPSC warrant
+on `AudioRingBuffer` (`@unchecked Sendable`, `AudioRingBuffer.swift:44,51-58`) forbids a
+second consumer while `MicrophoneSource.endCapture` drains (`MicrophoneSource.swift:211-249`).
+A mid-session feed is a second consumer by definition. Options: feed becomes the consumer
+during `.recording` (endCapture drains only the remainder — changes a load-bearing contract),
+a second feed-owned buffer written by the interleaver, or a documented hand-off. Must be
+decided before code, and the realtime thread must never be touched by the feed.
 
-| Thing | Where | State |
-|---|---|---|
-| `HotkeyConfiguration` | `VoccaCore/HotkeyConfiguration.swift:20` | `Sendable, Hashable`; `keyCode`/`modifiers`/`activation` **all `let`** |
-| Constructed | `VoccaBootstrap/AppBootstrap.swift:399-400` (hold), `:437-438` (toggle) | both from `shippedHotkeyKeyCode: UInt16 = 49` (`:573`) + `[.option]` |
-| Consumed (1) | `VoccaCore/SessionRules.swift:157` `decide(_:state:config:)` | pure; compares `event.keyCode == config.keyCode` + chord |
-| Consumed (2) | `VoccaCore/SessionWatchdog.swift:444-449` `theBindingIsStillHeld` | hold-to-talk hot-mic poll, ~150 ms |
-| Held by | `VoccaCore/SessionMachine.swift:76` `public let configuration` | **immutable after init** |
-| Persisted | — | **nothing.** Only `Activation` is stored (`SettingsStore.swift:49-51`) |
+**(D) The two decision points have clear homes.** Start-feeding belongs beside
+`EffectRouter.deliver`'s `.opening`/`.started` (only production code that knows "a session
+began" with sessionID + pipeline + widget store; `AppBootstrap.swift:2335-2360`); finalize is
+`.ended` (`:2361-2399`), which must switch to `routeStreaming`; every other terminal
+(`.captureUnavailable`, Escape) must cancel the feed. The machine/watchdog are deliberately
+content-blind and must stay that way (`SessionWatchdog.swift:140-145`). Feed cadence is its
+own constant (ring doc sanctions ~10 ms consumer polls, `AudioRingBuffer.swift:27-31` — not
+the watchdog's 150 ms).
 
-**`VoccaHotkey` is entirely binding-agnostic and needs no change.** The tap's `eventsOfInterest`
-mask is built from event *kinds*, never key codes (`CGEventTapSource.swift:188` +
-`TapEventClassification.swift`), so the tap forwards **the whole keyboard** unconditionally and
-per-key matching happens above the seam in `SessionRules`. `TapEventDispatch.swift:44-46` says so
-in its own comment. This is a large simplification versus what the brief assumed.
+## 4. Scope placement
 
-### Two corrections to the brief
+- **Phase:** P2 (ROADMAP's latency battle; the C7 amendment's unshipped remainder). P2 is the
+  next unshipped phase; C9+ is guardrail-blocked until the P2 gate (`ROADMAP.md:180`).
+- **Layer:** capture + ASR. Local-only OSS core; no egress; engines stay behind `ASREngine`;
+  no engine identity reaches callers. Zero-network invariant untouched.
+- **Privacy:** the feed reads only the in-session ring; nothing leaves the machine; the
+  orange-mic-dot policy (engine cold when idle) is untouched (`ARCHITECTURE.md:336-346`).
 
-1. **"The rebind must separately reach the watchdog's physical-key poll, or the hot-mic guard
-   reads the old key code" — false.** `theBindingIsStillHeld` reads `machine.configuration`
-   **fresh on every poll** (`SessionWatchdog.swift:445`), and
-   `CGEventTapSource.isKeyDown(_:)` (`:426`) takes the key code as a *per-call parameter*. There
-   is no second stale copy anywhere. The guard tracks a rebind automatically **if the
-   configuration can change at all** — which it cannot.
-2. **"A modifier-only chord is refused" was stated as settled — it is entangled with a spec
-   requirement pointing the other way.** See §4.2. (Modifier-only — a chord with no non-modifier
-   key — is still correctly refused; *single-key, no-modifier* is a different case the spec
-   **requires** us to allow. The brief blurred them.)
+## 5. Ambiguities and open questions carried into the PRD
 
-### The real hazard, restated
+1. **Parakeet window config:** ship the adapter on SDK defaults (honest: silent < 13 s) or
+   re-tune (shorter chunk → partials for short dictation, more heuristic stitching, WER
+   cost)? The 15 s cap constrains the knob. — founder decision, asked in interview.
+2. **The p50 claim:** the architecture's "only the tail is unprocessed" premise
+   (`ARCHITECTURE.md:334`) is unmeasurable for Parakeet sub-13 s and false for whisper
+   (full re-decode at key-up). The unit ships mechanism + measurement; numbers are recorded
+   and re-baseline, never gated (house discipline). The PRD must not claim a win the SDK
+   structure precludes.
+3. **Re-warm-after-idle threshold** is a product constant with no precedent; propose a value,
+   flag for founder.
+4. **Feed cadence / chunk size** for the ring drain: own constant, measured not assumed.
+5. **Ring ownership decision (C above)** — engineering decision, made in PRD with the
+   trade-offs named.
 
-`SessionMachine.configuration` is a `let`, and each `Wiring` bakes it in at construction
-(`AppBootstrap.swift:870-872`). So a rebind is **not** a value update — it is either a mutation
-path that does not exist yet, or a graph rebuild. And if it becomes a mutation, the live hazard is
-`SessionRules.decide` and the watchdog poll **disagreeing mid-session** about what is bound:
-a session stranded on a key nobody is holding is `ROADMAP.md`'s **C1-A, "stuck recording", rated
-Fatal (trust)**. This is the single most important decision in the unit.
+## 6. Contradictions surfaced (flag, don't paper over)
 
-### The activation-mode precedent, and where it stops being one
-
-`DictationLoopRoot.setActiveMode(_:)` (`AppBootstrap.swift:1564-1581`) is the template: refuse
-no-op → **refuse while either machine is non-`.idle`** → persist → adopt → reroute. But it only
-**re-routes between two pre-built machines that already share the same chord**. It never changes a
-`keyCode`. Rebinding changes the match condition *inside* a route that is already built, so the
-precedent covers the guard and the ordering, not the mechanism.
-
-## 4. Open questions for the PRD
-
-### 4.1 How does a rebind reach a built machine? *(the load-bearing one)*
-Three shapes, materially different in risk: **(a)** make the configuration mutable behind a
-main-actor read at decide-time; **(b)** rebuild both `Wiring`s on rebind; **(c)** persist now,
-apply at next launch (restart-required). (a) is smallest but re-opens C1-A; (b) is clean but
-discards watchdog/timer state and needs an idle guard; (c) is safest and worst for the user.
-
-### 4.2 Single-key and non-modifier bindings — spec-required, and dangerous
-`PRODUCT_SPEC.md:322` (§10 Accessibility) is explicit: *"Hotkeys fully rebindable, **including to
-single keys or non-modifier combinations**, for users who can't hold chords."* That is a stated
-accessibility need, not an edge case, so a blanket "a modifier is required" rule **contradicts the
-spec**. But because the tap swallows the bound key (`ARCHITECTURE.md` §13: the tap must be active,
-not listen-only, or macOS inserts U+00A0), binding a bare letter makes that letter untypeable
-system-wide. `F13`–`F20` are the case the accessibility requirement actually wants; a bare `e` is
-the case that bricks the keyboard. **The PRD must draw this line explicitly** rather than let the
-recorder decide it by accident.
-
-Certain refusals independent of any of the above: **Escape** (it is Vocca's own cancel key,
-`SessionKeyPolicy.swift:56`, and the recorder needs it to abort), and **modifier-only** chords
-(`HotkeyConfiguration` pairs a `keyCode` with a `ModifierSet` — there is no representation for
-"modifiers alone").
-
-### 4.3 What "conflict detection" can honestly be
-Established as fact, not opinion:
-- `com.apple.symbolichotkeys` covers **only Apple's own remappable shortcuts** (Spotlight,
-  Mission Control, …). Undocumented, but plainly readable — no entitlement needed.
-- There is **no API to enumerate hotkeys other processes registered**, via Carbon
-  `RegisterEventHotKey` or via their own `CGEventTap`. Closed by design.
-- **Therefore Raycast and Alfred — the two apps C1-E actually names — are structurally
-  invisible.** The mitigation cannot detect the risk it was written for; it can only let the user
-  move off the collision.
-
-So detection ships as some subset of {seeded per-app table, `symbolichotkeys` read, empirical
-arm-and-observe probe}. Which subset, and how the copy states its own incompleteness, is a PRD
-decision. `TapHealthPolicy`'s `blockedBySecureInput` is the house precedent for "healthy but
-structurally cannot receive this key" (`TapHealthPolicy.swift:219`).
-**UNVERIFIED and flagged as such:** whether another process's `RegisterEventHotKey` reliably
-prevents our tap from seeing the key at all. Nobody has measured it; the probe's usefulness
-depends on it.
-
-### 4.4 Refusal shape — two precedents disagree
-Activation mode refuses **silently** (logs only, `AppBootstrap.swift:1568-1570`). The Speech tab's
-model removal refuses **visibly** (`SpeechTabState.swift:297` → `.refused` state), and its own copy
-cites activation mode as its template (`SpeechTabCopy.swift:105`). A rebind attempted mid-dictation
-should probably surface; the PRD should say which and why.
-
-### 4.5 One chord or two?
-`PRODUCT_SPEC.md:252` says "hotkeys (both modes…)". §5's dual-mode table (`:192`) assigns `⌥Space`
-to Dictate and `⌥⇧Space` to Converse — **Converse is P3 and unbuilt**. Resolution: ship **one**
-binding, with a stored shape that does not foreclose a second. Note the two *activation* modes
-(hold/toggle) share one chord today and should continue to.
-
-## 5. Two smaller findings that will bite if missed
-
-- **`SettingsBindings.hotkeyDisplayName` is a plain `String`, not a closure**
-  (`SettingsView.swift:24-152`) — captured once at window construction, unlike every other live
-  field. The settings window is built once and kept for the process lifetime
-  (`AppBootstrap.swift:1031-1035`), so after a rebind it would display the **old** chord until
-  relaunch. It has to become a closure.
-- **`SettingsCopy` has no byte-for-byte pin test.** Grep of `Tests/` finds
-  `hotkeyNotRebindable` only in three unrelated doc comments. So deleting it — which this unit
-  must do, because it becomes false — is a change **no existing test would notice**. The house
-  convention (`AppsTabCopyTests`, `CleanupTabCopyTests`) is to pin copy; this tab never got one.
-
-## 6. Conventions this unit is bound by
-
-- **Persistence must go in the existing `settings` seam's one file**
-  (`UserDefaultsSettingsStore.swift`) — a second `UserDefaults`-naming file fails
-  `InjectionSeamBoundaryTests.swift:1453-1481` outright. Tolerant decode belongs in
-  `PersistedSettings` (absent → default silent; malformed → default + exactly one loud report).
-- **Core owns the pure reducer**; `VoccaUI` may import only `VoccaCore`
-  (`ModuleBoundaryTests`). The recorder view is executed by nothing in CI (window-server
-  precedent) — decisions above the seam, adapter thin.
-- **Test floor is 1501** (`Scripts/test-with-floor.sh`), bumped in the same commit that adds tests.
-- Any tunable constant needs a **single-source scan test** (the `StrategyMemoryTargets` shape).
-- New `deinit`s may call only `tearDown`/`stopWithoutAssertingIsolation`/`deallocate`
-  (`DeinitIsolationTests`).
-- Apache-2.0 header verbatim on every new file; **smoke steps append after 110**.
-
-## 7. Contradictions surfaced, not papered over
-
-1. **`PRODUCT_SPEC.md:252` promises "conflict detection against system shortcuts"; macOS cannot
-   deliver it** for the apps the risk names. The promise is not fully keepable and the spec line
-   should be amended by this unit rather than quietly under-delivered.
-2. **C1-E claims a mitigation that does not exist.** True since C1.
-3. **The brief's own acceptance test #2 conflicts with `PRODUCT_SPEC.md:322`** (§4.2). The spec
-   wins; the acceptance test gets rewritten.
+- `ROADMAP.md:42` claims Parakeet "ships with streaming + EOU we need in P3" — both engines
+  report `supportsStreaming == false`; the adapter is net-new work, and the streaming it would
+  ship is pseudo-streaming, not the cache-aware kind P3's EOU path implies.
+- `CLAUDE.md:15,19` (primary, uncommitted) says "last aspects landed 2026-08-15" / "836 tests"
+  while `STATUS.md:848-849` records 2026-08-30 units at floor 1625 — the front-door copy is
+  stale; STATUS.md is authoritative.
+- `PRODUCT_SPEC.md` has no streaming-partials contract; the widget partial behavior exists
+  only in the warm-start-streaming PRD and implementation (`STATUS.md:434-437`).
+- The shipped ledger records a post-key-up budget only; a green benchmark today would not
+  prove the architecture's speculative claim (`STATUS.md:446-447`).
