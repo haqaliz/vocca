@@ -156,4 +156,55 @@ public actor DictationEngineResolver {
         try await engine.prepare()
         prepared = true
     }
+
+    /// The idle re-warm entry point (`rewarm-after-idle`): makes the resolved engine's model
+    /// resident again after five machine-idle minutes, under the one-flight discipline.
+    ///
+    /// The ordering ladder:
+    ///
+    /// 1. **A prepare in flight is the warm-up.** `rewarmIfNeeded()` awaits the in-flight
+    ///    `prepareIfNeeded()` and returns — no second load is ever started (the spec's
+    ///    single-flight acceptance, ``prepareIfNeeded()``'s `:129-136` precedent).
+    /// 2. **An unprepared engine has nothing to re-warm** — the ordinary eager path runs (also
+    ///    the bounded auto-retry for a failed launch prepare, once per idle window).
+    /// 3. **The re-warm runs under the same ``inFlightPrepare`` slot**, so a second
+    ///    `rewarmIfNeeded()` during one awaits it — never doubled. The engine must conform to
+    ///    ``EngineRewarmable``; a non-conforming engine throws
+    ///    ``DictationEngineResolverError/rewarmUnsupported`` loudly, never a silent no-op.
+    ///
+    /// ``isPrepared`` stays `true` on success **and** failure — a failed re-warm never closes
+    /// the gate (the old model stays resident; the next idle window retries, the
+    /// retry-on-failure precedent).
+    public func rewarmIfNeeded() async throws {
+        if let inFlight = inFlightPrepare {
+            try await inFlight.value
+            return
+        }
+        guard prepared else {
+            try await prepareIfNeeded()
+            return
+        }
+        let task = Task {
+            try await self.performRewarm()
+        }
+        inFlightPrepare = task
+        defer { inFlightPrepare = nil }
+        try await task.value
+    }
+
+    /// The re-warm body: the cast, then the seam's `rewarm()`. The gate is never touched here.
+    private func performRewarm() async throws {
+        guard let rewarmable = engine as? any EngineRewarmable else {
+            throw DictationEngineResolverError.rewarmUnsupported
+        }
+        try await rewarmable.rewarm()
+    }
+}
+
+/// The resolver's own failure vocabulary.
+public enum DictationEngineResolverError: Error, Equatable {
+    /// The resolved engine is not ``EngineRewarmable`` — the idle re-warm refuses loudly
+    /// rather than no-op silently (a re-warm that did nothing would quietly leave the first
+    /// dictation after idle cold).
+    case rewarmUnsupported
 }

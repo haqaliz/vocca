@@ -45,7 +45,7 @@ import VoccaCore
 /// model, so it is the caller's ground truth; the test writes the expected strings by hand rather
 /// than asking the stub, which is the difference between pinning a contract and restating an
 /// implementation.
-actor StubEngine: ASREngine {
+actor StubEngine: ASREngine, EngineRewarmable {
     /// The Parakeet stand-in — the C2 default engine's identity
     /// (`"parakeet-tdt-0.6b-v3"`, `ARCHITECTURE.md:153`).
     static func parakeet() -> StubEngine {
@@ -78,12 +78,21 @@ actor StubEngine: ASREngine {
     /// asserted against this count rather than assumed.
     private(set) var transcribeCalls = 0
 
+    /// How many times `rewarm()` was called — the idle re-warm's ledger half: the policy's fire
+    /// reaches the resolver and the resolver reaches this count, and the launch pins' own
+    /// ledger (`prepareCount`) stays unambiguous because `rewarm` never moves it.
+    private(set) var rewarmCount = 0
+
     init(identity: EngineIdentity) {
         self.identity = identity
     }
 
     func prepare() async throws {
         prepareCount += 1
+    }
+
+    func rewarm() async throws {
+        rewarmCount += 1
     }
 
     func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {

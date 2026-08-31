@@ -1455,6 +1455,12 @@ public final class DictationLoopRoot {
     /// check. This counter is what changes underneath it: a preparation whose captured value no
     /// longer matches prepared a model that has since been removed, and must open nothing.
     private var modelRemovalCount: UInt64 = 0
+
+    /// The idle re-warm policy (`rewarm-after-idle`): observes the effect funnel's session
+    /// starts and ends, and its tick rides the root's ~1 s health poll — the machine-idle window
+    /// that re-warms the selected engine after five idle minutes. Main-actor-confined by this
+    /// owner, exactly as the policy's contract requires (the annotation belongs to the driver).
+    private let idleReWarm: IdleReWarmPolicy
     /// Focused-app resolution — the key-down half of S1.
     public let targetResolution: TargetResolution
     /// The FAILSAFE surface the loop presents on.
@@ -1645,8 +1651,26 @@ public final class DictationLoopRoot {
             activeFeed: initialMode == .holdToTalk ? holdFeed : toggleFeed)
         self.router = router
 
-        let deliver: (SessionEffect<AudioBuffer>) -> Void = { [weak router] in
-            router?.deliver($0)
+        let idleReWarm = IdleReWarmPolicy(clock: clock, trigger: { [weak cancelRouterBox] in
+            await cancelRouterBox?.value?.rewarmEngineAfterIdle()
+        })
+        self.idleReWarm = idleReWarm
+
+        let deliver: (SessionEffect<AudioBuffer>) -> Void = { [weak router] effect in
+            // The idle re-warm's window is the effect funnel's single observer: a session start
+            // (both modes, all terminals) closes it, a session end reopens it, and everything
+            // else — a refused press included — leaves it (no session happened). The policy's
+            // note rides this one closure so the hold-to-talk and toggle machines cannot
+            // disagree about what the machine has been doing.
+            switch effect {
+            case .started, .opening:
+                idleReWarm.noteSessionStarted()
+            case .ended:
+                idleReWarm.noteSessionEnded()
+            default:
+                break
+            }
+            router?.deliver(effect)
         }
         self.deliverEffect = deliver
         let wirings = Self.makeWirings(
@@ -1713,6 +1737,17 @@ public final class DictationLoopRoot {
                 cancelRouterBox?.value?.updateMenuBarConditions { conditions in
                     conditions.isHotkeyDeafForPermission = health == .permissionMissing
                     conditions.isBlockedBySecureInput = health == .blockedBySecureInput
+                }
+                // The idle re-warm policy's wake rides this same per-second housekeeping turn
+                // (`rewarm-after-idle`): no new timer type, no new injectable surface, zero
+                // marginal battery — the poll already runs for the app's life. Ticked only while
+                // **both** machines are idle, so a session in flight never competes with it (the
+                // effect funnel's notes already closed the window, and the state check keeps the
+                // tick honest under a rebind that replaced the machines).
+                if cancelRouterBox?.value?.holdToTalk.machine.state == .idle,
+                    cancelRouterBox?.value?.toggle.machine.state == .idle
+                {
+                    cancelRouterBox?.value?.tickIdleReWarm()
                 }
             })
         self.tapHealth = tapHealth
@@ -2104,6 +2139,40 @@ public final class DictationLoopRoot {
     /// is `main`'s call, on the real launch path only.
     public func startEnginePreparation() {
         Task { await prepareAndAssemble() }
+    }
+
+    /// The idle re-warm policy's wake, on the root's per-second housekeeping turn.
+    ///
+    /// The tick is synchronous and its fire is dispatched by the policy itself (the
+    /// `CoreBoundaryTests` ban on `@MainActor` in `VoccaCore` made the policy's tick the owner's
+    /// synchronous call); the re-warm's work runs on the resolver actor, never on this turn.
+    func tickIdleReWarm() {
+        _ = idleReWarm.tick()
+    }
+
+    /// The idle re-warm policy's fire — the trigger the policy was constructed with, reached
+    /// through the weak box because it runs minutes after launch.
+    ///
+    /// The resolver is **re-read at fire time** (the ``prepareAndAssemble()`` capture precedent):
+    /// a selection change mid-window re-points the fire at the new resolver, so the re-warm
+    /// always hits the selected tier's engine — never the abandoned one — under the
+    /// ``EngineTier/storageID`` keying. **No removals guard is needed**: a re-warm installs
+    /// nothing and opens nothing, so it cannot race a removal the way a gate-opening preparation
+    /// can (the stale-preparation analysis: only gate/pipeline installs needed guarding).
+    ///
+    /// It never touches ``EngineReadiness`` — ``markEnginePrepared()`` stays the only opener, a
+    /// session starting mid-re-warm is never refused, and a failed re-warm never closes the gate
+    /// (the old model stays resident; the next idle window retries).
+    func rewarmEngineAfterIdle() async {
+        let resolver = self.resolver
+        logger.info("idle re-warm: firing")
+        do {
+            try await resolver.rewarmIfNeeded()
+            logger.info("idle re-warm: complete")
+        } catch {
+            logger.error(
+                "idle re-warm failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// One preparation, from the resolver that was current when it started.
