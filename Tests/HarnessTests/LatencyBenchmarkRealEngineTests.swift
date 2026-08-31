@@ -263,6 +263,63 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
                     + "record, not a row")
         }
     }
+
+    /// **Q5's measured number, row-shaped.** The env-gated real run also drives the engine's
+    /// re-warm once and prints its `.rewarm` samples with the suppression state beside it —
+    /// **recorded, never gated**: this test asserts the row's shape, never its value, and nothing
+    /// throws on a slow re-warm. The samples are non-empty because the real re-warm genuinely ran
+    /// and recorded (the vacuity half); the founder re-baselines the five-minute constant in
+    /// `IdleReWarmTargets` from this observation (`SMOKE_CHECKLIST.md` step 121).
+    func testTheRealEngineBenchmarkRecordsTheRewarmRowWithSuppressionState() async throws {
+        guard ProcessInfo.processInfo.environment["VOCCA_LATENCY_BENCH"] != nil else {
+            throw XCTSkip(
+                "set VOCCA_LATENCY_BENCH=1 to run the real-engine latency benchmark — the model "
+                    + "cannot reach a hosted runner, so CI runs the skip path")
+        }
+        guard
+            let modelDir = ProcessInfo.processInfo.environment["VOCCA_MODEL_DIR"]
+        else {
+            throw XCTSkip(
+                "set VOCCA_MODEL_DIR to a store-shaped version directory — see "
+                    + "Scripts/provision-asr-fixtures.sh")
+        }
+        let modelDirectory = URL(fileURLWithPath: modelDir)
+
+        let manifestURL = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaASR/Models/Manifests/parakeet-tdt-0.6b-v3.json")
+        let manifest = try ModelManifest.load(from: Data(contentsOf: manifestURL))
+        let store = ModelStore(
+            rootURL: modelDirectory
+                .deletingLastPathComponent()
+                .deletingLastPathComponent())
+        let timing = EngineTiming()
+        let engine = ParakeetEngine(
+            store: store,
+            manifest: manifest,
+            transport: DefaultModelTransport(
+                baseURL: URL(string: "https://unused.invalid")!),
+            clock: ContinuousMonotonicClock(),
+            timing: timing)
+        try await engine.prepare()
+
+        let fixtures = try LatencyBenchmarkTests.fixtureCases()
+        let result = try await RealEngineLatencyBenchmark.run(
+            engine: engine,
+            fixtures: fixtures,
+            stopAdvance: LatencyBenchmarkTests.captureCloseAdvance,
+            injectAdvance: LatencyBenchmarkTests.fastInjectAdvance,
+            timing: timing)
+
+        XCTAssertFalse(
+            result.rewarm.samples.isEmpty,
+            "the real engine's re-warm ran and recorded — a row with no samples would prove "
+                + "nothing (vacuity)")
+        if case .unreadable = result.rewarm.suppression {
+            XCTFail(
+                "no unreadable suppression state beside the re-warm row — an unreadable state is "
+                    + "a void record, not a row")
+        }
+    }
 }
 
 // MARK: - The real-engine benchmark runner
@@ -285,10 +342,23 @@ enum RealEngineLatencyBenchmark {
         let suppression: DarwinSuppression
     }
 
-    /// The run's full answer: the per-span rows plus the W3 warm-start record.
+    /// The run's full answer: the per-span rows plus the W3 warm-start record and the idle
+    /// re-warm's row.
     struct Result {
         let rows: [Row]
         let warmStart: WarmStartRecord
+        let rewarm: RewarmRecord
+    }
+
+    /// **The idle re-warm's record**: the real engine's `.rewarm` ``EngineTiming`` samples —
+    /// the measured reload cost (Q5's number) — and the suppression state read beside it, the
+    /// ``WarmStartRecord`` shape. **Recorded, never gated**: nothing throws on a slow re-warm,
+    /// and no verdict consumes these samples. The founder re-baselines the five-minute constant
+    /// in ``IdleReWarmTargets`` from this row (`SMOKE_CHECKLIST.md` step 121); the test asserts
+    /// its shape, never its value.
+    struct RewarmRecord {
+        let samples: [Duration]
+        let suppression: DarwinSuppression
     }
 
     /// **The W3 warm-start record**: the real engine's cross-session ``EngineTiming`` samples,
@@ -409,7 +479,33 @@ enum RealEngineLatencyBenchmark {
             print("ratio: \(ratio)x (EXCEEDS the \(bound)x bound — RECORDED, not gated)")
         }
         print("darwin suppression state at record: \(describeSuppression(warmStartRecord.suppression))")
-        return Result(rows: rows, warmStart: warmStartRecord)
+
+        let rewarmRecord = await Self.rewarmRecord(engine: engine, timing: timing)
+        return Result(rows: rows, warmStart: warmStartRecord, rewarm: rewarmRecord)
+    }
+
+    /// **The idle re-warm half of the real run** (`rewarm-after-idle` phase (d)): after the
+    /// fixture cycles, the engine re-warms once (the first real re-warm execution — the SMOKE
+    /// step's measurement) and its `.rewarm` samples are printed with the suppression state read
+    /// fresh beside them. `try?` — **recorded, never gated**: nothing throws on a slow re-warm,
+    /// and a non-``EngineRewarmable`` engine simply records no samples (the engine-store row is
+    /// the resolver's loud refusal, not this runner's).
+    private static func rewarmRecord(
+        engine: any ASREngine, timing: EngineTiming
+    ) async -> RewarmRecord {
+        if let rewarmable = engine as? any EngineRewarmable {
+            try? await rewarmable.rewarm()
+        }
+        let samples = await timing.samples(for: .rewarm)
+        let suppression = darwinSuppressionState()
+        print("")
+        print("== Idle re-warm (after five idle minutes — Q5's reload cost) ==")
+        print(
+            "rewarm samples:         "
+                + samples.map { "\(milliseconds($0)) ms" }.joined(separator: ", ")
+                + (samples.isEmpty ? "(no .rewarm samples — the engine did not re-warm)" : ""))
+        print("darwin suppression state at record: \(describeSuppression(suppression))")
+        return RewarmRecord(samples: samples, suppression: suppression)
     }
 
     /// **The streaming variant of the real run** (`speculative-feed` phase (f)): the same
@@ -492,7 +588,8 @@ enum RealEngineLatencyBenchmark {
         print(
             "warm-start ratio: \(describeWarmStart(warmStartRecord.verdict)), suppression "
                 + "\(describeSuppression(warmStartRecord.suppression))")
-        return Result(rows: rows, warmStart: warmStartRecord)
+        let rewarmRecord = await Self.rewarmRecord(engine: engine, timing: timing)
+        return Result(rows: rows, warmStart: warmStartRecord, rewarm: rewarmRecord)
     }
 
     /// The warm-start verdict, spelled for a print row.

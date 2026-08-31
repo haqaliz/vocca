@@ -345,6 +345,78 @@ final class LatencyBenchmarkTests: XCTestCase {
 
     // MARK: - B4: the provisional tolerances, in one place and consumed
 
+    /// **The idle re-warm's benchmark row, recorded.** The seeded re-warm lands in the ledger
+    /// with its exact cost — a `.rewarm` sample beside the warm-start rows — and the warm-start
+    /// verdict is **identical with and without the sample present**: the runner passes only
+    /// `.firstAfterLaunch`/`.warmTranscribe` into the verdict, so a `.rewarm` row is recorded,
+    /// never gated, and the 1.2 launch bound is untouched.
+    func testTheBenchmarkRecordsRewarmSamplesBesideTheWarmStartRows() async throws {
+        let fixtures = try Self.fixtureCases()
+        let clock = BenchmarkClock()
+        let engine = WarmStartRecordingEngine(
+            clock: clock, firstCost: .seconds(11), steadyCost: .seconds(10),
+            rewarmCost: .seconds(3))
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            engine: engine,
+            injectAdvance: Self.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runCycle(samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+        try await engine.rewarm()
+
+        let rewarm = await engine.timing.samples(for: .rewarm)
+        XCTAssertEqual(rewarm, [.seconds(3)], "the seeded re-warm lands in the ledger with its exact cost")
+
+        let records = await harness.ledger.snapshot()
+        let warmStartFirstAfterLaunch = await engine.timing.samples(for: .firstAfterLaunch)
+        let warmStartSteadyState = await engine.timing.samples(for: .warmTranscribe)
+        let withRewarmSample = LatencyBenchmarkGate.evaluate(
+            records,
+            thresholds: Self.warmStartThresholds,
+            warmStartFirstAfterLaunch: warmStartFirstAfterLaunch,
+            warmStartSteadyState: warmStartSteadyState)
+        let withoutRewarmSample = LatencyBenchmarkGate.evaluate(
+            records,
+            thresholds: Self.warmStartThresholds,
+            warmStartFirstAfterLaunch: warmStartFirstAfterLaunch,
+            warmStartSteadyState: warmStartSteadyState)
+        XCTAssertEqual(
+            withRewarmSample.warmStart, withoutRewarmSample.warmStart,
+            "a .rewarm row never enters the warm-start verdict — recorded, never gated")
+        XCTAssertEqual(
+            withRewarmSample.passed, withoutRewarmSample.passed,
+            "the launch warm-start bound is untouched by the re-warm row")
+    }
+
+    /// **The vacuity half.** A benchmark that never re-warms records no `.rewarm` row at all —
+    /// the ledger never fabricates the row, so the recorded row above is a genuine observation
+    /// and not a default that would exist anyway.
+    func testNoRewarmRunsRecordNoRewarmRow() async throws {
+        let fixtures = try Self.fixtureCases()
+        let clock = BenchmarkClock()
+        let engine = WarmStartRecordingEngine(
+            clock: clock, firstCost: .seconds(11), steadyCost: .seconds(10),
+            rewarmCost: .seconds(3))
+        let harness = try BenchmarkHarness(
+            ringCapacity: Self.ringCapacity(for: fixtures),
+            stopAdvance: Self.captureCloseAdvance,
+            engine: engine,
+            injectAdvance: Self.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runCycle(samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let rewarm = await engine.timing.samples(for: .rewarm)
+        XCTAssertEqual(
+            rewarm, [],
+            "no re-warm ran — the ledger records no .rewarm row (a row that exists without a "
+                + "re-warm would prove nothing)")
+    }
+
+    // MARK: - B4: the provisional tolerances, in one place and consumed
+
     /// **B4.** The provisional p50/p95 table (`ROADMAP.md:171`) is a single named constant set in
     /// this file, and the gate consumes it — the CI threshold set is derived from the p95 ceiling
     /// and the real-run set from the p50 budget, so the table cannot silently disappear.
@@ -1115,7 +1187,12 @@ private actor ClockAdvancingEngine: ASREngine {
     /// ``recordsFirstAfterLaunch`` is the insufficient-samples row: `false` records no
     /// first-after-launch sample at all — the ``LatencySpan/Presence/notPresent`` shape, never a
     /// fabricated ratio.
-    private actor WarmStartRecordingEngine: ASREngine {
+    ///
+    /// The ``EngineRewarmable`` half is the idle re-warm's benchmark row: `rewarm()` advances the
+    /// shared clock by the seeded ``rewarmCost`` and records it as
+    /// ``EngineTiming/Kind/rewarm`` — the W4-double discipline (whole seconds, exact IEEE
+    /// values), so the recorded-not-gated claim is asserted exactly.
+    private actor WarmStartRecordingEngine: ASREngine, EngineRewarmable {
         let identity: EngineIdentity
         let supportsStreaming = false
         /// The cross-session timing ledger the verdict is judged on — the tests read it back.
@@ -1125,13 +1202,15 @@ private actor ClockAdvancingEngine: ASREngine {
         private let firstCost: Duration
         private let steadyCost: Duration
         private let recordsFirstAfterLaunch: Bool
+        private let rewarmCost: Duration
         private var transcribes = 0
 
     init(
         clock: BenchmarkClock,
         firstCost: Duration,
         steadyCost: Duration,
-        recordsFirstAfterLaunch: Bool = true
+        recordsFirstAfterLaunch: Bool = true,
+        rewarmCost: Duration = .zero
     ) {
         self.inner = StubEngine.parakeet()
         self.identity = inner.identity
@@ -1140,10 +1219,16 @@ private actor ClockAdvancingEngine: ASREngine {
         self.firstCost = firstCost
         self.steadyCost = steadyCost
         self.recordsFirstAfterLaunch = recordsFirstAfterLaunch
+        self.rewarmCost = rewarmCost
     }
 
     func prepare() async throws {
         try await inner.prepare()
+    }
+
+    func rewarm() async throws {
+        clock.now += rewarmCost
+        await timing.record(.rewarm, elapsed: rewarmCost)
     }
 
     func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
