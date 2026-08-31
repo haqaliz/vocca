@@ -192,7 +192,17 @@ bound, and the widget-only streaming *mechanism* shipped — the pipeline stream
 widget-only partial sink, and the permanent zero-injection-before-final guard. What remains of
 C7: the speculative pre-key-up feed, the real `supportsStreaming == true` engine adapters
 (whisper.cpp batches; Parakeet streams), and re-warm-after-idle; `ARCHITECTURE.md` open
-question 2 (speculative final-vs-batch equivalence) stands unmeasured.)*
+question 2 (speculative final-vs-batch equivalence) stands unmeasured. Amended by the
+`speculative-asr` unit, merged 2026-09-01: **the remainder shipped** — the pre-key-up feed
+(ring-drain producer, router wiring, production partial sink, terminal-complete cancellation,
+sub-minimum suppression), both real streaming adapters (`supportsStreaming == true`; Parakeet
+via `SlidingWindowAsrManager` on SDK defaults, whisper by repeated `whisper_full` with the
+final batch-by-construction), the open-question-2 equivalence measurement as an env-gated
+real-run harness (GO/NO-GO/VOID verdicts, **recorded, never gated** — the verdict table is
+empty until the founder's first real run, and a NO-GO blocks claiming the latency win, never
+shipping the feed), and re-warm-after-idle (5-minute idle policy behind the `EngineRewarmable`
+seam). The benchmark gate's closed four-span contract deliberately stays post-key-up, named
+rather than silently drifted.)*
 
 ---
 
