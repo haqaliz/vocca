@@ -57,6 +57,16 @@ public final class AudioRingBuffer: @unchecked Sendable {
     //    concurrent consumers, break this type. There is no CAS anywhere here that would make them
     //    safe, and adding one is not a small change.
     //
+    //    **The consumer role is handed over at every session boundary** (`speculative-feed`,
+    //    2026-08-31): `SpeculativeFeed` owns it during `.recording` — its 50 ms drain tick — and
+    //    `MicrophoneSource.endCapture()` takes it back for the remainder drain when the session
+    //    ends. Both are main-actor objects, so the handover is serialized by the actor and the
+    //    happens-before edge is the session machine's synchronous `.ended` transition — the
+    //    "at most one consumer thread at a time" discipline holds with the same force as when
+    //    one consumer owned the whole session. The plan rejected the alternative (a second
+    //    feed-owned buffer written by the interleaver) because it adds a second realtime-path
+    //    writer: two concurrent producers break this type, and this move adds no realtime code.
+    //
     // 2. SINGLE WRITER PER ATOMIC. `writeIndex` is written only by the producer and read by both.
     //    `readIndex` is written only by the consumer and read by both. `refusedSamples` is written
     //    only by the producer. **No atomic in this file has two writers, and therefore no atomic in
