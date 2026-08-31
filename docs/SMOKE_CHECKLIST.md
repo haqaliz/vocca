@@ -2503,6 +2503,53 @@ these steps are the founder's machine producing the first measured numbers, in e
 
 ---
 
+## 18. The idle re-warm — `rewarm-after-idle`
+
+Nothing in this section runs in CI. The policy, the resolver ladder and the engine re-warm path
+are all proven headlessly (the headless suite drives the policy's clock, the resolver's ladder and
+both engines' re-warm over the seam doubles); these steps are the founder's machine producing the
+first real observations — a model reloaded after idle, and the measured reload cost (PRD Q5) —
+under **rule 1**: the machine must actually have sat idle for the threshold before a row means
+anything.
+
+127. **The first idle re-warm, in the natural flow.**
+
+    *Gesture:* run Vocca (model provisioned), dictate once, verify delivery. Leave Vocca
+    untouched for **more than 5 minutes**, recording the actual elapsed idle time in the row
+    (rule 1: verify the state was entered — a re-warm row with 4 minutes of idle proves nothing).
+    Watch the log (`log stream --predicate 'subsystem == "dev.vocca.Vocca"'`) for the
+    `idle re-warm: firing` and completion lines, which must appear only after the observed
+    5-minute mark. Then dictate again: the session is never refused, delivery works, and the log
+    shows the re-warm completing either before or during the session (the ordering pin,
+    observed).
+
+    *Pass:* the fire line is timestamped past the measured 5 minutes, the second dictation
+    delivers, and the engine stayed ready throughout.
+
+    *Failure:* a fire before the threshold (the policy's clock is wrong), a refused press (the
+    re-warm touched the gate), or a second fire in one window (the exactly-once rule broke).
+
+128. **The measured re-warm cost (Q5's number).**
+
+    *Gesture:* run the env-gated benchmark (`VOCCA_LATENCY_BENCH=1 VOCCA_MODEL_DIR=...` — the
+    WER provisioning path) with the re-warm row printed.
+
+    *Verify the state was entered:* the env-gated row did **not** print its skip message (the
+    skip is the tell-tale — a skipped test ran nothing) and the re-warm row's samples are
+    non-empty (the real re-warm ran and recorded).
+
+    *Pass:* the row shows the `.rewarm` sample with a readable suppression state. Record the
+    number (the `tolerances` procedure: measure → margin → founder-signed). The 5-minute
+    constant in `IdleReWarmTargets` is **provisional** (PRD Q5 — reload cost unmeasured); the
+    founder re-baselines it from this observation, in exactly that one file, recorded not gated.
+
+    *Failure:* an empty re-warm row (the re-warm did not run or did not record), an unreadable
+    suppression state beside it (a throttled number recorded as clean), or a re-warm slow enough
+    to be felt at the next press (the ordering pin's cost half — a re-baseline of the constant
+    is the remedy, never a gate).
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

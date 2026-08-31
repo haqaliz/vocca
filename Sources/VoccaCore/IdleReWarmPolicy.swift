@@ -17,7 +17,7 @@
 /// precedent).
 ///
 /// The duration is **provisional by design** (PRD Q5 — the reload cost is unmeasured): it is
-/// re-baselined from the founder's real run (`SMOKE_CHECKLIST.md` steps 120/121), recorded not
+/// re-baselined from the founder's real run (`SMOKE_CHECKLIST.md` steps 127/128), recorded not
 /// gated. It lives in exactly this file — the single-source scan in ``IdleReWarmPolicyTests``
 /// pins the literal to this file and its pinning test — and a re-baseline from the founder's
 /// observation lands here, in exactly one place.

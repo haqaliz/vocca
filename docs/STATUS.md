@@ -891,6 +891,84 @@ The recorder captures through a **first-responder override in Vocca's own window
 - **`PRODUCT_SPEC.md:252` was amended** (founder-approved) because its unqualified "conflict
   detection against system shortcuts" is not deliverable.
 
+**The `rewarm-after-idle` aspect landed 2026-08-31 — the last of the speculative-asr unit: the
+sticky-`isPrepared` resolver gains its idle counterpart, in five commits.** After five machine-idle
+minutes the selected engine re-warms in the background (disk-only, lights nothing — the audio
+engine stays cold, the orange-mic-dot policy untouched), so a coffee break no longer returns to a
+cold first dictation, and the reload is its own measured row.
+
+**The seam decision, as planned:** `EngineRewarmable` is a new Core seam (`rewarm() async throws`,
+documenting "make the model resident again as if freshly prepared; the next transcribe must be
+warm; never a network download; a failure must leave the previous load usable"), **not** an
+`ASREngine` requirement — ~17 conformances would have churned, and a default would be a silent
+no-op or a throw. The resolver casts and throws `rewarmUnsupported` loudly; both real engines
+conform.
+
+**The engines' genuine re-warm path:** a second `prepare()` remains a no-op in both engines, but
+each now has a real `rewarm()` — load-new-then-swap, never unload first: Parakeet builds a fresh
+`AsrManager`/`TdtDecoderState` and swaps only on success; whisper's `WhisperContext` seam gains
+`reprepare` (built fresh, the old C context freed only on success — `WhisperCAPI.swift` the one
+file allowed to name the C family), and the failure path leaves the old model resident and the
+engine fully usable. `transcribedSinceLoad` is deliberately **not** reset — the first transcribe
+after a re-warm records `.warmTranscribe`, never a second `.firstAfterLaunch`, so the 1.2 launch
+bound stays launch-pure (the `WarmStartLaunchTests` pins pass unmodified). The re-warm records the
+new fourth `EngineTiming.Kind.rewarm` row — **recorded, never gated**, no verdict consumes it.
+**The Q5 ordering pin, engine half:** the re-warm runs as an unstructured task under
+`rewarmInFlight`, and the first line of each engine's `transcribe` awaits it (`try?` — a failed
+re-warm never blocks a transcription, the error having surfaced to the re-warm's caller), so a
+session starting mid-re-warm is never refused and the first dictation after idle is
+deterministically warm.
+
+**The policy and its wiring:** `IdleReWarmPolicy` is the `SessionMachine` shape (a synchronous
+class, not an actor — its `tick` is synchronous because the `CoreBoundaryTests` mutable-global-state
+lint bans `@MainActor` in `VoccaCore`, and the fire is dispatched by the policy as an unstructured
+task over the injected `@Sendable` trigger; the plan's "adjust annotations only as the compiler
+requires" clause). The window is effect-driven — opens at construction (launch-idle counts, so a
+failed launch prepare gains a bounded auto-retry), closes on `.started`/`.opening`, reopens on
+`.ended` (a refused press is not a session) — one fire per window, marked **before** the trigger
+runs. The 5-minute constant is provisional (PRD Q5) and lives in exactly one file,
+`IdleReWarmTargets.idleDuration`, pinned by the `WarmStartTargets` single-source scan shape. The
+root wires the policy into the effect funnel's one `deliver` closure (both modes observed) and
+rides its tick on the existing ~1 s health poll — no new timer, zero marginal battery; the fire
+re-reads `self.resolver` at fire time, so a selection change mid-window re-points the re-warm at
+the selected tier's engine and never the abandoned one (the `EngineTier.storageID` keying,
+respected by construction and pinned by the wiring test). The resolver's `rewarmIfNeeded()` ladder:
+a prepare in flight **is** the warm-up (awaited, never doubled), an unprepared engine takes the
+ordinary eager path, and the re-warm itself runs under the same single-flight slot with `isPrepared`
+staying true on success and failure — a failed re-warm never closes the gate, the next idle window
+retries. The re-warm never touches `EngineReadiness` — `markReady()` stays the only opener, pinned
+by the wiring test (`isEnginePrepared` stays true and `isPreparingEngine` stays false throughout an
+in-flight re-warm).
+
+**The measurement:** `WarmStartRecordingEngine` gains the `EngineRewarmable` half (a seeded
+whole-second `rewarmCost` — the W4-double discipline), and the headless benchmark rows pin the
+recorded-not-gated claim exactly: the `.rewarm` sample lands beside the warm-start rows and the
+warm-start verdict is identical with and without it. The env-gated real run (`VOCCA_LATENCY_BENCH`
++ `VOCCA_MODEL_DIR`, visible skip) now drives the engine's re-warm once — the first real re-warm
+execution — and prints `.rewarm` samples with the suppression state read fresh beside them;
+`RewarmRecord` joins the runner's result, and nothing throws on a slow re-warm. `SMOKE_CHECKLIST.md`
+steps 127-128 are the first natural-flow observation (rule 1: the machine must actually have sat
+idle past the threshold) and Q5's measured number (the re-baseline of the provisional constant,
+in exactly its one file, recorded not gated). Zero-network probe unchanged — the policy never
+fires in the probe's short run. Test floor: 1699 → 1731.
+
+**What this aspect is NOT, and must not be claimed:**
+- **No real re-warm has run.** The whisper engine's re-warm is proven headlessly over the stub
+  context (the whole mechanism — reload-once, warm-transcribe-after, failure-keeps-old-context,
+  transcribe-awaits-in-flight, strict guard); the Parakeet engine's `prepare`/`transcribe` remain
+  executed by nothing in CI (the tap-adapter precedent — its loader returns the SDK's
+  `AsrModels`, which cannot be fabricated without real CoreML models, so its re-warm rows pin the
+  strict guard, the ledger round-trip and the pure load-state accounting, and the identical
+  code path is behaviorally pinned by the whisper rows). `SMOKE_CHECKLIST.md` step 127 is the
+  Parakeet re-warm's only real execution.
+- **The five-minute constant is provisional**, in exactly one file (`IdleReWarmTargets`), and
+  re-baselined by the founder's step 128 observation — recorded, never gated, and nothing gates
+  on the reload cost.
+- **The audio engine stays cold when idle** — the re-warm reloads the model only (disk-only,
+  nothing lights); the orange-mic-dot policy is untouched.
+- **CLAUDE.md's status paragraphs were not amended here** — the integrator's front-door update
+  is the integrator's step.
+
 **The `whisper-streaming` aspect landed 2026-08-31 — the second engine genuinely streams
 behind the seam, in four commits.** `WhisperCppEngine.supportsStreaming` is now `true`, and
 `stream(_:)` runs the canonical repeated-`whisper_full` pattern over the seam: every non-empty

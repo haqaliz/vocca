@@ -269,7 +269,7 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
     /// **recorded, never gated**: this test asserts the row's shape, never its value, and nothing
     /// throws on a slow re-warm. The samples are non-empty because the real re-warm genuinely ran
     /// and recorded (the vacuity half); the founder re-baselines the five-minute constant in
-    /// `IdleReWarmTargets` from this observation (`SMOKE_CHECKLIST.md` step 121).
+    /// `IdleReWarmTargets` from this observation (`SMOKE_CHECKLIST.md` step 128).
     func testTheRealEngineBenchmarkRecordsTheRewarmRowWithSuppressionState() async throws {
         guard ProcessInfo.processInfo.environment["VOCCA_LATENCY_BENCH"] != nil else {
             throw XCTSkip(
@@ -354,7 +354,7 @@ enum RealEngineLatencyBenchmark {
     /// the measured reload cost (Q5's number) — and the suppression state read beside it, the
     /// ``WarmStartRecord`` shape. **Recorded, never gated**: nothing throws on a slow re-warm,
     /// and no verdict consumes these samples. The founder re-baselines the five-minute constant
-    /// in ``IdleReWarmTargets`` from this row (`SMOKE_CHECKLIST.md` step 121); the test asserts
+    /// in ``IdleReWarmTargets`` from this row (`SMOKE_CHECKLIST.md` step 128); the test asserts
     /// its shape, never its value.
     struct RewarmRecord {
         let samples: [Duration]
