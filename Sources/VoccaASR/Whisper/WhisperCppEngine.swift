@@ -63,7 +63,7 @@ import VoccaCore
 /// - **Errors:** every prepare-path failure (store, missing file, context creation) surfaces as
 ///   ``VoccaError/modelUnavailable(_:reason:)`` with the cause in the reason; every transcribe
 ///   failure as ``VoccaError/transcriptionFailed(_:underlying:)`` with the cause intact.
-public actor WhisperCppEngine: ASREngine {
+public actor WhisperCppEngine: ASREngine, EngineRewarmable {
 
     public nonisolated let identity: EngineIdentity
 
@@ -105,7 +105,15 @@ public actor WhisperCppEngine: ASREngine {
     /// Whether any transcription has completed since the load — the split between
     /// ``EngineTiming/Kind/firstAfterLaunch`` and ``EngineTiming/Kind/warmTranscribe``, the
     /// Parakeet engine's `transcribedSinceLoad` rule.
+    ///
+    /// **Not reset by ``rewarm()``** — `firstAfterLaunch` stays launch-only, so a re-warm can
+    /// never pollute the 1.2 launch bound: the first transcribe after a re-warm is warm.
     private var transcribedSinceLoad = false
+
+    /// The in-flight re-warm, while one is running — what a transcription arriving mid-re-warm
+    /// awaits (the Q5 ordering pin: the first dictation after idle is deterministically warm).
+    /// `nil` when no re-warm is in flight.
+    private var rewarmInFlight: Task<Void, Error>?
 
     public init(
         store: ModelStore,
@@ -157,6 +165,60 @@ public actor WhisperCppEngine: ASREngine {
         }
     }
 
+    /// The idle re-warm (`rewarm-after-idle`): makes the model resident again as if freshly
+    /// prepared, through the seam's `reprepare` — **swap-on-success**, so a failure anywhere
+    /// leaves the previous context fully usable. The readiness gate is never touched: a session
+    /// starting mid-re-warm is never refused, and a failed re-warm never closes the gate.
+    ///
+    /// The body runs as an unstructured task so a transcription arriving mid-re-warm can await
+    /// the in-flight re-warm (``rewarmInFlight``) — the Q5 ordering pin, engine half. The task
+    /// is awaited by this method itself, so the resolver's single-flight slot covers the whole
+    /// re-warm; a transcribe's `try?` on the task swallows the error (already surfaced to this
+    /// method's caller), so a failed re-warm never blocks a transcription.
+    ///
+    /// `transcribedSinceLoad` is deliberately **not** reset — the first transcribe after a
+    /// re-warm records `.warmTranscribe`, never a second `.firstAfterLaunch`.
+    ///
+    /// - Throws: ``VoccaError/modelUnavailable(_:reason:)`` on an unloaded engine (the resolver
+    ///   routes the unprepared case; the guard exists so a silent no-op is impossible) or when
+    ///   the reload fails.
+    public func rewarm() async throws {
+        guard loadState.hasLoaded else {
+            throw VoccaError.modelUnavailable(
+                identity, reason: "the model is not loaded; call prepare() first")
+        }
+        let task = Task { try await self.performRewarm() }
+        rewarmInFlight = task
+        defer { rewarmInFlight = nil }
+        try await task.value
+    }
+
+    /// The re-warm body: download-if-missing (a no-op when the version is present and verified),
+    /// then the seam's `reprepare` from the resolved model file URL. A failure records the
+    /// attempt and rethrows ``VoccaError/modelUnavailable(_:reason:)`` with the previous
+    /// context untouched.
+    private func performRewarm() async throws {
+        guard let file = manifest.files.first else {
+            throw VoccaError.modelUnavailable(
+                identity, reason: "the manifest declares no model files to load")
+        }
+        loadState.beginAttempt()
+        let start = clock.now
+        do {
+            try await store.downloadIfMissing(manifest: manifest, transport: transport)
+            let modelFileURL = await store.baseURL(for: manifest.engineID, version: manifest.version)
+                .appendingPathComponent(file.name)
+            try context.reprepare(modelFileURL: modelFileURL)
+            loadState.complete()
+            await timing.record(.rewarm, elapsed: clock.now - start)
+        } catch {
+            loadState.fail()
+            throw VoccaError.modelUnavailable(
+                identity,
+                reason: "the whisper model could not be re-warmed: \(error)")
+        }
+    }
+
     /// Transcribes one buffer of 16 kHz mono audio through the loaded context.
     ///
     /// - An empty buffer is a valid empty transcript, never an error (PRD M3) — answered above
@@ -166,6 +228,9 @@ public actor WhisperCppEngine: ASREngine {
     /// - Any context failure surfaces as ``VoccaError/transcriptionFailed(_:underlying:)`` with
     ///   the underlying error intact — attributable to this engine, never swallowed.
     public func transcribe(_ buffer: AudioBuffer) async throws -> Transcript {
+        if let rewarmInFlight {
+            try? await rewarmInFlight.value
+        }
         guard loadState.hasLoaded else {
             throw VoccaError.modelUnavailable(
                 identity, reason: "the model is not loaded; call prepare() first")

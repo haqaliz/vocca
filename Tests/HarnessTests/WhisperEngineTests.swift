@@ -33,6 +33,7 @@ private final class StubWhisperContext: WhisperContext, Sendable {
 
     private struct State {
         var prepareCallCount = 0
+        var reprepareCallCount = 0
         var transcribeCallCount = 0
         var preparedModelFileURL: URL?
         var prepareError: Error?
@@ -106,6 +107,16 @@ private final class StubWhisperContext: WhisperContext, Sendable {
     func prepare(modelFileURL: URL) throws {
         let error: Error? = lock.withLock { state in
             state.prepareCallCount += 1
+            state.preparedModelFileURL = modelFileURL
+            if let clock { clock.now += prepareAdvance }
+            return state.prepareError
+        }
+        if let error { throw error }
+    }
+
+    func reprepare(modelFileURL: URL) throws {
+        let error: Error? = lock.withLock { state in
+            state.reprepareCallCount += 1
             state.preparedModelFileURL = modelFileURL
             if let clock { clock.now += prepareAdvance }
             return state.prepareError

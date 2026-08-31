@@ -83,6 +83,28 @@ public final class WhisperCAPI: WhisperContext {
         context = ctx
     }
 
+    /// Re-creates the C context for the model at `modelFileURL` — the idle re-warm's reload,
+    /// translated: a fresh context is built first, and **only on success** is the previous
+    /// context freed and replaced (swap-on-success — a failure leaves the old context usable,
+    /// exactly as the seam promises). Unlike ``prepare(modelFileURL:)``, this runs on an already
+    /// loaded context and always builds a new one; the old handle is never freed before the new
+    /// one exists.
+    ///
+    /// - Throws: ``WhisperCAPIError/contextCreationFailed(modelFileURL:)`` when the C layer
+    ///   refuses the file (missing, corrupt, or the wrong architecture) — the previous context
+    ///   survives.
+    public func reprepare(modelFileURL: URL) throws {
+        var cparams = whisper_context_default_params()
+        cparams.use_gpu = true
+        guard let fresh = whisper_init_from_file_with_params(modelFileURL.path, cparams) else {
+            throw WhisperCAPIError.contextCreationFailed(modelFileURL: modelFileURL)
+        }
+        if let previous = context {
+            whisper_free(previous)
+        }
+        context = fresh
+    }
+
     /// Runs the full model over the samples and reads the segments out, translated.
     ///
     /// - Throws: ``WhisperCAPIError/transcriptionFailed(code:)`` with the C layer's own nonzero

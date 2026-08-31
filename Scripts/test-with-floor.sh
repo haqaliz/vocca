@@ -1389,7 +1389,7 @@ set -euo pipefail
 # passthrough row. The flip of WhisperEngineTests' supportsStreaming pin adds no count.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1708
+MINIMUM_EXECUTED_TESTS=1717
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

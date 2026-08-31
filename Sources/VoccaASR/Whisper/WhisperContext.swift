@@ -35,6 +35,12 @@ public protocol WhisperContext {
     /// corrupt model file) must leave the context unusable but the engine retryable.
     func prepare(modelFileURL: URL) throws
 
+    /// Re-creates the inference context for the model at `modelFileURL` — the idle re-warm's
+    /// reload (`rewarm-after-idle`), translated. Called only on a prepared context (the engine's
+    /// load-state guard routes the unprepared case); **a failure must leave the previous context
+    /// usable** — the new context is built first and swapped in only on success.
+    func reprepare(modelFileURL: URL) throws
+
     /// Transcribes one buffer of 16 kHz mono samples into segments, translated.
     ///
     /// - Throws: a typed error the engine maps onto ``VoccaError/transcriptionFailed(_:underlying:)``
