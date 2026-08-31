@@ -1356,8 +1356,15 @@ set -euo pipefail
 # correction was applied to the one WarmStartLaunchTests drain that clears the way for a press; the
 # two that assert on the resolver itself were left alone, because there the resolver is the subject.
 #
+# The streamed-vs-batch equivalence machinery adds twenty-two (1651 -> 1673): the pure comparison,
+# the token-diff shape, the verdict decision (including the seeded unequal pair that must FAIL — a
+# gate that cannot fail proves nothing), the run summary, the renderer, and the single-source scans
+# for the placeholder tolerance table and the stream chunk constant. The env-gated real-run rows
+# (steps 125-126's execution) count as executed only when they run; their skip path is the
+# twenty-two's CI shape.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1651
+MINIMUM_EXECUTED_TESTS=1673
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
