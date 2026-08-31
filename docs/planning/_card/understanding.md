@@ -1,122 +1,109 @@
-# Understanding: feat/speculative-asr
+# Understanding: feat/p2-gate-measurement
 
-**Date:** 2026-08-31 · **Phase:** P2 (capability C7, unshipped remainder)
-**Source:** `docs/planning/_card/issue.md` (inline brief from `vocca-next`)
+**Date:** 2026-09-01 · **Phase:** P2 (gate measurement — the path the P0/P1/P2 gates are judged on)
+**Source:** `docs/planning/_card/issue.md` (inline brief from `vocca-next`, 2026-09-01)
 
-> Written after a three-agent dig over the streaming pipeline, the resolved SDK surfaces
-> (FluidAudio 0.15.5 checked out in the primary's `.build/`; whisper.cpp v1.9.2 XCFramework
-> header), and the primary's uncommitted `docs/STATUS.md` / `CLAUDE.md`. Every claim below
-> carries a file:line. Two premises of the original brief were **substantially amended** by
-> the SDK findings and are recorded here.
-
----
+> Written after a three-agent dig over `docs/SMOKE_CHECKLIST.md`, the env-gated real-run
+> harnesses, and the tolerance re-baseline procedure. Every claim carries a file:line.
 
 ## 1. What the work is really asking
 
-Close the last unshipped half of C7 (`docs/technical/CAPABILITY_ROADMAP.md:187-195`): the
-**speculative pre-key-up ASR feed** (begin ASR on the growing buffer while the user still
-speaks, finalize on key-up, partials widget-only), the **real `supportsStreaming == true`
-engine adapters** (Parakeet streams; whisper.cpp batches), and **re-warm-after-idle** — plus,
-before anything, the **open-question-2 measurement** (`ARCHITECTURE.md:695`: final-on-key-up
-must equal batch transcription of the same buffer, "or the latency win is bought with
-accuracy"). That measurement is a go/no-go the brief names first.
+Execute the **already-written acceptance** — `docs/SMOKE_CHECKLIST.md`'s gate-critical
+first-execution steps — on the founder's machine, fix the real defects they find
+(test-first), and record the first measured numbers. Nothing in C1–C8 remains to build;
+what does not exist is **any measured product number**: the dictation loop has never
+delivered text end to end (`SMOKE_CHECKLIST.md:1067-1076`), the injection matrix has
+never been run — "the ≥95% first-method-success number does not exist" (`STATUS.md:670-673`)
+— and the latency p50/p95 are targets in one table, unmeasured (`STATUS.md:283-286`).
+C9 onward is guardrail-blocked until the P2 gate passes (`CAPABILITY_ROADMAP.md:369`;
+`ROADMAP.md:180`), and the next installable release waits on steps 62–68 (`STATUS.md:774`).
+This unit is therefore the **gate path itself**, not a build capability.
 
-## 2. What already exists (all verified in the worktree's sources)
+## 2. What the dig established (all verified in the worktree's sources)
 
-- `ASREngine.stream(_:)` + batch default, `supportsStreaming`, no-branch doctrine pinned by
-  test (`Sources/VoccaCore/ASREngine.swift:42-110`; `DictationPipelineStreamingTests.swift:358-374`).
-- `DictationPipeline.routeStreaming` consumes `stream` unconditionally, partials → widget only,
-  permanent zero-injection-before-final guard test (`Sources/VoccaCore/DictationPipeline.swift:207-255`;
-  `DictationPipelineStreamingTests.swift:133-159`).
-- **The production composition never uses it**: `EffectRouter.deliver` calls the batch
-  `pipeline.route(.ended(...))` (`AppBootstrap.swift:2385`); `partialSink` is wired `nil`
-  (`AppBootstrap.swift:430-433`); the only streaming composition is the zero-network probe
-  (`StreamingCycleDrive.swift:394`).
-- Warm start: `WarmStartTargets` 1.2 bound, `WarmStartRatio` evaluator, launch-preload pinned
-  (`Sources/VoccaCore/WarmStartRatio.swift:25-29`; `WarmStartLaunchTests.swift:172,237`). **No
-  re-warm path exists**: engines' `prepare()` is a no-op after first load (`ParakeetEngine.swift:142`,
-  `WhisperCppEngine.swift:119`), resolver `isPrepared` is sticky (`DictationEngineResolver.swift:80,99`).
-- Latency: closed four-span record, `LatencyLedger`, benchmark gate with `ProvisionalTolerances`
-  (p50 400 ms / p95 800 ms), env-gated real run that records, never gates (`LatencyBenchmarkTests.swift:603-608,673-727`;
-  `LatencyBenchmarkRealEngineTests.swift`).
-- Short-press guard: `ParakeetEngine.isBelowSDKMinimum` reads FluidAudio's 0.3 s live
-  (`ParakeetEngine.swift:116-119`; SDK `ASRConstants.swift:15,67-69`); sub-minimum sessions
-  answer empty → `.emptySkip` (`DictationPipeline.swift:345-348`).
+- **Steps 62–68 (dictation loop, `SMOKE_CHECKLIST.md:1065-1280`)** — the loop's first
+  real execution: 62 byte-compare in Notes + TextEdit; 63 Secure Input (no session
+  starts; `.secureInput` copy via `InjectionLadderDecision.swift:84-96`); 64 Esc during
+  RECORDING/TRANSCRIBING (`SessionKeyPolicy.swift:50`, `SessionMachine.swift:440-445`);
+  65 shortest session (empty-buffer policy, `ParakeetEngine.isBelowSDKMinimum` at
+  `ParakeetEngine.swift:145`); 66 model-unavailable (gate refuses before
+  `beginCapture`, `AppBootstrap.swift:2908-2925`); 67 toggle triggers + backstops
+  (`.toggledOff`, `.audioConfigurationChanged`, 120 s ceiling, `EndReason.swift:31,59,62,84`);
+  68 twenty-cycle stability with `recovery/` inspection. Preconditions: Accessibility +
+  mic grants, model present and prepared.
+- **Steps 87–93 (matrix, `SMOKE_CHECKLIST.md:1765-1879`)** — `Scripts/injection-matrix.sh`
+  with `--verify-bundle-ids` (14 confirmed / 0 mismatched / 8 guessed on the authoring
+  machine, `:1727`), `--dry-run`, then the tracked baseline; FMS = bytes **and** the log
+  naming the expected rung (`:1694-1702`); ≥19 of 20 deliverable rows; tracked table
+  sole row "(none yet)" (`:1877-1879`); strategy-memory rows 90 (re-probe after
+  `StrategyMemoryTargets.reprobeWindowSeconds` = 604 800 s, `StrategyMemory.swift:26`)
+  and 91 (promotion via read-back-verified AX, `MemoryBackedInjectionStrategyOrder.swift:147,247`).
+- **Env-gated real runs** — WER (`VOCCA_MODEL_DIR`, visible `XCTSkip`;
+  `ParakeetEngineWERTests.swift:52-58`, `WhisperCppEngineWERTests.swift:51-58`; whisper's
+  streamed cycle + short-audio rows at step 19, `SMOKE_CHECKLIST.md:352-386`); latency
+  bench (`VOCCA_LATENCY_BENCH` + `VOCCA_MODEL_DIR`, four tests in
+  `LatencyBenchmarkRealEngineTests.swift`, per-span p50/p95 + warm-start ratio + `.rewarm`
+  row + `getpriority` suppression beside every row, `:431-484`); equivalence
+  (`EquivalenceRealEngineTests.swift:44-55`, verdict table GO/NO-GO/VOID,
+  `EquivalenceRealEngineRunner.swift:228-258`); Parakeet streaming WER
+  (`ParakeetStreamingWERTests.swift:36-42`); cleanup eval (`VOCCA_CLEANUP_EVAL`,
+  `CleanupEvalHarnessTests.swift:444-473`, F2 corpus = ≥40 utterances ≥5/class,
+  `SMOKE_CHECKLIST.md:1365-1399`). Provisioning first:
+  `Scripts/provision-asr-fixtures.sh` (prints `VOCCA_MODEL_DIR=<version_dir>`).
+- **The re-baseline procedure** — five `tolerances_YYYYMMDD.md` files, each with the
+  doctrine "records measured values only; the bound lives in exactly one file"; the
+  founder-signed chain is measure → margin → founder-signed row in the tolerances file →
+  land in exactly one code file (`tolerances_20260815.md:28-41`), enforced by the
+  single-source grep scans (`SwiftSourceScanner.swift:27-29`; a duplicate anywhere fails
+  with "a second spelling is a second place a re-baseline must find"). Targets:
+  `WarmStartTargets.swift:28` (1.2), `IdleReWarmPolicy.swift:27` (300 s),
+  `StrategyMemory.swift:26` (604 800), `ProvisionalCleanupTargets.swift:30,33` (0.80, 10 ms),
+  `LatencyBenchmarkTests.swift:926,928` (400/800 ms), `EquivalenceMeasurement.swift:173-181`
+  (0.05 × 6). "Recorded, never gated" is the house discipline; a FAIL equivalence verdict
+  is a successful unit outcome (`tolerances_20260831.md:22-23`).
+- **Headless command:** `Scripts/test-with-floor.sh` (floor 1731, `:1392`), filter syntax
+  `swift test --filter <TestClass>`; the suite is a Swift 6 package, not pytest.
 
-## 3. What the dig found that the brief could not know (the amendments)
+## 3. Contradictions surfaced (flag, don't paper over)
 
-**(A) The Parakeet streaming adapter is implementable — but the SDK's own design guts the
-latency premise for typical dictation.** FluidAudio 0.15.5 exposes `SlidingWindowAsrManager`
-(public actor, `streamAudio(_:)` / `transcriptionUpdates` / `finish()`), explicitly *not* a
-cache-aware streaming architecture — TDT uses an offline encoder with overlapping windows
-(`SlidingWindowAsrManager.swift:9-10` header; `ParakeetModelVariant.swift:4-9`). Default
-config: 11 s chunk + 2 s left + 2 s right, **first partial after ~13 s of audio**, one per
-~11 s; `hypothesisChunkSeconds` is dead config; the 15 s input cap constrains re-tuning
-(`SlidingWindowAsrManager.swift:710-853,358`). Sub-13 s utterances (most dictation) get
-**zero partials** and key-up still pays a full window decode. Partials are `volatile` until
-10 s context + confidence threshold (`:552-576,856-895`). **Open question 2 is not answered
-by the SDK**: `finish()` is built from heuristic token dedup, self-labeled "a temporary
-workaround" (`AsrManager+TokenProcessing.swift:113-114`); no TDT text promises final-vs-batch
-equality — only the different-model Unified engine does.
-
-**(B) whisper.cpp inverts the risk.** The canonical pattern (repeated `whisper_full` on the
-growing buffer + `new_segment_callback`, both present in the pinned v1.9.2 header) makes the
-key-up final **equal to a batch transcription by construction** — the strongest possible
-answer to open question 2 — but the key-up decode is *not* cheaper and partial passes are
-O(n²). Stateful `whisper_full_with_state` could change that, on an unmeasured drift basis.
-And no whisper model has ever transcribed on this machine (`SMOKE_CHECKLIST.md` step 19).
-
-**(C) The hardest ownership question is the ring buffer, not the engines.** The SPSC warrant
-on `AudioRingBuffer` (`@unchecked Sendable`, `AudioRingBuffer.swift:44,51-58`) forbids a
-second consumer while `MicrophoneSource.endCapture` drains (`MicrophoneSource.swift:211-249`).
-A mid-session feed is a second consumer by definition. Options: feed becomes the consumer
-during `.recording` (endCapture drains only the remainder — changes a load-bearing contract),
-a second feed-owned buffer written by the interleaver, or a documented hand-off. Must be
-decided before code, and the realtime thread must never be touched by the feed.
-
-**(D) The two decision points have clear homes.** Start-feeding belongs beside
-`EffectRouter.deliver`'s `.opening`/`.started` (only production code that knows "a session
-began" with sessionID + pipeline + widget store; `AppBootstrap.swift:2335-2360`); finalize is
-`.ended` (`:2361-2399`), which must switch to `routeStreaming`; every other terminal
-(`.captureUnavailable`, Escape) must cancel the feed. The machine/watchdog are deliberately
-content-blind and must stay that way (`SessionWatchdog.swift:140-145`). Feed cadence is its
-own constant (ring doc sanctions ~10 ms consumer polls, `AudioRingBuffer.swift:27-31` — not
-the watchdog's 150 ms).
+- **The `vocca-begin-fast` skill prose is stale on this repo's state**: "no commits",
+  "no pyproject.toml", "uv sync" — the tree is a shipped Swift 6 package, 50 commits on
+  master, 1731 tests via `Scripts/test-with-floor.sh`. Code and git history win.
+- **`SMOKE_CHECKLIST.md` line citations drift from current code** (e.g. `setActiveMode`
+  cited at `AppBootstrap.swift:700-719` but is at `:1821`; `beginCapture` gate at
+  `:2908-2925`). Cosmetic drift; fix where touched.
+- **Step 67's claim that the toggle-mode control is unwired is stale** — the Settings →
+  General activation-mode switch shipped with the design pass
+  (`STATUS.md:534-542`) and `hotkey-rebinding` (2026-08-30). The checklist preamble
+  (`:1084-1088`) predates both.
+- **Whisper manifests: "verified digests" with no provenance** (`STATUS.md:820-825`) —
+  step 102 (`ManifestDigestVerificationTests.swift:281-333`) will exercise them for the
+  first time; a digest failure is a defect this unit fixes.
 
 ## 4. Scope placement
 
-- **Phase:** P2 (ROADMAP's latency battle; the C7 amendment's unshipped remainder). P2 is the
-  next unshipped phase; C9+ is guardrail-blocked until the P2 gate (`ROADMAP.md:180`).
-- **Layer:** capture + ASR. Local-only OSS core; no egress; engines stay behind `ASREngine`;
-  no engine identity reaches callers. Zero-network invariant untouched.
-- **Privacy:** the feed reads only the in-session ring; nothing leaves the machine; the
-  orange-mic-dot policy (engine cold when idle) is untouched (`ARCHITECTURE.md:336-346`).
+- **Phase:** P2 — the latency + injection gate legs (`ROADMAP.md:150-180`), plus the P0
+  gate's first-execution clause (7-day daily log begins at step 62) and the P1 gate's F2
+  corpus. Not a new capability; C9+ stays guardrail-blocked.
+- **Layer:** the whole loop — capture, ASR (both engines), cleanup, injection, widget —
+  exercised for real for the first time. Local-only; zero-network invariant untouched;
+  nothing leaves the machine.
+- **Bounded by discipline:** fixes land test-first with floor 1731 as the regression
+  bar; numbers record, never gate; re-baselines follow the founder-signed procedure.
 
 ## 5. Ambiguities and open questions carried into the PRD
 
-1. **Parakeet window config:** ship the adapter on SDK defaults (honest: silent < 13 s) or
-   re-tune (shorter chunk → partials for short dictation, more heuristic stitching, WER
-   cost)? The 15 s cap constrains the knob. — founder decision, asked in interview.
-2. **The p50 claim:** the architecture's "only the tail is unprocessed" premise
-   (`ARCHITECTURE.md:334`) is unmeasurable for Parakeet sub-13 s and false for whisper
-   (full re-decode at key-up). The unit ships mechanism + measurement; numbers are recorded
-   and re-baseline, never gated (house discipline). The PRD must not claim a win the SDK
-   structure precludes.
-3. **Re-warm-after-idle threshold** is a product constant with no precedent; propose a value,
-   flag for founder.
-4. **Feed cadence / chunk size** for the ring drain: own constant, measured not assumed.
-5. **Ring ownership decision (C above)** — engineering decision, made in PRD with the
-   trade-offs named.
-
-## 6. Contradictions surfaced (flag, don't paper over)
-
-- `ROADMAP.md:42` claims Parakeet "ships with streaming + EOU we need in P3" — both engines
-  report `supportsStreaming == false`; the adapter is net-new work, and the streaming it would
-  ship is pseudo-streaming, not the cache-aware kind P3's EOU path implies.
-- `CLAUDE.md:15,19` (primary, uncommitted) says "last aspects landed 2026-08-15" / "836 tests"
-  while `STATUS.md:848-849` records 2026-08-30 units at floor 1625 — the front-door copy is
-  stale; STATUS.md is authoritative.
-- `PRODUCT_SPEC.md` has no streaming-partials contract; the widget partial behavior exists
-  only in the warm-start-streaming PRD and implementation (`STATUS.md:434-437`).
-- The shipped ledger records a post-key-up budget only; a green benchmark today would not
-  prove the architecture's speculative claim (`STATUS.md:446-447`).
+1. **Step set in scope:** gate-critical minimum = 62–68, 87–93, latency/warm-start real
+   run (71-72/77), equivalence (125-126), Parakeet streaming WER (124), whisper step 19,
+   manifest verification (102). F2 cleanup eval (73) needs ≥40 founder-recorded
+   utterances — include as its own aspect, or defer?
+2. **What a "defect fix" may change:** any shipped seam, adapter, or harness — bounded by
+   "found on a first-execution run", test-first, no scope creep; a large fix escalates as
+   its own card.
+3. **Re-baseline margins** are founder decisions at re-baseline time (recorded in the
+   smoke step's note).
+4. **A failing real run is not a failure of this unit** — it re-baselines (or, for
+   equivalence, yields NO-GO which only blocks *claiming* the latency win). No number
+   becomes a gate pass without the P2 gate's three legs (latency, matrix, external users).
+5. **External users leg** (≥5) is out of scope here — it needs a release, which needs
+   steps 62–68 first; the release itself is a follow-on unit.
