@@ -891,6 +891,63 @@ The recorder captures through a **first-responder override in Vocca's own window
 - **`PRODUCT_SPEC.md:252` was amended** (founder-approved) because its unqualified "conflict
   detection against system shortcuts" is not deliverable.
 
+**The `equivalence-measurement` aspect landed 2026-08-31 — open question 2's measurement:
+the streamed-vs-batch verdict, recorded never gated, in five commits.** The harness drives every
+discovered fixture twice — batch `transcribe` and streamed (1 s chunks → exactly one final) —
+through a runner parameterized over `any ASREngine` (the `RealEngineWERRunner` split), compares
+through the shipped `WER.compute` plus the token-diff shape (`.identical` /
+`.prefixThenDiverge(commonTokens:)` — the "only the tail is unprocessed" premise's predicted
+shape — / `.wholesaleDrift` — the shape that contradicts it), and prints the verdict table with
+`getpriority(PRIO_DARWIN_PROCESS, 0)` read fresh beside every row. The go/no-go row is GO
+(every row passes), NO-GO (any fail, naming the fixtures — a blown tolerance never throws, and
+a FAIL verdict is a successful unit outcome: the latency claim is dropped, the feature ships)
+or VOID-with-reason (SMOKE rule 1: an unreadable suppression state or a non-streaming engine
+voids, never fails — a pre-sibling `ParakeetEngine` records VOID loudly, never a silent
+batch-vs-batch equality). The guard-the-guard is headless: the seeded unequal pair
+("the quick brown fox" vs "the quick red fox") genuinely fails, and a `StubEngine` run can
+never produce a PASS. Loud named failures carry the fixture and the partial ledger: zero finals,
+two finals (the seam's exactly-one-final contract), a misattributed transcript (invariant I1 on
+both sides), and a fixture with no tolerance and no `"clean"` fallback — a new fixture never
+defaults to a free pass. The env-gated real run (`VOCCA_LATENCY_BENCH` + `VOCCA_MODEL_DIR`, the
+two-var gate) is a thin shell asserting the record's shape only — no tolerance value is ever
+asserted. The key-up-cost row for the `sixty-second` fixture measures what the streamed final
+actually costs at key-up (last chunk's delivery to the final, via the injected clock) vs the
+full batch, with `partialsObserved` recorded per fixture; a fixture with zero partials prints
+"no partials before key-up — the key-up decode covers the full window (X ms)" — a measured
+fact, not an assumption (the SDK's default window yields no partials before ~13 s, so every
+sub-13 s utterance's key-up decode covers the full window, and the row says so with numbers
+where the run produces them). The provisional equivalence table is **placeholder-seeded by
+decision** (`ProvisionalEquivalenceTolerances`, all six fixtures 0.05, PROVISIONAL-BY-DECISION
+until the founder's first run re-baselines it via `tolerances_20260831.md`'s measure → margin →
+founder-signed → land-in-exactly-one-file procedure — the whisper "seeded, not measured"
+precedent; the first run prints raw numbers beside the provisional verdict, so the re-baseline
+decision is never made on the verdict alone). The 1 s chunk constant is single-sourced
+(`EquivalenceMeasurementTargets.streamChunkSamples`), as is the tolerance table (single-source
+scans). The plan's flagged ambiguities were resolved as planned: two-var gate; the **discovered**
+six-fixture set (spike-clip duplicated and measured as-is); the placeholder-seeded table; the
+chunk constant raised only in its one file if the SDK refuses; and the VOID guard for a
+pre-sibling engine. `SMOKE_CHECKLIST.md` steps 125-126 are the first execution and the tracked
+row. Test floor: 1651 → 1687.
+
+**What this aspect is NOT, and must not be claimed:**
+- **The verdict is open until step 125's first execution.** Nothing in this aspect's tests, docs
+  or commits claims the streaming final equals the batch — CI proves the mechanism (the seeded
+  unequal pair fails; the go/no-go row renders), never a measured number. The env-gated test
+  skips visibly in CI; the founder's run produces the first measured row, entered in
+  `tolerances_20260831.md`'s measured-values table by step 126.
+- **The key-up cost is unmeasured** until that same run. The premise "only the tail is
+  unprocessed" (`ARCHITECTURE.md:334`) is unmeasurable for sub-13 s utterances — no partials
+  with the SDK-default windows, so the key-up decode covers the full window — and the row says
+  so with numbers where the run produces them; the harness never claims a win it did not
+  measure.
+- **The provisional table is placeholder-seeded, not measured** — a failing real run
+  re-baselines via the founder's procedure, never silently relaxes; nothing here gates on the
+  numbers.
+- **Whisper needs no equivalence run** (M6): its final equals batch by construction, and the
+  printed note says why — the harness is Parakeet-only.
+- **CLAUDE.md's status paragraphs were not amended here** — the integrator's front-door update
+  is the integrator's step.
+
 **The `parakeet-streaming` aspect landed 2026-08-31 — the real Parakeet streaming adapter behind
 the shipped seam, in four commits.** `ParakeetEngine.supportsStreaming` is now `true`, and
 `stream(_:)` is a real `SlidingWindowAsrManager` adapter (SDK-default window config only — the
