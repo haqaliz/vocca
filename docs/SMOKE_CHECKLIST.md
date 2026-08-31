@@ -1735,7 +1735,7 @@ Run so far (2026-08-28, authoring machine): **14 confirmed, 0 mismatched, 8 gues
 | 5 | `matrix-row: Messages` | Messages | `com.apple.MobileSMS` | confirmed | native AppKit | no | `.clipboardPaste` — promotion candidate |
 | 6 | `matrix-row: Pages` | Pages | `com.apple.iWork.Pages` | **guess** | native AppKit | no | `.clipboardPaste` — promotion candidate |
 | 7 | `matrix-row: VSCode` | Visual Studio Code | `com.microsoft.VSCode` | confirmed | Electron | no | `.clipboardPaste` |
-| 8 | `matrix-row: Slack` | Slack | `com.tinyspeck.slackmacgap` | **guess** | Electron | **hostile** | `.clipboardPaste` |
+| 8 | `matrix-row: Teams` | Microsoft Teams | `com.microsoft.teams2` | **swapped 2026-09-01** | Electron | no | `.clipboardPaste` |
 | 9 | `matrix-row: Discord` | Discord | `com.hnc.Discord` | confirmed | Electron | no | `.clipboardPaste` |
 | 10 | `matrix-row: Notion` | Notion | `notion.id` | **guess** | Electron | no | `.clipboardPaste` |
 | 11 | `matrix-row: Obsidian` | Obsidian | `md.obsidian` | confirmed | Electron | no | `.clipboardPaste` |
@@ -1744,7 +1744,7 @@ Run so far (2026-08-28, authoring machine): **14 confirmed, 0 mismatched, 8 gues
 | 14 | `matrix-row: GoogleDocs` | Google Chrome | `com.google.Chrome` | confirmed | browser, custom editor | **hostile** | `.clipboardPaste` |
 | 15 | `matrix-row: Firefox` | Firefox | `org.mozilla.firefox` | confirmed | browser | no | `.clipboardPaste` |
 | 16 | `matrix-row: Terminal` | Terminal | `com.apple.Terminal` | confirmed | terminal | no | `.clipboardPaste` |
-| 17 | `matrix-row: iTerm2` | iTerm | `com.googlecode.iterm2` | **guess** | terminal | no | `.clipboardPaste` |
+| 17 | `matrix-row: Warp` | Warp | `dev.warp.Warp-Stable` | **swapped 2026-09-01** | terminal | no | `.clipboardPaste` |
 | 18 | `matrix-row: Ghostty` | Ghostty | `com.mitchellh.ghostty` | **guess** | terminal | no | `.clipboardPaste` |
 | 19 | `matrix-row: IntelliJ` | IntelliJ IDEA | `com.jetbrains.intellij` | **guess** | Java/AWT | no | `.clipboardPaste` |
 | 20 | `matrix-row: Zed` | Zed | `dev.zed.Zed` | **guess** | native, non-AppKit | no | `.clipboardPaste` |
@@ -1876,7 +1876,7 @@ deliverable rows. Bar: ≥19/20. Recorded, never gated.
 
 | Release | Date | Rows run | Skipped | Voided | FMS | Notes |
 |---------|------|----------|---------|--------|-----|-------|
-| _(none yet)_ | — | — | — | — | — | The matrix has never been run. Step 87's baseline is its first execution, and until it happens Vocca has **no** measured injection-success number of any kind. |
+| `v0.1.0` | 2026-09-01 | 16 | 6 | 0 | **unrecorded** | Baseline run 1: founder-reported all rows landed (`--verify-bundle-ids` 16 confirmed / 0 mismatched; 6 rows skipped — Pages, Notion, Ghostty, IntelliJ, Zed, 1Password not installed; iTerm2→Warp and Slack→Teams swapped per step 87). **Machine record shows no sessions and no `strategies.json` for this window — the FMS number is not verifiable from the log and is recorded as reported, not measured.** No measured injection-success number yet. |
 
 ---
 
