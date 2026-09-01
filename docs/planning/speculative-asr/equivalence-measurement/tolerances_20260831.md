@@ -29,7 +29,23 @@ decision is never made on the provisional verdict alone.
 
 | Fixture | WER | exact | shape | key-up cost | batch cost | partials | Suppression | Machine | Model artifact | Date |
 |---------|-----|-------|-------|-------------|------------|----------|-------------|---------|----------------|------|
-| (none yet — step 125's execution is the first) | | | | | | | | | | |
+| accented | 0.000 | yes | identical | 105 ms | 104 ms | 1 | 0 (NOT suppressed) | founder's machine (arm64) | provisioned parakeet-tdt-0.6b-v3/1 (verified) | 2026-09-01 |
+| clean | 0.000 | no | identical | 159 ms | 100 ms | 1 | 0 (NOT suppressed) | same | same | 2026-09-01 |
+| noisy | 0.071 | no | wholesale-drift | 163 ms | 229 ms | 1 | 0 (NOT suppressed) | same | same | 2026-09-01 |
+| sixty-second | 0.005 | no | prefix-diverge(81) | 1046 ms | 463 ms | 6 | 0 (NOT suppressed) | same | same | 2026-09-01 |
+| spike-clip | 0.071 | no | wholesale-drift | 151 ms | 145 ms | 1 | 0 (NOT suppressed) | same | same | 2026-09-01 |
+| two-hundred-ms | 1.000 | no | wholesale-drift | 72 ms | 68 ms | 1 | 0 (NOT suppressed) | same | same | 2026-09-01 |
+
+**Verdict: NO-GO** (noisy, spike-clip, two-hundred-ms) — recorded 2026-09-01, step 126's row.
+The verdict is a successful unit outcome: it blocks *claiming* the streamed-vs-batch
+equivalence, never the feed. Observed shape: the three NO-GO fixtures are not "streamed worse" —
+in noisy and spike-clip the streamed final is textually **more complete** than the batch (the
+batch path drops "The quick"), and two-hundred-ms is the empty-batch case (batch answers `.`,
+streamed answers `Test.`; the 0.05 placeholder was never designed for that fixture — the WER
+suite gives it a 1.0 rule). sixty-second shows the *predicted* shape (prefix-then-diverge, 81
+common tokens) within the 0.05 tolerance. The re-baseline decision (per-fixture margins, a
+200 ms special rule, or keep-and-record) is the founder's, via the procedure below; nothing was
+re-baselined in this run and the placeholder table stands.
 
 The run prints the verdict table with `getpriority(PRIO_DARWIN_PROCESS, 0)` read fresh beside
 every row (the `measure-timers.sh` discipline): a throttled number is recorded as throttled,

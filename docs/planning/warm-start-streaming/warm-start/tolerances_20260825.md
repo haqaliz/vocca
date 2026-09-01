@@ -24,7 +24,12 @@ the test asserts the record's shape, not its value.
 
 | Run | Machine | firstAfterLaunch p50 | steadyState p50 | Ratio | Suppression state | Date |
 |-----|---------|----------------------|-----------------|-------|-------------------|------|
-| (none yet — `VOCCA_LATENCY_BENCH` + `VOCCA_MODEL_DIR` is the first execution) | | | | | | |
+| 1 | founder's machine (arm64, Apple Silicon) | 79 ms | 102 ms (clean), 354 ms (60 s) | 0.348× (WITHIN the 1.2× bound) | 0 (NOT suppressed) throughout | 2026-09-01 |
+| 2 (streaming variant, feed live) | same | — | — | 0.348× (WITHIN the 1.2× bound) | 0 (NOT suppressed) | 2026-09-01 |
+
+Re-warm (Q5) measured in the same runs: **82–85 ms** reload cost (one real `rewarm()` per run, `.rewarm` row), suppression 0 (NOT suppressed). The re-warm row is recorded, never gated; the 5-minute idle constant (`IdleReWarmTargets`) is untouched by this row.
+
+Latency spans measured in the same runs (batch / streaming, per the closed four-span set — the cleanup span is `notPresent` for a nil-cleanup benchmark pipeline): captureClose p50 3 ms / p95 3 ms; asr p50 79–102 ms (per fixture) / p95 354 ms; inject p50 7 ms / p95 7 ms. Both variants PASS the provisional p50 table (RECORDED, not gated — the 400/800 ms numbers in `LatencyBenchmarkTests.swift` are re-baselined only by a founder-signed decision; none was made in this run, the numbers cleared their provisional bounds).
 
 The run prints the engine's `firstAfterLaunch` and `warmTranscribe` samples, the ratio, and
 `getpriority(PRIO_DARWIN_PROCESS, 0)` beside it (the `measure-timers.sh` discipline): a

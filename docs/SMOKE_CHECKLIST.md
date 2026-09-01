@@ -1087,6 +1087,13 @@ steps below cannot pass yet:
 - the **toggle mode** selection control belongs to the settings surface, which does not ship yet
   (`PRODUCT_SPEC.md:291`); `setActiveMode` is a wiring seam (`AppBootstrap.swift:700-719`).
 
+*(Amended 2026-09-01, `p2-gate-measurement`: both claims are stale. The Settings → General
+activation-mode switch shipped with the design pass 2026-08-26 (`STATUS.md:534-542`), so the
+toggle/hold-to-talk choice is a control, not a seam; and `setActiveMode` now lives at
+`AppBootstrap.swift:1821`. The citation was fixed where this unit touched it; the rest of the
+file's `AppBootstrap.swift` line numbers drift by the same measure and are corrected as each
+section is next executed.)*
+
 The two halves that this section previously listed as unshipped are now wired and their steps
 performable: the live pill's window is constructed by the composition root (`LiveWidget`,
 `AppBootstrap.swift` — lazily, on the store's first non-IDLE fold, so `configure` creates no
@@ -1735,7 +1742,7 @@ Run so far (2026-08-28, authoring machine): **14 confirmed, 0 mismatched, 8 gues
 | 5 | `matrix-row: Messages` | Messages | `com.apple.MobileSMS` | confirmed | native AppKit | no | `.clipboardPaste` — promotion candidate |
 | 6 | `matrix-row: Pages` | Pages | `com.apple.iWork.Pages` | **guess** | native AppKit | no | `.clipboardPaste` — promotion candidate |
 | 7 | `matrix-row: VSCode` | Visual Studio Code | `com.microsoft.VSCode` | confirmed | Electron | no | `.clipboardPaste` |
-| 8 | `matrix-row: Slack` | Slack | `com.tinyspeck.slackmacgap` | **guess** | Electron | **hostile** | `.clipboardPaste` |
+| 8 | `matrix-row: Teams` | Microsoft Teams | `com.microsoft.teams2` | **swapped 2026-09-01** | Electron | no | `.clipboardPaste` |
 | 9 | `matrix-row: Discord` | Discord | `com.hnc.Discord` | confirmed | Electron | no | `.clipboardPaste` |
 | 10 | `matrix-row: Notion` | Notion | `notion.id` | **guess** | Electron | no | `.clipboardPaste` |
 | 11 | `matrix-row: Obsidian` | Obsidian | `md.obsidian` | confirmed | Electron | no | `.clipboardPaste` |
@@ -1744,7 +1751,7 @@ Run so far (2026-08-28, authoring machine): **14 confirmed, 0 mismatched, 8 gues
 | 14 | `matrix-row: GoogleDocs` | Google Chrome | `com.google.Chrome` | confirmed | browser, custom editor | **hostile** | `.clipboardPaste` |
 | 15 | `matrix-row: Firefox` | Firefox | `org.mozilla.firefox` | confirmed | browser | no | `.clipboardPaste` |
 | 16 | `matrix-row: Terminal` | Terminal | `com.apple.Terminal` | confirmed | terminal | no | `.clipboardPaste` |
-| 17 | `matrix-row: iTerm2` | iTerm | `com.googlecode.iterm2` | **guess** | terminal | no | `.clipboardPaste` |
+| 17 | `matrix-row: Warp` | Warp | `dev.warp.Warp-Stable` | **swapped 2026-09-01** | terminal | no | `.clipboardPaste` |
 | 18 | `matrix-row: Ghostty` | Ghostty | `com.mitchellh.ghostty` | **guess** | terminal | no | `.clipboardPaste` |
 | 19 | `matrix-row: IntelliJ` | IntelliJ IDEA | `com.jetbrains.intellij` | **guess** | Java/AWT | no | `.clipboardPaste` |
 | 20 | `matrix-row: Zed` | Zed | `dev.zed.Zed` | **guess** | native, non-AppKit | no | `.clipboardPaste` |
@@ -1876,7 +1883,7 @@ deliverable rows. Bar: ≥19/20. Recorded, never gated.
 
 | Release | Date | Rows run | Skipped | Voided | FMS | Notes |
 |---------|------|----------|---------|--------|-----|-------|
-| _(none yet)_ | — | — | — | — | — | The matrix has never been run. Step 87's baseline is its first execution, and until it happens Vocca has **no** measured injection-success number of any kind. |
+| `v0.1.0` | 2026-09-01 | 16 | 6 | 0 | **unrecorded** | Baseline run 1: founder-reported all rows landed (`--verify-bundle-ids` 16 confirmed / 0 mismatched; 6 rows skipped — Pages, Notion, Ghostty, IntelliJ, Zed, 1Password not installed; iTerm2→Warp and Slack→Teams swapped per step 87). **Machine record shows no sessions and no `strategies.json` for this window — the FMS number is not verifiable from the log and is recorded as reported, not measured.** No measured injection-success number yet. |
 
 ---
 
@@ -2437,11 +2444,18 @@ meaningful preferences exist on a hosted runner. These steps are the first execu
 124. **First real streaming run** (the `SlidingWindowAsrManager` conversation — PCM buffers in,
     updates out, `finish()` final — executed by nothing in CI, the tap-adapter precedent).
 
-    *Gesture:* with provisioned models, run the env-gated streaming row —
-    `VOCCA_MODEL_DIR=<store-shaped version directory> Scripts/test-with-floor.sh --filter ParakeetStreamingWERTests`
-    — then drive the `sixty-second` fixture through the same chunked stream (1 s chunks) to
-    observe the partials half. No latency or equivalence claim may be written from this run —
-    the numbers are the equivalence-measurement aspect's.
+*Gesture:* with provisioned models, run the env-gated streaming row —
+`VOCCA_MODEL_DIR=<store-shaped version directory> Scripts/test-with-floor.sh --filter ParakeetStreamingWERTests`
+— then drive the `sixty-second` fixture through the same chunked stream (1 s chunks) to
+observe the partials half. No latency or equivalence claim may be written from this run —
+the numbers are the equivalence-measurement aspect's.
+
+*(Amended 2026-09-01, `p2-gate-measurement`: the floor script errors on a filtered run —
+`Scripts/test-with-floor.sh` fails with "executed 8 tests (floor: 1731)" even when the run
+passes, because the floor check is unconditional. The env-gated real runs in this file use
+plain `swift test --filter <Class>` (steps 71-72's own convention); this step's command is
+the one exception and is corrected here. The executed result of this step (2026-09-01):
+exactly one non-empty final, Parakeet-attributed, 0.224 s.)*
 
     *Verify the state was entered:* the env-gated row did **not** print its skip message (the
     skip is the tell-tale — a skipped test ran nothing) and the run completed a stream.

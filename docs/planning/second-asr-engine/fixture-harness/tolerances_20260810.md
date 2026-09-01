@@ -58,3 +58,14 @@ record names.
 - whisper.cpp: provisional table seeded from Parakeet's; **no real run exists yet** — the
   manifest is uncommitted (pending the founder's artifact download) and the test skips
   without `VOCCA_MODEL_DIR`.
+
+## Measured values (first real runs, 2026-09-01)
+
+| Engine | Run | Machine | Model artifact | Outcome | Date |
+|--------|-----|---------|----------------|---------|------|
+| Parakeet | `ParakeetEngineWERTests` (SMOKE 18) | founder's machine (arm64, Apple Silicon) | provisioned `parakeet-tdt-0.6b-v3/1` (verified, `ManifestDigestVerificationTests` 8/8) | **All six fixtures within the provisional table** (clean/spike-clip/accented/noisy/sixty-second ≤ ceilings; two-hundred-ms ≤ one substitution), 14.2 s, `ModelHub.offlineMode` asserted, zero network | 2026-09-01 |
+| Parakeet (streaming) | `ParakeetStreamingWERTests` (SMOKE 124) | same | same | Exactly one non-empty final on the clean fixture, Parakeet-attributed, 0.224 s | 2026-09-01 |
+| whisper.cpp | `WhisperCppEngineWERTests` + streamed cycle (SMOKE 19) | — | **not provisioned** (GGUF artifacts absent on the machine) | **Not performed** — recorded with reason; the seeded-from-Parakeet table stays provisional | 2026-09-01 |
+
+No margin/sign-off re-derivation was made in this run: the provisional Parakeet numbers
+cleared, so nothing moved; the whisper table stays provisional until the artifacts exist.

@@ -17,6 +17,17 @@ This file orients a coding agent working in this repository. Read it first.
 > `AppBootstrap.configure` composes tap → session machine → `MicrophoneSource` → engine →
 > ladder → failsafe → widget, driven end to end by the zero-network probe.
 >
+> **Measured for the first time (`p2-gate-measurement`, 2026-09-01):** Parakeet's real WER
+> passes all six provisional fixtures offline; the first real streaming final is
+> non-empty and attributed; the latency benchmark (both variants) runs at asr p50
+> 79–102 ms / p95 354 ms, warm-start at 0.348× (within the 1.2× bound), re-warm at
+> 82–85 ms; the equivalence verdict is **NO-GO** (recorded — the latency-win claim is
+> blocked, the feed ships); the manifest digests verify against provisioned bytes; the
+> first real dictations delivered (founder-reported) with the loop's invariants holding.
+> **Still unmeasured: the injection matrix (no machine record; tracked row "unrecorded"),
+> whisper's WER (GGUF absent), F2 cleanup eval (not run), and every gate.** See
+> `docs/STATUS.md` for the honesty block.
+>
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
 > **`Tests/HarnessTests/`: 1731 tests**, including the zero-network invariant (a `dyld`
