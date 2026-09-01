@@ -1388,8 +1388,26 @@ set -euo pipefail
 # accumulation; transport silence; stream before prepare) plus the mapper's partial-flag
 # passthrough row. The flip of WhisperEngineTests' supportsStreaming pin adds no count.
 #
+# The keep-in-tray option adds fifteen (1731 -> 1746): the quit policy's decision table
+# (AppQuitPolicyTests, five — the option-off baseline where every quit terminates now and the
+# tray return never runs; the refused unmarked quit returning to the tray exactly once; a marked
+# intentional quit — the tray menu's Quit and the onboarding restart both mark — terminating
+# whatever the option; the mark consumed by the quit it was made for, so a refused quit leaves
+# the option still refusing; and the option asked at quit time rather than captured, so a toggle
+# flipped while Settings is up is honoured by the next quit), the keep-in-tray tolerant-decode
+# rows (PersistedSettingsTests, four — the "enabled"/"disabled" spellings pinned as literals,
+# the round trip both ways reported silently, the absent value `false` and silent, and the
+# unreadable value `false` and loud naming what was rejected — the safe direction, where a
+# corrupted preferences entry costs a setting and never a process held hostage to a keep-alive it
+# cannot read), the adapter rows (UserDefaultsSettingsStoreTests, four — the choice surviving a
+# relaunch from a fresh instance, the fresh install quiet, the unreadable value "quit normally"
+# and loud, and the withdrawal — plus the frozen-key pin and the distinctness sweep grown to
+# include it), and the copy pins (SettingsCopyTests, two — the toggle label "Keep in menu bar"
+# and the detail naming the intercepted path (⌘Q, U+2318 asserted as the real glyph) and the way
+# out: the tray menu's Quit always quits, so the option can never hold the app hostage).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1731
+MINIMUM_EXECUTED_TESTS=1746
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

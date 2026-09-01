@@ -295,6 +295,8 @@ private final class AgreementSettingsStore: SettingsStore, @unchecked Sendable {
     func setHotkeyChord(_ chord: HotkeyChord) { self.chord = chord }
     func hasAcknowledgedCloudCleanup() -> Bool { acknowledgedCloud }
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }
+    func keepInTray() -> Bool { false }
+    func setKeepInTray(_ keepInTray: Bool) {}
 }
 
 /// The widget's level source, silent — this suite asserts nothing about the waveform.

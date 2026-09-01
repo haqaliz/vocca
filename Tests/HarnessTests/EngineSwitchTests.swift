@@ -657,6 +657,10 @@ private final class EphemeralSettingsStore: SettingsStore, @unchecked Sendable {
 
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }
 
+    func keepInTray() -> Bool { false }
+
+    func setKeepInTray(_ keepInTray: Bool) {}
+
 }
 
 /// An engine whose `prepare()` blocks until it is released — the only way to hold a preparation

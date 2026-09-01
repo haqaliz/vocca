@@ -70,6 +70,10 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     /// dialog every existing cloud user already read.
     public static let cloudCleanupAcknowledgementKey = "settings.cloudCleanupAcknowledged"
 
+    /// The frozen key the keep-in-tray choice lives under. Pinned by test as a literal, for the
+    /// same reason as the three above.
+    public static let keepInTrayKey = "settings.keepInTray"
+
     /// The frozen keys the hotkey chord lives under. Pinned by test as literals, for the same
     /// reason as the three above.
     ///
@@ -154,6 +158,21 @@ public struct UserDefaultsSettingsStore: SettingsStore {
         defaults.set(
             PersistedSettings.encodeCloudAcknowledgement(acknowledged),
             forKey: Self.cloudCleanupAcknowledgementKey)
+    }
+
+    /// Whether a quit initiated outside the tray menu keeps Vocca running in the menu bar.
+    /// `false` for a fresh install and `false` for anything unreadable — see
+    /// `PersistedSettings.decodeKeepInTray(_:onInvalidValue:)` for why that direction.
+    public func keepInTray() -> Bool {
+        PersistedSettings.decodeKeepInTray(
+            rawValue(forKey: Self.keepInTrayKey), onInvalidValue: log)
+    }
+
+    /// Persist the keep-in-tray choice. Best-effort, never throws.
+    public func setKeepInTray(_ keepInTray: Bool) {
+        defaults.set(
+            PersistedSettings.encodeKeepInTray(keepInTray),
+            forKey: Self.keepInTrayKey)
     }
 
     // MARK: - The one piece of translation this file owns

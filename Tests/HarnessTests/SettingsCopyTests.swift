@@ -50,6 +50,26 @@ final class SettingsCopyTests: XCTestCase {
             "No replacements yet. Add one for a name or a piece of jargon Vocca keeps mishearing.")
     }
 
+    // MARK: - Keep in tray
+
+    /// The toggle's label says the menu bar, not "tray" — the product's own vocabulary
+    /// (`OnboardingCopy.doneCopy`: "Vocca lives in your menu bar").
+    func testTheKeepInTrayToggleIsPinned() {
+        XCTAssertEqual(SettingsCopy.keepInTrayTitle, "Keep in menu bar")
+    }
+
+    /// The detail names both the path the option intercepts (⌘Q, U+2318 — the glyph asserted
+    /// as-is) and the path it never touches: the tray menu's own Quit always quits, so the option
+    /// can never hold the app hostage.
+    func testTheKeepInTrayDetailIsPinned() {
+        XCTAssertEqual(
+            SettingsCopy.keepInTrayDetail,
+            "Quitting from the Dock (⌘Q) leaves Vocca running in the menu bar. Use Quit Vocca to quit.")
+        XCTAssertTrue(
+            SettingsCopy.keepInTrayDetail.contains("⌘"),
+            "the glyph must be the real ⌘ (U+2318), not a lookalike")
+    }
+
     // MARK: - The recorder
 
     /// The control and the prompt it becomes. The prompt names the way out, because a control that
@@ -241,5 +261,6 @@ final class SettingsCopyTests: XCTestCase {
         "hotkeyLabel", "hotkeyRecordButton", "hotkeyRecordingPrompt", "hotkeyUseAnyway",
         "hotkeyCancel", "hotkeyRefusal", "hotkeySystemShortcutWarning", "hotkeyRebindRefusal",
         "hotkeyOtherAppsUnknown", "hotkeySystemShortcutsIncomplete",
+        "keepInTrayTitle", "keepInTrayDetail",
     ]
 }

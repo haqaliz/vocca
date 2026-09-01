@@ -182,6 +182,49 @@ public enum PersistedSettings {
         return activation
     }
 
+    // MARK: - Keep in tray
+
+    /// The stable on-disk spelling of a given keep-in-tray choice.
+    ///
+    /// A string rather than a `Bool`, for the cloud acknowledgement's reason: `object(forKey:)`
+    /// cannot tell a stored `false` from a stored array from nothing at all once narrowed to
+    /// `Bool`, and the difference between "quit normally" and "unreadable" is the one this
+    /// contract exists to keep.
+    public static func encodeKeepInTray(_ keepInTray: Bool) -> String {
+        keepInTray ? keepInTrayValue : notKeepInTrayValue
+    }
+
+    /// The spelling of a choice to keep running in the menu bar.
+    public static let keepInTrayValue = "enabled"
+
+    /// The spelling of a choice to quit normally — written when a user withdraws it, so the
+    /// absent value keeps meaning "never asked".
+    public static let notKeepInTrayValue = "disabled"
+
+    /// **Whether a quit initiated outside the tray menu keeps Vocca running in the menu bar** —
+    /// the same three-answer contract, with the safe direction chosen deliberately.
+    ///
+    /// Absent is `false`, silently: a fresh install has chosen nothing and quits when told to,
+    /// which is the normal path. **Unreadable is also `false`, loudly** — that direction is the
+    /// point. Degrading a corrupted preferences entry to `true` would make the app refuse to quit
+    /// on a choice the user never made, holding the process hostage to a value nobody wrote;
+    /// degrading to `false` costs only a setting they can re-enable in one click.
+    public static func decodeKeepInTray(
+        _ raw: String?,
+        onInvalidValue: (String) -> Void
+    ) -> Bool {
+        guard let raw else { return false }
+        switch raw {
+        case keepInTrayValue: return true
+        case notKeepInTrayValue: return false
+        default:
+            onInvalidValue(
+                "settings: unreadable keep-in-tray choice \"\(raw)\"; treating it as disabled, "
+                    + "so quitting quits")
+            return false
+        }
+    }
+
     // MARK: - The hotkey chord
 
     /// The key code a fresh install's hotkey is bound to: Space, as in ⌥Space

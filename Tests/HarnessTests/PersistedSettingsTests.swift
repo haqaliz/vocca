@@ -187,4 +187,52 @@ final class PersistedSettingsTests: XCTestCase {
             reports.first?.contains("voice-activated") == true,
             "the report must name the value it rejected; got \(reports)")
     }
+
+    // MARK: - Keep in tray
+
+    /// The on-disk spellings are the file format, pinned as literals — the rename trap applied
+    /// to the keep-in-tray choice.
+    func testTheKeepInTraySpellingsArePinnedLiterals() {
+        XCTAssertEqual(PersistedSettings.keepInTrayValue, "enabled")
+        XCTAssertEqual(PersistedSettings.notKeepInTrayValue, "disabled")
+    }
+
+    /// Both choices survive a write and a read, and the decode reports nothing on the valid path.
+    func testEveryKeepInTrayChoiceRoundTripsThroughItsSpelling() {
+        for choice in [true, false] {
+            var reports: [String] = []
+            let decoded = PersistedSettings.decodeKeepInTray(
+                PersistedSettings.encodeKeepInTray(choice),
+                onInvalidValue: { reports.append($0) })
+            XCTAssertEqual(decoded, choice)
+            XCTAssertEqual(reports, [], "a valid spelling must decode silently; got \(reports)")
+        }
+    }
+
+    /// An absent choice is `false`, and reports nothing — a fresh install quits when told to,
+    /// which is the normal path.
+    func testAnAbsentKeepInTrayChoiceIsFalseAndReportsNothing() {
+        var reports: [String] = []
+        let decoded = PersistedSettings.decodeKeepInTray(
+            nil, onInvalidValue: { reports.append($0) })
+        XCTAssertFalse(decoded)
+        XCTAssertEqual(reports, [], "an absent value is the normal path and must be silent")
+    }
+
+    /// An unreadable choice is `false` **and one loud report naming it**.
+    ///
+    /// The load-bearing direction. Degrading a corrupted preferences entry to `true` would make
+    /// the app refuse to quit on a choice nobody made — the process held hostage by a value it
+    /// cannot read. Degrading to `false` costs a setting the user can re-enable in one click, and
+    /// the report says the value was lost.
+    func testAnUnreadableKeepInTrayChoiceIsFalseAndIsReportedLoudly() {
+        var reports: [String] = []
+        let decoded = PersistedSettings.decodeKeepInTray(
+            "maybe", onInvalidValue: { reports.append($0) })
+        XCTAssertFalse(decoded)
+        XCTAssertEqual(reports.count, 1, "exactly one report per unreadable value")
+        XCTAssertTrue(
+            reports.first?.contains("maybe") == true,
+            "the report must name the value it rejected; got \(reports)")
+    }
 }

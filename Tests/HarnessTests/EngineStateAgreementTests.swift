@@ -397,6 +397,10 @@ private final class AgreementSettingsStore: SettingsStore, @unchecked Sendable {
 
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }
 
+    func keepInTray() -> Bool { false }
+
+    func setKeepInTray(_ keepInTray: Bool) {}
+
 }
 
 /// An engine whose `prepare()` blocks until the test lets it finish — the only way to hold a root

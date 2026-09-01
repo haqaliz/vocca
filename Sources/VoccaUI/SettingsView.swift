@@ -27,6 +27,10 @@ public struct SettingsBindings {
     public var isToggleMode: () -> Bool
     /// Switches activation mode. Refused mid-session by the root, which logs and does nothing.
     public var setToggleMode: (Bool) -> Void
+    /// Whether quitting from the Dock keeps Vocca running in the menu bar.
+    public var isKeepInTray: () -> Bool
+    /// Persists the keep-in-tray choice.
+    public var setKeepInTray: (Bool) -> Void
     /// The hotkey, in the form a person reads — **read, never captured**.
     ///
     /// A `String` here was a defect waiting for the recorder: the window is built once and kept
@@ -128,6 +132,8 @@ public struct SettingsBindings {
     public init(
         isToggleMode: @escaping () -> Bool,
         setToggleMode: @escaping (Bool) -> Void,
+        isKeepInTray: @escaping () -> Bool = { false },
+        setKeepInTray: @escaping (Bool) -> Void = { _ in },
         hotkeyDisplayName: @escaping () -> String,
         chordForKeyEvent: @escaping (UInt64, UInt16) -> HotkeyChord,
         validateChord: @escaping (HotkeyChord) -> HotkeyBindingValidity,
@@ -161,6 +167,8 @@ public struct SettingsBindings {
     ) {
         self.isToggleMode = isToggleMode
         self.setToggleMode = setToggleMode
+        self.isKeepInTray = isKeepInTray
+        self.setKeepInTray = setKeepInTray
         self.hotkeyDisplayName = hotkeyDisplayName
         self.chordForKeyEvent = chordForKeyEvent
         self.validateChord = validateChord
@@ -186,25 +194,40 @@ public struct SettingsBindings {
     }
 }
 
-/// The settings window's content: a macOS preferences window, tabs across the top.
+/// The settings window's content: a macOS preferences window, sidebar across the left.
+///
+/// **Sidebar-based since the `DeckApp` shape** (`../deck/native/DeckApp/DeckApp.swift:121-199`):
+/// a `NavigationSplitView` whose sidebar is the tab list and whose detail is the tab's page —
+/// the settings idiom a macOS user reads as "preferences" with room for a row of controls,
+/// rather than a toolbar of icons above a cramped pane. The sidebar reads straight off
+/// ``SettingsTab/allCases`` (title + symbol), so a case that exists gets a row and a page or
+/// the build fails — the contract ``SettingsTabTests`` describes, now rendered as a list.
 public struct SettingsView: View {
 
     private let bindings: SettingsBindings
-    @State private var tab: SettingsTab = .general
+    @State private var selection: SettingsTab? = .general
 
     public init(bindings: SettingsBindings) {
         self.bindings = bindings
     }
 
     public var body: some View {
-        TabView(selection: $tab) {
-            ForEach(SettingsTab.allCases) { tab in
-                page(for: tab)
-                    .tabItem { Label(tab.title, systemImage: tab.symbolName) }
-                    .tag(tab)
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            List(selection: $selection) {
+                ForEach(SettingsTab.allCases) { tab in
+                    Label(tab.title, systemImage: tab.symbolName)
+                        .tag(tab)
+                }
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 190, ideal: 190, max: 190)
+        } detail: {
+            if let selection {
+                page(for: selection)
             }
         }
-        .frame(width: 520, height: 380)
+        .navigationSplitViewStyle(.balanced)
+        .frame(width: 640, height: 500)
     }
 
     @ViewBuilder
@@ -213,7 +236,7 @@ public struct SettingsView: View {
         case .general: GeneralSettingsPage(bindings: bindings)
         case .speech: SpeechSettingsPage(bindings: bindings)
         case .cleanup:
-            CleanupSettingsPage(bindings: bindings, openDictionary: { self.tab = .dictionary })
+            CleanupSettingsPage(bindings: bindings, openDictionary: { self.selection = .dictionary })
         case .dictionary: DictionarySettingsPage(bindings: bindings)
         case .apps: AppsSettingsPage(bindings: bindings)
         }
@@ -227,6 +250,7 @@ private struct GeneralSettingsPage: View {
 
     let bindings: SettingsBindings
     @State private var isToggle = true
+    @State private var keepInTray = false
 
     var body: some View {
         Form {
@@ -255,9 +279,20 @@ private struct GeneralSettingsPage: View {
                 .labelsHidden()
                 .onChange(of: isToggle) { _, next in bindings.setToggleMode(next) }
             }
+
+            Section("Closing") {
+                Toggle(SettingsCopy.keepInTrayTitle, isOn: $keepInTray)
+                    .onChange(of: keepInTray) { _, next in bindings.setKeepInTray(next) }
+                Text(SettingsCopy.keepInTrayDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .onAppear { isToggle = bindings.isToggleMode() }
+        .onAppear {
+            isToggle = bindings.isToggleMode()
+            keepInTray = bindings.isKeepInTray()
+        }
     }
 
     private func modeRow(title: String, detail: String) -> some View {

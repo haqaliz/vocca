@@ -252,6 +252,12 @@ private final class EphemeralSettingsStore: SettingsStore, @unchecked Sendable {
 
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }
 
+    // The keep-in-tray choice is not what these tests are about, so the double answers the safe
+    // direction — quitting quits.
+    func keepInTray() -> Bool { false }
+
+    func setKeepInTray(_ keepInTray: Bool) {}
+
 }
 
 /// The widget's level source, silent — this suite asserts nothing about the waveform.

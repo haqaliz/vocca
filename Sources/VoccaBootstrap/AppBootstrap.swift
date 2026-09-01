@@ -525,7 +525,18 @@ public enum AppBootstrap {
     public static func main() {
         let application = NSApplication.shared
         let root = configure(application)
-        attachMenuBarItem(to: root)
+        // The quit policy — the "keep in tray" option's decision half. Installed here, never in
+        // `configure`, for the same window-server rule that keeps `configure` window-free: the
+        // probe drives `configure`, and the delegate's one job is answering a real user's ⌘Q.
+        let quitPolicy = AppQuitPolicy(
+            keepInTray: { [weak root] in root?.keepInTray() ?? false },
+            stayInTray: { [weak root] in
+                root?.closeSettingsWindow()
+                application.setActivationPolicy(.accessory)
+            })
+        root.quitPolicy = quitPolicy
+        application.delegate = quitPolicy
+        attachMenuBarItem(to: root, quitPolicy: quitPolicy)
         if !CompletionFlagStore().isComplete() {
             root.showOnboarding()
         }
@@ -545,7 +556,7 @@ public enum AppBootstrap {
     /// deallocated silently vanishes from the menu bar — which is precisely the disappearance this
     /// surface exists to end.
     @MainActor
-    private static func attachMenuBarItem(to root: DictationLoopRoot) {
+    private static func attachMenuBarItem(to root: DictationLoopRoot, quitPolicy: AppQuitPolicy) {
         let item = MenuBarItem(
             hotkey: { [weak root] in root?.hotkeyDisplayName ?? "" },
             onAction: { state in
@@ -571,6 +582,9 @@ public enum AppBootstrap {
             // window-server rule — and is SMOKE_CHECKLIST step 123).
             onQuit: { [weak root] in
                 root?.cancelFeeds()
+                // The tray menu's Quit is the one quit that always quits — marked intentional
+                // so the keep-in-tray policy lets it through, then terminated here.
+                quitPolicy.markIntentionalQuit()
                 NSApplication.shared.terminate(nil)
             })
         root.menuBarItem = item
@@ -1161,6 +1175,8 @@ public final class DictationLoopRoot {
                         // their next press rather than a broken session.
                         self?.setActiveMode(isToggle ? .toggle : .holdToTalk)
                     },
+                    isKeepInTray: { [weak self] in self?.keepInTray() ?? false },
+                    setKeepInTray: { [weak self] keep in self?.setKeepInTray(keep) },
                     // Read, never captured — the window is built once and kept for the process's
                     // lifetime, so a chord captured here would go on naming the old binding on the
                     // very page the user changed it on (the `engineSelection` argument, applied to
@@ -1392,7 +1408,12 @@ public final class DictationLoopRoot {
                         }
                     },
                     makeDownloadSession: { [weak self] in self?.downloadSession },
-                    restart: { AppRelaunch.relaunch() },
+                    restart: { [weak self] in
+                        // A restart is a quit the user asked for — marked intentional so the
+                        // keep-in-tray policy cannot refuse the flow's own relaunch.
+                        self?.quitPolicy?.markIntentionalQuit()
+                        AppRelaunch.relaunch()
+                    },
                     hotkeyDisplayName: { [weak self] in self?.hotkeyDisplayName ?? "" }))
             onboardingWindow = window
         }
@@ -1402,6 +1423,12 @@ public final class DictationLoopRoot {
     /// The status item, retained for the process's lifetime once `main()` has made one. `nil`
     /// under the probe and in every headless test, which is what keeps `configure` window-free.
     public var menuBarItem: MenuBarItem?
+
+    /// The quit policy, installed as the application delegate by `main()` — the "keep in tray"
+    /// option's decision half. `nil` under the probe and in every headless test; the intentional
+    /// quits (`quitFromTray`, `markIntentionalQuit`) no-op through the optional chain, which is
+    /// safe because those tests never terminate anyway.
+    public var quitPolicy: AppQuitPolicy?
 
     /// Called on every change to ``menuBarConditions``. `main()` connects the status item here;
     /// `configure` leaves it nil, which is what keeps the composition root window-free for the
@@ -1837,6 +1864,28 @@ public final class DictationLoopRoot {
             modeRouting.active = toggle.scheduledWatchdog
             router.activeFeed = toggleFeed
         }
+    }
+
+    // MARK: - Keep in tray
+
+    /// Whether a quit initiated outside the tray menu keeps Vocca running in the menu bar — the
+    /// persisted option, read live so the quit policy and the Settings toggle agree about the
+    /// instant they are asked. `false` in every headless composition, whose store is nil.
+    public func keepInTray() -> Bool {
+        settings?.keepInTray() ?? false
+    }
+
+    /// Persists the keep-in-tray choice. Best-effort: a failed write quits normally next time,
+    /// which is the behaviour every fresh install already has.
+    public func setKeepInTray(_ keepInTray: Bool) {
+        settings?.setKeepInTray(keepInTray)
+    }
+
+    /// Closes the settings window, if one is up — the refused-quit consequence. The close goes
+    /// through `SettingsWindow.windowWillClose`, which returns the app to `.accessory`; the quit
+    /// policy also sets it directly, and the double-set is harmless.
+    public func closeSettingsWindow() {
+        settingsWindow?.close()
     }
 
     // MARK: - The binding

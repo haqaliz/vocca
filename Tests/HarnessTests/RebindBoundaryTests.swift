@@ -724,6 +724,8 @@ private final class EphemeralSettingsStore: SettingsStore, @unchecked Sendable {
     }
     func hasAcknowledgedCloudCleanup() -> Bool { acknowledgedCloud }
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }
+    func keepInTray() -> Bool { false }
+    func setKeepInTray(_ keepInTray: Bool) {}
 }
 
 /// The widget's level source, silent — this suite asserts nothing about the waveform.

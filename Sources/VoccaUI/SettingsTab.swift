@@ -176,4 +176,22 @@ public enum SettingsCopy {
     /// The dictionary tab's empty state.
     public static let dictionaryEmpty =
         "No replacements yet. Add one for a name or a piece of jargon Vocca keeps mishearing."
+
+    // MARK: - Keep in tray
+
+    /// The keep-in-tray toggle's label.
+    ///
+    /// "Menu bar", not "tray": "tray" is Windows vocabulary, and every other sentence in the
+    /// product says the menu bar ("Vocca lives in your menu bar", `OnboardingCopy.doneCopy`).
+    public static let keepInTrayTitle = "Keep in menu bar"
+
+    /// What the toggle buys, and the way out.
+    ///
+    /// Names the quit path the toggle intercepts (⌘Q — the Dock's Quit and the Cmd-Q a user
+    /// reaches for out of habit while Settings is up) and the path it never touches: the tray
+    /// menu's own "Quit Vocca" always quits, and the sentence says so in the same breath — an
+    /// option that made the app impossible to quit would be a trap, and this is the line that
+    /// proves it is not one.
+    public static let keepInTrayDetail =
+        "Quitting from the Dock (⌘Q) leaves Vocca running in the menu bar. Use Quit Vocca to quit."
 }

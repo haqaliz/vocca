@@ -62,4 +62,10 @@ public protocol SettingsStore {
     /// Record — or withdraw — that acknowledgement. Best-effort, never throws: a failed write
     /// means the dialog appears once more, which is the safe direction.
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool)
+    /// Whether a quit initiated outside the tray menu keeps Vocca running in the menu bar.
+    /// `false` on a fresh install: quitting quits.
+    func keepInTray() -> Bool
+    /// Persist the keep-in-tray choice. Best-effort, never throws: a failed write means the app
+    /// quits when told to, which is the behaviour every fresh install already has.
+    func setKeepInTray(_ keepInTray: Bool)
 }

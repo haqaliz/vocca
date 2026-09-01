@@ -245,6 +245,64 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
         XCTAssertFalse(UserDefaultsSettingsStore(defaults: defaults).hasAcknowledgedCloudCleanup())
     }
 
+    // MARK: - Keep in tray
+
+    /// **A keep-in-tray choice, once made, survives a relaunch** — the "stays chosen" rule, for
+    /// the one setting whose whole point is the next quit.
+    func testTheKeepInTrayChoiceSurvivesARelaunch() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        UserDefaultsSettingsStore(defaults: defaults).setKeepInTray(true)
+
+        let reread = UserDefaultsSettingsStore(defaults: defaults)
+        XCTAssertTrue(reread.keepInTray())
+    }
+
+    /// **A fresh install quits normally, silently.** The absent value is the normal path, not a
+    /// failure.
+    func testAFreshInstallQuitsNormallySilently() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let logs = LogCollector()
+
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logs.append($0) })
+
+        XCTAssertFalse(store.keepInTray())
+        XCTAssertTrue(logs.entries.isEmpty)
+    }
+
+    /// **An unreadable choice is "quit normally", loudly.**
+    ///
+    /// The load-bearing direction. A corrupted preferences entry degrades to *quitting when told
+    /// to* — never to *refusing to quit* — because the second is the process held hostage by a
+    /// value nobody wrote. The safe direction for a keep-alive choice is the one that lets go.
+    func testAnUnreadableKeepInTrayChoiceQuitsNormallyAndSaysSo() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(["not", "a", "string"], forKey: UserDefaultsSettingsStore.keepInTrayKey)
+        let logs = LogCollector()
+
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logs.append($0) })
+
+        XCTAssertFalse(
+            store.keepInTray(),
+            "a value Vocca cannot read is never a keep-alive choice it can spend")
+        XCTAssertEqual(logs.entries.count, 1, "and a value that was present and unreadable is loud")
+    }
+
+    /// **The choice can be withdrawn.** Writing `false` reads back as `false` — a user who
+    /// changes their mind and wants the app to quit normally again is not stuck in the tray.
+    func testTheKeepInTrayChoiceCanBeWithdrawn() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+
+        store.setKeepInTray(true)
+        store.setKeepInTray(false)
+
+        XCTAssertFalse(UserDefaultsSettingsStore(defaults: defaults).keepInTray())
+    }
+
     // MARK: - The chord, through the adapter
 
     /// Every chord in the table survives a write and a read: the shipped ⌥Space, a modified
@@ -355,6 +413,7 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
         XCTAssertEqual(
             UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey,
             "settings.cloudCleanupAcknowledged")
+        XCTAssertEqual(UserDefaultsSettingsStore.keepInTrayKey, "settings.keepInTray")
     }
 
     /// The two keys are different keys.
@@ -369,6 +428,7 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
             UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey,
             UserDefaultsSettingsStore.hotkeyKeyCodeKey,
             UserDefaultsSettingsStore.hotkeyModifiersKey,
+            UserDefaultsSettingsStore.keepInTrayKey,
         ]
         XCTAssertEqual(Set(keys).count, keys.count, "every key is its own")
     }

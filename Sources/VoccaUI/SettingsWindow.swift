@@ -35,6 +35,10 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
 
     private let bindings: SettingsBindings
     private var window: NSWindow?
+    /// The sweep that keeps the sidebar-toggle toolbar item out of the titlebar — SwiftUI's
+    /// `NavigationSplitView` re-adds it on re-render, so a single removal does not stick.
+    /// `nil` while the window is closed, so the sweep runs only while settings is up.
+    private var sidebarSweepTimer: Timer?
 
     public init(bindings: SettingsBindings) {
         self.bindings = bindings
@@ -47,7 +51,7 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
     public func show() {
         if window == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 520, height: 380),
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 500),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false)
@@ -64,6 +68,7 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        startSidebarSweep()
     }
 
     /// Returns the app to its accessory life when the window closes.
@@ -72,6 +77,53 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
     /// been a background agent for its whole existence up to that point — and the next dictation
     /// would then be typed by an app that can steal focus.
     public func windowWillClose(_ notification: Notification) {
+        sidebarSweepTimer?.invalidate()
+        sidebarSweepTimer = nil
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    /// Closes the window, if one is up — the refused-quit's consequence, and the one other caller
+    /// of the close path there is. Goes through the window's own delegate, so the accessory
+    /// return and the sweep teardown happen exactly as they do for the user's own close.
+    public func close() {
+        window?.close()
+    }
+
+    // MARK: - The sidebar toggle
+
+    /// The sidebar is pinned open (`columnVisibility: .constant(.all)`) — there is nothing to
+    /// toggle — so the toolbar's sidebar-toggle button is removed and kept removed, the `DeckApp`
+    /// shape (`../deck/native/DeckApp/DeckApp.swift:722-729`): find the item by its private
+    /// identifier and drop it, scanning backwards so removals cannot shift the indices being
+    /// examined. The timer re-arms the removal on every tick because SwiftUI re-inserts the item
+    /// when the split view re-renders; a single post-show removal survives only until the first
+    /// tab switch.
+    ///
+    /// The split view's toolbar exists only to hold that toggle — nothing else ever lands in it —
+    /// and an emptied toolbar still draws the divider the button stood next to. So once the toggle
+    /// has been removed the toolbar itself is dropped: the plain titled titlebar that remains has
+    /// neither the button nor the line. SwiftUI re-attaches its toolbar on the next view update,
+    /// which is exactly what the sweep is for.
+    private func startSidebarSweep() {
+        guard sidebarSweepTimer == nil else { return }
+        sidebarSweepTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.removeSidebarToggleIfPresent() }
+        }
+        removeSidebarToggleIfPresent()
+    }
+
+    private func removeSidebarToggleIfPresent() {
+        guard let toolbar = window?.toolbar else { return }
+        var removedToggle = false
+        for index in toolbar.items.indices.reversed() {
+            if toolbar.items[index].itemIdentifier.rawValue
+                == "com.apple.SwiftUI.navigationSplitView.toggleSidebar" {
+                toolbar.removeItem(at: index)
+                removedToggle = true
+            }
+        }
+        if removedToggle {
+            window?.toolbar = nil
+        }
     }
 }
