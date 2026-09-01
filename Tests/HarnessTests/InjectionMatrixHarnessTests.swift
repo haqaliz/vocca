@@ -149,7 +149,7 @@ final class InjectionMatrixHarnessTests: XCTestCase {
     func testTheDryRunExitsZeroAndListsEveryRow() throws {
         let result = try run(try scriptURL, ["--dry-run"])
         XCTAssertEqual(result.status, 0, "dry-run failed:\n\(result.output)")
-        for row in ["Notes", "Slack", "GoogleDocs", "Ghostty", "PasswordField"] {
+        for row in ["Notes", "Teams", "GoogleDocs", "Ghostty", "PasswordField"] {
             XCTAssertTrue(
                 result.output.contains(row), "The dry run does not list the \(row) row.")
         }

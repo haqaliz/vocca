@@ -25,6 +25,63 @@ span is recorded, and the probe drives the real rules provider (below); the
 **eval-harness aspect landed 2026-08-15** — the held-out scorer, the stand-in corpus, the
 provisional targets and the F2 step (below).
 
+**The `p2-gate-measurement` unit landed 2026-09-01 — the first measured product numbers,
+and the first real executions of the loop's instrumentation.** The gate path: every
+capability C1–C8 had shipped, and no measured number existed — the loop had never
+delivered text end to end, the matrix had never run, the latency p50/p95 were targets in
+one table. This unit executed the already-written acceptance (the `SMOKE_CHECKLIST.md`
+first-execution steps) on the founder's machine and recorded what it measured.
+
+**What was measured (recorded, never gated):**
+- **Parakeet real WER (SMOKE 18): all six fixtures within the provisional table**, 14.2 s,
+  offline (`ModelHub.offlineMode` asserted), on the provisioned + verified model
+  (`ManifestDigestVerificationTests` 8/8, SMOKE 102 — the first verification run; the
+  Parakeet digests are real bytes, the historical `{}` placeholder is gone).
+- **Parakeet streaming WER (SMOKE 124): exactly one non-empty final**, attributed, 0.224 s
+  — the first real `SlidingWindowAsrManager` conversation.
+- **Latency benchmark (SMOKE 71-72, both variants): captureClose p50/p95 3/3 ms; asr
+  p50 79–102 ms per fixture, p95 354 ms; inject 7/7 ms**; streaming variant (feed live)
+  asr p50 105 ms / p95 349 ms — same order as batch. Both variants PASS the provisional
+  p50 table (recorded, never gated). Suppression 0 (NOT suppressed) beside every row.
+- **Warm-start ratio (SMOKE 77): 0.348× — WITHIN the 1.2× bound** (first-after-launch 79 ms
+  vs steady-state 102/354 ms); **re-warm (SMOKE 128): 82–85 ms**, recorded never gated.
+- **Equivalence verdict (SMOKE 125-126): NO-GO** (noisy, spike-clip, two-hundred-ms) —
+  recorded, the feed ships, the latency-win claim is blocked. Shape observed: the three
+  failures are not "streamed worse" — streamed finals are more complete (batch drops
+  "The quick" in noisy/spike-clip; two-hundred-ms is the empty-batch case), and
+  sixty-second shows the predicted prefix-then-diverge(81) within tolerance. The 0.05
+  placeholder table stands; re-baselining is the founder's decision via
+  `tolerances_20260831.md`.
+- **First real dictations (SMOKE 62-68, founder-reported):** the loop delivered, Esc
+  discarded, Secure Input refused, the short-press row returned to IDLE without the old
+  failure notice, the model-unavailable gate refused with the mic never lighting, the
+  toggle triggers worked. The recovery journal's first two real holds were observed
+  (`noFocusedField`, transcripts recoverable — the invariant held) and `strategies.json`
+  recorded its first real learning: **Notes and Warp demoted `accessibility` with re-probe
+  windows** — R1's AX silent-no-op is a real observation on day one; the ladder fell to
+  clipboard and delivered.
+
+**What the unit is NOT, and must not be claimed:**
+- **No injection-matrix number exists.** The harness was calibrated (16 confirmed / 0
+  mismatched bundle ids, 6 rows skipped — Pages, Notion, Ghostty, IntelliJ, Zed,
+  1Password not installed; **iTerm2→Warp and Slack→Teams swapped** per step 87, both ids
+  read from installed apps) but the tracked table's first row is **unrecorded**: the
+  founder reported all rows landing while the machine record (unified log, strategies
+  file) shows no sessions for the run windows. The ≥95% FMS bar is not met, not claimed,
+  and not closeable on this machine's app set.
+- **Whisper has still never transcribed anything.** The GGUF tiers are not on the machine;
+  SMOKE 19's WER + streamed cycle record "not performed — artifacts absent", and the
+  seeded-from-Parakeet table stays provisional (`tolerances_20260810.md`).
+- **F2 (SMOKE 73) was not run** — no founder corpus, no ballot, no preference number; the
+  P1 gate's ≥80% remains provisional.
+- **No gate passed.** The P0 7-day log has one reported day, not seven; the P2 gate's
+  three legs (latency targets, ≥95% matrix, ≥5 external users) have one measured leg only;
+  no release exists (the DMG/cask follow-on is untouched).
+- **No production-code defect was fixed** — the runs that executed surfaced none
+  (the equivalence NO-GO is a record, not a bug); the only code change is the harness
+  swap. The pattern of first-execution defects held for the *unexecuted* surfaces, not
+  the executed ones.
+
 **What is built and enforced:**
 - A Swift 6 package (`Package.swift`) with nine modules — `VoccaCore`, `VoccaAudio`,
   `VoccaHotkey`, `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`,

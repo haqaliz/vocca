@@ -1087,6 +1087,13 @@ steps below cannot pass yet:
 - the **toggle mode** selection control belongs to the settings surface, which does not ship yet
   (`PRODUCT_SPEC.md:291`); `setActiveMode` is a wiring seam (`AppBootstrap.swift:700-719`).
 
+*(Amended 2026-09-01, `p2-gate-measurement`: both claims are stale. The Settings → General
+activation-mode switch shipped with the design pass 2026-08-26 (`STATUS.md:534-542`), so the
+toggle/hold-to-talk choice is a control, not a seam; and `setActiveMode` now lives at
+`AppBootstrap.swift:1821`. The citation was fixed where this unit touched it; the rest of the
+file's `AppBootstrap.swift` line numbers drift by the same measure and are corrected as each
+section is next executed.)*
+
 The two halves that this section previously listed as unshipped are now wired and their steps
 performable: the live pill's window is constructed by the composition root (`LiveWidget`,
 `AppBootstrap.swift` — lazily, on the store's first non-IDLE fold, so `configure` creates no
@@ -2437,11 +2444,18 @@ meaningful preferences exist on a hosted runner. These steps are the first execu
 124. **First real streaming run** (the `SlidingWindowAsrManager` conversation — PCM buffers in,
     updates out, `finish()` final — executed by nothing in CI, the tap-adapter precedent).
 
-    *Gesture:* with provisioned models, run the env-gated streaming row —
-    `VOCCA_MODEL_DIR=<store-shaped version directory> Scripts/test-with-floor.sh --filter ParakeetStreamingWERTests`
-    — then drive the `sixty-second` fixture through the same chunked stream (1 s chunks) to
-    observe the partials half. No latency or equivalence claim may be written from this run —
-    the numbers are the equivalence-measurement aspect's.
+*Gesture:* with provisioned models, run the env-gated streaming row —
+`VOCCA_MODEL_DIR=<store-shaped version directory> Scripts/test-with-floor.sh --filter ParakeetStreamingWERTests`
+— then drive the `sixty-second` fixture through the same chunked stream (1 s chunks) to
+observe the partials half. No latency or equivalence claim may be written from this run —
+the numbers are the equivalence-measurement aspect's.
+
+*(Amended 2026-09-01, `p2-gate-measurement`: the floor script errors on a filtered run —
+`Scripts/test-with-floor.sh` fails with "executed 8 tests (floor: 1731)" even when the run
+passes, because the floor check is unconditional. The env-gated real runs in this file use
+plain `swift test --filter <Class>` (steps 71-72's own convention); this step's command is
+the one exception and is corrected here. The executed result of this step (2026-09-01):
+exactly one non-empty final, Parakeet-attributed, 0.224 s.)*
 
     *Verify the state was entered:* the env-gated row did **not** print its skip message (the
     skip is the tell-tale — a skipped test ran nothing) and the run completed a stream.
