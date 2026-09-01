@@ -29,7 +29,8 @@ This file orients a coding agent working in this repository. Read it first.
 > `docs/STATUS.md` for the honesty block.
 >
 > **`settings` (2026-09-01):** the settings window is sidebar-based (Deck-style
-> `NavigationSplitView`, toolbar/sidebar-toggle swept out), and General has **Keep in menu bar**
+> `NavigationSplitView` in a `WindowGroup`-shaped window, sidebar-toggle swept out), and
+> General has **Keep in menu bar**
 > — with it on, ⌘Q / Dock quit is refused and the app stays in the tray (closes Settings,
 > drops the Dock icon), while the tray menu's Quit and onboarding Restart always quit
 > (`AppQuitPolicy`, `settings.keepInTray`). Test floor: 1746.

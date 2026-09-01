@@ -50,13 +50,30 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
     /// stacking another. Menu items get double-clicked.
     public func show() {
         if window == nil {
+            // The four pieces that make an `NSWindow` host a split view the way SwiftUI's own
+            // `WindowGroup` does — the shape `DeckApp` gets for free by being a `WindowGroup`
+            // (`../deck/native/DeckApp/DeckApp.swift:18-27`) and this window has to ask for:
+            //
+            // - `.fullSizeContentView`, so the content area reaches the top of the window and the
+            //   sidebar can run the window's full height with the traffic lights sitting on it,
+            //   instead of starting below a titlebar drawn across everything.
+            // - `contentViewController`, not `contentView`: the sidebar's full-height layout and
+            //   the titlebar's safe area are negotiated through the hosting *controller*. Hand
+            //   AppKit a bare `NSHostingView` and SwiftUI has no window integration to negotiate
+            //   with — it falls back to drawing the sidebar as an inset panel inside the content.
+            // - `.unified` toolbar style, so the window title sits at the head of the detail
+            //   column rather than centred over both columns.
+            // - the toolbar itself, kept (see `removeSidebarToggleIfPresent`).
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 640, height: 500),
-                styleMask: [.titled, .closable, .miniaturizable],
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false)
             window.title = "Vocca Settings"
-            window.contentView = NSHostingView(rootView: SettingsView(bindings: bindings))
+            window.titleVisibility = .visible
+            window.toolbarStyle = .unified
+            window.contentViewController = NSHostingController(
+                rootView: SettingsView(bindings: bindings))
             window.isReleasedWhenClosed = false
             window.center()
             window.delegate = self
@@ -99,11 +116,11 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
     /// when the split view re-renders; a single post-show removal survives only until the first
     /// tab switch.
     ///
-    /// The split view's toolbar exists only to hold that toggle — nothing else ever lands in it —
-    /// and an emptied toolbar still draws the divider the button stood next to. So once the toggle
-    /// has been removed the toolbar itself is dropped: the plain titled titlebar that remains has
-    /// neither the button nor the line. SwiftUI re-attaches its toolbar on the next view update,
-    /// which is exactly what the sweep is for.
+    /// **The toolbar itself stays.** An earlier version dropped it once the toggle was gone, to be
+    /// rid of the divider the button stood next to; what it was actually dropping was the unified
+    /// titlebar the split view is laid out against — the title fell back to the centre of a plain
+    /// titlebar and the sidebar stopped reaching the top of the window. Deck keeps its toolbar for
+    /// the same reason, and removes only the item.
     private func startSidebarSweep() {
         guard sidebarSweepTimer == nil else { return }
         sidebarSweepTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -114,16 +131,11 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
 
     private func removeSidebarToggleIfPresent() {
         guard let toolbar = window?.toolbar else { return }
-        var removedToggle = false
         for index in toolbar.items.indices.reversed() {
             if toolbar.items[index].itemIdentifier.rawValue
                 == "com.apple.SwiftUI.navigationSplitView.toggleSidebar" {
                 toolbar.removeItem(at: index)
-                removedToggle = true
             }
-        }
-        if removedToggle {
-            window?.toolbar = nil
         }
     }
 }

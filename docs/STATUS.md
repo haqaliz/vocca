@@ -28,10 +28,17 @@ provisional targets and the F2 step (below).
 **The `settings` unit landed 2026-09-01 — the settings window becomes sidebar-based and the
 app can keep running in the menu bar.** The settings window was a top-tab `TabView`; it is now
 a Deck-style `NavigationSplitView` sidebar over `SettingsTab.allCases` (title + symbol per
-row, fixed 190 pt column, 640×500 window), and the split view's toolbar — the sidebar-toggle
-button and the divider beside it — is swept out of the titlebar (`SettingsWindow`'s repeating
-sweep, the `DeckApp` shape: find `com.apple.SwiftUI.navigationSplitView.toggleSidebar` and
-drop it, then drop the empty toolbar that would still draw the line).
+row, fixed 190 pt column, 640×500 window), and the sidebar-toggle button is swept out of the
+titlebar (`SettingsWindow`'s repeating sweep, the `DeckApp` shape: find
+`com.apple.SwiftUI.navigationSplitView.toggleSidebar` and drop it). **The window is configured
+the way SwiftUI configures a `WindowGroup`'s** — `.fullSizeContentView`, an
+`NSHostingController` as the `contentViewController` rather than a bare `NSHostingView`, the
+`.unified` toolbar style, and the toolbar itself left in place. All four are load-bearing for
+the layout, not decoration: without them the titlebar draws across both columns, the sidebar
+starts below it instead of running the window's full height under the traffic lights, and the
+first section of the page is clipped by a titlebar it is not inset from. The first cut dropped
+the emptied toolbar to be rid of the divider the toggle stood next to, and lost the unified
+titlebar with it; the toolbar stays and only the item goes.
 
 **`AppQuitPolicy` (new, `VoccaBootstrap`) is the application delegate** `main()` installs, and
 it makes the General tab's **Keep in menu bar** toggle real: with the option on, a quit the
