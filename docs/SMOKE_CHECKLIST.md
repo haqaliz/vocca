@@ -1568,6 +1568,25 @@ not ship.
     survives the close; a dictation after closing the window steals focus; a dictionary edit does
     not survive a reopen, or does not reach the next transcript.
 
+    **The sidebar half (the `settings` unit).** The window is a sidebar-based preferences window
+    (Deck-style `NavigationSplitView`): a 190 pt sidebar of the five tabs down the left, the
+    page on the right, and **no sidebar-toggle button or divider in the titlebar** — the sweep
+    (`SettingsWindow.removeSidebarToggleIfPresent`) drops the split view's toolbar, and a tab
+    switch must not bring it back. *Pass:* the sidebar shows General, Speech, Cleanup, Dictionary
+    and Apps each with its symbol; the title is centered with nothing to its left; switching tabs
+    keeps the titlebar clean. *Failure:* the toggle button or a divider reappears next to the
+    title after a tab switch.
+
+    **The keep-in-tray half (the same unit).** With General → Closing → **Keep in menu bar** off
+    (the shipped default), ⌘Q quits the app from the menu bar as before. Turn it on, open
+    Settings, and press ⌘Q: the settings window **closes and the app stays in the menu bar** —
+    the Dock icon disappears, and the tray item is still there and still dictates. The escape
+    hatch is the tray menu's own **Quit Vocca**, which always quits whatever the option. And the
+    onboarding flow's [ Restart Vocca ] must still work with the option on. *Failure:* ⌘Q kills
+    the app with the option on; the tray menu's Quit is refused; the app quits without a way
+    back. (Executed by nothing in CI: the quit policy's decision table is `AppQuitPolicyTests`;
+    this row is the first real ⌘Q.)
+
 ### The first-run onboarding — the five-step flow, its first execution
 
 *(Added 2026-08-27, `first-run-permissions`.)* The onboarding window and its adapters are executed

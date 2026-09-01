@@ -25,8 +25,37 @@ span is recorded, and the probe drives the real rules provider (below); the
 **eval-harness aspect landed 2026-08-15** — the held-out scorer, the stand-in corpus, the
 provisional targets and the F2 step (below).
 
-**The `p2-gate-measurement` unit landed 2026-09-01 — the first measured product numbers,
-and the first real executions of the loop's instrumentation.** The gate path: every
+**The `settings` unit landed 2026-09-01 — the settings window becomes sidebar-based and the
+app can keep running in the menu bar.** The settings window was a top-tab `TabView`; it is now
+a Deck-style `NavigationSplitView` sidebar over `SettingsTab.allCases` (title + symbol per
+row, fixed 190 pt column, 640×500 window), and the split view's toolbar — the sidebar-toggle
+button and the divider beside it — is swept out of the titlebar (`SettingsWindow`'s repeating
+sweep, the `DeckApp` shape: find `com.apple.SwiftUI.navigationSplitView.toggleSidebar` and
+drop it, then drop the empty toolbar that would still draw the line).
+
+**`AppQuitPolicy` (new, `VoccaBootstrap`) is the application delegate** `main()` installs, and
+it makes the General tab's **Keep in menu bar** toggle real: with the option on, a quit the
+user did not initiate intentionally — ⌘Q, the Dock's Quit, the system's shutdown — is refused
+(`applicationShouldTerminate` returns `.terminateCancel`), the settings window closes and the
+app drops back to `.accessory`, staying in the menu bar. The tray menu's own Quit and the
+onboarding flow's [ Restart Vocca ] mark themselves intentional before terminating, so they
+always quit. The choice persists under `settings.keepInTray` (`UserDefaultsSettingsStore` +
+`PersistedSettings`), decoding tolerantly with **quit-normally** as both the absent and the
+unreadable answer — the safe direction, since a corrupted entry must never hold the process
+hostage to a keep-alive nobody wrote. Test floor: 1746.
+
+**What the settings unit is NOT, and must not be claimed:**
+- **The window chrome and the delegate are executed by nothing in CI** (the window-server
+  rule): the quit policy's decision table (`AppQuitPolicyTests`), the keep-in-tray
+  tolerant-decode rows, the adapter rows and the copy pins are the tested half; whether the
+  sidebar reads right and whether a real ⌘Q keeps the app in the tray are `SMOKE_CHECKLIST.md`
+  rows.
+- **The keep-in-tray option does not give Vocca a Dock icon.** Vocca stays `LSUIElement`;
+  the Dock icon appears only while Settings/onboarding is up, which is exactly when the
+  option matters.
+
+**The `p2-gate-measurement` unit landed 2026-09-01 — the first measured product numbers, and
+the first real executions of the loop's instrumentation.** The gate path: every
 capability C1–C8 had shipped, and no measured number existed — the loop had never
 delivered text end to end, the matrix had never run, the latency p50/p95 were targets in
 one table. This unit executed the already-written acceptance (the `SMOKE_CHECKLIST.md`

@@ -28,9 +28,15 @@ This file orients a coding agent working in this repository. Read it first.
 > whisper's WER (GGUF absent), F2 cleanup eval (not run), and every gate.** See
 > `docs/STATUS.md` for the honesty block.
 >
+> **`settings` (2026-09-01):** the settings window is sidebar-based (Deck-style
+> `NavigationSplitView`, toolbar/sidebar-toggle swept out), and General has **Keep in menu bar**
+> — with it on, ⌘Q / Dock quit is refused and the app stays in the tray (closes Settings,
+> drops the Dock icon), while the tray menu's Quit and onboarding Restart always quit
+> (`AppQuitPolicy`, `settings.keepInTray`). Test floor: 1746.
+>
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 1731 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 1746 tests**, including the zero-network invariant (a `dyld`
 > interposer over `connect(2)`), module-boundary and per-seam lint, and the built-bundle
 > and entitlement contracts. CI runs three jobs; every `swift test` goes through
 > `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.
