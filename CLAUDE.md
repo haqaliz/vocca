@@ -2,7 +2,7 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-01).** The skeleton exists; **the product does not.**
+> **Status (2026-09-03).** The skeleton exists; **the product does not.**
 > A Swift 6 package with nine modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaBootstrap`.
 > `VoccaSpeech` is the one module still a placeholder.
@@ -16,6 +16,20 @@ This file orients a coding agent working in this repository. Read it first.
 > the open-question-2 equivalence measurement (recorded, never gated), and re-warm-after-idle.
 > `AppBootstrap.configure` composes tap → session machine → `MicrophoneSource` → engine →
 > ladder → failsafe → widget, driven end to end by the zero-network probe.
+>
+> **`injection-matrix-record` (2026-09-03):** the matrix's evidence chain is real — the app
+> emits `session opened` + `delivery` info lines (shape-only, no transcript text) from the
+> ladder's delivery seam, and `Scripts/injection-matrix.sh` writes its promised per-row JSONL
+> run log — and the first tracked row is recorded with **file-based** evidence: Notes ran,
+> the accessibility rung was demoted with a fresh re-probe window (`strategies.json`), the
+> row failed byte-compare. The matrix run is **incomplete** (1 of 18 deliverable rows; FMS
+> "not closeable"); three swaps recorded (Pages→Telegram, Notion→ChatGPT, 1Password→Passwords,
+> `--verify-bundle-ids` 19 confirmed / 0 mismatched); the unified-log half of the evidence is
+> wired but unproven on a live session (the live check was declined) — the file chain is
+> load-bearing, not the log lines. A pre-existing re-warm test flake was fixed deterministically
+> (an entry counter on `DictationEngineResolver`, behavior-invisible). **Still unmeasured: the
+> rest of the matrix, whisper's WER (GGUF absent), F2 cleanup eval (not run), and every gate.**
+> See `docs/STATUS.md` for the honesty block.
 >
 > **Measured for the first time (`p2-gate-measurement`, 2026-09-01):** Parakeet's real WER
 > passes all six provisional fixtures offline; the first real streaming final is

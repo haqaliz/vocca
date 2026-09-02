@@ -10,6 +10,78 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `injection-matrix-record` unit landed 2026-09-03 — the matrix's evidence chain is real,
+and the first row of the tracked run is recorded with file-based evidence.** The `p2-gate-measurement`
+unit recorded the tracked table's first row as **unrecorded** ("machine record shows no sessions
+and no `strategies.json` for this window" — `STATUS.md` below). The dig established the root
+cause as structural: the app's unified log had no info-level session or landing-rung lines at
+all (`VoccaCore` had zero logging), `strategies.json` writes only when a strategy changes, and
+the harness wrote nothing despite `matrix-smoke/plan_20260827.md:16` promising "its own run
+log". So the matrix's row observations had no machine artifact to rest on, by construction.
+
+**What landed (all test-first, suite floor 1746 → 1755):**
+
+- **The evidence vocabulary** (`VoccaCore/MatrixEvidence.swift`): `MatrixEvidenceEvent`
+  (`.sessionOpened(mode:)`, `.delivery(targetBundleID:result:)`) + `MatrixEvidenceLine.format`,
+  exact-string tested — the step-92-quoted `attempted: []` spelling pinned by a test. `VoccaCore`
+  stays logging-free (stdlib imports only; the module-boundary lint enforces it).
+- **The ladder emission** (`LadderInjector`'s optional `evidence` slot, the `recorder`-slot
+  pattern): exactly one delivery event per `inject` call, nil-slot keeps every pre-existing
+  construction site byte-for-byte identical. `MatrixEvidenceRecording` protocol in Core.
+- **The real adapter + wiring** (`OSLogMatrixEvidence`, category `matrix`, `privacy: .public`
+  — justified: lines are shape-only, no transcript content): wired into
+  `assembleShippingLadder` and `ShippingLadder.makeWithMemory`; the loop's `.opening` effect
+  emits `session opened mode=dictation` via the existing loop logger.
+- **The harness run log** (`Scripts/injection-matrix.sh`): one JSONL line per completed row
+  (date, row, rung, bytes_matched, verdict pass/failed/skipped/voided/refusal, note) to
+  `~/Library/Application Support/Vocca/matrix-runs/<date>.jsonl`, with `--run-log` override —
+  the artifact `matrix-smoke/plan_20260827.md:16` promised and never shipped.
+- **The three swaps** (step 87 discipline): Pages→Telegram (`ru.keepcoder.Telegram`), Notion→
+  ChatGPT (`com.openai.codex`), 1Password→Passwords (`com.apple.Passwords`), all plutil-
+  verified; `--verify-bundle-ids` now 19 confirmed / 0 mismatched / 3 unverified (Ghostty,
+  IntelliJ, Zed not installed — no same-class swap available, rows stay skipped). The
+  hostile-row self-check test was re-anchored on the Passwords swap.
+- **A pre-existing flake fixed deterministically** (`DictationEngineResolverRewarmTests`):
+  the in-flight-prepare re-warm test failed intermittently under full-suite load (3 of 5 runs;
+  the resolver is an actor, so a `Task`-spawned call could be scheduled after the gate opened,
+  and a post-completion re-warm is *correct* behavior — the test raced its own precondition).
+  Fixed with `rewarmIfNeededEntryCount` (public private(set) on the actor): the counter's
+  increment and the in-flight read are the same non-suspending actor chunk, so observing the
+  counter proves the ordering decision was made. Behavior-invisible.
+
+**What was recorded (never gated):** the first row of baseline run 2 — **Notes, failed
+(byte mismatch)** — with its evidence chain: the harness run log line (2026-09-03 01:14:53)
+and `strategies.json` recording the accessibility rung **demoted with a fresh re-probe window**
+(2026-09-10) — R1's silent-no-op observed a second time on day one of the evidence build, the
+ladder fell through to clipboard and the byte-compare still mismatched (ASR transcription vs
+the fixed phrase is step 19's matter, not an injection failure — recorded, not adjudicated).
+**The unified-log session lines for the run window are not verifiable** — a live-session check
+under `log stream` was offered and declined; the row's evidence rests on the file chain.
+
+**What this unit is NOT, and must not be claimed:**
+
+- **The matrix run is not complete.** One of 18 deliverable rows was run; 17 rows and step 92
+  remain. The tracked table's row reads **not closeable** — FMS is not computable on 1 of 18
+  rows. Steps 89-91 were dispositioned, not executed: 89's Slack half is unrunnable while the
+  row is Teams; 90/91's re-probe and promotion windows have not elapsed since the 2026-09-01
+  baseline (`reprobeWindowSeconds` from `StrategyMemoryTargets` is the provisional 7 days).
+- **No gate passed, no tolerance re-baselined, no release.** The ≥95% FMS bar is unmeasured;
+  the P2 gate's three legs still have one measured leg only.
+- **The unified-log evidence half is unproven on a live session.** The code is wired and the
+  binary contains the lines (verified by `strings`), but a live dictation under `log stream`
+  was not observed. The file-based chain (run log + strategies.json + recovery journal) is the
+  evidence the matrix now rests on; the log lines are a bonus for the founder's own debugging,
+  not a load-bearing claim.
+- **Whisper's WER (step 19) and F2 remain unmeasured.** The re-warm flake fix touched
+  `DictationEngineResolver` (one counter, one line) — its behavior is unchanged.
+
+**To resume the run:** the app in `/Applications` is the evidence build (installed 2026-09-02,
+re-signed `--local-dev`); `Scripts/injection-matrix.sh --row <name>` per row; the run log
+appends to the same `<date>.jsonl`; resume at the row after Notes, then step 88 (tracked run)
+and step 92. Rows that fail are the work list, not a silent pass.
+
+---
+
 **Status:** the **C1 skeleton, the C2 ASR half, the C3 second ASR engine, the C4 injection
 ladder, the P0 dictation loop, the C5 deterministic-cleanup unit and the C6 llm-cleanup
 unit** exist; the product
