@@ -1406,8 +1406,15 @@ set -euo pipefail
 # and the detail naming the intercepted path (⌘Q, U+2318 asserted as the real glyph) and the way
 # out: the tray menu's Quit always quits, so the option can never hold the app hostage).
 #
+# The matrix evidence vocabulary adds seven (1746 -> 1753): MatrixEvidenceLineTests' exact-line
+# contract for the evidence formatter — the session-opened spelling per mode (dictation and
+# conversing), the accessibility-verified delivery, the clipboard-paste unverified delivery
+# rendering the full trace, the keystroke-synthesis line, the failsafe outcome's line, the
+# refusal's exact `attempted: []` spelling (the step-92 artifact the smoke checklist quotes),
+# and the trace-order pin.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1746
+MINIMUM_EXECUTED_TESTS=1753
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
