@@ -762,7 +762,10 @@ public enum AppBootstrap {
             store: store,
             now: now)
         return (
-            ShippingLadder.makeWithMemory(memory: memory, handoff: handoff, clock: clock), memory
+            ShippingLadder.makeWithMemory(
+                memory: memory, handoff: handoff, clock: clock,
+                evidence: OSLogMatrixEvidence()),
+            memory
         )
     }
 
@@ -2566,6 +2569,7 @@ private final class EffectRouter {
     func deliver(_ effect: SessionEffect<AudioBuffer>) {
         switch effect {
         case .opening:
+            logger.info("\(MatrixEvidenceLine.format(.sessionOpened(mode: .dictation)), privacy: .public)")
             // S1's key-down half: resolve the focused application now, so the transcript is
             // injected into the same context the user was looking at when they pressed. The
             // OPENING state is folded immediately with a placeholder name — the widget must react

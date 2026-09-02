@@ -86,7 +86,8 @@ public enum ShippingLadder {
     public static func makeWithMemory(
         memory: MemoryBackedInjectionStrategyOrder,
         handoff: any FailsafeHandoff,
-        clock: any MonotonicClock
+        clock: any MonotonicClock,
+        evidence: (any MatrixEvidenceRecording)? = nil
     ) -> LadderInjector {
         let keystrokes = KeystrokeSource()
         let strategies: [InjectionRung: any InjectionRungStrategy] = [
@@ -100,6 +101,7 @@ public enum ShippingLadder {
             order: memory,
             handoff: handoff,
             clock: clock,
-            recorder: memory)
+            recorder: memory,
+            evidence: evidence)
     }
 }
