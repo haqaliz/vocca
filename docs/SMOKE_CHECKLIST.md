@@ -1759,11 +1759,11 @@ Run so far (2026-08-28, authoring machine): **14 confirmed, 0 mismatched, 8 gues
 | 3 | `matrix-row: TextEdit` | TextEdit | `com.apple.TextEdit` | confirmed | native AppKit | allowlist | `.accessibility` |
 | 4 | `matrix-row: Xcode` | Xcode | `com.apple.dt.Xcode` | confirmed | native AppKit | no | `.clipboardPaste` — promotion candidate |
 | 5 | `matrix-row: Messages` | Messages | `com.apple.MobileSMS` | confirmed | native AppKit | no | `.clipboardPaste` — promotion candidate |
-| 6 | `matrix-row: Pages` | Pages | `com.apple.iWork.Pages` | **guess** | native AppKit | no | `.clipboardPaste` — promotion candidate |
+| 6 | `matrix-row: Telegram` | Telegram | `ru.keepcoder.Telegram` | **swapped 2026-09-02** | native AppKit | no | `.clipboardPaste` — promotion candidate |
 | 7 | `matrix-row: VSCode` | Visual Studio Code | `com.microsoft.VSCode` | confirmed | Electron | no | `.clipboardPaste` |
 | 8 | `matrix-row: Teams` | Microsoft Teams | `com.microsoft.teams2` | **swapped 2026-09-01** | Electron | no | `.clipboardPaste` |
 | 9 | `matrix-row: Discord` | Discord | `com.hnc.Discord` | confirmed | Electron | no | `.clipboardPaste` |
-| 10 | `matrix-row: Notion` | Notion | `notion.id` | **guess** | Electron | no | `.clipboardPaste` |
+| 10 | `matrix-row: ChatGPT` | ChatGPT | `com.openai.codex` | **swapped 2026-09-02** | Electron | no | `.clipboardPaste` |
 | 11 | `matrix-row: Obsidian` | Obsidian | `md.obsidian` | confirmed | Electron | no | `.clipboardPaste` |
 | 12 | `matrix-row: Safari` | Safari | `com.apple.Safari` | confirmed | browser | no | `.clipboardPaste` |
 | 13 | `matrix-row: Chrome` | Google Chrome | `com.google.Chrome` | confirmed | browser, plain field | **hostile** | `.clipboardPaste` |
@@ -1774,7 +1774,7 @@ Run so far (2026-08-28, authoring machine): **14 confirmed, 0 mismatched, 8 gues
 | 18 | `matrix-row: Ghostty` | Ghostty | `com.mitchellh.ghostty` | **guess** | terminal | no | `.clipboardPaste` |
 | 19 | `matrix-row: IntelliJ` | IntelliJ IDEA | `com.jetbrains.intellij` | **guess** | Java/AWT | no | `.clipboardPaste` |
 | 20 | `matrix-row: Zed` | Zed | `dev.zed.Zed` | **guess** | native, non-AppKit | no | `.clipboardPaste` |
-| 21 | `matrix-row: 1Password` | 1Password | `com.1password.1password` | **guess** | known-hostile | — | **no rung attempted** |
+| 21 | `matrix-row: Passwords` | Passwords | `com.apple.Passwords` | **swapped 2026-09-02** | known-hostile | — | **no rung attempted** |
 | 22 | `matrix-row: PasswordField` | Safari/Chrome password field | `com.apple.Safari` | confirmed | known-hostile | — | **no rung attempted** |
 
 **Rows 13 and 14 share a bundle identifier, and that is the finding, not an oversight.** The

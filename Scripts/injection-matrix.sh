@@ -95,11 +95,11 @@ ROWS=(
   "TextEdit|TextEdit|com.apple.TextEdit|native-appkit|allowlist|accessibility|a plain-text document (⌘⇧T)"
   "Xcode|Xcode|com.apple.dt.Xcode|native-appkit|no|clipboardPaste|a comment line in a source file"
   "Messages|Messages|com.apple.MobileSMS|native-appkit|no|clipboardPaste|the message compose field"
-  "Pages|Pages|com.apple.iWork.Pages|native-appkit|no|clipboardPaste|a blank document"
+  "Telegram|Telegram|ru.keepcoder.Telegram|native-appkit|no|clipboardPaste|a chat input"
   "VSCode|Visual Studio Code|com.microsoft.VSCode|electron|no|clipboardPaste|an untitled text buffer"
   "Teams|Microsoft Teams|com.microsoft.teams2|electron|no|clipboardPaste|a message input"
   "Discord|Discord|com.hnc.Discord|electron|no|clipboardPaste|a message input"
-  "Notion|Notion|notion.id|electron|no|clipboardPaste|an empty page body"
+  "ChatGPT|ChatGPT|com.openai.codex|electron|no|clipboardPaste|a conversation input"
   "Obsidian|Obsidian|md.obsidian|electron|no|clipboardPaste|a new note"
   "Safari|Safari|com.apple.Safari|browser|no|clipboardPaste|a plain web input"
   "Chrome|Google Chrome|com.google.Chrome|browser|hostile|clipboardPaste|a plain web input"
@@ -110,7 +110,7 @@ ROWS=(
   "Ghostty|Ghostty|com.mitchellh.ghostty|terminal|no|clipboardPaste|a shell prompt (do not press return)"
   "IntelliJ|IntelliJ IDEA|com.jetbrains.intellij|java-awt|no|clipboardPaste|an editor buffer"
   "Zed|Zed|dev.zed.Zed|native-other|no|clipboardPaste|an untitled buffer"
-  "1Password|1Password|com.1password.1password|known-hostile|—|none|a password field"
+  "Passwords|Passwords|com.apple.Passwords|known-hostile|—|none|a password field"
   "PasswordField|Safari|com.apple.Safari|known-hostile|—|none|a password field on any sign-in page"
 )
 
