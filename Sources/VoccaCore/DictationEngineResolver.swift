@@ -84,6 +84,12 @@ public actor DictationEngineResolver {
     /// failure, so a failed prepare never poisons the next attempt (`ModelStore.swift:59-62`).
     private var inFlightPrepare: Task<Void, Error>?
 
+    /// Entries into ``rewarmIfNeeded()``, counted for the tests: the increment and the
+    /// in-flight-prepare read are the same non-suspending actor chunk, so an observer that has
+    /// seen this counter knows the call's ordering decision was made. Never read by the
+    /// resolver's own logic; invisible to behavior.
+    public private(set) var rewarmIfNeededEntryCount = 0
+
     /// - Parameters:
     ///   - selection: The engine the process will run — the composition root's picker answer.
     ///   - building: The engine construction, injected so this type never names an engine
@@ -176,6 +182,7 @@ public actor DictationEngineResolver {
     /// the gate (the old model stays resident; the next idle window retries, the
     /// retry-on-failure precedent).
     public func rewarmIfNeeded() async throws {
+        rewarmIfNeededEntryCount += 1
         if let inFlight = inFlightPrepare {
             try await inFlight.value
             return

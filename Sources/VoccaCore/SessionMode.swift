@@ -22,7 +22,7 @@
 ///
 /// This is *not* the machine's toggle: that is a start configuration of the same session
 /// (`SessionRules.swift:51-53`), not the dictate-vs-converse dual mode this enum names.
-public enum SessionMode: Sendable {
+public enum SessionMode: Sendable, Equatable {
     /// Dictating into a field: the P0 loop's mode, and the only mode C5 serves.
     case dictation
     /// The agent conversation mode (P3). Declared now so the context's shape is

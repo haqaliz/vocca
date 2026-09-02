@@ -191,8 +191,8 @@ final class InjectionMatrixHarnessTests: XCTestCase {
     /// — the checklist's second preamble rule, enforced mechanically.
     func testTheSelfCheckCatchesAHostileRowThatExpectsARung() throws {
         let copy = try scriptCopy(
-            replacing: "\"1Password|1Password|com.1password.1password|known-hostile|—|none|a password field\"",
-            with: "\"1Password|1Password|com.1password.1password|known-hostile|—|clipboardPaste|a password field\"")
+            replacing: "\"Passwords|Passwords|com.apple.Passwords|known-hostile|—|none|a password field\"",
+            with: "\"Passwords|Passwords|com.apple.Passwords|known-hostile|—|clipboardPaste|a password field\"")
         let result = try run(copy, ["--self-check"])
         XCTAssertNotEqual(result.status, 0, "A hostile row expecting a rung passed the check.")
         XCTAssertTrue(result.output.contains("expects a rung"))
