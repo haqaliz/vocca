@@ -66,6 +66,12 @@ final class DictationEngineResolverRewarmTests: XCTestCase {
     /// A prepare in flight **is** the warm-up: `rewarmIfNeeded()` awaits it and performs no
     /// second load (the spec's single-flight acceptance — a fresh prepare would only be doubled
     /// by a second one).
+    ///
+    /// The rendezvous: the resolver is an actor, so a `Task`-spawned `rewarmIfNeeded()` may be
+    /// scheduled *after* the gate opens — at which point the resolver correctly re-warms. The
+    /// test waits on the resolver's own entry counter instead: the counter's increment and the
+    /// in-flight-prepare read are the same non-suspending actor chunk, so once the counter is
+    /// observed the read has happened while the prepare was still parked, deterministically.
     func testRewarmIfNeededWhileAPrepareIsInFlightAwaitsItWithoutASecondLoad() async throws {
         let engine = GatedRewarmEngine(prepareBehavior: .park)
         let ledger = RewarmBuilderLedger(engine: engine)
@@ -77,6 +83,7 @@ final class DictationEngineResolverRewarmTests: XCTestCase {
         await waitUntil { await engine.parkedPreparations == 1 }
 
         let rewarm = Task { try await resolver.rewarmIfNeeded() }
+        await waitUntil { await resolver.rewarmIfNeededEntryCount == 1 }
         await engine.openGate()
         try await preparing.value
         try await rewarm.value
