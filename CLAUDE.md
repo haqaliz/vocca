@@ -33,11 +33,11 @@ This file orients a coding agent working in this repository. Read it first.
 > General has **Keep in menu bar**
 > — with it on, ⌘Q / Dock quit is refused and the app stays in the tray (closes Settings,
 > drops the Dock icon), while the tray menu's Quit and onboarding Restart always quit
-> (`AppQuitPolicy`, `settings.keepInTray`). Test floor: 1753.
+> (`AppQuitPolicy`, `settings.keepInTray`). Test floor: 1755.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 1753 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 1755 tests**, including the zero-network invariant (a `dyld`
 > interposer over `connect(2)`), module-boundary and per-seam lint, and the built-bundle
 > and entitlement contracts. CI runs three jobs; every `swift test` goes through
 > `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.

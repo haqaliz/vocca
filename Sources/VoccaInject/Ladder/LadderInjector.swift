@@ -56,6 +56,8 @@ public struct LadderInjector: TextInjector {
     let clock: any MonotonicClock
     /// Where ladder outcomes are remembered — `nil` is C4's injector, byte for byte.
     let recorder: (any InjectionStrategyRecording)?
+    /// Where ladder outcomes are witnessed — `nil` is the ladder without evidence, byte for byte.
+    let evidence: (any MatrixEvidenceRecording)?
 
     /// - Parameters:
     ///   - strategies: The rung strategies, keyed by rung. The caller wires the allowlist into
@@ -68,18 +70,22 @@ public struct LadderInjector: TextInjector {
     ///   - recorder: C8's strategy memory, or `nil` for an injector that learns nothing — which
     ///     is byte-for-byte the C4 injector, so every construction site that predates the memory
     ///     keeps its exact behaviour.
+    ///   - evidence: The matrix evidence witness, or `nil` for an injector that leaves no
+    ///     evidence — which is every construction site that predates this slot.
     public init(
         strategies: [InjectionRung: any InjectionRungStrategy],
         order: any InjectionStrategyOrder,
         handoff: any FailsafeHandoff,
         clock: any MonotonicClock,
-        recorder: (any InjectionStrategyRecording)? = nil
+        recorder: (any InjectionStrategyRecording)? = nil,
+        evidence: (any MatrixEvidenceRecording)? = nil
     ) {
         self.strategies = strategies
         self.order = order
         self.handoff = handoff
         self.clock = clock
         self.recorder = recorder
+        self.evidence = evidence
     }
 
     public func inject(_ text: String, into target: TargetContext) async -> InjectionResult {
@@ -108,6 +114,7 @@ public struct LadderInjector: TextInjector {
         // detached business, so no dictation waits on a file (PRD T-2).
         await recorder?.record(
             bundleID: target.bundleID, orderedRungs: orderedRungs, result: result)
+        await evidence?.record(.delivery(targetBundleID: target.bundleID ?? "nil", result: result))
         return result
     }
 }

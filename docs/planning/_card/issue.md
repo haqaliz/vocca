@@ -19,7 +19,7 @@ Acceptance:
 - Zero bundle-id mismatches after `--verify-bundle-ids`; every **guess** row that is now
   installed becomes confirmed or corrected in the harness table and the shipped seed if
   seeded.
-- Suite floor 1753 never drops (`Scripts/test-with-floor.sh`).
+- Suite floor 1755 never drops (`Scripts/test-with-floor.sh`).
 
 Caveat: this is a measurement unit, not a build — the founder's machine is the harness;
 code changes only if a first-execution defect surfaces (the `p2-gate-measurement` pattern:

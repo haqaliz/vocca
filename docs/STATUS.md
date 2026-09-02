@@ -49,7 +49,7 @@ onboarding flow's [ Restart Vocca ] mark themselves intentional before terminati
 always quit. The choice persists under `settings.keepInTray` (`UserDefaultsSettingsStore` +
 `PersistedSettings`), decoding tolerantly with **quit-normally** as both the absent and the
 unreadable answer — the safe direction, since a corrupted entry must never hold the process
-hostage to a keep-alive nobody wrote. Test floor: 1753.
+hostage to a keep-alive nobody wrote. Test floor: 1755.
 
 **What the settings unit is NOT, and must not be claimed:**
 - **The window chrome and the delegate are executed by nothing in CI** (the window-server
