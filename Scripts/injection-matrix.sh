@@ -34,6 +34,10 @@
 # nothing in the field is the read-back verification lying (SMOKE_CHECKLIST.md's own rule), and
 # text in the field via a fallback rung is a delivery without first-method success.
 #
+# Every completed row appends one JSONL line to the run log — the machine half of the evidence,
+# one file per run, alongside the tracked table. The default location is
+# ~/Library/Application Support/Vocca/matrix-runs/<timestamp>.jsonl; `--run-log <path>` moves it.
+#
 # PRECONDITIONS the founder owns (the script checks what it can and states the rest):
 #   - Vocca is running, armed (Accessibility granted, tap live) and its model is prepared.
 #   - The terminal hosting this script has Automation grants for the target applications. A
@@ -48,6 +52,7 @@
 #   Scripts/injection-matrix.sh --dry-run      # print the table with install status; touch nothing
 #   Scripts/injection-matrix.sh --verify-bundle-ids  # plutil-confirm every installed row's id
 #   Scripts/injection-matrix.sh --row <name>   # run one row
+#   Scripts/injection-matrix.sh --run-log <path>   # custom evidence location (run log)
 #   Scripts/injection-matrix.sh                # the full run, and the tally
 
 set -euo pipefail
@@ -117,6 +122,12 @@ HOSTILE_SEED="$REPO_ROOT/Sources/VoccaInject/Allowlist/SeededHostileApps.swift"
 # The closed rung vocabulary a row may expect. `none` is the refusal rows'.
 VALID_RUNGS=("accessibility" "clipboardPaste" "keystrokeSynthesis" "none")
 
+# The run log: one JSONL line per completed row, created at run start. The default sits beside
+# the strategy memory under Application Support; `--run-log <path>` overrides the file outright
+# (PRD N1 — the custom evidence location).
+RUN_LOG_DIR="${RUN_LOG_DIR:-$HOME/Library/Application Support/Vocca/matrix-runs}"
+RUN_LOG=""
+
 # The deliverable-row denominator (spec Decision 5): every row whose expected rung is not
 # `none`. The refusal rows are excluded from numerator AND denominator and are recorded
 # separately under the zero-loss invariant — a refusal is not a failed delivery.
@@ -124,7 +135,51 @@ VALID_RUNGS=("accessibility" "clipboardPaste" "keystrokeSynthesis" "none")
 field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
 
 usage() {
-    sed -n '16,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '16,55p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# ---------------------------------------------------------------------------
+# The run log: one JSONL line per completed row, appended where the verdict is known. The file
+# is created at run start (`start_run_log`), and every return path of `run_row` logs exactly one
+# line — including skips, voids and refusals — so a run's evidence is complete even when the run
+# is not.
+# ---------------------------------------------------------------------------
+escape_json() {
+    # JSON string escaping for the no-jq fallback. The note field carries only fixed script
+    # text, so backslash and double-quote are the only bytes that could break the shape.
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+start_run_log() {
+    # One file per run, created up front so the printed path is citable in the tracked table.
+    # Append-only: reusing a `--run-log` path keeps the earlier run's lines.
+    if [ -z "$RUN_LOG" ]; then
+        RUN_LOG="$RUN_LOG_DIR/$(date +%Y%m%d-%H%M%S).jsonl"
+    fi
+    mkdir -p "$(dirname "$RUN_LOG")"
+    [ -f "$RUN_LOG" ] || : > "$RUN_LOG"
+    printf 'run log: %s\n' "$RUN_LOG"
+}
+
+log_run_row() {
+    # One JSONL line per completed row: date, row name, observed rung (null when none was
+    # observed), bytes matched (null when the byte-compare did not run), verdict, note.
+    # `null`/`true`/`false` arrive as JSON literals; rung names and notes as plain strings.
+    local row_name="$1" observed_rung="$2" bytes_matched="$3" verdict="$4" note="$5"
+    [ -n "$RUN_LOG" ] || return 0
+    local now rung_json bytes_json line
+    now="$(date +%Y-%m-%dT%H:%M:%S)"
+    if [ "$observed_rung" = "null" ]; then rung_json="null"; else rung_json="\"$observed_rung\""; fi
+    if [ "$bytes_matched" = "null" ]; then bytes_json="null"; else bytes_json="$bytes_matched"; fi
+    if command -v jq >/dev/null 2>&1; then
+        line="$(jq -nc --arg date "$now" --arg row "$row_name" \
+            --argjson rung "$rung_json" --argjson bytes_matched "$bytes_json" \
+            --arg verdict "$verdict" --arg note "$note" \
+            '{date: $date, row: $row, rung: $rung, bytes_matched: $bytes_matched, verdict: $verdict, note: $note}')"
+    else
+        line="{\"date\": \"$now\", \"row\": \"$row_name\", \"rung\": $rung_json, \"bytes_matched\": $bytes_json, \"verdict\": \"$verdict\", \"note\": \"$(escape_json "$note")\"}"
+    fi
+    printf '%s\n' "$line" >> "$RUN_LOG"
 }
 
 # ---------------------------------------------------------------------------
@@ -364,6 +419,7 @@ run_row() {
         printf 'SKIP: %s is not installed. Swap in a same-class application and record the\n' \
             "$application"
         printf '      swap in the tracked table — the class is the invariant, not the brand.\n'
+        log_run_row "$name" null null skipped "not installed: $application"
         return 2
     fi
     open -a "$application"
@@ -374,7 +430,11 @@ run_row() {
         printf 'clipboard), the failsafe shows the password-field copy, the transcript is still\n'
         printf 'copyable, and strategies.json gained nothing for this app.\n'
         read -r -p 'Did all four hold? [y/N] ' answer
-        [ "$answer" = "y" ] && return 0
+        if [ "$answer" = "y" ]; then
+            log_run_row "$name" null null refusal ""
+            return 0
+        fi
+        log_run_row "$name" null null failed "refusal checks did not all hold"
         return 1
     fi
 
@@ -401,6 +461,7 @@ run_row() {
         printf '      terminal has no Automation grant for %s. Grant it and re-run the row;\n' \
             "$application"
         printf '      a byte-compare asserted here would be a failure about the wrong thing.\n'
+        log_run_row "$name" null null voided "no Automation grant"
         return 3
     fi
 
@@ -410,6 +471,7 @@ run_row() {
         printf '  captured: %s\n' "$captured"
         printf 'If the log named .accessibility, this is the read-back verification lying —\n'
         printf 'a bug, not a fallback.\n'
+        log_run_row "$name" null false failed "byte mismatch"
         return 1
     fi
 
@@ -417,8 +479,10 @@ run_row() {
     if [ "$answer" != "y" ]; then
         printf 'MISS: delivered, but not by the memory-chosen first rung. That is a\n'
         printf '      demote-on-fail signal for the memory and a miss for first-method-success.\n'
+        log_run_row "$name" null true failed "log did not name .$rung"
         return 1
     fi
+    log_run_row "$name" "$rung" true pass ""
     printf 'PASS: bytes match and the log names .%s.\n' "$rung"
     return 0
 }
@@ -471,6 +535,14 @@ while [ $# -gt 0 ]; do
                 exit 2
             fi
             ;;
+        --run-log)
+            shift
+            RUN_LOG="${1:-}"
+            if [ -z "$RUN_LOG" ]; then
+                printf 'error: --run-log needs a path\n' >&2
+                exit 2
+            fi
+            ;;
         -h|--help) usage; exit 0 ;;
         *)
             printf 'error: unknown argument "%s"\n' "$1" >&2
@@ -488,6 +560,7 @@ case "$MODE" in
     row)
         for row in "${ROWS[@]}"; do
             if [ "$(field "$row" 1)" = "$ROW_NAME" ]; then
+                start_run_log
                 run_row "$row"
                 exit $?
             fi
@@ -495,5 +568,5 @@ case "$MODE" in
         printf 'error: no row named "%s" (see --dry-run for the list)\n' "$ROW_NAME" >&2
         exit 2
         ;;
-    run) full_run ;;
+    run) start_run_log; full_run ;;
 esac
