@@ -9,41 +9,49 @@ Where the two projects differ, the difference is called out rather than silently
 Vocca is unsandboxed by design, embeds a third-party framework, and depends on two TCC grants
 instead of one, and each of those changes what this costs.
 
-## Status as of v0.1.0
+## Status as of v0.2.0
 
-Vocca is signed with an **Apple Development** certificate and is **not notarized**. Measured on
-the published artifact rather than assumed:
+**The first installable release exists; the notarization half of this runbook is blocked —
+not purchased.** The Apple Developer Program has not been bought, so nothing here that needs
+a Developer ID has run. What the `release-distribution` unit (2026-09-03) executed instead,
+all measured rather than assumed:
 
-```
-Authority=Apple Development: haqaliz@aol.com (YJ32Z93LB5)
-TeamIdentifier=K6X49DG8VF
-Timestamp=Aug 17, 2026 at 1:25:02 PM     ← a real secure timestamp, not "Signed Time="
-flags=0x10000(runtime)                   ← hardened runtime already on
-notAfter=Aug  9 21:57:13 2027 GMT
-com.apple.security.device.audio-input    ← the only entitlement
-no embedded.provisionprofile
-```
+- **`v0.2.0` DMG built from Vocca's own bundle** — the packaging step ran for the first
+  time against the real app: the workflow mounted the DMG it built, asserted
+  `whisper.framework/Versions/Current` is still a symlink (the v0.1.0 zip defect's gate),
+  and `codesign --verify --deep --strict` passed on the mounted app. Published to
+  [the release](https://github.com/haqaliz/vocca/releases/tag/v0.2.0) with `SHA256SUMS.txt`.
+- **The cask shipped and installed.** `homebrew/vocca.rb` carries the real version + sha256;
+  `Casks/vocca.rb` is published to `haqaliz/homebrew-vocca`; `brew install --cask
+  haqaliz/vocca/vocca` was executed and the app launched (`pgrep -x Vocca` returned a pid).
+  `spctl` on the installed app reports **`rejected`** — `origin=Apple Development:
+  haqaliz@aol.com` — the recorded pre-notarization baseline.
+- **Claims corrected.** The release notes and README no longer say the loop "has not been
+  proven to dictate" (retracted by `p2-gate-measurement`'s first real dictations, SMOKE
+  62-68); they state the measured truth: real-machine pass happened; matrix, latency-gate
+  numbers, and notarization pending.
+- **`v0.1.0` has no GitHub release** — only a tag; the broken zip asset from the
+  `release-packaging` unit's post-mortem was never attached to a release, so
+  `releases/latest` points at v0.2.0 with nothing to dispose.
 
-Two consequences, both of which correct claims made elsewhere in the repository before this
-was measured:
+**Blocked — not purchased (each named, none silently skipped):**
 
-1. **There is no device restriction.** No provisioning profile, and the one entitlement is
-   not gated by Apple. The app is *not* locked to the machine that signed it. Gatekeeper is
-   the sole obstacle, and `xattr -dr com.apple.quarantine` clears it. The v0.1.0 release notes
-   said the build "runs only on machines that signed it"; that was wrong.
-2. **The signature already carries a secure timestamp**, which deck's builds do not.
-   `Scripts/sign.sh` passes `--timestamp` (and warns rather than fails when the timestamp
-   authority is unreachable). Deck's expiry argument therefore does not transfer intact —
-   see "What expiry actually costs" below.
+| Step | State |
+|------|-------|
+| 0 (program + individual/org) | **blocked — not purchased.** Individual is the path of no change when it lands (existing cert is `O=Ali Haqiqi`, team `K6X49DG8VF`) |
+| 1 (Developer ID Application cert + secrets) | **blocked — not purchased** |
+| 2 (identity switch; `--local-dev` deletion) | **blocked** — the self-signed path still exists and is still required locally |
+| 3 (notarize + staple in CI) | **blocked** — `Scripts/notarize.sh` still never run end to end; its credential-detect-and-skip path remains the only executed half |
+| 4 (verification gates on a second Mac) | partially **blocked** — `spctl` baseline recorded on the founder's machine; the notarized `accepted` side awaits Step 3; no second Mac was reachable |
+| 5 (TCC reset re-test) | **blocked** — identity unchanged; the TCC re-prompt cost was however observed on the founder's machine (evidence build → CI-signed v0.2.0 re-prompted) |
+| 6 (bundle-id decision) | **decided 2026-09-03**: `vocca.dev` is **not owned**; the founder chose to keep the frozen `dev.vocca.Vocca` (recorded in `docs/planning/release-distribution/version-bump/plan_20260903.md`) |
+| 7 (quarantine-workaround removal) | **blocked** — all `xattr` instructions still required and still shipped |
+| 8 (Sparkle) | **blocked** — "then, and only then" still holds |
 
-**Also fixed en route to this document, and worth knowing about because notarization would
-have failed on it:** v0.1.0 was packaged with `zip -r`, which follows symlinks.
-`whisper.framework` is a versioned framework built out of them, so the published archive
-stored the 5.7 MB binary three times, materialised `Versions/Current` as a real directory, and
-failed `codesign --verify --deep --strict` with *"bundle format is ambiguous (could be app or
-framework)"*. The release workflow now builds a DMG (`hdiutil` over a `cp -R` staging folder,
-which preserves links) and gates on the link surviving. `Scripts/notarize.sh` was already
-correct — it uses `ditto -c -k --keepParent`.
+The bundle state measured at v0.1.0 (`Authority=Apple Development: haqaliz@aol.com
+(YJ32Z93LB5)`, `TeamIdentifier=K6X49DG8VF`, hardened runtime on, mic entitlement only, no
+provisioning profile) is unchanged at v0.2.0 — same certificate, same two consequences
+(no device restriction; Gatekeeper is the sole obstacle).
 
 ## Why this is worth $99
 

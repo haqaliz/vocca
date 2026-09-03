@@ -7,6 +7,13 @@ This file orients a coding agent working in this repository. Read it first.
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaBootstrap`.
 > `VoccaSpeech` is the one module still a placeholder.
 >
+> **`release-distribution` (2026-09-03):** the first installable release exists —
+> `v0.2.0`, a real-bundle DMG with the symlink gate executed, the cask published to
+> `haqaliz/homebrew-vocca` and `brew install` proven on the founder's machine (spctl
+> `rejected` — the recorded pre-notarization baseline). The notarization half of
+> `docs/planning/notarization/runbook.md` is recorded **blocked — not purchased** (no
+> Apple Developer Program); the quarantine `xattr` line is still required everywhere.
+>
 > **Built and wired end to end:** C1 (audio capture + global hotkey), C2 (local ASR —
 > Parakeet TDT 0.6B v3 via FluidAudio, the repo's first external dependency), C3 (second
 > ASR engine), C4 (the injection ladder and its failsafe surface), P0 (the dictation

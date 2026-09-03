@@ -10,6 +10,64 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `release-distribution` unit landed 2026-09-03 — the first installable release
+(`v0.2.0`) exists, and the notarization half of the runbook is recorded **blocked — not
+purchased**.** The DMG packaging mechanism had never run against Vocca's own bundle ("The
+DMG has never been built", the 2026-08-28 entry below), the cask shipped placeholders, and
+the release surfaces carried claims the tree had already retracted ("has not been proven to
+dictate"). The unit executed the non-gated half and recorded the gated half; the Apple
+Developer Program is not bought.
+
+**What shipped (test-first where it was code):**
+
+- **`CaskVersionTests` (new; floor 1755 → 1756):** the cask's `version` is pinned to the
+  bundle's `CFBundleShortVersionString` — RED on the placeholder, GREEN after the bump;
+  headless (no Homebrew, no bundle).
+- **Version bump 0.1.0 → 0.2.0** (`App/Info.plist` + `MARKETING_VERSION` in both pbxproj
+  configurations) — the workflow's tag==bundle gate's first real execution.
+- **`v0.2.0` released by the tag workflow** (run 33807341563, green): the packaging step
+  mounted the DMG it built, the `Versions/Current` symlink gate held, and
+  `codesign --verify --deep --strict` passed on the mounted app — the gate that shipped
+  v0.1.0 broken, executed against the real bundle for the first time. Artifact:
+  `Vocca-v0.2.0.dmg` (15.6 MB) + `SHA256SUMS.txt`; `sha256
+  d0ac35402ff50e38d2779910b82d2c6292a47e91f1247f84aff233997722be1f`.
+- **Cask shipped and installed:** `homebrew/vocca.rb` filled and published as
+  `Casks/vocca.rb` to `haqaliz/homebrew-vocca`; `brew install --cask haqaliz/vocca/vocca`
+  executed on the founder's machine — the app launched (`pgrep -x Vocca` returned a pid),
+  `spctl` recorded **`rejected`** (`origin=Apple Development: haqaliz@aol.com`) as the
+  pre-notarization baseline; `zap` paths verified against the real Application Support
+  surface (`models/`, `recovery/`, `matrix-runs/`, `strategies.json`, Preferences plist).
+- **Claims corrected to match the tree:** release notes, README status + install callouts,
+  and the runbook's status section now state the measured truth (real-machine dictation
+  happened; matrix, latency-gate numbers, and notarization pending); the runbook's gated
+  steps 0-3, 5, 7-8 are each recorded **blocked — not purchased**, and step 6's
+  bundle-id question is **decided** (founder keeps the frozen `dev.vocca.Vocca`; the
+  domain `vocca.dev` is not owned — decision recorded in
+  `docs/planning/release-distribution/version-bump/plan_20260903.md`).
+- **First-execution defect found, and it was not in the code:** the `v0.2.0` tag was
+  initially cut from the primary checkout's stale local `master` (pre-merge), so the first
+  workflow run failed the tag==bundle gate with the bundle reporting 0.1.0; the tag was
+  re-cut at the merge commit and the run went green — the gate did exactly its job.
+- **`v0.1.0` disposition:** no GitHub release exists for the tag (only the tag), so there
+  was no broken asset to remove; `releases/latest` points at v0.2.0.
+
+**What this unit is NOT, and must not be claimed:**
+
+- **No notarization, no Developer ID.** The program is not purchased; every gated runbook
+  step is recorded blocked, not skipped. `spctl` on the installed app reads **`rejected`** —
+  the quarantine `xattr` line is still required and still in every surface.
+- **No gate passed.** The P2 gate's third leg (≥5 external users) is enabled by the install
+  path, not passed by it; the matrix and latency-gate numbers are still unmeasured; the P0
+  7-day log still has one reported day.
+- **The TCC re-prompt cost was observed, not designed.** The CI-signed v0.2.0 has a
+  different designated requirement than the `--local-dev` evidence build, so the founder's
+  machine re-prompts for Microphone/Accessibility — runbook step 5's concern, recorded as
+  expected; the reset-and-re-run pass still awaits the Developer ID switch.
+- **The DMG was verified inside the CI runner's mount**, not on a second Mac; the second-Mac
+  pass (runbook step 4) was not reachable and is recorded as such.
+
+---
+
 **The `injection-matrix-record` unit landed 2026-09-03 — the matrix's evidence chain is real,
 and the first row of the tracked run is recorded with file-based evidence.** The `p2-gate-measurement`
 unit recorded the tracked table's first row as **unrecorded** ("machine record shows no sessions

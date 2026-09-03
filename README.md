@@ -26,7 +26,7 @@ Your audio never has to leave your Mac.
 
 ---
 
-> ### ⚠️ Status: early — the loop exists, the product is not yet proven
+> ### ⚠️ Status: early — the loop has delivered, the product is not yet proven
 >
 > **The P0 dictation loop is wired and tested: press `⌥Space`, talk, press again, and the words are
 > transcribed locally and typed into the focused app** (hold-to-talk is the other mode, the
@@ -44,18 +44,21 @@ Your audio never has to leave your Mac.
 > measured on its own output, and the digests in its shipped manifests have never been compared
 > against real bytes. That is unverified, not known-broken; `docs/SMOKE_CHECKLIST.md` steps
 > 102–104 are the comparison and the first real run. Until they pass, choosing Whisper is choosing
-> a 1.6 GB download nobody has checked. There is still **no release**: no real-machine execution has
-> happened (CI structurally cannot — no microphone, no Accessibility grant, no window server),
-> so the first real dictation is yours, per `docs/SMOKE_CHECKLIST.md` steps 62–68.
+> a 1.6 GB download nobody has checked.
+> **A real-machine pass has happened** — the first real dictations delivered on the founder's
+> Mac (`docs/SMOKE_CHECKLIST.md` steps 62–68), with the loop's invariants holding — and
+> **v0.2.0 is the first installable release** (signed, **not notarized**: the quarantine command
+> in [Install](#install) is required until the Developer Program purchase lands).
 >
-> No audio is transcribed on a real machine yet and no text has been injected into a real app;
-> the numbers (latency, injection success) are unmeasured until then. The plan — vision, phased
+> The numbers are still largely unmeasured: the injection matrix has one recorded row of its
+> run, the latency-gate p50/p95 remain targets, and whisper's accuracy has no real run — each
+> is pending its checklist execution, not claimed. The plan — vision, phased
 > roadmap, capability backlog, architecture, product spec — is all still here and still governs.
 >
-> If you're here from a link expecting a download: there is one, and you should know what it
-> is before you install it. Vocca builds a signed **but not notarized** DMG ([Install](#install)),
-> and the dictation loop it contains has never been run on a real machine. Nothing about it is
-> measured yet. Star the repo if you'd rather wait for the release that is.
+> If you're here from a link expecting a download: install it, and know that it is signed but
+> **not notarized** — the quarantine command matters (opening a quarantined app does not warn,
+> macOS deletes it), and the numbers above are still pending. Star the repo if you want to
+> watch them get measured.
 
 ---
 
@@ -71,9 +74,10 @@ That combination is the open lane, and it's what Vocca is for.
 
 ## Install
 
-> **Vocca has not yet been shown to work.** The loop is wired and tested, but no real-machine
-> run has happened — `docs/SMOKE_CHECKLIST.md` steps 62–68 are its first execution. Install it
-> to look at it, not to depend on it.
+> **Vocca has dictated on a real machine** (founder-run, `docs/SMOKE_CHECKLIST.md` steps
+> 62–68), but the injection matrix, the latency-gate numbers, and notarization are still
+> pending. Install it to look at what's possible — and run the `xattr` line before the first
+> launch.
 
 Apple Silicon, macOS 15 or later.
 
