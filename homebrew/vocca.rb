@@ -13,6 +13,10 @@
 # nothing installable to point at. Fill the sha256 line from the SHA256SUMS.txt of the first
 # release built by the DMG packaging step, then push to the tap — not before.
 #
+# Shipped: v0.2.0 (2026-09-03) — https://github.com/haqaliz/vocca/releases/tag/v0.2.0
+# sha256 from the release's SHA256SUMS.txt; the cask is published to the tap as
+# Casks/vocca.rb.
+#
 # Vocca is signed with an Apple Development certificate, which Gatekeeper rejects for
 # downloaded apps, so the quarantine flag has to come off by hand. Two things about that,
 # both taken from the same measurements deck recorded on Homebrew 6.0.19 / macOS 15:
@@ -29,7 +33,7 @@
 # docs/planning/notarization/runbook.md step 6 for everything to delete then.
 cask "vocca" do
   version "0.2.0"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "d0ac35402ff50e38d2779910b82d2c6292a47e91f1247f84aff233997722be1f"
 
   url "https://github.com/haqaliz/vocca/releases/download/v#{version}/Vocca-v#{version}.dmg"
   name "Vocca"
