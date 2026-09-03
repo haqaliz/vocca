@@ -7,10 +7,10 @@
 #   xattr -dr com.apple.quarantine /Applications/Vocca.app   # BEFORE first launch
 #   open /Applications/Vocca.app
 #
-# DO NOT PUBLISH THIS TO THE TAP YET. `version` and `sha256` below are placeholders: the
-# first DMG release has not been cut. v0.1.0 shipped a `zip -r` archive that flattened
+# DO NOT PUBLISH THIS TO THE TAP YET. `sha256` below is a placeholder: the first DMG
+# release has not been cut. v0.1.0 shipped a `zip -r` archive that flattened
 # whisper.framework's symlinks, so its bundle fails `codesign --verify` and there is
-# nothing installable to point at. Fill both lines from the SHA256SUMS.txt of the first
+# nothing installable to point at. Fill the sha256 line from the SHA256SUMS.txt of the first
 # release built by the DMG packaging step, then push to the tap — not before.
 #
 # Vocca is signed with an Apple Development certificate, which Gatekeeper rejects for
@@ -28,7 +28,7 @@
 # All of this goes away the day notarization lands. See
 # docs/planning/notarization/runbook.md step 6 for everything to delete then.
 cask "vocca" do
-  version "0.0.0-PLACEHOLDER"
+  version "0.2.0"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
 
   url "https://github.com/haqaliz/vocca/releases/download/v#{version}/Vocca-v#{version}.dmg"
