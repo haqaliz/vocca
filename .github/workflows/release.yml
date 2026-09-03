@@ -241,9 +241,10 @@ jobs:
 
           ---
 
-          **This build has not been proven to dictate.** The loop is wired and tested, but no
-          real-machine run has happened (`docs/SMOKE_CHECKLIST.md` steps 62-68), so latency and
-          injection success are unmeasured. Treat this as something to look at, not to depend on.
+          **This build has dictated on a real machine.** A founder-run pass covered
+          `docs/SMOKE_CHECKLIST.md` steps 62-68, but the injection matrix, the latency gate, and
+          notarization are still unmeasured or pending — no numbers are published yet. Treat this
+          as a look at what is possible, with those numbers still pending.
           NOTES
           sed -i '' "s/VERSION_PLACEHOLDER/${VERSION}/g" notes.md
 
