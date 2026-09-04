@@ -7,6 +7,23 @@ This file orients a coding agent working in this repository. Read it first.
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaBootstrap`.
 > `VoccaSpeech` is the one module still a placeholder.
 >
+> **`unmeasured-numbers-sweep` (2026-09-04):** the sweep's numbers are recorded, never gated —
+> SMOKE 102 verified both whisper tiers against the shipped manifests (bytes from
+> `ggerganov/whisper.cpp`, Hugging Face — the provenance gap is closed); whisper's first real
+> WER runs — **both tiers (turbo + q5_0), all six fixtures WER 0.0000** (the seeded tables
+> cleared with margin — no re-baseline; the tolerances stand); the streamed cycle verified on
+> real audio (10 partials; streamed final == batch text-for-text); short-audio measured
+> (0.2/0.5/1 s transcribe through both paths — no refusal-and-throw); the O(n²) cost row
+> recorded (7.82×/8.09×, never gated); the latency composite recorded both variants (batch
+> total p50 113 / p95 358; streaming 115/365, **over the 60 s fixture** — the suite has no
+> 10-second clip — suppression not-suppressed, cleanup `notPresent`), with the margin row in
+> `tolerances_20260825.md` **pending founder ratification**; whisper's Core ML encoder observed
+> absent from the shipped manifest (Metal/CPU — affects latency, not accuracy). The engine-picker
+> copy decision is **surfaced, not signed** — the taglines stay the spec's own words. Test floor:
+> 1758. **Still unmeasured: the rest of the matrix, F2 (corpus not recorded — founder session
+> pending), the external-users leg, the release/notarization, and every gate.** See
+> `docs/STATUS.md` for the honesty block.
+>
 > **`release-distribution` (2026-09-03):** the first installable release exists —
 > `v0.2.0`, a real-bundle DMG with the symlink gate executed, the cask published to
 > `haqaliz/homebrew-vocca` and `brew install` proven on the founder's machine (spctl
@@ -35,7 +52,7 @@ This file orients a coding agent working in this repository. Read it first.
 > wired but unproven on a live session (the live check was declined) — the file chain is
 > load-bearing, not the log lines. A pre-existing re-warm test flake was fixed deterministically
 > (an entry counter on `DictationEngineResolver`, behavior-invisible). **Still unmeasured: the
-> rest of the matrix, whisper's WER (GGUF absent), F2 cleanup eval (not run), and every gate.**
+> rest of the matrix and every gate.**
 > See `docs/STATUS.md` for the honesty block.
 >
 > **Measured for the first time (`p2-gate-measurement`, 2026-09-01):** Parakeet's real WER
@@ -45,8 +62,7 @@ This file orients a coding agent working in this repository. Read it first.
 > 82–85 ms; the equivalence verdict is **NO-GO** (recorded — the latency-win claim is
 > blocked, the feed ships); the manifest digests verify against provisioned bytes; the
 > first real dictations delivered (founder-reported) with the loop's invariants holding.
-> **Still unmeasured: the injection matrix (no machine record; tracked row "unrecorded"),
-> whisper's WER (GGUF absent), F2 cleanup eval (not run), and every gate.** See
+> **Still unmeasured: the rest of the matrix and every gate.** See
 > `docs/STATUS.md` for the honesty block.
 >
 > **`settings` (2026-09-01):** the settings window is sidebar-based (Deck-style
@@ -54,11 +70,11 @@ This file orients a coding agent working in this repository. Read it first.
 > General has **Keep in menu bar**
 > — with it on, ⌘Q / Dock quit is refused and the app stays in the tray (closes Settings,
 > drops the Dock icon), while the tray menu's Quit and onboarding Restart always quit
-> (`AppQuitPolicy`, `settings.keepInTray`). Test floor: 1755.
+> (`AppQuitPolicy`, `settings.keepInTray`). Test floor: 1758.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 1755 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 1758 tests**, including the zero-network invariant (a `dyld`
 > interposer over `connect(2)`), module-boundary and per-seam lint, and the built-bundle
 > and entitlement contracts. CI runs three jobs; every `swift test` goes through
 > `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.
