@@ -35,8 +35,8 @@ What this file adds is what `verification-smoke` made available and 2026-08-10 c
 
 | Claim | Status |
 |---|---|
-| The whisper tolerance table is measured on whisper | **No.** Seeded from Parakeet's table (`tolerances_20260810.md`), never measured on whisper's output. |
-| Whisper has transcribed anything, ever | **No.** `SMOKE_CHECKLIST.md` step 19 is unexecuted; steps 96 and 103 are the first executions through the product. |
+| The whisper tolerance table is measured on whisper | **Yes, as of 2026-09-04.** Both tiers, all six fixtures, WER 0.0000 on each (`SMOKE_CHECKLIST.md` step 19, `unmeasured-numbers-sweep`) — the seeded-from-Parakeet table cleared with margin and **stands unchanged**. |
+| Whisper has transcribed anything, ever | **Yes, as of 2026-09-04.** First real transcriptions ever — both tiers through the six fixtures, whisper-attributed (step 19's run; the Speech-tab product path, steps 96/103, is still unrecorded). |
 | The shipped whisper manifests are defective | **Unknown, and not the claim.** The `{}` placeholder digest appears in no manifest, no entry declares a 0- or 2-byte size, and no digest repeats. What is unverified is provenance: `672367e` added both files with no provisioning run recorded behind it. Step 102 is the first comparison against bytes. |
 | Anything passes or fails a release gate on these numbers | **No**, and nothing will until the procedure below has run once. |
 
@@ -46,7 +46,8 @@ One row per real run. An empty table is the honest state and is left visible.
 
 | Run | Machine (model id / chip) | Artifact (`engineID`/`version`, verified per step 102) | `clean` | `spike-clip` | `accented` | `noisy` | `sixty-second` | `two-hundred-ms` | Date |
 |-----|---------------------------|--------------------------------------------------------|---------|--------------|------------|---------|----------------|------------------|------|
-| _(none yet — `SMOKE_CHECKLIST.md` step 19 is the first execution)_ | | | | | | | | | |
+| SMOKE 19, turbo (batch) | founder's machine (arm64, Apple Silicon) | `whisper-large-v3-turbo/1` — `ggml-large-v3-turbo.bin` sha256 `1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69` (1,624,555,275 B), manifest-verified | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 1 substitution ("Test") | 2026-09-04 |
+| SMOKE 19, q5_0 (batch) | same | `whisper-large-v3-turbo-q5_0/1` — `ggml-large-v3-turbo-q5_0.bin` sha256 `394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2` (574,041,195 B), manifest-verified | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 1 substitution ("Test") | 2026-09-04 |
 
 The `two-hundred-ms` column records the substitution count, not a WER: its bound is a rule (at
 most one substitution), carried for both engines by `RealEngineWERRunner`'s `specialRules`.
@@ -55,6 +56,25 @@ The artifact column names the manifest's `engineID`/`version` **and** the digest
 from that manifest, which step 102 has verified against the disk. Recording a run without it
 names no model at all: three tiers ship, two of them are whisper, and their directories were the
 same directory until 2026-08-28.
+
+Both rows were measured on the same six fixtures, with the seeded tables cleared with margin —
+**no re-baseline was needed and no number moved in the two test files** (SMOKE 104). The bytes
+were provisioned from `ggerganov/whisper.cpp` (Hugging Face), digests verified against the
+source bytes before provisioning (SMOKE 102 — the provenance gap is closed).
+
+**Same-run companions (recorded, never gated):**
+
+- **The streamed cycle** (clean fixture, 1 s chunks): **10 partials** appeared; the streamed
+  final equals the batch transcript **text-for-text: TRUE** — the by-construction claim
+  verified on real audio for the first time.
+- **Short-audio rows:** whisper does **not** refuse — 0.2 s → "the", 0.5 s → "a quick break.",
+  1 s → "a quick brown fox", identical through `transcribe` and `stream`; the sub-minimum
+  constant is untouched.
+- **The O(n²) cost row** (recorded, never gated): turbo batch 0.734 s vs streamed total 5.743 s
+  (7.82×, 10 partials); q5_0 batch 0.776 s vs 6.282 s (8.09×).
+- **Observation:** `whisper_init_state: failed to load Core ML model from
+  ggml-large-v3-turbo-encoder.mlmodelc` — whisper runs Metal/CPU; the ANE encoder is not part
+  of the shipped manifest (affects latency, not accuracy).
 
 ## The re-baseline procedure
 

@@ -385,6 +385,33 @@ therefore a first execution, not a re-check.
     - The rows above are **unverified until this step runs** — nothing in CI measures them, and
       the headless contract rows prove the engine half only.
 
+    *(Amended 2026-09-04, `unmeasured-numbers-sweep`: the run happened — both tiers, all six
+    fixtures, on the founder's machine (arm64, Apple Silicon; model store
+    `~/Library/Application Support/Vocca/models`).)*
+
+    - **WER, turbo AND q5_0: 0.0000 on all six fixtures each** (clean / spike-clip / accented /
+      noisy / sixty-second; two-hundred-ms = the substitution count, not a WER — the 200 ms
+      transcript "Test" satisfies the at-most-one-substitution rule). Both tiers cleared the
+      seeded table with margin — **no re-baseline; the tolerances stand** (SMOKE 104).
+      Attribution carried `whisper-large-v3-turbo` on both tiers.
+    - **Artifacts (manifest-verified per step 102):** turbo `ggml-large-v3-turbo.bin` sha256
+      `1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69` (1,624,555,275 B);
+      q5_0 `ggml-large-v3-turbo-q5_0.bin` sha256
+      `394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2` (574,041,195 B);
+      bytes from `ggerganov/whisper.cpp` (Hugging Face). Rows recorded in
+      `tolerances_20260829.md`'s measured-values table.
+    - **The streamed cycle (clean fixture, 1 s chunks): 10 partials; streamed final == batch
+      text-for-text: TRUE** — the by-construction claim verified on real audio for the first
+      time.
+    - **Short-audio rows: whisper does NOT refuse.** 0.2 s → "the"; 0.5 s → "a quick break.";
+      1 s → "a quick brown fox" — identical through `transcribe` and `stream`; no
+      refusal-and-throw defect; the sub-minimum constant is untouched.
+    - **The O(n²) cost row (recorded, never gated):** turbo batch 0.734 s vs streamed total
+      5.743 s (7.82×, 10 partials); q5_0 batch 0.776 s vs 6.282 s (8.09×).
+    - **Observation, recorded:** `whisper_init_state: failed to load Core ML model from
+      ggml-large-v3-turbo-encoder.mlmodelc` — whisper runs Metal/CPU; the ANE encoder is not
+      part of the shipped manifest (affects latency, not accuracy).*
+
 20. **The engine picker panel — switch, tier, download.** `EnginePickerView` is executed by nothing
     in CI (a hosted runner has no window server), and its headless half is tested: the
     never-auto-switch rule (a session resolves the engine once, at start — a mid-session selection
@@ -402,12 +429,14 @@ therefore a first execution, not a re-check.
     never auto-retried; the selection the session runs under is the one current at its start.
 
 21. **The weights-license record sign-off.** `docs/planning/second-asr-engine/model-lifecycle/license_20260810.md`
-    is **DRAFT**: the whisper.cpp and ggml MIT entries were verified live from primary sources, but
-    the converted GGUF weights' own provenance is an open item for the founder's judgment
-    (accept the Hugging Face repo's `License: mit` declaration, or have OpenAI's primary source
-    fetched and recorded first). Nothing ships as licensed until the record is signed and
-    `THIRD_PARTY_NOTICES.md`'s weights entry drops its "pending founder sign-off" parenthetical —
-    in the same commit.
+    is **SIGNED 2026-09-04** (`unmeasured-numbers-sweep` ratification): the whisper.cpp and
+    ggml MIT entries were verified live from primary sources, and the converted GGUF
+    weights' provenance open item was resolved with the more rigorous option — OpenAI's
+    Whisper repository LICENSE fetched live from the primary source (MIT, Copyright (c)
+    2022 OpenAI) and recorded in the amendment, so both the distributor's `License: mit`
+    declaration and the upstream weights' primary-source license are on file.
+    `THIRD_PARTY_NOTICES.md`'s weights entry dropped its "pending founder sign-off"
+    parenthetical in the same commit as the signature.
 
 ### The injection ladder — real apps, which no CI run touches
 
@@ -1339,6 +1368,26 @@ founder's machine, and the first real latency data this repository will have.
     clean is the exact error this column exists to prevent (step 52's discipline, the
     `measure-timers.sh` precedent).
 
+    *(Amended 2026-09-04, `unmeasured-numbers-sweep`: the re-run happened, both variants,
+    suppression 0 (NOT suppressed) beside every row, founder's machine (arm64, Apple Silicon),
+    model `parakeet-tdt-0.6b-v3` version 1 (`verified`), model store
+    `~/Library/Application Support/Vocca/models`.)*
+
+    - **Batch:** captureClose 3/3; asr p50 103 / p95 348; inject 7/7; **total p50 113 / p95
+      358**.
+    - **Streaming (feed live):** captureClose 3/3; asr p50 105 / p95 355; inject 7/7; **total
+      p50 115 / p95 365**.
+    - Cleanup span: `notPresent` — the nil-cleanup pipeline, **named not dropped** on the
+      composite row.
+    - **The 60-second fixture substitution, stated beside the numbers:** the suite has no
+      10-second clip, so the composite measures the **60 s fixture** (`:1353-1354`) — these are
+      not 10 s numbers.
+    - Warm-start: 0.350× (batch) / 0.337× (streaming) — within the 1.2× bound; re-warm 83/85 ms.
+    - Composite well under the provisional 400/800 table — `ProvisionalTolerances` untouched;
+      the measured row with the proposed margin (0 — table unchanged) is recorded in
+      `tolerances_20260825.md` with **founder ratification pending** (the margin is the
+      founder's signature, not taken here).*
+
 72. **The record: the printed numbers re-baseline the tolerances table.** The run's deliverable
     is a record, not a verdict — the way step 59's engine-start measurement is. Read the printed
     per-span p50/p95 against the provisional table — **p50 ≤ 400 ms / p95 ≤ 800 ms for a
@@ -1380,11 +1429,13 @@ step is the number the P1 gate is judged on (`ROADMAP.md:137`), recorded not gat
     flat. For each, hand-polish the golden clean text (what should have been typed) into
     `<name>.clean.txt` and tag the class into `<name>.class.txt`; keep the corpus in a
     machine-local directory, e.g. `~/Vocca/f2-pairs/` — **never in the repository**. Add a
-    `dictionary.json` with the dictionary-class rules. The raw side is the real engine's
-    transcript of each recording (16 kHz mono; provision once per machine via
-    `./Scripts/provision-asr-fixtures.sh`, then the runner reads the `<name>.wav` sidecar and
-    ignores the `.raw.txt` for those pairs — attributed to the Parakeet identity); the
-    hand-typed `<name>.raw.txt` variant is the fallback when the engine is not provisioned.
+    `dictionary.json` with the dictionary-class rules. **Discovery requires a
+    `<name>.raw.txt` per pair** — the loader keys on that suffix only, so a wav-only corpus
+    loads 0 pairs (`CleanupPairSuite.swift`). The raw side loads from `.raw.txt` first and is
+    replaced by the engine transcript for pairs with a `.wav` sidecar (16 kHz mono; provision
+    once per machine via `./Scripts/provision-asr-fixtures.sh`, then the runner ignores the
+    `.raw.txt` for those pairs — attributed to the Parakeet identity); the hand-typed
+    `<name>.raw.txt` variant is the fallback when the engine is not provisioned.
 
     Run the scorer with `VOCCA_CLEANUP_EVAL=<pairs-dir>`: the first invocation prints the
     seeded ballot (pairs as A/B sides, never labelled); fill `answers.tsv` (the seed line is
@@ -1402,6 +1453,41 @@ step is the number the P1 gate is judged on (`ROADMAP.md:137`), recorded not gat
 
     *Failure:* the run cannot score every pair (missing clean target, missing class tag,
     missing answers), the seed is not printed, or the percentage is presented as a verdict.
+
+    *(Amended 2026-09-05, unmeasured-numbers-sweep — a stand-in run, recorded not gated, NOT
+    the F2 number.)* The founder requested a synthetic corpus; the step's own first line says
+    why it cannot replace the real one: "the stand-in corpus is provably recoverable by the
+    shipped rules, so its percentage measures the mechanism, not the product." The run below is
+    **doubly disqualified** from the P1 gate: the corpus is TTS-generated (macOS `say`,
+    Samantha — 42 utterances, 7 per class, 16 kHz mono, `~/Vocca/f2-pairs/`), and the ballot
+    was answered by a **delegated, non-blind judge** (the sides are identifiable), so the
+    preference figure is a mechanism demonstration, not a human preference measurement. The
+    founder-recorded F2 corpus remains the open requirement for `tolerances_20260815.md`'s
+    measured row and the P1 gate. The run also surfaced and fixed a flow defect: the second
+    invocation's record existed only inside the test's `PrinterSpy` and never reached stdout —
+    the env-gated branch now prints the record (`CleanupEvalHarnessTests.swift`).
+
+    - **Real-corpus run (founder-voice, delegated judge), 2026-09-05:** the founder recorded
+      the 42 scripted utterances (7 per class, 16 kHz mono, `~/Vocca/f2-pairs/`) — the
+      **corpus requirement is met** (≥40, ≥5/class, founder-recorded, on-disk only). The raw
+      side is the real Parakeet engine transcript of each recording. The ballot
+      (seed `0xFAF5A4891B414AC4`) was answered by a **delegated, non-blind judge**, so the
+      figure records but does not satisfy the gate's blind-judge requirement. Result:
+      **preference = 100.0%**; per-class tallies: fillers 7, punctuation 7, capitalization 7,
+      numbers-units 7, dictionary 7, token-protection 7 — all cleaned-preferred; verdict line
+      printed `RECORDED, not gated` vs the provisional 0.8. Machine: M4 Max (arm64). **No
+      re-baseline; `ProvisionalCleanupTargets` untouched.** Closing the gate's judge half
+      takes one fresh ballot answered by the founder (~2 minutes); until then this number is
+      recorded, not claimed.
+
+    - **Stand-in run (TTS corpus, delegated judge), 2026-09-05:** seed
+      `0xBED1C5CBB7C57FBB`; **preference = 100.0%** (41 cleaned-preferred, 1 tie excluded —
+      `token-protection-06`); per-class tallies: fillers 7, punctuation 7, capitalization 7,
+      numbers-units 7, dictionary 7, token-protection 6 (all cleaned-preferred); verdict line
+      printed `RECORDED, not gated` vs the provisional 0.8. Machine: M4 Max (arm64). Corpus:
+      `~/Vocca/f2-pairs/` (42 pairs + `dictionary.json`), raw side = real Parakeet engine
+      transcript of the TTS audio. **Not recorded in `tolerances_20260815.md`; no
+      re-baseline; `ProvisionalCleanupTargets` untouched.**
     Until this step has been run once, everything this repository says about cleanup quality is
     a claim about mechanism, not about measurement.
 
@@ -1967,6 +2053,17 @@ say at the same moment.
 
     *Failure:* text attributed to Parakeet; a required restart; or a selection that reverts.
 
+    *(Amended 2026-09-04, `unmeasured-numbers-sweep`: both tiers are now provisioned and
+    verified, each with its own figure and its own `verified` marker — turbo
+    `ggml-large-v3-turbo.bin` 1,624,555,275 B, q5_0 `ggml-large-v3-turbo-q5_0.bin`
+    574,041,195 B, both digests recorded at step 102; two directories under `models/`. The
+    tier-keying defect would have shown here as q5_0 reading installed — step 102's
+    verification ran each tier against its own directory, and step 19's WER runs measured each
+    tier's own bytes. Whisper's **first real transcriptions ever** happened 2026-09-04 through
+    the WER harness (step 19), engine-attributed to `whisper-large-v3-turbo` on both tiers. The
+    Speech-tab product half of this row — dictating into TextEdit, the selection surviving
+    relaunch — is **not executed** in the sweep and is not claimed.)*
+
 97. **In-between window (a): the model is removed, and all three surfaces say the same thing.**
 
     *Gesture:* with Parakeet selected and idle, press [Remove] on its row and confirm. Then read
@@ -2092,6 +2189,17 @@ failure after an unverified download cannot be attributed to anything.
     provisioning to completion first. Likewise void the run if `swift test` reported the test as
     **skipped**: that is the env var not reaching the process, not a clean sheet.
 
+    *(Amended 2026-09-04, `unmeasured-numbers-sweep`: the run happened, both whisper tiers
+    `MANIFEST-VERIFY` — **turbo: PASS** (`ggml-large-v3-turbo.bin` sha256
+    `1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69`, 1,624,555,275 B);
+    **q5_0: PASS** (`ggml-large-v3-turbo-q5_0.bin` sha256
+    `394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2`, 574,041,195 B) — each
+    tier verified against the bytes in its own directory. The bytes were downloaded from
+    `ggerganov/whisper.cpp` (Hugging Face): the provenance gap (the settings-live-controls
+    entry, `STATUS.md:1118-1124`) is closed — the digests were verified against the source
+    bytes before provisioning. Machine: founder's machine (arm64, Apple Silicon), model store
+    `~/Library/Application Support/Vocca/models`, 2026-09-04.)*
+
 103. **Whisper produces text, on both tiers, through the Speech tab.**
 
     Step 96 is turbo's row and calls itself whisper's first real transcription. This step adds what
@@ -2147,6 +2255,17 @@ failure after an unverified download cannot be attributed to anything.
     *Void — not fail — if:* step 102 has not passed for the artifact the run used. A WER measured
     against unverified bytes measures an unknown model, and recording it would close a question
     that is still open — this file's first rule, applied to the one table nobody has measured.
+
+    *(Amended 2026-09-04, `unmeasured-numbers-sweep`.)* **Step 102 passed for both artifacts, so
+    103's ordering precondition holds, and 104's record is complete:** step 19 ran on both tiers
+    (turbo and q5_0, all six fixtures each, WER 0.0000 — see the measured rows in
+    `tolerances_20260829.md`), the q5_0 load read from its own directory
+    (`whisper-large-v3-turbo-q5_0/1/`, its own `verified` marker), and both transcripts were
+    whisper-attributed. **No re-baseline was needed** — the seeded tables cleared with margin and
+    **no number moved in `WhisperCppEngineWERTests.swift` or `ParakeetEngineWERTests.swift`**;
+    the measured rows, not a silent pass, are what keep the tables from "looking measured". The
+    Speech-tab product gesture (103's dictation half) is **not executed** in the sweep and is not
+    claimed.*
 
 ---
 

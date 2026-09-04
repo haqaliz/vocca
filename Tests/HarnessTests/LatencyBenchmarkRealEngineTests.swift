@@ -76,6 +76,63 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
             "no samples, no percentile — a row must print n/a, never a fabricated number")
     }
 
+    /// **The composite latency row, headless.** The real-run printer's composite (total) row is
+    /// a pure computation over the ledger's records — per-cycle totals (key-up → text-on-screen),
+    /// the nearest-rank p50/p95 over them, and the cleanup span's presence **named** beside the
+    /// numbers — so CI proves the mechanism over seeded deltas exactly as the B1 tests do, and
+    /// the cleanup span is never silently dropped (PRD R4). The seeded deltas make the totals
+    /// exact arithmetic: capture-close 3 + asr 5 + inject 7 = 15 ms per cycle, every fixture, so
+    /// composite p50 = p95 = 15 ms.
+    func testTheCompositeRowTotalsPerCycleAndNamesTheCleanupSpan() async throws {
+        let fixtures = try LatencyBenchmarkTests.fixtureCases()
+        let harness = try LatencyBenchmarkTests.BenchmarkHarness(
+            ringCapacity: LatencyBenchmarkTests.ringCapacity(for: fixtures),
+            stopAdvance: LatencyBenchmarkTests.captureCloseAdvance,
+            asrAdvance: .milliseconds(5),
+            injectAdvance: LatencyBenchmarkTests.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runCycle(
+                samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let records = await harness.ledger.snapshot()
+        let composite = RealEngineLatencyBenchmark.compositeRow(records)
+
+        XCTAssertEqual(
+            composite.p50, .milliseconds(15),
+            "with the seeded 3/5/7 ms deltas every cycle's total is exactly 15 ms — composite "
+                + "p50 is the nearest-rank median of the per-cycle totals")
+        XCTAssertEqual(
+            composite.p95, .milliseconds(15),
+            "composite p95 is the nearest-rank ceiling of the per-cycle totals — 15 ms, exactly")
+        XCTAssertEqual(
+            composite.cleanupStatus, .notPresent,
+            "the nil-cleanup pipeline names the cleanup span notPresent — a row that drops the "
+                + "status or fabricates a duration for a span that never ran is an overclaim "
+                + "(PRD R4)")
+
+        let withLedgerCleanup = RealEngineLatencyBenchmark.compositeRow([
+            SessionRecord(
+                id: SessionRecord.ID(rawValue: 1),
+                outcome: .delivered(rung: .clipboardPaste, verified: false),
+                spans: [
+                    .recorded(name: .captureClose, elapsed: .milliseconds(3)),
+                    .recorded(name: .asr, elapsed: .milliseconds(5)),
+                    .recorded(name: .inject, elapsed: .milliseconds(7)),
+                    .cleanupNotPresent(),
+                ],
+                engine: StubEngine.parakeet().identity)
+        ])
+        XCTAssertEqual(
+            withLedgerCleanup.cleanupStatus, .notPresent,
+            "a record carrying the ledger's cleanupNotPresent shape still names the status "
+                + "notPresent — never a zero, never dropped")
+        XCTAssertEqual(
+            withLedgerCleanup.p50, .milliseconds(15),
+            "a notPresent cleanup span contributes nothing to the cycle total — only recorded "
+                + "spans sum")
+    }
+
     /// **B3, the env gate.** Without `VOCCA_LATENCY_BENCH` the real-engine benchmark **skips
     /// visibly** (the WER `XCTSkip` pattern — CI runs this path, and the skip names the env var);
     /// with it, it requires `VOCCA_MODEL_DIR` (the WER provisioning path), drives the real Parakeet
@@ -342,10 +399,34 @@ enum RealEngineLatencyBenchmark {
         let suppression: DarwinSuppression
     }
 
-    /// The run's full answer: the per-span rows plus the W3 warm-start record and the idle
-    /// re-warm's row.
+    /// The composite (total) row: the run's key-up → text-on-screen measurement — per-cycle
+    /// totals over the records' recorded spans, the nearest-rank p50/p95, and the cleanup span's
+    /// presence **named** beside the numbers. Printer-level only: never a `SpanName` case, never
+    /// part of the seeded contract's span set — the seeded path stays byte-identical.
+    struct CompositeRow {
+        /// The nearest-rank p50 over the per-cycle totals; nil with no cycles — n/a, never zero.
+        let p50: Duration?
+        /// The nearest-rank p95 over the per-cycle totals; nil with no cycles — n/a, never zero.
+        let p95: Duration?
+        /// The cleanup span's presence across the records — `.notPresent` for the nil-cleanup
+        /// pipeline, `.recorded(elapsed)` where one ran. Named so the row cannot overclaim.
+        let cleanupStatus: CleanupStatus
+    }
+
+    /// The cleanup span's status on the composite row: absent (`notPresent`) or recorded with
+    /// the measured elapsed — the anti-overclaim guard (PRD R4): a row that drops the status or
+    /// fabricates a duration for a span that never ran cannot be told apart from an honest one,
+    /// so the status is a first-class part of the row.
+    enum CleanupStatus: Equatable {
+        case notPresent
+        case recorded(Duration)
+    }
+
+    /// The run's full answer: the per-span rows, the composite row, plus the W3 warm-start record
+    /// and the idle re-warm's row.
     struct Result {
         let rows: [Row]
+        let composite: CompositeRow
         let warmStart: WarmStartRecord
         let rewarm: RewarmRecord
     }
@@ -379,6 +460,32 @@ enum RealEngineLatencyBenchmark {
         let sorted = values.sorted()
         let index = max(0, min(sorted.count - 1, Int(ceil(percentile * Double(sorted.count)) - 1)))
         return sorted[index]
+    }
+
+    /// The composite computation, pure over the ledger's records: each cycle's total is the sum
+    /// of its **recorded** spans' elapsed (a `notPresent` span contributes nothing — a span that
+    /// never ran has no duration), and the row carries the nearest-rank p50/p95 over the totals
+    /// with the cleanup span's presence named. The seeded tests pin the exact arithmetic; the
+    /// env-gated run prints the row.
+    static func compositeRow(_ records: [SessionRecord]) -> CompositeRow {
+        let totals: [Duration] = records.map { record in
+            record.spans.reduce(.zero) { total, span in
+                span.presence == .recorded ? total + span.elapsed : total
+            }
+        }
+        let cleanup = records.compactMap { record in
+            record.spans.first { $0.name == .cleanup }
+        }.first
+        let cleanupStatus: CleanupStatus
+        if let cleanup, cleanup.presence == .recorded {
+            cleanupStatus = .recorded(cleanup.elapsed)
+        } else {
+            cleanupStatus = .notPresent
+        }
+        return CompositeRow(
+            p50: percentile(totals, 0.5),
+            p95: percentile(totals, 0.95),
+            cleanupStatus: cleanupStatus)
     }
 
     /// Drives the real engine through the benchmark harness over `fixtures` — the same route the
@@ -428,6 +535,7 @@ enum RealEngineLatencyBenchmark {
         }
 
         let verdict = LatencyBenchmarkGate.evaluate(records, thresholds: Self.thresholds)
+        let composite = Self.compositeRow(records)
         print("")
         print("== Real-engine latency benchmark (VOCCA_LATENCY_BENCH) ==")
         print("engine: \(engine.identity.id)")
@@ -443,6 +551,14 @@ enum RealEngineLatencyBenchmark {
                 .padding(toLength: 8, withPad: " ", startingAt: 0)
             print("  \(name) \(p50) \(p95) \(describeSuppression(row.suppression))")
         }
+        let totalName = "total".padding(toLength: 13, withPad: " ", startingAt: 0)
+        let totalP50 = (composite.p50.map { "\(milliseconds($0)) ms" } ?? "n/a")
+            .padding(toLength: 8, withPad: " ", startingAt: 0)
+        let totalP95 = (composite.p95.map { "\(milliseconds($0)) ms" } ?? "n/a")
+            .padding(toLength: 8, withPad: " ", startingAt: 0)
+        print(
+            "  \(totalName) \(totalP50) \(totalP95) cleanup:\(Self.describeCleanup(composite.cleanupStatus)) "
+                + "\(describeSuppression(darwinSuppressionState()))")
         print(
             "verdict vs the provisional p50 table (RECORDED, not gated — the founder re-baselines): "
                 + (verdict.passed ? "PASS" : "FAIL"))
@@ -481,7 +597,7 @@ enum RealEngineLatencyBenchmark {
         print("darwin suppression state at record: \(describeSuppression(warmStartRecord.suppression))")
 
         let rewarmRecord = await Self.rewarmRecord(engine: engine, timing: timing)
-        return Result(rows: rows, warmStart: warmStartRecord, rewarm: rewarmRecord)
+        return Result(rows: rows, composite: composite, warmStart: warmStartRecord, rewarm: rewarmRecord)
     }
 
     /// **The idle re-warm half of the real run** (`rewarm-after-idle` phase (d)): after the
@@ -558,6 +674,7 @@ enum RealEngineLatencyBenchmark {
         }
 
         let verdict = LatencyBenchmarkGate.evaluate(records, thresholds: Self.thresholds)
+        let composite = Self.compositeRow(records)
         print("")
         print("== Real-engine latency benchmark, streaming (key-up → final, feed live) ==")
         print("engine: \(engine.identity.id)")
@@ -573,6 +690,14 @@ enum RealEngineLatencyBenchmark {
                 .padding(toLength: 8, withPad: " ", startingAt: 0)
             print("  \(name) \(p50) \(p95) \(describeSuppression(row.suppression))")
         }
+        let totalName = "total".padding(toLength: 13, withPad: " ", startingAt: 0)
+        let totalP50 = (composite.p50.map { "\(milliseconds($0)) ms" } ?? "n/a")
+            .padding(toLength: 8, withPad: " ", startingAt: 0)
+        let totalP95 = (composite.p95.map { "\(milliseconds($0)) ms" } ?? "n/a")
+            .padding(toLength: 8, withPad: " ", startingAt: 0)
+        print(
+            "  \(totalName) \(totalP50) \(totalP95) cleanup:\(Self.describeCleanup(composite.cleanupStatus)) "
+                + "\(describeSuppression(darwinSuppressionState()))")
         print(
             "verdict vs the provisional p50 table (RECORDED, not gated — the founder re-baselines): "
                 + (verdict.passed ? "PASS" : "FAIL"))
@@ -589,7 +714,16 @@ enum RealEngineLatencyBenchmark {
             "warm-start ratio: \(describeWarmStart(warmStartRecord.verdict)), suppression "
                 + "\(describeSuppression(warmStartRecord.suppression))")
         let rewarmRecord = await Self.rewarmRecord(engine: engine, timing: timing)
-        return Result(rows: rows, warmStart: warmStartRecord, rewarm: rewarmRecord)
+        return Result(rows: rows, composite: composite, warmStart: warmStartRecord, rewarm: rewarmRecord)
+    }
+
+    /// The cleanup span's status, spelled for the composite row's print line: `notPresent` or
+    /// `recorded N ms` — in the row itself, never a footnote.
+    private static func describeCleanup(_ status: CleanupStatus) -> String {
+        switch status {
+        case .notPresent: return "notPresent"
+        case .recorded(let elapsed): return "recorded \(milliseconds(elapsed)) ms"
+        }
     }
 
     /// The warm-start verdict, spelled for a print row.

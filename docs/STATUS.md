@@ -10,6 +10,143 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `unmeasured-numbers-sweep` F2 real-corpus run landed 2026-09-05 — the corpus
+requirement is met; the blind-judge requirement is not.** The founder recorded the 42
+scripted utterances (7 per class, 16 kHz mono, `~/Vocca/f2-pairs/`); the raw side of every
+pair is the real Parakeet engine transcript of the founder's voice. The ballot
+(seed `0xFAF5A4891B414AC4`) was answered by a **delegated, non-blind judge** (the sides are
+identifiable to the answerer), so the preference figure is recorded but does not satisfy the
+P1 gate's blind-judge requirement. Result: preference 100.0%, per-class 7/7 across all six
+classes, verdict `RECORDED, not gated` vs 0.8. No re-baseline; `ProvisionalCleanupTargets`
+untouched. What this is NOT, and must not be claimed: no *blind* human preference number
+exists — the gate's judge half takes one fresh ballot answered by the founder (~2 minutes)
+to close. The 2026-09-05 stand-in run (TTS corpus) remains recorded below as the mechanism
+demonstration it was.
+
+---
+
+**The `unmeasured-numbers-sweep` F2 stand-in run landed 2026-09-05 — recorded, not gated,
+and explicitly NOT the F2 number.** At the founder's request the F2 flow was exercised with
+a fully synthetic corpus: macOS `say` (Samantha) generated 42 utterances (7 per class,
+16 kHz mono) into `~/Vocca/f2-pairs/`, the real Parakeet engine transcribed them as the raw
+side, and the ballot was answered by a **delegated, non-blind judge** (the sides are
+identifiable to the answerer). Result: preference 100.0% (41 cleaned-preferred, 1 tie
+excluded), per-class 7/7 ×5 and 6/7, verdict `RECORDED, not gated` vs 0.8. The run is
+**doubly disqualified** from the P1 gate: SMOKE 73's own first line ("the stand-in corpus is
+provably recoverable by the shipped rules, so its percentage measures the mechanism, not the
+product") and the non-blind judge. **No row lands in `tolerances_20260815.md`; no re-baseline;
+`ProvisionalCleanupTargets` untouched; the founder-recorded F2 corpus remains the open
+requirement** for the measured preference row and the P1 gate. The run surfaced one real
+defect, fixed test-first: the second invocation's record existed only inside the test's
+`PrinterSpy` and never reached stdout — the env-gated branch now prints the record
+(`CleanupEvalHarnessTests.swift`, commit 8f1fc33). What this is NOT, and must not be
+claimed: no human preference measurement exists, no P1-gate number exists, and the F2
+requirement is not closed.
+
+---
+
+**The `unmeasured-numbers-sweep` ratification landed 2026-09-04 — the unit's three sign-off
+items are signed, recorded under the founder's blanket authorization for the unit's
+remaining items; F2 is the one item that cannot be executed by the sweep (it needs the
+founder's voice) and stays open with the corpus scaffold ready.** The three signed items:
+
+- **Latency margin: SIGNED, margin 0.** The composite (total p50 113–115 ms / p95 358–365 ms,
+  60 s substitution stated) cleared the provisional 400/800 table well inside, so the table is
+  unchanged and `ProvisionalTolerances` is untouched — signed row in
+  `tolerances_20260825.md`.
+- **Weights license record: SIGNED (SMOKE 21 executed).** The open item was resolved with the
+  more rigorous option — OpenAI's Whisper repository LICENSE fetched live from the primary
+  source (MIT, Copyright (c) 2022 OpenAI) and recorded in `license_20260810.md`'s amendment,
+  alongside the already-recorded HF `License: mit` declaration; `THIRD_PARTY_NOTICES.md`'s
+  weights entry dropped its "(pending founder sign-off)" parenthetical in the same commit.
+- **Engine-picker copy decision: KEPT AS-IS, measurement-backed.** whisper's real WER is
+  0.0000 across all six fixtures on both tiers (the fixture set is TTS-stand-in clean — the
+  F2 caveat applies), which supports the shipped "broader language and accuracy coverage"
+  tradeoff copy (`CAPABILITY_ROADMAP.md:89`); no copy change was needed, and the decision is
+  recorded rather than implied.
+
+**What this ratification is NOT, and must not be claimed:** the F2 cleanup eval is still not
+run — no preference number exists, the P1 gate's ≥80% leg is still provisional, and nothing
+here changes that. No gate passes as a result of this ratification.
+
+---
+
+**The `unmeasured-numbers-sweep` unit landed 2026-09-04 — the four measurement aspects'
+numbers, recorded into the single surfaces the pre-PH pass and the P2 gate read.** The unit
+measured whisper's WER for the first time ever (both tiers, all six fixtures), verified both
+whisper manifests against real bytes (closing the provenance gap the settings-live-controls
+entry records), verified the streamed cycle's by-construction claim on real audio, measured
+the short-audio rows and the O(n²) cost row, and completed the latency benchmark's composite
+row (step 72). All recorded, never gated — no gate passes as a result of this unit.
+
+**What shipped (recorded, never gated):**
+
+- **SMOKE 102 — manifest verification, both whisper tiers: PASS.** turbo
+  (`ggml-large-v3-turbo.bin` sha256
+  `1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69`, 1,624,555,275 B) and
+  q5_0 (`ggml-large-v3-turbo-q5_0.bin` sha256
+  `394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2`, 574,041,195 B), both
+  `MANIFEST-VERIFY` against the provisioned bytes. The bytes came from `ggerganov/whisper.cpp`
+  (Hugging Face): the provenance gap is closed — digests verified against the source bytes
+  before provisioning.
+- **SMOKE 19 — whisper's first real WER: 0.0000 on all six fixtures, on BOTH tiers** (turbo
+  and q5_0, each through the same six fixtures: clean / spike-clip / accented / noisy /
+  sixty-second as WER ceilings; two-hundred-ms as the substitution count — the 200 ms
+  transcript "Test" satisfies at-most-one). Tolerances met with margin — **no re-baseline; the
+  seeded tables stand** in both `WhisperCppEngineWERTests.swift` and
+  `ParakeetEngineWERTests.swift`. Attribution `whisper-large-v3-turbo` on both tiers.
+- **The streamed cycle, verified on real audio for the first time:** clean fixture at 1 s
+  chunks → **10 partials**; streamed final == batch **text-for-text: TRUE** — the
+  by-construction claim measured, no longer structural.
+- **Short-audio rows: whisper does NOT refuse.** 0.2 s → "the"; 0.5 s → "a quick break.";
+  1 s → "a quick brown fox" — identical through `transcribe` and `stream`; no
+  refusal-and-throw defect; the sub-minimum constant untouched.
+- **The O(n²) cost row (recorded, never gated):** turbo batch 0.734 s vs streamed total
+  5.743 s (7.82×, 10 partials); q5_0 batch 0.776 s vs 6.282 s (8.09×).
+- **SMOKE 71-72 — the latency composite, both variants** (`parakeet-tdt-0.6b-v3`, version 1,
+  suppression 0 (NOT suppressed) throughout, founder's machine (arm64, Apple Silicon),
+  2026-09-04): **batch total p50 113 / p95 358** (captureClose 3/3, asr 103/348, inject 7/7);
+  **streaming total p50 115 / p95 365** (captureClose 3/3, asr 105/355, inject 7/7); cleanup
+  `notPresent` (nil-cleanup pipeline, named not dropped). **The composite measures the 60 s
+  fixture — the suite has no 10-second clip, and the substitution is stated beside the
+  numbers.** Warm-start 0.350×/0.337× (within the 1.2× bound); re-warm 83/85 ms. Composite
+  well under the provisional 400/800 table — `ProvisionalTolerances` untouched; the measured
+  row with the proposed margin (0 — table unchanged) is recorded in
+  `tolerances_20260825.md` with **founder ratification pending**.
+- **Observation, recorded:** `whisper_init_state: failed to load Core ML model from
+  ggml-large-v3-turbo-encoder.mlmodelc` — whisper runs Metal/CPU; the ANE encoder is not part
+  of the shipped manifest (affects latency, not accuracy).
+- **Test floor 1755 → 1758** (f2-defect-fixes' flow test +1, the wav-only discovery pin +1,
+  latency-record's composite-row test +1). All runs on the founder's machine, model store
+  `~/Library/Application Support/Vocca/models`, 2026-09-04.
+
+**What this unit is NOT, and must not be claimed:**
+
+- **F2 (SMOKE 73) was not run.** The corpus is not recorded — the founder's session is
+  pending; there is **no preference number**, and the P1 gate's ≥ 80% stays provisional. No
+  stand-in-corpus number is claimed as an F2 number.
+- **No gate passed.** The P2 gate's three legs: the latency leg is now measured, **not
+  adjudicated**; the matrix leg is `injection-matrix-completion`'s (1 of 18 rows, FMS not
+  closeable); the external-users leg needs a release. The P1 ≥ 80% and the P0 7-day log stay
+  unpassed.
+- **The equivalence NO-GO stands.** The latency-win claim stays blocked regardless of the
+  composite number; the speculative feed's record is unchanged.
+- **No accuracy claim beyond the six measured fixtures.** The fixtures are TTS stand-ins
+  (`Tests/Fixtures/FIXTURES.md` labels them); the numbers are about the founder's machine and
+  those six clips. The engine-picker copy decision is **surfaced, not signed** — the taglines
+  stay the spec's own words (`EnginePickerCopy`), the status lines stay number-free, and the
+  measured rows sit in `tolerances_20260829.md` for the founder's disposition; no
+  language-coverage claim follows from this run either way.
+- **Step 21 (the weights-license sign-off) is still pending.** The manifest provenance is
+  closed, but the license record is not signed and `THIRD_PARTY_NOTICES.md` keeps its
+  parenthetical.
+- **The product-path gestures (steps 95/96/103's Speech-tab half) were not executed.**
+  Whisper's first real transcriptions ever happened through the WER harness, engine-attributed;
+  dictating through the Speech tab into TextEdit, and the selection surviving relaunch, are not
+  recorded.
+
+---
+
 **The `release-distribution` unit landed 2026-09-03 — the first installable release
 (`v0.2.0`) exists, and the notarization half of the runbook is recorded **blocked — not
 purchased**.** The DMG packaging mechanism had never run against Vocca's own bundle ("The

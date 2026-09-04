@@ -37,6 +37,32 @@ throttled number is recorded as throttled, never presented as clean. Until the f
 filled, everything this repository says about the warm-start ratio is a claim about mechanism,
 not about measurement.
 
+## Composite latency row (SMOKE 71-72 re-run, 2026-09-04, `latency-record`)
+
+The 2026-09-01 run above recorded per-span rows only; step 72's deliverable — the composite
+key-up → text-on-screen row — was recorded in this run (the printer's composite row, the
+cleanup span **named** `notPresent` for the nil-cleanup pipeline, never dropped).
+
+| Variant | captureClose p50/p95 | asr p50/p95 | cleanup | inject p50/p95 | **total p50/p95** | Suppression | Machine | Model |
+|---|---|---|---|---|---|---|---|---|
+| batch | 3 / 3 ms | 103 / 348 ms | `notPresent` | 7 / 7 ms | **113 / 358 ms** | 0 (NOT suppressed) throughout | founder's machine (arm64, Apple Silicon) | `parakeet-tdt-0.6b-v3`, version 1 (`verified`) |
+| streaming (feed live) | 3 / 3 ms | 105 / 355 ms | `notPresent` | 7 / 7 ms | **115 / 365 ms** | 0 (NOT suppressed) throughout | same | same |
+
+**The 60-second fixture substitution, stated beside the numbers:** the fixture suite has no
+10-second clip, so the composite is measured over the **60 s fixture** — the closest length the
+suite has (`SMOKE_CHECKLIST.md:1353-1354`). These are not 10 s numbers, and the P2 gate must not
+read them as such.
+
+Warm-start in the same run: **0.350× (batch) / 0.337× (streaming)** — WITHIN the 1.2× bound
+(referencing the 2026-09-01 rows above, not re-claimed). Re-warm: **83/85 ms**. Suppression 0
+(NOT suppressed) beside every row; date 2026-09-04.
+
+**Margin and signature: the measured composite cleared the provisional 400/800 table well
+inside, so the proposed margin is 0 — the table is unchanged and `ProvisionalTolerances` is
+untouched. **SIGNED: aliz, 2026-09-04, margin 0** (ratified by the founder's blanket
+authorization for the `unmeasured-numbers-sweep` unit's remaining sign-off items). This
+row records the measurement and the signed margin.
+
 ## Where the bound lives
 
 The 1.2 bound stays in `WarmStartTargets.maxFirstAfterLaunchMultiple`

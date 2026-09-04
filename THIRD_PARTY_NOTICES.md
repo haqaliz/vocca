@@ -39,7 +39,7 @@ distribution obligation: a dependency is not added without one.
 
 ## whisper GGUF weights (large-v3-turbo, turbo and q5_0 tiers)
 
-- **License:** MIT (pending founder sign-off)
+- **License:** MIT
 - **Upstream:** https://huggingface.co/ggerganov/whisper.cpp — OpenAI's Whisper models
   converted to ggml format for use with whisper.cpp; the repo's metadata declares
   `License: mit`.

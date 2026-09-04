@@ -1421,8 +1421,27 @@ set -euo pipefail
 # the empty trace — step 92's `attempted: []` artifact flowing through the seam, not just the
 # formatter.
 #
+# The f2-defect-fixes flow test adds one (1755 -> 1756):
+# `testTheFirstInvocationPrintsASeededBallotAndTheSecondPrintsVerdicts` drives the env-gated
+# two-invocation flow headlessly over a scratch stub corpus at the vacuity floor — the first
+# invocation prints a seeded, side-blind ballot whose bare-hex seed round-trips through
+# `parseAnswers`, the simulated `answers.tsv` carries tie/noPreference rows, and the second
+# invocation prints the verdict rows with the seed beside them through the same presentations.
+#
+# The wav-only discovery pin adds one (1756 -> 1757):
+# `testAWavOnlyCorpusWithoutRawTextsThrowsNoPairsFound` pins that a corpus of
+# `.wav + .clean.txt + .class.txt` triples with no `.raw.txt` loads zero pairs — discovery
+# keys on the `.raw.txt` suffix only, the rule the F2 procedure docs now state. Green on
+# arrival: it pins the loader's existing behaviour so a future discovery change breaks loudly.
+#
+# The latency-record composite-row test adds one (1757 -> 1758):
+# `testTheCompositeRowTotalsPerCycleAndNamesTheCleanupSpan` drives the seeded harness over the
+# fixture suite and pins the real-run printer's composite (total) row as a pure computation —
+# per-cycle totals over the recorded spans (exactly 15 ms over the seeded 3/5/7 ms deltas),
+# nearest-rank p50/p95, and the cleanup span's presence named notPresent, never dropped.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1755
+MINIMUM_EXECUTED_TESTS=1758
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

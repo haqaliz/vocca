@@ -5,7 +5,7 @@
 ## Problem slice and user outcome
 
 Both engines' real WER is unmeasured (whisper's tolerances are seeded from Parakeet's
-table, `STATUS.md:174-179`), the latency p50/p95 are provisional targets, and the
+table, `STATUS.md:313-315`), the latency p50/p95 are provisional targets, and the
 streamed-vs-batch equivalence verdict is open. Outcome: the first measured numbers for
 WER (both engines + whisper's streamed cycle), latency/warm-start/re-warm, the
 equivalence verdict, and the Parakeet streaming WER row — each re-baselining its
