@@ -76,6 +76,63 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
             "no samples, no percentile — a row must print n/a, never a fabricated number")
     }
 
+    /// **The composite latency row, headless.** The real-run printer's composite (total) row is
+    /// a pure computation over the ledger's records — per-cycle totals (key-up → text-on-screen),
+    /// the nearest-rank p50/p95 over them, and the cleanup span's presence **named** beside the
+    /// numbers — so CI proves the mechanism over seeded deltas exactly as the B1 tests do, and
+    /// the cleanup span is never silently dropped (PRD R4). The seeded deltas make the totals
+    /// exact arithmetic: capture-close 3 + asr 5 + inject 7 = 15 ms per cycle, every fixture, so
+    /// composite p50 = p95 = 15 ms.
+    func testTheCompositeRowTotalsPerCycleAndNamesTheCleanupSpan() async throws {
+        let fixtures = try LatencyBenchmarkTests.fixtureCases()
+        let harness = try LatencyBenchmarkTests.BenchmarkHarness(
+            ringCapacity: LatencyBenchmarkTests.ringCapacity(for: fixtures),
+            stopAdvance: LatencyBenchmarkTests.captureCloseAdvance,
+            asrAdvance: .milliseconds(5),
+            injectAdvance: LatencyBenchmarkTests.fastInjectAdvance)
+        for (index, fixture) in fixtures.enumerated() {
+            _ = await harness.runCycle(
+                samples: fixture.buffer.samples, expectedRecords: index + 1)
+        }
+
+        let records = await harness.ledger.snapshot()
+        let composite = RealEngineLatencyBenchmark.compositeRow(records)
+
+        XCTAssertEqual(
+            composite.p50, .milliseconds(15),
+            "with the seeded 3/5/7 ms deltas every cycle's total is exactly 15 ms — composite "
+                + "p50 is the nearest-rank median of the per-cycle totals")
+        XCTAssertEqual(
+            composite.p95, .milliseconds(15),
+            "composite p95 is the nearest-rank ceiling of the per-cycle totals — 15 ms, exactly")
+        XCTAssertEqual(
+            composite.cleanupStatus, .notPresent,
+            "the nil-cleanup pipeline names the cleanup span notPresent — a row that drops the "
+                + "status or fabricates a duration for a span that never ran is an overclaim "
+                + "(PRD R4)")
+
+        let withLedgerCleanup = RealEngineLatencyBenchmark.compositeRow([
+            SessionRecord(
+                id: SessionRecord.ID(rawValue: 1),
+                outcome: .delivered(rung: .clipboardPaste, verified: false),
+                spans: [
+                    .recorded(name: .captureClose, elapsed: .milliseconds(3)),
+                    .recorded(name: .asr, elapsed: .milliseconds(5)),
+                    .recorded(name: .inject, elapsed: .milliseconds(7)),
+                    .cleanupNotPresent(),
+                ],
+                engine: StubEngine.parakeet().identity)
+        ])
+        XCTAssertEqual(
+            withLedgerCleanup.cleanupStatus, .notPresent,
+            "a record carrying the ledger's cleanupNotPresent shape still names the status "
+                + "notPresent — never a zero, never dropped")
+        XCTAssertEqual(
+            withLedgerCleanup.p50, .milliseconds(15),
+            "a notPresent cleanup span contributes nothing to the cycle total — only recorded "
+                + "spans sum")
+    }
+
     /// **B3, the env gate.** Without `VOCCA_LATENCY_BENCH` the real-engine benchmark **skips
     /// visibly** (the WER `XCTSkip` pattern — CI runs this path, and the skip names the env var);
     /// with it, it requires `VOCCA_MODEL_DIR` (the WER provisioning path), drives the real Parakeet

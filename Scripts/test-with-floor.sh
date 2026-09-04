@@ -1434,8 +1434,14 @@ set -euo pipefail
 # keys on the `.raw.txt` suffix only, the rule the F2 procedure docs now state. Green on
 # arrival: it pins the loader's existing behaviour so a future discovery change breaks loudly.
 #
+# The latency-record composite-row test adds one (1757 -> 1758):
+# `testTheCompositeRowTotalsPerCycleAndNamesTheCleanupSpan` drives the seeded harness over the
+# fixture suite and pins the real-run printer's composite (total) row as a pure computation —
+# per-cycle totals over the recorded spans (exactly 15 ms over the seeded 3/5/7 ms deltas),
+# nearest-rank p50/p95, and the cleanup span's presence named notPresent, never dropped.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1757
+MINIMUM_EXECUTED_TESTS=1758
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
