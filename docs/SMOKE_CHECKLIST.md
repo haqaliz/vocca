@@ -1453,6 +1453,28 @@ step is the number the P1 gate is judged on (`ROADMAP.md:137`), recorded not gat
 
     *Failure:* the run cannot score every pair (missing clean target, missing class tag,
     missing answers), the seed is not printed, or the percentage is presented as a verdict.
+
+    *(Amended 2026-09-05, unmeasured-numbers-sweep — a stand-in run, recorded not gated, NOT
+    the F2 number.)* The founder requested a synthetic corpus; the step's own first line says
+    why it cannot replace the real one: "the stand-in corpus is provably recoverable by the
+    shipped rules, so its percentage measures the mechanism, not the product." The run below is
+    **doubly disqualified** from the P1 gate: the corpus is TTS-generated (macOS `say`,
+    Samantha — 42 utterances, 7 per class, 16 kHz mono, `~/Vocca/f2-pairs/`), and the ballot
+    was answered by a **delegated, non-blind judge** (the sides are identifiable), so the
+    preference figure is a mechanism demonstration, not a human preference measurement. The
+    founder-recorded F2 corpus remains the open requirement for `tolerances_20260815.md`'s
+    measured row and the P1 gate. The run also surfaced and fixed a flow defect: the second
+    invocation's record existed only inside the test's `PrinterSpy` and never reached stdout —
+    the env-gated branch now prints the record (`CleanupEvalHarnessTests.swift`).
+
+    - **Stand-in run (TTS corpus, delegated judge), 2026-09-05:** seed
+      `0xBED1C5CBB7C57FBB`; **preference = 100.0%** (41 cleaned-preferred, 1 tie excluded —
+      `token-protection-06`); per-class tallies: fillers 7, punctuation 7, capitalization 7,
+      numbers-units 7, dictionary 7, token-protection 6 (all cleaned-preferred); verdict line
+      printed `RECORDED, not gated` vs the provisional 0.8. Machine: M4 Max (arm64). Corpus:
+      `~/Vocca/f2-pairs/` (42 pairs + `dictionary.json`), raw side = real Parakeet engine
+      transcript of the TTS audio. **Not recorded in `tolerances_20260815.md`; no
+      re-baseline; `ProvisionalCleanupTargets` untouched.**
     Until this step has been run once, everything this repository says about cleanup quality is
     a claim about mechanism, not about measurement.
 

@@ -10,6 +10,26 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `unmeasured-numbers-sweep` F2 stand-in run landed 2026-09-05 — recorded, not gated,
+and explicitly NOT the F2 number.** At the founder's request the F2 flow was exercised with
+a fully synthetic corpus: macOS `say` (Samantha) generated 42 utterances (7 per class,
+16 kHz mono) into `~/Vocca/f2-pairs/`, the real Parakeet engine transcribed them as the raw
+side, and the ballot was answered by a **delegated, non-blind judge** (the sides are
+identifiable to the answerer). Result: preference 100.0% (41 cleaned-preferred, 1 tie
+excluded), per-class 7/7 ×5 and 6/7, verdict `RECORDED, not gated` vs 0.8. The run is
+**doubly disqualified** from the P1 gate: SMOKE 73's own first line ("the stand-in corpus is
+provably recoverable by the shipped rules, so its percentage measures the mechanism, not the
+product") and the non-blind judge. **No row lands in `tolerances_20260815.md`; no re-baseline;
+`ProvisionalCleanupTargets` untouched; the founder-recorded F2 corpus remains the open
+requirement** for the measured preference row and the P1 gate. The run surfaced one real
+defect, fixed test-first: the second invocation's record existed only inside the test's
+`PrinterSpy` and never reached stdout — the env-gated branch now prints the record
+(`CleanupEvalHarnessTests.swift`, commit 8f1fc33). What this is NOT, and must not be
+claimed: no human preference measurement exists, no P1-gate number exists, and the F2
+requirement is not closed.
+
+---
+
 **The `unmeasured-numbers-sweep` ratification landed 2026-09-04 — the unit's three sign-off
 items are signed, recorded under the founder's blanket authorization for the unit's
 remaining items; F2 is the one item that cannot be executed by the sweep (it needs the
