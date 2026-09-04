@@ -14,8 +14,12 @@ founder-signed procedure.
 ## In-scope
 
 - Founder recording session: ≥40 utterances, ≥5 per class (the six
-  `Tests/CleanupPairs/` classes), saved as `<name>.wav / .clean.txt / .class.txt` +
-  `dictionary.json` under `~/Vocca/f2-pairs/` (on-disk only, never committed).
+  `Tests/CleanupPairs/` classes), saved as `<name>.wav / <name>.raw.txt /
+  <name>.clean.txt / <name>.class.txt` + `dictionary.json` under `~/Vocca/f2-pairs/`
+  (on-disk only, never committed). Discovery requires a `<name>.raw.txt` per pair (the
+  loader keys on that suffix only — a wav-only corpus loads 0 pairs); the raw side loads
+  from `.raw.txt` first, replaced by the engine transcript for pairs with a `.wav`
+  sidecar when `VOCCA_MODEL_DIR` is set.
 - First `VOCCA_CLEANUP_EVAL` run produces the ballot; the founder's blind preference
   answers fill `answers.tsv`.
 - Second run: per-pair verdicts, `preference=NN.N%`, per-class tallies, the

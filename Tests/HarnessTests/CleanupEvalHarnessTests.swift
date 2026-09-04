@@ -97,6 +97,31 @@ final class CleanupEvalHarnessTests: XCTestCase {
         XCTAssertEqual(pairs[0].clean, "Clean 0.")
     }
 
+    /// A wav-only corpus — every pair present as `.wav` + `.clean.txt` + `.class.txt` with no
+    /// `.raw.txt` — loads zero pairs: discovery keys on the `.raw.txt` suffix only, so the F2
+    /// convention's `.wav` sidecar alone is never a pair (the `dictionary.json`/`FIXTURES.md`
+    /// half of the same rule is pinned above). Green on arrival — it pins the loader's
+    /// discovery rule so the procedure docs' claim is testable, and a future discovery change
+    /// breaks loudly.
+    func testAWavOnlyCorpusWithoutRawTextsThrowsNoPairsFound() throws {
+        let root = try makeScratchRoot()
+        for index in 0..<CleanupPairSuite.minimumMeaningfulCorpusSize {
+            let name = String(format: "pair-%02d", index)
+            try Data().write(to: root.appendingPathComponent("\(name).wav"))
+            try Data("Clean \(index).".utf8)
+                .write(to: root.appendingPathComponent("\(name).clean.txt"))
+            try Data((index % 2 == 0 ? CleanupPairClass.fillers : .punctuation).rawValue.utf8)
+                .write(to: root.appendingPathComponent("\(name).class.txt"))
+        }
+        try Data(#"[{"source":"kawa","replacement":"Kawa"}]"#.utf8)
+            .write(to: root.appendingPathComponent("dictionary.json"))
+        try Data("# provenance".utf8).write(to: root.appendingPathComponent("FIXTURES.md"))
+
+        XCTAssertThrowsError(try CleanupPairSuite.loadPairs(from: root)) { error in
+            XCTAssertEqual(error as? CleanupPairSuiteError, .noPairsFound(root.path))
+        }
+    }
+
     /// A pair without its `.clean.txt` is a broken fixture and must fail loudly, naming the
     /// pair and the expected golden path — the `missingGolden` shape (`ASRFixtureSuite.swift:69-72`).
     func testAPairMissingItsCleanTargetThrowsNamingThePair() throws {

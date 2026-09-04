@@ -1380,11 +1380,13 @@ step is the number the P1 gate is judged on (`ROADMAP.md:137`), recorded not gat
     flat. For each, hand-polish the golden clean text (what should have been typed) into
     `<name>.clean.txt` and tag the class into `<name>.class.txt`; keep the corpus in a
     machine-local directory, e.g. `~/Vocca/f2-pairs/` — **never in the repository**. Add a
-    `dictionary.json` with the dictionary-class rules. The raw side is the real engine's
-    transcript of each recording (16 kHz mono; provision once per machine via
-    `./Scripts/provision-asr-fixtures.sh`, then the runner reads the `<name>.wav` sidecar and
-    ignores the `.raw.txt` for those pairs — attributed to the Parakeet identity); the
-    hand-typed `<name>.raw.txt` variant is the fallback when the engine is not provisioned.
+    `dictionary.json` with the dictionary-class rules. **Discovery requires a
+    `<name>.raw.txt` per pair** — the loader keys on that suffix only, so a wav-only corpus
+    loads 0 pairs (`CleanupPairSuite.swift`). The raw side loads from `.raw.txt` first and is
+    replaced by the engine transcript for pairs with a `.wav` sidecar (16 kHz mono; provision
+    once per machine via `./Scripts/provision-asr-fixtures.sh`, then the runner ignores the
+    `.raw.txt` for those pairs — attributed to the Parakeet identity); the hand-typed
+    `<name>.raw.txt` variant is the fallback when the engine is not provisioned.
 
     Run the scorer with `VOCCA_CLEANUP_EVAL=<pairs-dir>`: the first invocation prints the
     seeded ballot (pairs as A/B sides, never labelled); fill `answers.tsv` (the seed line is

@@ -1428,8 +1428,14 @@ set -euo pipefail
 # `parseAnswers`, the simulated `answers.tsv` carries tie/noPreference rows, and the second
 # invocation prints the verdict rows with the seed beside them through the same presentations.
 #
+# The wav-only discovery pin adds one (1756 -> 1757):
+# `testAWavOnlyCorpusWithoutRawTextsThrowsNoPairsFound` pins that a corpus of
+# `.wav + .clean.txt + .class.txt` triples with no `.raw.txt` loads zero pairs — discovery
+# keys on the `.raw.txt` suffix only, the rule the F2 procedure docs now state. Green on
+# arrival: it pins the loader's existing behaviour so a future discovery change breaks loudly.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1756
+MINIMUM_EXECUTED_TESTS=1757
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
