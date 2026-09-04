@@ -10,6 +10,21 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `unmeasured-numbers-sweep` F2 real-corpus run landed 2026-09-05 — the corpus
+requirement is met; the blind-judge requirement is not.** The founder recorded the 42
+scripted utterances (7 per class, 16 kHz mono, `~/Vocca/f2-pairs/`); the raw side of every
+pair is the real Parakeet engine transcript of the founder's voice. The ballot
+(seed `0xFAF5A4891B414AC4`) was answered by a **delegated, non-blind judge** (the sides are
+identifiable to the answerer), so the preference figure is recorded but does not satisfy the
+P1 gate's blind-judge requirement. Result: preference 100.0%, per-class 7/7 across all six
+classes, verdict `RECORDED, not gated` vs 0.8. No re-baseline; `ProvisionalCleanupTargets`
+untouched. What this is NOT, and must not be claimed: no *blind* human preference number
+exists — the gate's judge half takes one fresh ballot answered by the founder (~2 minutes)
+to close. The 2026-09-05 stand-in run (TTS corpus) remains recorded below as the mechanism
+demonstration it was.
+
+---
+
 **The `unmeasured-numbers-sweep` F2 stand-in run landed 2026-09-05 — recorded, not gated,
 and explicitly NOT the F2 number.** At the founder's request the F2 flow was exercised with
 a fully synthetic corpus: macOS `say` (Samantha) generated 42 utterances (7 per class,

@@ -1467,6 +1467,19 @@ step is the number the P1 gate is judged on (`ROADMAP.md:137`), recorded not gat
     invocation's record existed only inside the test's `PrinterSpy` and never reached stdout —
     the env-gated branch now prints the record (`CleanupEvalHarnessTests.swift`).
 
+    - **Real-corpus run (founder-voice, delegated judge), 2026-09-05:** the founder recorded
+      the 42 scripted utterances (7 per class, 16 kHz mono, `~/Vocca/f2-pairs/`) — the
+      **corpus requirement is met** (≥40, ≥5/class, founder-recorded, on-disk only). The raw
+      side is the real Parakeet engine transcript of each recording. The ballot
+      (seed `0xFAF5A4891B414AC4`) was answered by a **delegated, non-blind judge**, so the
+      figure records but does not satisfy the gate's blind-judge requirement. Result:
+      **preference = 100.0%**; per-class tallies: fillers 7, punctuation 7, capitalization 7,
+      numbers-units 7, dictionary 7, token-protection 7 — all cleaned-preferred; verdict line
+      printed `RECORDED, not gated` vs the provisional 0.8. Machine: M4 Max (arm64). **No
+      re-baseline; `ProvisionalCleanupTargets` untouched.** Closing the gate's judge half
+      takes one fresh ballot answered by the founder (~2 minutes); until then this number is
+      recorded, not claimed.
+
     - **Stand-in run (TTS corpus, delegated judge), 2026-09-05:** seed
       `0xBED1C5CBB7C57FBB`; **preference = 100.0%** (41 cleaned-preferred, 1 tie excluded —
       `token-protection-06`); per-class tallies: fillers 7, punctuation 7, capitalization 7,
