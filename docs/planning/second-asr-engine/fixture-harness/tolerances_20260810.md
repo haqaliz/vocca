@@ -55,9 +55,12 @@ record names.
 
 - Parakeet: provisional table as shipped at C2; passed its first real run (2026-08-09,
   `CLAUDE.md`) — the numbers have **not** been re-derived with margin/sign-off yet.
-- whisper.cpp: provisional table seeded from Parakeet's; **no real run exists yet** — the
-  manifest is uncommitted (pending the founder's artifact download) and the test skips
-  without `VOCCA_MODEL_DIR`.
+- whisper.cpp: provisional table seeded from Parakeet's; **measured on whisper's output for the
+  first time 2026-09-04** — both tiers (turbo + q5_0), all six fixtures, WER 0.0000 each,
+  cleared with margin, **no re-baseline**; the seeded tables stand. The full measured rows,
+  artifact digests and same-run companions (streamed cycle, short-audio, O(n²)) live in
+  `docs/planning/settings-live-controls/verification-smoke/tolerances_20260829.md` — the
+  current measured-values record.
 
 ## Measured values (first real runs, 2026-09-01)
 
@@ -65,7 +68,10 @@ record names.
 |--------|-----|---------|----------------|---------|------|
 | Parakeet | `ParakeetEngineWERTests` (SMOKE 18) | founder's machine (arm64, Apple Silicon) | provisioned `parakeet-tdt-0.6b-v3/1` (verified, `ManifestDigestVerificationTests` 8/8) | **All six fixtures within the provisional table** (clean/spike-clip/accented/noisy/sixty-second ≤ ceilings; two-hundred-ms ≤ one substitution), 14.2 s, `ModelHub.offlineMode` asserted, zero network | 2026-09-01 |
 | Parakeet (streaming) | `ParakeetStreamingWERTests` (SMOKE 124) | same | same | Exactly one non-empty final on the clean fixture, Parakeet-attributed, 0.224 s | 2026-09-01 |
-| whisper.cpp | `WhisperCppEngineWERTests` + streamed cycle (SMOKE 19) | — | **not provisioned** (GGUF artifacts absent on the machine) | **Not performed** — recorded with reason; the seeded-from-Parakeet table stays provisional | 2026-09-01 |
+| whisper.cpp (turbo) | `WhisperCppEngineWERTests` (SMOKE 19) | founder's machine (arm64, Apple Silicon) | provisioned `whisper-large-v3-turbo/1` — `ggml-large-v3-turbo.bin` sha256 `1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69` (1,624,555,275 B), manifest-verified (SMOKE 102) | **All six fixtures WER 0.0000** (two-hundred-ms: 1 substitution, "Test") — seeded table cleared with margin, no re-baseline; streamed cycle (10 partials, final == batch text-for-text), short-audio rows (no refusal), O(n²) 7.82× recorded | 2026-09-04 |
+| whisper.cpp (q5_0) | `WhisperCppEngineWERTests` (SMOKE 19) | same | provisioned `whisper-large-v3-turbo-q5_0/1` — `ggml-large-v3-turbo-q5_0.bin` sha256 `394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2` (574,041,195 B), manifest-verified (SMOKE 102) | **All six fixtures WER 0.0000** (two-hundred-ms: 1 substitution, "Test") — q5_0 measured against the turbo table, same verdict: cleared with margin, no re-baseline; O(n²) 8.09× recorded | 2026-09-04 |
 
-No margin/sign-off re-derivation was made in this run: the provisional Parakeet numbers
-cleared, so nothing moved; the whisper table stays provisional until the artifacts exist.
+No margin/sign-off re-derivation was made in either run: the provisional Parakeet numbers
+(2026-09-01) and the provisional whisper numbers (2026-09-04, both tiers) cleared with margin,
+so nothing moved — the seeded tables stand in the two test files. A re-baseline still lands
+there, in exactly those two places, per the procedure above.
