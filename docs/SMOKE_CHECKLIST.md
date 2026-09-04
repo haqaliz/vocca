@@ -429,12 +429,14 @@ therefore a first execution, not a re-check.
     never auto-retried; the selection the session runs under is the one current at its start.
 
 21. **The weights-license record sign-off.** `docs/planning/second-asr-engine/model-lifecycle/license_20260810.md`
-    is **DRAFT**: the whisper.cpp and ggml MIT entries were verified live from primary sources, but
-    the converted GGUF weights' own provenance is an open item for the founder's judgment
-    (accept the Hugging Face repo's `License: mit` declaration, or have OpenAI's primary source
-    fetched and recorded first). Nothing ships as licensed until the record is signed and
-    `THIRD_PARTY_NOTICES.md`'s weights entry drops its "pending founder sign-off" parenthetical —
-    in the same commit.
+    is **SIGNED 2026-09-04** (`unmeasured-numbers-sweep` ratification): the whisper.cpp and
+    ggml MIT entries were verified live from primary sources, and the converted GGUF
+    weights' provenance open item was resolved with the more rigorous option — OpenAI's
+    Whisper repository LICENSE fetched live from the primary source (MIT, Copyright (c)
+    2022 OpenAI) and recorded in the amendment, so both the distributor's `License: mit`
+    declaration and the upstream weights' primary-source license are on file.
+    `THIRD_PARTY_NOTICES.md`'s weights entry dropped its "pending founder sign-off"
+    parenthetical in the same commit as the signature.
 
 ### The injection ladder — real apps, which no CI run touches
 

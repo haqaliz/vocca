@@ -59,8 +59,9 @@ Warm-start in the same run: **0.350× (batch) / 0.337× (streaming)** — WITHIN
 
 **Margin and signature: the measured composite cleared the provisional 400/800 table well
 inside, so the proposed margin is 0 — the table is unchanged and `ProvisionalTolerances` is
-untouched. Founder ratification PENDING** — the founder signs the margin; this row records the
-measurement, not the signature.
+untouched. **SIGNED: aliz, 2026-09-04, margin 0** (ratified by the founder's blanket
+authorization for the `unmeasured-numbers-sweep` unit's remaining sign-off items). This
+row records the measurement and the signed margin.
 
 ## Where the bound lives
 

@@ -10,6 +10,32 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `unmeasured-numbers-sweep` ratification landed 2026-09-04 — the unit's three sign-off
+items are signed, recorded under the founder's blanket authorization for the unit's
+remaining items; F2 is the one item that cannot be executed by the sweep (it needs the
+founder's voice) and stays open with the corpus scaffold ready.** The three signed items:
+
+- **Latency margin: SIGNED, margin 0.** The composite (total p50 113–115 ms / p95 358–365 ms,
+  60 s substitution stated) cleared the provisional 400/800 table well inside, so the table is
+  unchanged and `ProvisionalTolerances` is untouched — signed row in
+  `tolerances_20260825.md`.
+- **Weights license record: SIGNED (SMOKE 21 executed).** The open item was resolved with the
+  more rigorous option — OpenAI's Whisper repository LICENSE fetched live from the primary
+  source (MIT, Copyright (c) 2022 OpenAI) and recorded in `license_20260810.md`'s amendment,
+  alongside the already-recorded HF `License: mit` declaration; `THIRD_PARTY_NOTICES.md`'s
+  weights entry dropped its "(pending founder sign-off)" parenthetical in the same commit.
+- **Engine-picker copy decision: KEPT AS-IS, measurement-backed.** whisper's real WER is
+  0.0000 across all six fixtures on both tiers (the fixture set is TTS-stand-in clean — the
+  F2 caveat applies), which supports the shipped "broader language and accuracy coverage"
+  tradeoff copy (`CAPABILITY_ROADMAP.md:89`); no copy change was needed, and the decision is
+  recorded rather than implied.
+
+**What this ratification is NOT, and must not be claimed:** the F2 cleanup eval is still not
+run — no preference number exists, the P1 gate's ≥80% leg is still provisional, and nothing
+here changes that. No gate passes as a result of this ratification.
+
+---
+
 **The `unmeasured-numbers-sweep` unit landed 2026-09-04 — the four measurement aspects'
 numbers, recorded into the single surfaces the pre-PH pass and the P2 gate read.** The unit
 measured whisper's WER for the first time ever (both tiers, all six fixtures), verified both
