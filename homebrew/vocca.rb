@@ -32,7 +32,7 @@
 # All of this goes away the day notarization lands. See
 # docs/planning/notarization/runbook.md step 6 for everything to delete then.
 cask "vocca" do
-  version "0.2.0"
+  version "0.2.1"
   sha256 "d0ac35402ff50e38d2779910b82d2c6292a47e91f1247f84aff233997722be1f"
 
   url "https://github.com/haqaliz/vocca/releases/download/v#{version}/Vocca-v#{version}.dmg"
