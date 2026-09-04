@@ -581,12 +581,9 @@ final class CleanupEvalHarnessTests: XCTestCase {
                     + "docs/SMOKE_CHECKLIST.md step 73")
             return
         }
-        guard FileManager.default.fileExists(atPath: answersURL.path) else {
-            throw XCTSkip(
-                "VOCCA_CLEANUP_EVAL is set but answers.tsv is missing at \(answersURL.path) — "
-                    + "the first invocation prints the ballot")
-        }
 
+        // A ballot that cannot be scored must not print: a wav sidecar without the engine is a
+        // hard fail, ordered before the first-invocation branch.
         let hasWavs = try FileManager.default.contentsOfDirectory(
             at: pairsDirectory, includingPropertiesForKeys: nil)
             .contains { $0.pathExtension == "wav" }
@@ -595,6 +592,16 @@ final class CleanupEvalHarnessTests: XCTestCase {
                 "an F2 pair carries a .wav sidecar but VOCCA_MODEL_DIR is unset — provision "
                     + "the engine via Scripts/provision-asr-fixtures.sh first")
             return
+        }
+
+        guard FileManager.default.fileExists(atPath: answersURL.path) else {
+            // The first invocation: print the seeded ballot. A corpus that cannot measure must
+            // fail loudly rather than print a ballot for it.
+            let pairs = try CleanupPairSuite.loadPairs(from: pairsDirectory)
+            CleanupEvalRun.runFirstInvocation(pairs: pairs)
+            throw XCTSkip(
+                "ballot printed at \(pairsDirectory.path) — answer answers.tsv per SMOKE step "
+                    + "73, then re-run")
         }
 
         var pairs = try CleanupPairSuite.loadPairs(from: pairsDirectory)
@@ -954,6 +961,19 @@ enum CleanupEvalRun {
         return (seed, answers)
     }
 
+    /// The env-gated flow's first invocation: a fresh seed, then the ballot printed through
+    /// the injected printer — the seed the judge's `answers.tsv` first line must match
+    /// (`seed\t<hex>`, the `=` → `\t` substitution). No file IO — the founder authors
+    /// `answers.tsv` by hand.
+    static func runFirstInvocation(
+        pairs: [CleanupPair],
+        printer: @escaping @Sendable (String) -> Void = { print($0) }
+    ) -> UInt64 {
+        let seed = UInt64.random(in: .min ... .max)
+        printBallot(pairs: pairs, seed: seed, printer: printer)
+        return seed
+    }
+
     /// Prints the founder's reading copy: the seed at the top, then every pair in the seeded
     /// presentation order as `A:`/`B:` texts with its class tag and a blank answer column. The
     /// judge answers `left|right|tie|noPreference` per pair — never seeing labels.
@@ -962,7 +982,7 @@ enum CleanupEvalRun {
         seed: UInt64,
         printer: @escaping @Sendable (String) -> Void = { print($0) }
     ) {
-        printer("seed=0x" + String(seed, radix: 16, uppercase: true))
+        printer("seed=" + String(seed, radix: 16, uppercase: true))
         let names = pairs.map(\.name)
         let presentations = presentations(for: names, seed: seed)
         for name in CleanupPairwiseScorer.presentedOrder(names, seed: seed) {

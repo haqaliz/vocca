@@ -1421,8 +1421,15 @@ set -euo pipefail
 # the empty trace — step 92's `attempted: []` artifact flowing through the seam, not just the
 # formatter.
 #
+# The f2-defect-fixes flow test adds one (1755 -> 1756):
+# `testTheFirstInvocationPrintsASeededBallotAndTheSecondPrintsVerdicts` drives the env-gated
+# two-invocation flow headlessly over a scratch stub corpus at the vacuity floor — the first
+# invocation prints a seeded, side-blind ballot whose bare-hex seed round-trips through
+# `parseAnswers`, the simulated `answers.tsv` carries tie/noPreference rows, and the second
+# invocation prints the verdict rows with the seed beside them through the same presentations.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1755
+MINIMUM_EXECUTED_TESTS=1756
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
