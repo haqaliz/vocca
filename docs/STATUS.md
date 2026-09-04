@@ -10,6 +10,82 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `unmeasured-numbers-sweep` unit landed 2026-09-04 — the four measurement aspects'
+numbers, recorded into the single surfaces the pre-PH pass and the P2 gate read.** The unit
+measured whisper's WER for the first time ever (both tiers, all six fixtures), verified both
+whisper manifests against real bytes (closing the provenance gap the settings-live-controls
+entry records), verified the streamed cycle's by-construction claim on real audio, measured
+the short-audio rows and the O(n²) cost row, and completed the latency benchmark's composite
+row (step 72). All recorded, never gated — no gate passes as a result of this unit.
+
+**What shipped (recorded, never gated):**
+
+- **SMOKE 102 — manifest verification, both whisper tiers: PASS.** turbo
+  (`ggml-large-v3-turbo.bin` sha256
+  `1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69`, 1,624,555,275 B) and
+  q5_0 (`ggml-large-v3-turbo-q5_0.bin` sha256
+  `394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2`, 574,041,195 B), both
+  `MANIFEST-VERIFY` against the provisioned bytes. The bytes came from `ggerganov/whisper.cpp`
+  (Hugging Face): the provenance gap is closed — digests verified against the source bytes
+  before provisioning.
+- **SMOKE 19 — whisper's first real WER: 0.0000 on all six fixtures, on BOTH tiers** (turbo
+  and q5_0, each through the same six fixtures: clean / spike-clip / accented / noisy /
+  sixty-second as WER ceilings; two-hundred-ms as the substitution count — the 200 ms
+  transcript "Test" satisfies at-most-one). Tolerances met with margin — **no re-baseline; the
+  seeded tables stand** in both `WhisperCppEngineWERTests.swift` and
+  `ParakeetEngineWERTests.swift`. Attribution `whisper-large-v3-turbo` on both tiers.
+- **The streamed cycle, verified on real audio for the first time:** clean fixture at 1 s
+  chunks → **10 partials**; streamed final == batch **text-for-text: TRUE** — the
+  by-construction claim measured, no longer structural.
+- **Short-audio rows: whisper does NOT refuse.** 0.2 s → "the"; 0.5 s → "a quick break.";
+  1 s → "a quick brown fox" — identical through `transcribe` and `stream`; no
+  refusal-and-throw defect; the sub-minimum constant untouched.
+- **The O(n²) cost row (recorded, never gated):** turbo batch 0.734 s vs streamed total
+  5.743 s (7.82×, 10 partials); q5_0 batch 0.776 s vs 6.282 s (8.09×).
+- **SMOKE 71-72 — the latency composite, both variants** (`parakeet-tdt-0.6b-v3`, version 1,
+  suppression 0 (NOT suppressed) throughout, founder's machine (arm64, Apple Silicon),
+  2026-09-04): **batch total p50 113 / p95 358** (captureClose 3/3, asr 103/348, inject 7/7);
+  **streaming total p50 115 / p95 365** (captureClose 3/3, asr 105/355, inject 7/7); cleanup
+  `notPresent` (nil-cleanup pipeline, named not dropped). **The composite measures the 60 s
+  fixture — the suite has no 10-second clip, and the substitution is stated beside the
+  numbers.** Warm-start 0.350×/0.337× (within the 1.2× bound); re-warm 83/85 ms. Composite
+  well under the provisional 400/800 table — `ProvisionalTolerances` untouched; the measured
+  row with the proposed margin (0 — table unchanged) is recorded in
+  `tolerances_20260825.md` with **founder ratification pending**.
+- **Observation, recorded:** `whisper_init_state: failed to load Core ML model from
+  ggml-large-v3-turbo-encoder.mlmodelc` — whisper runs Metal/CPU; the ANE encoder is not part
+  of the shipped manifest (affects latency, not accuracy).
+- **Test floor 1755 → 1758** (f2-defect-fixes' flow test +1, the wav-only discovery pin +1,
+  latency-record's composite-row test +1). All runs on the founder's machine, model store
+  `~/Library/Application Support/Vocca/models`, 2026-09-04.
+
+**What this unit is NOT, and must not be claimed:**
+
+- **F2 (SMOKE 73) was not run.** The corpus is not recorded — the founder's session is
+  pending; there is **no preference number**, and the P1 gate's ≥ 80% stays provisional. No
+  stand-in-corpus number is claimed as an F2 number.
+- **No gate passed.** The P2 gate's three legs: the latency leg is now measured, **not
+  adjudicated**; the matrix leg is `injection-matrix-completion`'s (1 of 18 rows, FMS not
+  closeable); the external-users leg needs a release. The P1 ≥ 80% and the P0 7-day log stay
+  unpassed.
+- **The equivalence NO-GO stands.** The latency-win claim stays blocked regardless of the
+  composite number; the speculative feed's record is unchanged.
+- **No accuracy claim beyond the six measured fixtures.** The fixtures are TTS stand-ins
+  (`Tests/Fixtures/FIXTURES.md` labels them); the numbers are about the founder's machine and
+  those six clips. The engine-picker copy decision is **surfaced, not signed** — the taglines
+  stay the spec's own words (`EnginePickerCopy`), the status lines stay number-free, and the
+  measured rows sit in `tolerances_20260829.md` for the founder's disposition; no
+  language-coverage claim follows from this run either way.
+- **Step 21 (the weights-license sign-off) is still pending.** The manifest provenance is
+  closed, but the license record is not signed and `THIRD_PARTY_NOTICES.md` keeps its
+  parenthetical.
+- **The product-path gestures (steps 95/96/103's Speech-tab half) were not executed.**
+  Whisper's first real transcriptions ever happened through the WER harness, engine-attributed;
+  dictating through the Speech tab into TextEdit, and the selection surviving relaunch, are not
+  recorded.
+
+---
+
 **The `release-distribution` unit landed 2026-09-03 — the first installable release
 (`v0.2.0`) exists, and the notarization half of the runbook is recorded **blocked — not
 purchased**.** The DMG packaging mechanism had never run against Vocca's own bundle ("The
