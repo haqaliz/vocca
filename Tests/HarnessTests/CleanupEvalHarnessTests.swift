@@ -680,6 +680,11 @@ final class CleanupEvalHarnessTests: XCTestCase {
         let report = try CleanupEvalRun.runReal(
             pairs: pairs, dictionary: dictionary, answers: parsed.answers,
             seed: parsed.seed, printer: { spy.append($0) })
+        // SMOKE 73's second-invocation deliverable is the *printed* record — surfaced by the
+        // 2026-09-05 stand-in run as missing (the ballot hole's sibling: the record existed
+        // only inside the spy). The record is printed after the assertions so the spy's
+        // guarantees hold and the run's deliverable reaches the terminal.
+        spy.lines.forEach { print($0) }
 
         XCTAssertFalse(spy.lines.isEmpty, "the run must print its record")
         XCTAssertEqual(
