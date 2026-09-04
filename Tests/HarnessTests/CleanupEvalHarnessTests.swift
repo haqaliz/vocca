@@ -407,6 +407,131 @@ final class CleanupEvalHarnessTests: XCTestCase {
             "the run must print the recorded-not-gated comparison line, got: \(spy.lines)")
     }
 
+    /// The env-gated two-invocation flow, driven headlessly over a scratch stub corpus at the
+    /// vacuity floor (the B2 stand-in pattern — no founder recording, no env var): the first
+    /// invocation prints a seeded, side-blind ballot whose seed round-trips through
+    /// `answers.tsv`'s first line; the second invocation prints the verdict rows through the
+    /// same presentations. M4a's acceptance, headless.
+    func testTheFirstInvocationPrintsASeededBallotAndTheSecondPrintsVerdicts() throws {
+        let root = try makeScratchRoot()
+        for index in 0..<CleanupPairSuite.minimumMeaningfulCorpusSize {
+            try writeTriple(
+                "pair-\(String(format: "%02d", index))",
+                raw: "um raw \(index)", clean: "Clean \(index).",
+                className: index % 2 == 0 ? .fillers : .punctuation, in: root)
+        }
+        let pairs = try CleanupPairSuite.loadPairs(from: root)
+
+        // First invocation: the seeded ballot prints through the injected printer.
+        let ballot = PrinterSpy()
+        let seed = try CleanupEvalRun.runFirstInvocation(
+            pairs: pairs, printer: { ballot.append($0) })
+
+        // The printed seed is the `parseAnswers` spelling — bare hex after `seed=`. Swift's
+        // radix parser rejects an `0x` prefix, so the bare spelling is load-bearing.
+        let seedLine = try XCTUnwrap(ballot.lines.first, "the ballot must open with the seed line")
+        XCTAssertTrue(seedLine.hasPrefix("seed="), "the seed line's spelling, got: \(seedLine)")
+        let printedHex = String(seedLine.dropFirst("seed=".count))
+        XCTAssertNotNil(UInt64(printedHex, radix: 16), "the printed seed must parse as hex")
+        XCTAssertNil(UInt64("0x1A", radix: 16), "the parser rejects an 0x prefix — the bare spelling is load-bearing")
+        XCTAssertEqual(seed, UInt64(printedHex, radix: 16), "the returned seed must be the printed one")
+        XCTAssertNotEqual(seed, CleanupEvalRun.headlessSeed, "the real ballot must not reuse the stand-in's fixed seed")
+
+        // The exact ballot grammar — the side-blindness pin: one seed line, then per pair
+        // exactly the shapes `## <name> [<class>]`, `A: <text>`, `B: <text>`, `answer: ` and
+        // nothing else — no label, no side-identifying column, so a future "which side is
+        // cleaned" line breaks this test.
+        XCTAssertEqual(
+            ballot.lines.count, 1 + 4 * pairs.count,
+            "the ballot must hold the seed line and exactly four lines per pair, got: \(ballot.lines)")
+        let byName = Dictionary(uniqueKeysWithValues: pairs.map { ($0.name, $0) })
+        let presentations = CleanupEvalRun.presentations(for: pairs.map(\.name), seed: seed)
+        let presentationByName = Dictionary(
+            uniqueKeysWithValues: pairs.enumerated().map {
+                ($0.element.name, presentations[$0.offset])
+            })
+        for (offset, name) in CleanupPairwiseScorer.presentedOrder(pairs.map(\.name), seed: seed)
+            .enumerated()
+        {
+            let pair = byName[name]!
+            let block = Array(ballot.lines[(offset * 4 + 1)..<(offset * 4 + 5)])
+            XCTAssertEqual(block[0], "## \(pair.name) [\(pair.className.rawValue)]")
+            let rawFirst = presentationByName[name] == .rawFirst
+            XCTAssertEqual(block[1], "A: \(rawFirst ? pair.raw : pair.clean)")
+            XCTAssertEqual(block[2], "B: \(rawFirst ? pair.clean : pair.raw)")
+            XCTAssertEqual(block[3], "answer: ")
+        }
+
+        // The founder's file, simulated: `seed\t<hex>` then one answer row per pair — a mixed
+        // set carrying tie and noPreference rows (they round-trip and the denominator rule is
+        // the scorer's, already pinned).
+        var answerLines = ["seed\t" + printedHex]
+        for (index, pair) in pairs.enumerated() {
+            let word: String
+            switch index % 4 {
+            case 0: word = "left"
+            case 1: word = "noPreference"
+            case 2: word = "right"
+            default: word = "tie"
+            }
+            answerLines.append("\(pair.name)\t\(word)")
+        }
+        let answersURL = root.appendingPathComponent("answers.tsv")
+        try Data(answerLines.joined(separator: "\n").utf8).write(to: answersURL)
+
+        // Second invocation: the same seed re-derives the same presentations, and the verdicts
+        // map through them.
+        let parsed = try CleanupEvalRun.parseAnswers(answersURL)
+        XCTAssertEqual(parsed.seed, seed, "the answers file's seed must match the printed seed")
+
+        let record = PrinterSpy()
+        let report = try CleanupEvalRun.runReal(
+            pairs: pairs, dictionary: [], answers: parsed.answers, seed: parsed.seed,
+            printer: { record.append($0) })
+
+        for (index, pair) in pairs.enumerated() {
+            let expected = CleanupPairwiseScorer.verdict(
+                judgeAnswer: parsed.answers[pair.name]!, presentation: presentations[index])
+            XCTAssertEqual(
+                report.verdicts[index].preference, expected,
+                "\(pair.name): the verdict must follow the comparator's mapping for the seed")
+        }
+        XCTAssertEqual(
+            report.percentage,
+            try CleanupPairwiseScorer.preferencePercentage(report.verdicts),
+            "the report carries the scorer's exact arithmetic")
+
+        let seedHex = "0x" + String(seed, radix: 16, uppercase: true)
+        let verdictRows = record.lines.filter { $0.contains("\t") && $0.contains("seed=") }
+        XCTAssertEqual(verdictRows.count, pairs.count, "one verdict row per pair")
+        for pair in pairs {
+            XCTAssertTrue(
+                verdictRows.contains {
+                    $0.hasPrefix("\(pair.name)\t") && $0.contains("seed=\(seedHex)")
+                },
+                "the seed must be printed beside every verdict row, got: \(record.lines)")
+        }
+        XCTAssertTrue(
+            record.lines.contains {
+                $0.hasPrefix("preference=") && $0.contains("%")
+            },
+            "the record must carry the preference percentage, got: \(record.lines)")
+        XCTAssertTrue(
+            record.lines.contains { $0.contains("\ttie\t") },
+            "the tie verdict rows must appear, got: \(record.lines)")
+        XCTAssertTrue(
+            record.lines.contains { $0.contains("\tnoPreference\t") },
+            "the noPreference verdict rows must appear, got: \(record.lines)")
+        for className in CleanupPairClass.allCases {
+            XCTAssertTrue(
+                record.lines.contains { $0.hasPrefix("\(className.rawValue): ") },
+                "the record must carry the \(className.rawValue) class tally, got: \(record.lines)")
+        }
+        XCTAssertTrue(
+            record.lines.contains { $0.contains("RECORDED") },
+            "the run must print the recorded-not-gated comparison line, got: \(record.lines)")
+    }
+
     /// An answers file that cannot score everything must not read green: a missing pair's
     /// answer and an answer naming a pair the corpus does not hold both fail loudly, listing
     /// the gap.
