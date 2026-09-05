@@ -182,10 +182,11 @@ log_run_row() {
     printf '%s\n' "$line" >> "$RUN_LOG"
 }
 
-# The byte-compare normalization (2026-09-05, the control-row defect): the engine + rules
-# pipeline injects a capitalized, terminal-punctuated transcript, so the compare case-folds
-# and strips trailing punctuation on both sides — a real dictation can pass, and a genuinely
-# different transcript still fails. Pinned by the self-check (phrase compare).
+# The byte-compare normalization (2026-09-05, the control-row defect + the Xcode-row
+# refinement): the engine + rules pipeline injects a capitalized, terminal-punctuated
+# transcript, and editors/terminals hold pre-existing content around it — so the compare
+# case-folds, strips terminal punctuation, and accepts the normalized capture CONTAINING
+# the normalized phrase. Pinned by the self-check (phrase compare).
 normalize() {
     printf '%s' "$1" \
         | tr '[:upper:]' '[:lower:]' \
@@ -193,7 +194,10 @@ normalize() {
 }
 
 phrase_matches() {
-    [ "$(normalize "$1")" = "$(normalize "$PHRASE")" ]
+    case "$(normalize "$1")" in
+        *"$(normalize "$PHRASE")"*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -344,6 +348,16 @@ self_check() {
     if phrase_matches "the quick brown fox jumps over the lazy cat"; then
         printf 'FAIL: the byte-compare normalization accepts a genuinely different\n' >&2
         printf '      transcript — the compare must still catch real mismatches (phrase compare).\n' >&2
+        failures=$((failures + 1))
+    fi
+    # The content-bearing-field case (2026-09-05, the Xcode row): editors and terminals hold
+    # pre-existing content, so the select-all capture is "header + phrase" or "prompt +
+    # phrase" — the injection landed but equality can never pass. The compare must accept a
+    # capture that CONTAINS the normalized phrase.
+    if ! phrase_matches "// Copyright 2026 The Vocca Authors"$'\n'"//The quick brown fox jumps over the lazy dog."; then
+        printf 'FAIL: the byte-compare rejects a capture that holds the phrase among\n' >&2
+        printf '      pre-existing content (editor/terminal rows) — the compare must accept\n' >&2
+        printf '      a normalized containment match (phrase compare).\n' >&2
         failures=$((failures + 1))
     fi
 
