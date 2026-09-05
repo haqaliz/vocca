@@ -10,6 +10,55 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The injection matrix resumed 2026-09-05 and stopped again at 10 of 20 deliverable rows —
+6 firmly recorded, 4 voided, and one harness defect found and fixed test-first.** The run
+continued on v0.2.1 after the `injection-matrix-completion` unit's early conclusion.
+**Expected rung landed (4):** TextEdit `.accessibility`; Xcode, Telegram, Chrome
+`.clipboardPaste`. **Delivered but missed the expected rung (2):** Notes and Mail — bytes
+matched; `.accessibility` is demoted with a re-probe window to 2026-09-10, so the ladder
+fell through to clipboard. That is the demotion-honored outcome and is recorded as a miss,
+not a defect. **Voided (4), each reason named:** Messages and Firefox failed the
+byte-compare twice each, adjudicated to a **harness** defect rather than to ASR or
+injection — `open -a` returns before a cold-launched application is up, and the activation
+that followed it was `|| true`, so the select-all/copy captured whatever was frontmost.
+Both rows were cold-launched; every row that passed that hour was already running. The
+display-name hypothesis was tested and **rejected**, not assumed: with both applications
+running, `set frontmost of process "Firefox"` returns 0 even though Firefox's System Events
+process name is lowercase `firefox`. Terminal and Warp are voided as **indistinguishable**
+rather than as failures — the harness runs inside a terminal, so for the terminal rows the
+capture can be its own scrollback, which holds the phrase the script just printed; under
+the containment semantics of `386f433` that satisfies the compare, so a pass cannot be told
+from a self-capture. **FMS not computable** (4 of 20 landed the expected rung, on 6 firmly
+recorded rows), and the ≥19/20 bar is **structurally unreachable on this machine** — 3
+permanent skips (Ghostty, IntelliJ, Zed, no same-class swap) put the ceiling at 17/20. A
+recorded outcome, not a failure.
+
+**The defect fix (`1985da6`), test-first:** activation now keys on the bundle identifier
+`--verify-bundle-ids` confirms against a real `Info.plist` rather than the display name
+nothing checks, polls up to 10 s for the row's application to actually come frontmost, and
+**VOIDs — never fails** — a capture taken from anything else. Pins go RED against the prior
+behavior (24 failures, exit 1) and GREEN after; bundle-id activation and the frontmost read
+were live-verified against a running application with focus restored. The failure this
+forbids is the dangerous one: since `386f433` gave the compare containment semantics, a
+capture from the harness's own terminal can *satisfy* it and record a PASS for a row nothing
+was injected into. Floor 1758 → 1760 tests, 0 failures.
+
+**What this is NOT, and must not be claimed:**
+- **No gate passes.** The P2 gate needs latency targets **and** ≥95% matrix **and** ≥5
+  external users; the matrix leg cannot reach its bar on this machine and the external-users
+  leg has not begun. The P0 gate is also unmet — its 7 consecutive days of founder dictation
+  have not started accumulating.
+- **No injection-success percentage may be quoted.** 4 of 20 rows landing their expected rung
+  is not a success rate; 7 deliverable rows have never run and step 92 is unexecuted.
+- **Terminal and Warp are not passes.** They are voids pending a re-run driven from a terminal
+  that is not the row's target. Asserting a pass whose capture provenance is unknown is the
+  same error as asserting a byte mismatch without knowing the selection was made — this
+  repository's own first preamble rule, applied symmetrically.
+- **The remaining rows are unrun, not failing.** VSCode, Teams, Discord, ChatGPT, Obsidian,
+  Safari and GoogleDocs have no result of any kind.
+
+---
+
 **The `unmeasured-numbers-sweep` F2 real-corpus run landed 2026-09-05 — the corpus
 requirement is met; the blind-judge requirement is not.** The founder recorded the 42
 scripted utterances (7 per class, 16 kHz mono, `~/Vocca/f2-pairs/`); the raw side of every
