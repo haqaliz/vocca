@@ -182,6 +182,20 @@ log_run_row() {
     printf '%s\n' "$line" >> "$RUN_LOG"
 }
 
+# The byte-compare normalization (2026-09-05, the control-row defect): the engine + rules
+# pipeline injects a capitalized, terminal-punctuated transcript, so the compare case-folds
+# and strips trailing punctuation on both sides — a real dictation can pass, and a genuinely
+# different transcript still fails. Pinned by the self-check (phrase compare).
+normalize() {
+    printf '%s' "$1" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -e 's/[[:punct:]]*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+phrase_matches() {
+    [ "$(normalize "$1")" = "$(normalize "$PHRASE")" ]
+}
+
 # ---------------------------------------------------------------------------
 # --self-check: everything about this harness a machine can verify.
 #
@@ -315,6 +329,24 @@ self_check() {
         failures=$((failures + 1))
     fi
 
+    # The byte-compare normalization pin (2026-09-05): the engine + rules pipeline injects a
+    # capitalized, terminal-punctuated transcript — "The quick brown fox jumps over the lazy
+    # dog." — so the raw byte compare can never pass a real dictation. The control-row run
+    # surfaced this after `session opened` + `delivery rung=clipboardPaste` were both in the
+    # log yet every row failed `bytes_matched: false`. `phrase_matches` must treat the
+    # punctuated form as matching and a genuinely different transcript as a mismatch.
+    if ! phrase_matches "The quick brown fox jumps over the lazy dog."; then
+        printf 'FAIL: the byte-compare normalization does not accept the pipeline'\''s\n' >&2
+        printf '      punctuated transcript. Every real dictation fails bytes — the compare\n' >&2
+        printf '      must case-fold and strip terminal punctuation (phrase compare).\n' >&2
+        failures=$((failures + 1))
+    fi
+    if phrase_matches "the quick brown fox jumps over the lazy cat"; then
+        printf 'FAIL: the byte-compare normalization accepts a genuinely different\n' >&2
+        printf '      transcript — the compare must still catch real mismatches (phrase compare).\n' >&2
+        failures=$((failures + 1))
+    fi
+
     if [ "$failures" -ne 0 ]; then
         printf '\n%d self-check failure(s).\n' "$failures" >&2
         return 1
@@ -322,6 +354,7 @@ self_check() {
 
     printf 'self-check passed: %d rows, %d deliverable, all named in the checklist.\n' \
         "${#ROWS[@]}" "$deliverable"
+    printf 'byte-compare normalization active (phrase compare).\n'
     printf 'first-method-success bar: %d of %d deliverable rows (>=95%%).\n' \
         "$(( (deliverable * 95 + 99) / 100 ))" "$deliverable"
 }
@@ -465,7 +498,7 @@ run_row() {
         return 3
     fi
 
-    if [ "$captured" != "$PHRASE" ]; then
+    if ! phrase_matches "$captured"; then
         printf 'FAIL (bytes): the field does not hold the transcript.\n'
         printf '  expected: %s\n' "$PHRASE"
         printf '  captured: %s\n' "$captured"

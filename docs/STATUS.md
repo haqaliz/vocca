@@ -45,6 +45,33 @@ requirement is not closed.
 
 ---
 
+**The `injection-matrix-completion` unit concluded 2026-09-05 — the control row ran with the
+evidence chain proven live end to end, one first-execution defect was found and fixed
+test-first, and the unit closed early by founder decision with the FMS number still
+unmeasured.** The Notes control row re-ran on the v0.2.1 build: `session opened` +
+`delivery target=com.apple.Notes rung=clipboardPaste attempted: [clipboardPaste]
+verified=false` in the unified log (the live check the prior unit never got), run-log line
+on disk, `strategies.json` unchanged. **The defect the run surfaced: the harness's
+byte-compare compared raw bytes against the lowercase unpunctuated `PHRASE`
+(`injection-matrix.sh:66`), which the engine + rules pipeline's punctuated transcript ("The
+quick brown fox jumps over the lazy dog.") can never match — every prior `bytes_matched:
+false` was the harness, not the injection.** Fixed test-first: `phrase_matches` (case-fold +
+terminal-punctuation normalization), pinned by the self-check, which CI drives via the new
+`MatrixHarnessSelfCheckTests` (floor 1758 → 1759). With the fix the control row recorded
+`bytes_matched: true` — the first passing byte-compare in matrix history — while still
+missing first-method-success (log named `clipboardPaste`, expected `accessibility`; the
+demotion honored, re-probe window 2026-09-10). Also handled along the way: the v0.2.1 cask
+install surfaced the recorded TCC re-prompt (grants re-issued, remove-and-re-add binding the
+new signature), and the unified-log evidence vocabulary was verified live for the first time
+(step-92's `attempted: []` spelling is corroborated by the `attempted: [clipboardPaste]`
+line's shape). **What this unit is NOT, and must not be claimed: the FMS number does not
+exist — 1 of 20 deliverable rows ran and missed its expected rung; the remaining 16 rows +
+step 92 were not executed (founder decision); no matrix number, no gate pass, no
+injection-reliability claim beyond the single control row.** The run is resumable at any
+time: the harness + evidence chain are shipped and each row is ~30 s of dictation.
+
+---
+
 **The `unmeasured-numbers-sweep` ratification landed 2026-09-04 — the unit's three sign-off
 items are signed, recorded under the founder's blanket authorization for the unit's
 remaining items; F2 is the one item that cannot be executed by the sweep (it needs the

@@ -1,66 +1,53 @@
-# Card: feat/unmeasured-numbers-sweep
+# Card: feat/injection-matrix-completion
 
-> Inline brief — no GitHub issue exists. Source: `vocca-next` handoff, 2026-09-04.
+> Inline brief — no GitHub issue exists. Source: `vocca-next` handoff + founder's pre-PH
+> milestone ordering, 2026-09-04/05.
 
 ## Brief
 
-Execute the remaining env-gated real-run smoke steps and record the first measured
-numbers through the founder-signed re-baseline procedure. This is the unexecuted
-M3/M4 remainder of the landed `p2-gate-measurement` unit (merged 2026-09-01) —
-the three "still unmeasured" surfaces named in `CLAUDE.md`: whisper's WER (GGUF
-absent), F2 cleanup eval (not run), and the perceived-latency gate number.
+Complete the tracked injection-matrix run — C8's measurement half, the founder's **last
+milestone before the Product Hunt publish**. The evidence chain is real (the
+`injection-matrix-record` unit landed it: `MatrixEvidence` lines, the ladder's delivery
+seam, `Scripts/injection-matrix.sh`'s per-row JSONL run log, `strategies.json` demotions),
+and the tracked table's row reads **not closeable** (`SMOKE_CHECKLIST.md:1906`): run 2
+stopped at **1 of 18 deliverable rows** (Notes, byte mismatch, accessibility rung demoted
+with a fresh re-probe window), with **17 rows + step 92 (Secure Input refusals) remaining**.
+FMS = deliverable rows whose expected rung landed / deliverable rows run, the ≥95% bar
+(`≥19/20`) is the P2 gate's matrix leg (`ROADMAP.md:176-181`), recorded never gated.
 
-Three surfaces, all env-gated, executed by nothing in CI (visible `XCTSkip` is the
-CI state; the founder's machine is the only execution environment):
-
-1. **Whisper WER + streamed cycle** (`SMOKE_CHECKLIST.md` step 19) — real WER,
-   streamed-final == batch text-for-text, short-audio rows (0.2 s / 0.5 s / 1 s
-   through both `transcribe` and `stream`), and the O(n²) cost row. Needs GGUF
-   provisioning first via `Scripts/provision-asr-fixtures.sh`; manifest
-   verification (step 102) exercises the whisper manifests' provenance-less
-   digests against provisioned bytes for the first time (`p2-gate-measurement/prd.md`
-   R3/S2).
-2. **F2 cleanup corpus + eval** (step 73) — ≥40 founder-recorded utterances, ≥5
-   per class across the six `Tests/CleanupPairs/` classes, saved as
-   `<name>.wav / .clean.txt / .class.txt` + `dictionary.json` under `~/Vocca/f2-pairs/`
-   (on-disk only, never committed). First `VOCCA_CLEANUP_EVAL` run produces the
-   ballot; the founder's blind preference answers fill `answers.tsv`; the verdict is
-   recorded against `ProvisionalCleanupTargets.preferenceMinimum` (0.80). The
-   recording session is the long pole — start it first, overlap everything else.
-3. **Latency record** (steps 71-72) — verify which per-span rows
-   `p2-gate-measurement` already recorded, then record the perceived-latency
-   composite (p50 ≤ 400 ms / p95 ≤ 800 ms) against the provisional table, measured
-   over the 60 s fixture with the substitution stated beside the numbers
-   (`SMOKE_CHECKLIST.md:1350-1358`), suppression state `not-suppressed` beside every
-   row.
+The unit executes the remaining rows on the founder's machine (the harness + evidence
+chain are shipped), adjudicates byte-compare mismatches (the Notes failure was an
+ASR-transcription matter — step 19's issue — not an injection failure; adjudicate, don't
+chase), fixes test-first any defect the run surfaces (the previous run surfaced three: no
+info-level logging, `strategies.json` write-on-change-only, no harness run log), and
+records the FMS tally in the tracked table. The live unified-log check was declined once —
+the file chain is load-bearing.
 
 Acceptance:
 
-- Every run's printed rows recorded in `SMOKE_CHECKLIST.md` beside its step number;
-  visible skips lifted (a skip counts as executed only when the row says so).
-- Every re-baseline follows measure → margin (founder decision) → founder-signed row
-  in the matching `tolerances_*.md` → land in exactly one file; the single-source
-  scans stay green. Never silently relaxed.
-- The F2 corpus is complete (≥40 pairs, ≥5 per class), never in the repo, and the
-  ballot preserves blindness (the judge never sees labels).
-- Every defect the runs surface fixes test-first: RED→GREEN, suite floor 1755 never
-  drops (`Scripts/test-with-floor.sh`); a fix needing a PRD-level decision or a
-  seam-contract change escalates as its own card instead.
-- `docs/STATUS.md` gains the unit's entry; `SMOKE_CHECKLIST.md` tracked tables and
-  `CLAUDE.md` front door synced. No gate passes as a result of this unit — every
-  number records, nothing gates.
+- Every remaining deliverable row (17) + step 92 executed and recorded with a file-based
+  artifact (harness run-log JSONL line + `strategies.json` where a strategy changed).
+- FMS computed over the deliverable rows actually run, with skips/voids named and the
+  denominator discipline applied; the tracked table gains a fully-measured row for v0.2.1.
+- Byte-compare mismatches adjudicated (ASR-transcription vs injection), never auto-counted
+  as injection failures; R1's silent-no-op recorded per row where observed.
+- Every defect the run surfaces fixed test-first: RED→GREEN, suite floor 1758 never drops
+  (`Scripts/test-with-floor.sh`).
+- `docs/STATUS.md` entry, `SMOKE_CHECKLIST.md` tracked-table row, `CLAUDE.md` front-door
+  sync. No gate passes as a result of this unit — the P2 gate needs latency targets +
+  ≥95% matrix + ≥5 external users (`ROADMAP.md:176-180`).
 
 Caveats:
 
-- **Whisper has never transcribed anything** (`SMOKE_CHECKLIST.md:2025`); tolerances
-  are seeded from Parakeet's table (`STATUS.md:174-179`) and a miss re-baselines via
-  `tolerances_20260810.md`, never relaxes silently.
-- **The F2 number may differ materially from the "unnaturally clean" TTS stand-in
-  corpus** (`cleanup-eval-f2/spec.md:54-55`); recorded, never gated.
-- **The speculative equivalence verdict is NO-GO** (recorded, 2026-09-01) — the
-  latency-win claim stays blocked no matter what this sweep measures.
-- **GGUF provisioning is the sweep's external dependency** — the model file is absent
-  and must be downloaded/verified before any whisper row can run.
-- **Latency rows already recorded by `p2-gate-measurement`** (asr p50 79-102 ms /
-  p95 354 ms, warm-start 0.348×, re-warm 82-85 ms) must not be re-claimed as new;
-  the sweep records what is missing, not what is done.
+- **FMS may be "not closeable on this machine's app set"**: Ghostty, IntelliJ, Zed are not
+  installed and no same-class swap exists (`--verify-bundle-ids` 19 confirmed / 0
+  mismatched / 3 unverified); with ≤20 deliverable rows, ≥19 may be unachievable — that is
+  a recorded outcome, not a failure (`docs/planning/_card/understanding.md:85-87`).
+- **Re-probe/promotion windows**: step 90's re-probe needs ≥5 clipboard deliveries + a
+  7-day window elapsed; step 91's promotion needs a window elapsed — the run may need
+  daily dictation accumulation before the final tally.
+- **Unified-log session lines** are unproven on a live session (the live check was
+  declined once); the file chain is load-bearing, not the log lines.
+- The v0.2.1 release exists (2026-09-04); the tracked table expects one row per release —
+  the new row is for v0.2.1, and the matrix should ideally run against the released build
+  where the difference matters.
