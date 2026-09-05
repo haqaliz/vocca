@@ -1,53 +1,66 @@
-# Card: feat/injection-matrix-completion
+# Card: feat/daily-use-ledger
 
-> Inline brief — no GitHub issue exists. Source: `vocca-next` handoff + founder's pre-PH
-> milestone ordering, 2026-09-04/05.
+> Inline brief — no GitHub issue exists (`gh issue list` → "No Issues"; Issues are empty for
+> `haqaliz/vocca`). Source: the `vocca-next` handoff of 2026-09-06.
 
 ## Brief
 
-Complete the tracked injection-matrix run — C8's measurement half, the founder's **last
-milestone before the Product Hunt publish**. The evidence chain is real (the
-`injection-matrix-record` unit landed it: `MatrixEvidence` lines, the ladder's delivery
-seam, `Scripts/injection-matrix.sh`'s per-row JSONL run log, `strategies.json` demotions),
-and the tracked table's row reads **not closeable** (`SMOKE_CHECKLIST.md:1906`): run 2
-stopped at **1 of 18 deliverable rows** (Notes, byte mismatch, accessibility rung demoted
-with a fresh re-probe window), with **17 rows + step 92 (Secure Input refusals) remaining**.
-FMS = deliverable rows whose expected rung landed / deliverable rows run, the ≥95% bar
-(`≥19/20`) is the P2 gate's matrix leg (`ROADMAP.md:176-181`), recorded never gated.
+Persist the in-memory `LatencyLedger` (`Sources/VoccaCore/LatencyLedger.swift`) as a bounded,
+local-only, **shape-only** usage ledger and surface it in Settings, so the P0 gate's three legs
+(`ROADMAP.md:100-104`) become recorded evidence rather than founder memory.
 
-The unit executes the remaining rows on the founder's machine (the harness + evidence
-chain are shipped), adjudicates byte-compare mismatches (the Notes failure was an
-ASR-transcription matter — step 19's issue — not an injection failure; adjudicate, don't
-chase), fixes test-first any defect the run surfaces (the previous run surfaced three: no
-info-level logging, `strategies.json` write-on-change-only, no harness run log), and
-records the FMS tally in the tracked table. The live unified-log check was declined once —
-the file chain is load-bearing.
+This is C7's unfulfilled **"never transmitted, inspectable by the user"** clause
+(`CAPABILITY_ROADMAP.md:176`) and P0 week 4's **"local-only latency/success counters"**
+milestone (`ROADMAP.md:86`). Both halves were deferred by an explicit *scope* decision, not by a
+blocker: `docs/planning/latency-instrumentation/prd.md:99` ("A small bounded on-disk history —
+deferred: in-memory only this slice (confirmed)") and `:150` ("A settings/UI surface for the
+histogram (deferred with the settings work)"). The settings shell that `:150` was waiting on
+shipped 2026-09-01 (`Sources/VoccaUI/Settings/`, `SettingsTab.swift`; General/Cleanup/Speech/Apps
+tabs exist). `docs/STATUS.md:728` records the current state plainly: "**The ledger is
+in-memory**: no persistence, no UI surface, nothing ever transmitted."
 
-Acceptance:
+## Why this unit, now
 
-- Every remaining deliverable row (17) + step 92 executed and recorded with a file-based
-  artifact (harness run-log JSONL line + `strategies.json` where a strategy changed).
-- FMS computed over the deliverable rows actually run, with skips/voids named and the
-  denominator discipline applied; the tracked table gains a fully-measured row for v0.2.1.
-- Byte-compare mismatches adjudicated (ASR-transcription vs injection), never auto-counted
-  as injection failures; R1's silent-no-op recorded per row where observed.
-- Every defect the run surfaces fixed test-first: RED→GREEN, suite floor 1758 never drops
-  (`Scripts/test-with-floor.sh`).
-- `docs/STATUS.md` entry, `SMOKE_CHECKLIST.md` tracked-table row, `CLAUDE.md` front-door
-  sync. No gate passes as a result of this unit — the P2 gate needs latency targets +
-  ≥95% matrix + ≥5 external users (`ROADMAP.md:176-180`).
+`docs/STATUS.md:49` records the P0 gate as unmet — "its 7 consecutive days of founder dictation
+have not started accumulating." The gate's three legs are 7 consecutive days, transcript loss
+**exactly 0%**, and injection success ≥90% (`ROADMAP.md:100-104`). None of the three has an
+instrument today. Every planning doc that touches the gate carves the log out as a founder
+activity (`p2-gate-measurement/prd.md:194`, `unmeasured-numbers-sweep/prd.md:249`,
+`deterministic-cleanup/prd.md:6`, `llm-cleanup/prd.md:7,10`) — this unit builds the instrument
+that makes those legs recordable instead of remembered.
 
-Caveats:
+## Acceptance (test-first, before any implementation)
 
-- **FMS may be "not closeable on this machine's app set"**: Ghostty, IntelliJ, Zed are not
-  installed and no same-class swap exists (`--verify-bundle-ids` 19 confirmed / 0
-  mismatched / 3 unverified); with ≤20 deliverable rows, ≥19 may be unachievable — that is
-  a recorded outcome, not a failure (`docs/planning/_card/understanding.md:85-87`).
-- **Re-probe/promotion windows**: step 90's re-probe needs ≥5 clipboard deliveries + a
-  7-day window elapsed; step 91's promotion needs a window elapsed — the run may need
-  daily dictation accumulation before the final tally.
-- **Unified-log session lines** are unproven on a live session (the live check was
-  declined once); the file chain is load-bearing, not the log lines.
-- The v0.2.1 release exists (2026-09-04); the tracked table expects one row per release —
-  the new row is for v0.2.1, and the matrix should ideally run against the released build
-  where the difference matters.
+1. The ledger round-trips across a process restart and evicts beyond a bounded retention window.
+2. A persisted record for a session carrying a known phrase never contains that phrase in its
+   encoded form — **shape only, no transcript text**.
+3. Streak accounting: N consecutive local-time days with ≥1 delivered session yields streak N;
+   a gap day resets it.
+4. The transcript-loss counter increments only when a session ends without recoverable text, so
+   the gate's 0% is derivable; per-rung counts yield first-method-success from real use.
+5. The zero-network probe and the CI release-blocker stay green with the ledger enabled, and the
+   Settings surface offers an explicit clear/reset control.
+
+## Caveats carried in from the handoff
+
+- **This instruments the gate; it does not pass it.** Seven real days of founder dictation still
+  have to happen. No streak number may be quoted until they accumulate.
+- **R11 governs the design** (`ROADMAP.md` risk register — "privacy promise erodes quietly",
+  Med/**Fatal (positioning)**). This introduces a *new on-disk artifact* into a product whose
+  promise is that nothing persists. Shape only — counts, span durations, rung outcomes,
+  timestamps — never transcript text; user-clearable; the zero-network CI release-blocker stays
+  green. The existing `session opened` / `delivery` log lines are the precedent: shape, never
+  content.
+- **Suite floor**: `Scripts/test-with-floor.sh:1444`, `MINIMUM_EXECUTED_TESTS=1758` — never drops;
+  ratcheted in the same commit as any test-count change. Note the STATUS prose "Floor 1758 → 1760"
+  (`docs/STATUS.md`, matrix entry) is loose: `1985da6` changed only `Scripts/injection-matrix.sh`
+  and its message reads "1760 tests, 0 failures (floor 1758)" — 1760 is the *executed* count, not
+  a new floor. The binding Swift floor is **1758**.
+
+## Adjacent context (not this unit's scope)
+
+- The previous unit (`injection-matrix-completion` → `matrix-run` continuation) was recorded as
+  the founder's **last milestone before the Product Hunt publish**. A PH publish is therefore
+  pending; this unit adds a user-visible Settings surface, so it lands in front of those users.
+- The matrix's remaining 7 deliverable rows, step 92, and the Terminal/Warp re-run stay open and
+  are **not** this unit's work.
