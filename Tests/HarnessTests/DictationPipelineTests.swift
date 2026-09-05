@@ -606,8 +606,9 @@ final class DictationPipelineTests: XCTestCase {
                         capturedAt: .seconds(7)))
             }),
             // Row 10: a `.widgetFailsafe` with *nothing* held — the journal refused custody —
-            // is a visible failure, not a silent idle.
-            ("widgetFailsafe with nothing held", .failed, .reasonOnly(.exhausted),
+            // is a visible failure, not a silent idle, and the one route that *lost* a
+            // transcript: `.lost`, never `.failed` (the class the loss metric counts).
+            ("widgetFailsafe with nothing held", .lost, .reasonOnly(.exhausted),
                 [.asr, .inject], true, {
                 let clock = TableClock()
                 let engine = TableEngine(clock: clock)

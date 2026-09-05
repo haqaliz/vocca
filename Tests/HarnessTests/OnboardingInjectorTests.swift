@@ -291,6 +291,10 @@ final class OnboardingInjectorTests: XCTestCase {
     /// A5's failure row) must not report success: the injector answers the failsafe terminal, the
     /// pipeline reads a holder that holds nothing and surfaces the reason-only failure — the TRY
     /// IT failure the window folds (`OnboardingAction.tryItFailed`), never a delivered lie.
+    ///
+    /// The transcript existed and nobody has it, so the class is ``SessionOutcomeClass/lost``:
+    /// this is the onboarding caller of the same failsafe-with-no-custody site the shipping
+    /// ladder reaches (`DictationPipeline.swift:376`), and one cause means one class.
     func testAFailedSinkDeliverySurfacesAsAFailureAndNeverFabricatesSuccess() async {
         let engine = StubEngine.parakeet()
         let sink = RecordingOnboardingSink(failure: FakeSinkFailure.refused)
@@ -310,8 +314,9 @@ final class OnboardingInjectorTests: XCTestCase {
         XCTAssertEqual(delivered, [], "the sink refused — nothing was appended")
         let records = await ledger.snapshot()
         XCTAssertEqual(
-            records.first?.outcome, .failed,
-            "the refused delivery finalizes failed — never a delivered class")
+            records.first?.outcome, .lost,
+            "the refused delivery finalizes lost — a transcript existed and nobody has it; never "
+                + "a delivered class, and never `failed`, which had nothing to lose")
         let currentCalls = await holder.currentCalls
         XCTAssertEqual(currentCalls, 1, "the failsafe path reads the holder exactly once")
         let holdCalls = await holder.holdCalls

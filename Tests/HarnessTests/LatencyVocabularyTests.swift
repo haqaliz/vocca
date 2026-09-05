@@ -28,7 +28,7 @@ import XCTest
 /// - the presence state exists so C5's absence is *representable* without fabrication: the
 ///   ledger must never write a `0` for a span that never ran (spec A2), so `notPresent` is a
 ///   distinct state from a recorded zero — never a fake duration;
-/// - the outcome classes are exactly the five routes the P0 pipeline can exit by, and they are
+/// - the outcome classes are exactly the six routes the P0 pipeline can exit by, and they are
 ///   never force-labeled: the first-method-success metric is *derived* from `delivered` counts
 ///   (spec "Outcome classes", prd.md confirmed decision).
 final class LatencyVocabularyTests: XCTestCase {
@@ -78,11 +78,11 @@ final class LatencyVocabularyTests: XCTestCase {
 
     // MARK: - SessionOutcomeClass
 
-    /// Exactly the five classes, each constructed by hand — the ``InjectionResult`` precedent.
+    /// Exactly the six classes, each constructed by hand — the ``InjectionResult`` precedent.
     ///
-    /// The exhaustive switch has no default case, so a sixth class is a compile error in this
+    /// The exhaustive switch has no default case, so a seventh class is a compile error in this
     /// file: the compiler makes the suite grow, not the prose.
-    func testSessionOutcomeClassHasExactlyTheFiveClasses() {
+    func testSessionOutcomeClassHasExactlyTheSixClasses() {
         func label(of outcome: SessionOutcomeClass) -> String {
             switch outcome {
             case .delivered(let rung, let verified):
@@ -93,6 +93,8 @@ final class LatencyVocabularyTests: XCTestCase {
                 return "aborted"
             case .failed:
                 return "failed"
+            case .lost:
+                return "lost"
             case .emptySkip:
                 return "emptySkip"
             }
@@ -102,12 +104,16 @@ final class LatencyVocabularyTests: XCTestCase {
             .failsafeHeld,
             .aborted,
             .failed,
+            .lost,
             .emptySkip,
         ]
-        XCTAssertEqual(classes.count, 5)
+        XCTAssertEqual(classes.count, 6)
         XCTAssertEqual(
             classes.map(label(of:)),
-            ["delivered(accessibility, true)", "failsafeHeld", "aborted", "failed", "emptySkip"])
+            [
+                "delivered(accessibility, true)", "failsafeHeld", "aborted", "failed", "lost",
+                "emptySkip",
+            ])
     }
 
     /// The `delivered` class carries the rung and verification state read off a hand-built

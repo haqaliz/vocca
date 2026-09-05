@@ -119,6 +119,8 @@ public actor LatencyLedger: LatencyRecorder {
                 classLabel = "aborted"
             case .failed:
                 classLabel = "failed"
+            case .lost:
+                classLabel = "lost"
             case .emptySkip:
                 classLabel = "emptySkip"
             }

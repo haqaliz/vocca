@@ -20,8 +20,9 @@
 /// durations and classes only — never audio, never text (plan §5).
 ///
 /// ``engine`` is attribution, non-optional once a transcription was attempted (C2's rule,
-/// scoped honestly): non-nil for every route that asked the engine; nil only for the two that
-/// never did — ``SessionOutcomeClass/aborted`` (Escape before anything was asked) and
+/// scoped honestly): non-nil for every route that asked the engine — ``SessionOutcomeClass/lost``
+/// included, since a lost transcript is one the engine produced; nil only on the routes that
+/// never asked, ``SessionOutcomeClass/aborted`` (Escape before anything was asked) and
 /// ``SessionOutcomeClass/emptySkip`` (no audio — the injector was skipped).
 public struct SessionRecord: Sendable, Equatable {
     /// The stable opaque handle the ledger mints at ``LatencyRecorder/beginSession()``.
@@ -45,7 +46,7 @@ public struct SessionRecord: Sendable, Equatable {
     public var outcome: SessionOutcomeClass
     /// The measured spans, in the order they were recorded (spec A2).
     public var spans: [LatencySpan]
-    /// Which engine produced the transcript, when one was asked; nil only on the two
+    /// Which engine produced the transcript, when one was asked; nil only on the
     /// never-asked paths (`aborted`/`emptySkip`).
     public var engine: EngineIdentity?
 

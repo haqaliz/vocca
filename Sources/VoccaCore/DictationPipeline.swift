@@ -373,7 +373,7 @@ public struct DictationPipeline: Sendable {
             // exactly once; the residual (nothing held — the journal refused custody) surfaces
             // the exhaustion reason rather than pretending the text is somewhere it is not.
             guard let held = await holder.current() else {
-                await finalize(sessionID: sessionID, outcome: .failed, engine: transcript.engine)
+                await finalize(sessionID: sessionID, outcome: .lost, engine: transcript.engine)
                 return .reasonOnly(.exhausted)
             }
             await finalize(sessionID: sessionID, outcome: .failsafeHeld, engine: transcript.engine)

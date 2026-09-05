@@ -36,7 +36,7 @@ final class LatencyLedgerTests: XCTestCase {
 
     // MARK: - A1 closed-set coverage
 
-    /// A table over **all five** outcome classes — every route the P0 pipeline can exit by —
+    /// A table over **all six** outcome classes — every route the P0 pipeline can exit by —
     /// drives begin → record (one span per name, in pipeline order) → finalize. Exactly one
     /// record per begin, the class finalize was given is the class the record carries, and the
     /// spans keep call order.
@@ -47,7 +47,7 @@ final class LatencyLedgerTests: XCTestCase {
             switch outcome {
             case .aborted, .emptySkip:
                 return nil
-            case .delivered, .failsafeHeld, .failed:
+            case .delivered, .failsafeHeld, .failed, .lost:
                 return self.engine
             }
         }
@@ -57,6 +57,7 @@ final class LatencyLedgerTests: XCTestCase {
             .failsafeHeld,
             .aborted,
             .failed,
+            .lost,
             .emptySkip,
         ]
         var ids: [SessionRecord.ID] = []
@@ -82,7 +83,7 @@ final class LatencyLedgerTests: XCTestCase {
         }
 
         let snapshot = await ledger.snapshot()
-        XCTAssertEqual(snapshot.count, 5, "exactly one record per begin — no path produces no record")
+        XCTAssertEqual(snapshot.count, 6, "exactly one record per begin — no path produces no record")
         for (index, outcome) in cases.enumerated() {
             XCTAssertEqual(snapshot[index].id, ids[index])
             XCTAssertEqual(
@@ -195,6 +196,8 @@ final class LatencyLedgerTests: XCTestCase {
                 return "aborted"
             case .failed:
                 return "failed"
+            case .lost:
+                return "lost"
             case .emptySkip:
                 return "emptySkip"
             }
