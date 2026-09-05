@@ -200,6 +200,23 @@ phrase_matches() {
     esac
 }
 
+# The capture must be AIMED, and the aim must be verified (2026-09-05, the Messages/Firefox
+# rows). `open -a` returns before a cold-launched application is up, and the activation that
+# followed it was `|| true` — so for an application that was not already running, the
+# select-all/copy landed in whatever was frontmost instead. Both rows that failed the
+# byte-compare twice today (Messages, Firefox) were not running beforehand; every row that
+# passed was already up. Worse than the mismatch it produced: with containment semantics the
+# harness's own terminal — whose scrollback holds the phrase this script just printed — can
+# satisfy the compare and record a PASS for a row nothing was injected into. So activation
+# waits for the row's application to actually come frontmost, keyed on the identifier
+# `--verify-bundle-ids` confirms rather than the display name it cannot check, and a capture
+# taken from anything else is a VOID.
+activation_target() { field "$1" 3; }
+
+capture_target_matches() {
+    [ -n "$1" ] && [ "$1" = "$2" ]
+}
+
 # ---------------------------------------------------------------------------
 # --self-check: everything about this harness a machine can verify.
 #
@@ -361,6 +378,38 @@ self_check() {
         failures=$((failures + 1))
     fi
 
+    # The capture-aim pins (2026-09-05, the Messages/Firefox rows). Activation must key on
+    # the bundle identifier — the one column `--verify-bundle-ids` can confirm against a real
+    # Info.plist — and the post-activation check must reject a capture taken from any other
+    # application, including the terminal this harness runs in.
+    for row in "${ROWS[@]}"; do
+        case "$(activation_target "$row")" in
+            *.*) ;;
+            *)
+                printf 'FAIL: row "%s" activates by "%s", which is not a bundle identifier.\n' \
+                    "$(field "$row" 1)" "$(activation_target "$row")" >&2
+                printf '      The display name is the one column nothing verifies; aiming the\n' >&2
+                printf '      capture with it aims it with unchecked data.\n' >&2
+                failures=$((failures + 1))
+                ;;
+        esac
+    done
+    if capture_target_matches "org.mozilla.firefox" "com.apple.Terminal"; then
+        printf 'FAIL: the capture check accepts a capture taken from another application.\n' >&2
+        printf '      With containment semantics the harness terminal — which prints the\n' >&2
+        printf '      phrase — would record a PASS for a row nothing was injected into.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if capture_target_matches "" ""; then
+        printf 'FAIL: the capture check accepts an unreadable frontmost identifier. An\n' >&2
+        printf '      unknown target is a VOID, never a pass.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if ! capture_target_matches "org.mozilla.firefox" "org.mozilla.firefox"; then
+        printf 'FAIL: the capture check rejects the row'"'"'s own application.\n' >&2
+        failures=$((failures + 1))
+    fi
+
     if [ "$failures" -ne 0 ]; then
         printf '\n%d self-check failure(s).\n' "$failures" >&2
         return 1
@@ -500,9 +549,28 @@ run_row() {
     # (the 2026-09-05 Mail/TextEdit rows captured a browser's "Skip to main content" while
     # the delivery log proved the text had landed). Activate the row's process explicitly
     # and let the activation settle before the keystrokes.
-    osascript -e "tell application \"System Events\" to set frontmost of process \"$application\" to true" \
-        >/dev/null 2>&1 || true
-    sleep 1
+    local activation_id frontmost_id
+    activation_id="$(activation_target "$row")"
+    osascript -e "tell application id \"$activation_id\" to activate" >/dev/null 2>&1 || true
+    # A cold-launched application is not frontmost the instant `activate` returns, and this is
+    # the window the defect lived in. Poll rather than guess at a sleep.
+    local waited=0
+    frontmost_id=""
+    while [ "$waited" -lt 10 ]; do
+        frontmost_id="$(osascript -e 'tell application "System Events" to get bundle identifier of first process whose frontmost is true' 2>/dev/null || true)"
+        capture_target_matches "$activation_id" "$frontmost_id" && break
+        sleep 1
+        waited=$((waited + 1))
+    done
+    if ! capture_target_matches "$activation_id" "$frontmost_id"; then
+        printf 'VOID: %s is not the frontmost application — the select-all/copy would capture\n' "$application"
+        printf '      %s instead. A byte-compare taken from the wrong window is a claim about\n' \
+            "${frontmost_id:-an unreadable target}"
+        printf '      the wrong application; with containment semantics it can even PASS on the\n'
+        printf '      phrase this script printed. Focus %s and re-run the row.\n' "$application"
+        log_run_row "$name" null null voided "frontmost was ${frontmost_id:-unreadable}, not $activation_id"
+        return 3
+    fi
     printf '%s' "vocca-matrix-void-sentinel" | pbcopy
     osascript -e 'tell application "System Events" to keystroke "a" using command down' \
         >/dev/null 2>&1 || true
