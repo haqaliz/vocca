@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/haqaliz/vocca/master/assets/vocca-icon.png" alt="Vocca" width="104" />
+  <img src="https://raw.githubusercontent.com/haqaliz/vocca/master/assets/vocca-app-icon.png" alt="Vocca" width="104" />
 </p>
 
 # Vocca
@@ -142,6 +142,39 @@ brew uninstall --zap --cask vocca    # also the models, dictionary, and learned 
 
 A BYOK API key, if you configured one, is in your login Keychain and is not removed by either —
 delete it in Keychain Access.
+
+## What it looks like
+
+Settings is a sidebar window; the dictation surface itself is a small always-on-top widget that
+never takes focus. Screenshots are of the shipping build.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/haqaliz/vocca/master/assets/screenshots/general.png" alt="General settings: the dictation shortcut, and toggle versus hold-to-talk" width="720" />
+</p>
+
+**General** — the hotkey and how it activates. Toggle (press to start, press to stop) and
+hold-to-talk both ship; the shortcut is rebindable. The two caveats under the recorder are there
+because Vocca genuinely cannot see shortcuts other apps have taken, and says so rather than
+implying a check it does not perform.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/haqaliz/vocca/master/assets/screenshots/cleanup.png" alt="Cleanup settings: deterministic rules by default, local Ollama and BYOK both opt-in, with an explicit warning when text would leave the Mac" width="720" />
+</p>
+
+**Cleanup** — deterministic rules are the default and run entirely on your Mac. A local Ollama
+model and your own API key are both opt-in, and the moment a choice would send text off the
+machine it is badged at the point of use: *"Text leaves your Mac."* The footer states which one is
+actually cleaning your text right now, because a setting that needs a restart is a setting that
+can lie to you.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/haqaliz/vocca/master/assets/screenshots/apps.png" alt="Apps settings: the per-app strategy memory, showing which injection method Vocca learned for each application" width="720" />
+</p>
+
+**Apps** — the per-app strategy memory. Vocca learns which rung of the injection ladder actually
+works for each application and stops retrying what is known to fail. "Learned" means it worked
+that out by itself; you can pin a method instead, and reset what it learned without losing your
+pins.
 
 ## What it will do
 
