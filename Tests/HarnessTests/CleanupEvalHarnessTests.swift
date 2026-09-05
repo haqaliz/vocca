@@ -449,7 +449,7 @@ final class CleanupEvalHarnessTests: XCTestCase {
 
         // First invocation: the seeded ballot prints through the injected printer.
         let ballot = PrinterSpy()
-        let seed = try CleanupEvalRun.runFirstInvocation(
+        let seed = CleanupEvalRun.runFirstInvocation(
             pairs: pairs, printer: { ballot.append($0) })
 
         // The printed seed is the `parseAnswers` spelling — bare hex after `seed=`. Swift's
@@ -623,7 +623,7 @@ final class CleanupEvalHarnessTests: XCTestCase {
             // The first invocation: print the seeded ballot. A corpus that cannot measure must
             // fail loudly rather than print a ballot for it.
             let pairs = try CleanupPairSuite.loadPairs(from: pairsDirectory)
-            CleanupEvalRun.runFirstInvocation(pairs: pairs)
+            _ = CleanupEvalRun.runFirstInvocation(pairs: pairs)
             throw XCTSkip(
                 "ballot printed at \(pairsDirectory.path) — answer answers.tsv per SMOKE step "
                     + "73, then re-run")
