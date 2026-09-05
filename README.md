@@ -39,20 +39,24 @@ Your audio never has to leave your Mac.
 > which asks for a confirmation naming exactly what gets sent before any text may leave the Mac.
 > `cleanup-config.json` stays hand-editable as a second, supported path.
 > **Engine switching ships** — the Speech tab picks the engine and the Whisper tier, downloads a
-> model and removes one, without a restart — and **whisper is selectable but unverified**: it has
-> never transcribed anything, its WER tolerances are seeded from Parakeet's table rather than
-> measured on its own output, and the digests in its shipped manifests have never been compared
-> against real bytes. That is unverified, not known-broken; `docs/SMOKE_CHECKLIST.md` steps
-> 102–104 are the comparison and the first real run. Until they pass, choosing Whisper is choosing
-> a 1.6 GB download nobody has checked.
+> model and removes one, without a restart — and **whisper is now verified, on both tiers**:
+> its first real transcriptions have happened, and it scored **WER 0.0000 on all six fixtures
+> on both tiers** (turbo and q5_0), with the digests in its shipped manifests compared against
+> the provisioned bytes and passing (`docs/SMOKE_CHECKLIST.md` steps 19 and 102; the bytes come
+> from `ggerganov/whisper.cpp`, closing the provenance gap). Its WER tolerances were seeded from
+> Parakeet's table and the real runs cleared them with margin, so the seeded tables stand rather
+> than being re-baselined. What is *not* measured on whisper is latency: its Core ML encoder is
+> absent from the shipped manifest, so it runs on Metal/CPU — which affects speed, not accuracy.
 > **A real-machine pass has happened** — the first real dictations delivered on the founder's
 > Mac (`docs/SMOKE_CHECKLIST.md` steps 62–68), with the loop's invariants holding — and
 > **v0.2.0 is the first installable release** (signed, **not notarized**: the quarantine command
 > in [Install](#install) is required until the Developer Program purchase lands).
 >
 > The numbers are still largely unmeasured: the injection matrix has one recorded row of its
-> run, the latency-gate p50/p95 remain targets, and whisper's accuracy has no real run — each
-> is pending its checklist execution, not claimed. The plan — vision, phased
+> run, and the latency-gate p50/p95 have been measured but **not on the input the gate names** —
+> the recorded figures come from a 60-second fixture, where the gate specifies a 10-second
+> utterance — so they are not the gate's numbers. Whisper's accuracy *has* now had its real run
+> (WER 0.0000, both tiers). The rest is pending its checklist execution, not claimed. The plan — vision, phased
 > roadmap, capability backlog, architecture, product spec — is all still here and still governs.
 >
 > If you're here from a link expecting a download: install it, and know that it is signed but
@@ -161,7 +165,7 @@ delete it in Keychain Access.
 |-------|--------|-----|
 | Shell + core | Native SwiftUI, single Swift 6 process | Direct AX/CGEvent/Pasteboard access, no IPC on the latency path |
 | ASR (default) | [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) via [FluidAudio](https://github.com/FluidInference/FluidAudio) | CoreML on the Neural Engine; ~24× realtime on M4; low power |
-| ASR (second) | [whisper.cpp large-v3-turbo](https://github.com/ggml-org/whisper.cpp) | **Shipped and selectable, unverified** — a real second implementation behind `ASREngine`: proves the seam and hedges ecosystem risk. It has never transcribed anything, and its manifests' digests have never been checked against bytes (founder run, [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) steps 19 and 102–104) |
+| ASR (second) | [whisper.cpp large-v3-turbo](https://github.com/ggml-org/whisper.cpp) | **Shipped, selectable and accuracy-verified** — a real second implementation behind `ASREngine`: proves the seam and hedges ecosystem risk. Both tiers scored WER 0.0000 on all six fixtures and both manifests' digests verified against the provisioned bytes (founder run, [`docs/SMOKE_CHECKLIST.md`](docs/SMOKE_CHECKLIST.md) steps 19 and 102). Its latency is unmeasured: no Core ML encoder ships, so it runs Metal/CPU |
 | TTS | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Small, fast time-to-first-audio, Apache-2.0 |
 | VAD / turn-taking | Silero VAD + Parakeet EOU 120M | Frame-level VAD alone doesn't do turn-taking |
 | Cleanup | Rules → Ollama → BYOK | **Shipped** — rules by default (~0 MB, <5 ms, no network); Ollama and BYOK are opt-in, degrade to the rules output on any failure, and are badged at point of use. LLM rewrite quality is unmeasured |
