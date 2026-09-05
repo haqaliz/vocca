@@ -7,15 +7,16 @@
 #   xattr -dr com.apple.quarantine /Applications/Vocca.app   # BEFORE first launch
 #   open /Applications/Vocca.app
 #
-# DO NOT PUBLISH THIS TO THE TAP YET. `sha256` below is a placeholder: the first DMG
-# release has not been cut. v0.1.0 shipped a `zip -r` archive that flattened
-# whisper.framework's symlinks, so its bundle fails `codesign --verify` and there is
-# nothing installable to point at. Fill the sha256 line from the SHA256SUMS.txt of the first
-# release built by the DMG packaging step, then push to the tap — not before.
+# PUBLISHED. The tap carries this file as Casks/vocca.rb and `brew install` is proven on
+# the founder's machine. The old "do not publish, the sha256 is a placeholder" warning that
+# stood here is retired: it described v0.1.0, which shipped a `zip -r` archive that
+# flattened whisper.framework's symlinks, so its bundle failed `codesign --verify` and
+# there was nothing installable to point at. The DMG packaging step fixed that.
 #
-# Shipped: v0.2.0 (2026-09-03) — https://github.com/haqaliz/vocca/releases/tag/v0.2.0
-# sha256 from the release's SHA256SUMS.txt; the cask is published to the tap as
-# Casks/vocca.rb.
+# Shipped: v0.2.1 (2026-09-04) — https://github.com/haqaliz/vocca/releases/tag/v0.2.1
+# The `sha256` below is the real digest from that release's SHA256SUMS.txt, verified equal
+# to it. At each release, bump `version`, copy the new sha256 out of SHA256SUMS.txt, and
+# mirror this file to the tap — `CaskVersionTests` pins the version against the bundle.
 #
 # Vocca is signed with an Apple Development certificate, which Gatekeeper rejects for
 # downloaded apps, so the quarantine flag has to come off by hand. Two things about that,

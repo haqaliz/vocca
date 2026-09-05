@@ -36,3 +36,6 @@ recordings/
 # Xcode per-user state, at any depth (the two patterns above miss the nested
 # project.xcworkspace/xcuserdata/ that Xcode creates on first open).
 **/xcuserdata/
+
+# graphify knowledge-graph output — regenerable, large (graph.json alone is ~9 MB)
+graphify-out/
