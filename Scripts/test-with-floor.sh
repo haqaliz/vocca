@@ -1440,8 +1440,27 @@ set -euo pipefail
 # per-cycle totals over the recorded spans (exactly 15 ms over the seeded 3/5/7 ms deltas),
 # nearest-rank p50/p95, and the cleanup span's presence named notPresent, never dropped.
 #
+# The loss-observability pins add four (1760 -> 1764), and the floor closes a two-test gap it
+# was already carrying: at the branch point the suite executed 1760 against a floor of 1758.
+# `docs/STATUS.md`'s "Floor 1758 -> 1760 tests" for the matrix-harness work reads as a ratchet
+# but was an executed count — `1985da6` changed only `Scripts/injection-matrix.sh` and never
+# touched this line — so the floor stayed at 1758 while the suite grew past it. Raising it to
+# the observed 1764 restores the invariant that the floor is the current count, not a stale one.
+#
+# The four: `testALostTranscriptIsDistinguishableFromAFailureThatHadNoneToLose` pins the defect
+# behaviourally — the route that loses a transcript (the ladder reaching `.widgetFailsafe` with
+# the journal refusing custody) must not finalize as the same class as a route that never
+# produced one, or the P0 gate's count of exactly zero (`ROADMAP.md:96`) is uncomputable.
+# `testNeitherStreamingFailureRowIsRecordedAsATranscriptLoss` covers a hole: no streaming test
+# was recorder-wired, so what class `routeStreaming` finalizes on a failure was asserted by
+# nothing — both rows (the stream that threw, the stream that ended with no final) are `.failed`,
+# neither a loss. `testEveryOutcomeClassRendersAsItsOwnStringThroughDescribe` pins all six
+# renderings mutually distinct and non-nesting, because every consumer of `describe()` reads it
+# with `contains`. `testExactlyOneSourceLineRecordsATranscriptAsLost` scans comment-stripped
+# `Sources/` so a second loss site has to be a reviewed edit rather than a quiet addition.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1758
+MINIMUM_EXECUTED_TESTS=1764
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
