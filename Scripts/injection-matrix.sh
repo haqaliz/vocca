@@ -480,6 +480,15 @@ run_row() {
     # up as stale clipboard content, and that is a VOID rather than a failure — asserting a
     # byte mismatch without knowing the selection was made would break the checklist's first
     # preamble rule.
+    #
+    # The compare must target the ROW'S app: `open -a` alone does not guarantee activation
+    # order, and a select-all/copy aimed at whatever is frontmost captured the wrong window
+    # (the 2026-09-05 Mail/TextEdit rows captured a browser's "Skip to main content" while
+    # the delivery log proved the text had landed). Activate the row's process explicitly
+    # and let the activation settle before the keystrokes.
+    osascript -e "tell application \"System Events\" to set frontmost of process \"$application\" to true" \
+        >/dev/null 2>&1 || true
+    sleep 1
     printf '%s' "vocca-matrix-void-sentinel" | pbcopy
     osascript -e 'tell application "System Events" to keystroke "a" using command down' \
         >/dev/null 2>&1 || true
