@@ -46,11 +46,14 @@ This file orients a coding agent working in this repository. Read it first.
 > ladder's delivery seam, and `Scripts/injection-matrix.sh` writes its promised per-row JSONL
 > run log — and the first tracked row is recorded with **file-based** evidence: Notes ran,
 > the accessibility rung was demoted with a fresh re-probe window (`strategies.json`), the
-> row failed byte-compare. The matrix run is **incomplete** (1 of 18 deliverable rows; FMS
-> "not closeable"); three swaps recorded (Pages→Telegram, Notion→ChatGPT, 1Password→Passwords,
-> `--verify-bundle-ids` 19 confirmed / 0 mismatched); the unified-log half of the evidence is
-> wired but unproven on a live session (the live check was declined) — the file chain is
-> load-bearing, not the log lines. A pre-existing re-warm test flake was fixed deterministically
+> row failed byte-compare. The matrix run is **incomplete** (1 of 20 deliverable rows run —
+> the Notes control row on v0.2.1: `bytes_matched: true` after the byte-compare defect fix,
+> rung miss as the demotion-honored outcome; FMS **not computable**); the unit concluded
+> early by founder decision — the remaining 16 rows + step 92 are unexecuted and resumable;
+> `--verify-bundle-ids` 19 confirmed / 0 mismatched; the unified-log evidence chain is now
+> **proven live** (`session opened` + `delivery rung=clipboardPaste` captured for the control
+> row) — the file chain stays load-bearing. The byte-compare normalization defect was fixed
+> test-first (self-check pin, CI-driven). A pre-existing re-warm test flake was fixed deterministically
 > (an entry counter on `DictationEngineResolver`, behavior-invisible). **Still unmeasured: the
 > rest of the matrix and every gate.**
 > See `docs/STATUS.md` for the honesty block.
