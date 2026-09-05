@@ -260,6 +260,78 @@ final class LatencyLedgerTests: XCTestCase {
             "describe() renders in mint order")
     }
 
+    // MARK: - Every class renders as its own string (`loss-observability` A5/A7)
+
+    /// No two ``SessionOutcomeClass`` cases render alike through `describe()` — `lost` and
+    /// `failed` above all — and no case's rendering is a substring of another's.
+    ///
+    /// `describe()` is the headless surface: it is what the zero-network probe prints and what a
+    /// reader of a run has to count from. The P0 gate fixes transcript loss at exactly zero
+    /// (`ROADMAP.md:96` — "This metric has no acceptable non-zero value"), so a `lost` that
+    /// rendered as `failed` would let a run in which the product lost a transcript read as a run
+    /// in which it lost none. The substring half matters for the same reason and for one more:
+    /// every consumer of this string in the tree reads it with `contains`, so a spelling that
+    /// nests inside another spelling is a miscount waiting for the first reader.
+    ///
+    /// The exhaustive `switch` in `describe()` forces a *seventh* class to be handled; nothing in
+    /// the compiler forces it to be handled with a spelling nobody else already uses. This test
+    /// is what forces that.
+    ///
+    /// Each class is rendered in a ledger of its own with no spans and no engine, so every line
+    /// is identical but for the class label: a fresh ledger always mints id 0, which makes the
+    /// comparison below a comparison of labels and of nothing else.
+    func testEveryOutcomeClassRendersAsItsOwnStringThroughDescribe() async throws {
+        let classes: [SessionOutcomeClass] = [
+            .delivered(rung: .accessibility, verified: true),
+            .failsafeHeld,
+            .aborted,
+            .failed,
+            .lost,
+            .emptySkip,
+        ]
+
+        let prefix = "session 0: "
+        let suffix = ", , engine none"
+        var labels: [String] = []
+        for outcome in classes {
+            let ledger = LatencyLedger()
+            let id = await ledger.beginSession()
+            let finalized = await ledger.finalize(id: id, outcome: outcome, engine: nil)
+            XCTAssertTrue(finalized)
+            let line = await ledger.describe()
+            XCTAssertTrue(
+                line.hasPrefix(prefix) && line.hasSuffix(suffix),
+                "describe()'s line shape is what isolates the class label — got \(line)")
+            labels.append(String(line.dropFirst(prefix.count).dropLast(suffix.count)))
+        }
+
+        XCTAssertEqual(
+            Set(labels).count, classes.count,
+            """
+            Two outcome classes render as the same string, so a reader of describe() cannot tell \
+            them apart. The P0 gate counts transcript loss at exactly zero (ROADMAP.md:96) off \
+            this surface, and two classes sharing a spelling make that count a guess: \(labels)
+            """)
+        let lost = try XCTUnwrap(classes.firstIndex(of: .lost))
+        let failed = try XCTUnwrap(classes.firstIndex(of: .failed))
+        XCTAssertNotEqual(
+            labels[lost], labels[failed],
+            """
+            A lost transcript and a failure that had none to lose render identically, so the \
+            transcript-loss count read off describe() would include every failure that never \
+            produced anything — the exact conflation this class exists to end.
+            """)
+        for (index, label) in labels.enumerated() {
+            for (otherIndex, otherLabel) in labels.enumerated() where otherIndex != index {
+                XCTAssertFalse(
+                    otherLabel.contains(label),
+                    "\(label) nests inside \(otherLabel) — every reader of describe() matches "
+                        + "with `contains`, so a nested spelling counts the outer class as the "
+                        + "inner one")
+            }
+        }
+    }
+
     // MARK: - A7 injected clock
 
     /// The ledger never reads a clock of its own — time enters only through the injected

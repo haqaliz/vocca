@@ -262,6 +262,7 @@ final class LatencyVocabularyTests: XCTestCase {
         _ = requireSendable(SessionOutcomeClass.failsafeHeld)
         _ = requireSendable(SessionOutcomeClass.aborted)
         _ = requireSendable(SessionOutcomeClass.failed)
+        _ = requireSendable(SessionOutcomeClass.lost)
         _ = requireSendable(SessionOutcomeClass.emptySkip)
     }
 
@@ -281,5 +282,89 @@ final class LatencyVocabularyTests: XCTestCase {
                 spans: [LatencySpan.cleanupNotPresent()],
                 engine: EngineIdentity(id: "e", displayName: "E", isLocal: true)))
         requireSendableProtocol(LatencyRecorder.self)
+    }
+
+    // MARK: - The single loss site (`loss-observability` A6)
+
+    /// **The source scan.** Exactly one line under `Sources/` hands
+    /// ``SessionOutcomeClass/lost`` to a `finalize` call — the failsafe arm of
+    /// `DictationPipeline.swift`, where the ladder reached ``InjectionRung/widgetFailsafe`` and
+    /// the journal refused custody.
+    ///
+    /// One *site*, not one *way in*. That line has two callers — the ordinary dictation route
+    /// and the onboarding injector, whose refused `OnboardingSink` leaves the holder empty by
+    /// construction — and both arrive at the same cause, so the count below is a claim about
+    /// where a loss can be recorded, never about how many ways a session can reach it.
+    ///
+    /// The count is what the scan is for. `.lost` is the class the P0 transcript-loss metric
+    /// counts, and `ROADMAP.md:96` fixes that count at zero with no acceptable non-zero value —
+    /// so a second site is a second way for the product to lose a transcript, and it must be a
+    /// reviewed decision rather than a line that arrived with something else. The compiler
+    /// cannot force that: an enum's exhaustiveness constrains `switch`es, and nothing at all
+    /// constrains call sites. This scan is the only thing in the tree that can.
+    ///
+    /// Vacuity is guarded in both directions, the ``InjectionStrategyStoreTests`` precedent: the
+    /// scan must have seen files at all and must find the site that exists, and the matcher is
+    /// then run over hand-written source that violates the rule and over source that keeps it,
+    /// so a matcher that had quietly stopped matching anything could not read as a pass.
+    func testExactlyOneSourceLineRecordsATranscriptAsLost() throws {
+        // `[^)]*` cannot cross a closing paren, so the match is confined to one `finalize(`
+        // argument list; comments are stripped first, so a doc comment naming the class is not
+        // a site.
+        let pattern = #"finalize\([^)]*outcome:\s*\.lost"#
+        func lossSites(in source: String) -> Int {
+            let stripped = SwiftSourceScanner.stripComments(from: source)
+            var count = 0
+            var searchFrom = stripped.startIndex
+            while let found = stripped.range(
+                of: pattern, options: .regularExpression,
+                range: searchFrom..<stripped.endIndex)
+            {
+                count += 1
+                searchFrom = found.upperBound
+            }
+            return count
+        }
+
+        let root = try PackageRootLocator.find(from: #filePath)
+        let namedFile = "DictationPipeline.swift"
+        var scannedFiles = 0
+        var sightings: [String: Int] = [:]
+        for file in SwiftSourceScanner.swiftFiles(under: root.appendingPathComponent("Sources")) {
+            scannedFiles += 1
+            let sites = lossSites(in: try String(contentsOf: file, encoding: .utf8))
+            if sites > 0 { sightings[file.lastPathComponent] = sites }
+        }
+
+        XCTAssertGreaterThan(scannedFiles, 0, "vacuity guard: the scan saw no files at all")
+        XCTAssertEqual(
+            sightings, [namedFile: 1],
+            """
+            A transcript may be recorded as lost from exactly one place — the failsafe arm that \
+            found the journal holding nothing. The P0 gate counts transcript loss at exactly \
+            zero (ROADMAP.md:96), so a second site is a second way the product can lose a \
+            transcript and has to be a decision somebody made on purpose. Got: \(sightings)
+            """)
+
+        // The matcher's own control, in both directions: source that violates the rule must be
+        // seen to violate it, and source that keeps it must not be counted as a site.
+        let twoSites = """
+            await finalize(sessionID: sessionID, outcome: .lost, engine: transcript.engine)
+            await finalize(sessionID: other, outcome: .lost, engine: nil)
+            """
+        XCTAssertEqual(
+            lossSites(in: twoSites), 2,
+            "the matcher must see a second site — a scan that cannot fail proves nothing about "
+                + "the tree it passed on")
+        let noSite = """
+            await finalize(sessionID: sessionID, outcome: .failed, engine: engine.identity)
+            // await finalize(sessionID: sessionID, outcome: .lost, engine: nil)
+            case .lost: classLabel = "lost"
+            """
+        XCTAssertEqual(
+            lossSites(in: noSite), 0,
+            "neither a `.failed` finalize, nor a commented-out one, nor a `switch` arm naming "
+                + "the class is a site — a matcher that counted them would fail the tree for "
+                + "lines that record nothing")
     }
 }
