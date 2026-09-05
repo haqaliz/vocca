@@ -69,7 +69,7 @@ public final class SettingsWindow: NSObject, NSWindowDelegate {
                 styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false)
-            window.title = "Vocca Settings"
+            window.title = "Vocca"
             window.titleVisibility = .visible
             window.toolbarStyle = .unified
             window.contentViewController = NSHostingController(

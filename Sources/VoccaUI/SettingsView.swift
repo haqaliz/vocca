@@ -220,6 +220,15 @@ public struct SettingsView: View {
                 }
             }
             .listStyle(.sidebar)
+            // An opaque sidebar, not the vibrancy default. `.listStyle(.sidebar)` samples what
+            // is *behind the window*, so on a coloured desktop the sidebar takes the wallpaper's
+            // hue — the same list reads near-black over a dark backdrop and indigo over a bright
+            // one. Deck's sidebar is the look this window is meant to have
+            // (`../deck/native/DeckApp/DeckApp.swift:121-199`), and it only reads that way there
+            // because of what happens to be behind it. Painting the background makes the sidebar
+            // the same on every desktop instead of a function of the user's wallpaper.
+            .scrollContentBackground(.hidden)
+            .background(Color(nsColor: .underPageBackgroundColor))
             .navigationSplitViewColumnWidth(min: 190, ideal: 190, max: 190)
         } detail: {
             if let selection {
