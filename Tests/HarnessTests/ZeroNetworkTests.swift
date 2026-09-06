@@ -363,6 +363,57 @@ final class ZeroNetworkTests: XCTestCase {
         "records=1",
     ].joined(separator: " ")
 
+    /// **The usage-ledger post-condition**: what the probe must report after driving a
+    /// launch-shaped round trip through the daily-use ledger — a first-run load against a
+    /// directory that does not exist, a finalized record carried by the real `LatencyLedger`
+    /// sink, the fold, the cadence declining, termination's flush, and a second
+    /// `PersistentUsageStore` loading the committed bytes back — and what
+    /// ``testDefaultConfigurationMakesZeroNetworkConnections`` asserts wholesale.
+    ///
+    /// **This constant is how `usage-store`'s witness debt is discharged.** Until this line,
+    /// `VoccaUsage`'s entry in the probe's module list was `PersistentUsageStore.self` — a
+    /// metatype reference that satisfied the coverage guard whether or not a line of the module
+    /// ever ran, recorded in `usage-store/spec.md` as "bookkeeping, not proof". Every field below
+    /// is a fact the probe can only produce by running the module.
+    ///
+    /// Two of them are not about the ledger at all. `store.location` and `store.isDefaultLocation`
+    /// are the standing promise that **no test writes to the founder's real
+    /// `~/Library/Application Support/Vocca/`**: the drive reports the directory it built its
+    /// store over, and a drive that quietly took `PersistentUsageStore()`'s default location would
+    /// fail here rather than silently fold a probe run into a real install's history.
+    ///
+    /// This is deliberately **not** a golden string to be regenerated when it fails.
+    /// ``testTheAssertedUsagePostConditionStillDescribesALoadAndARoundTrip`` reads it back and
+    /// refuses a version that no longer loads, no longer round-trips, tolerates a write on the
+    /// fold, or lets the drive point at the default location.
+    private static let expectedUsageLedgerLifecycle = [
+        // Where the drive wrote — the two halves of the temp-directory promise.
+        "store.location=temporary",
+        "store.isDefaultLocation=false",
+        // The first run: the store's directory does not exist, so neither does the file, and the
+        // load answers the empty window silently rather than erroring.
+        "file.beforeLoad=absent",
+        "load.days=0",
+        // The composition's seam, run: the ledger finalized one record and its sink delivered it.
+        // A `finalized=false` would be a refused finalize, which delivers nothing at all.
+        "finalized=true",
+        "sink.records=1",
+        // The fold landed in the day the provider named — and the file system stayed silent for
+        // it. `file.afterFold=absent` is the probe's own echo of D3: writing is not O(1) and must
+        // never happen inside the loop the P2 latency gate reads.
+        "fold.sessions=1",
+        "file.afterFold=absent",
+        // Termination's write, the `AppBootstrap.main()` quit hook's half.
+        "file.afterFlush=present",
+        // The round trip through real bytes: a second store over the same directory got the
+        // session back, with its outcome class, its rung and the day the provider resolved.
+        "reload.days=1",
+        "reload.sessions=1",
+        "reload.delivered=1",
+        "reload.clipboardPaste=1",
+        "reload.dayMatchesProvider=true",
+    ].joined(separator: " ")
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -636,6 +687,34 @@ final class ZeroNetworkTests: XCTestCase {
             The latency report's record carries no cleanup span — C5 is wired, and the ledger \
             carries the recorded cleanup span the pipeline measured around the rules provider, \
             which describe() renders. payload: \(latency)
+            """)
+
+        // The usage-ledger post-condition. The seventh effect-not-reference check, and the one
+        // that pays off a recorded debt: `usage-store` made `VoccaUsage` a shipping target and
+        // satisfied this coverage guard with `PersistentUsageStore.self`, writing in its own spec
+        // that a reference shows the module was *reached* and says nothing about whether it opens
+        // a socket. The module has real default-configuration work now — a launch-time load, a
+        // fold per finalized session and a write cadence — and the drive runs all three, so the
+        // metatype literal is gone from the probe's list and this line is what stands in its
+        // place. Deleting the drive takes the line with it and the comparison fails against `nil`.
+        XCTAssertEqual(
+            observation.reportedUsageLedger, Self.expectedUsageLedgerLifecycle,
+            """
+            The probe did not report driving a launch-shaped round trip through VoccaUsage's real \
+            store, day provider and recorder.
+              expected: \(Self.expectedUsageLedgerLifecycle)
+              observed: \(observation.reportedUsageLedger ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseUsageLedger() was not called on the \
+            default-configuration path — in which case VoccaUsage's actual behaviour is outside \
+            this invariant and only its name is inside it, which is exactly the state usage-store \
+            recorded as a debt — or the daily-use ledger no longer behaves as written. Both \
+            matter: the fields cover the first-run load, the fold that must touch no file, the \
+            termination write, the round trip through real bytes, and the directory the drive \
+            wrote to.
+            Do not fix this by deleting the call, and do not fix it by pasting in whatever the \
+            probe now prints — see \
+            testTheAssertedUsagePostConditionStillDescribesALoadAndARoundTrip.
+            \(observation.diagnosticSummary)
             """)
 
         // The coverage cross-check. Without it the assertions above stay green while covering an
@@ -1172,6 +1251,104 @@ final class ZeroNetworkTests: XCTestCase {
         XCTAssertEqual(
             try value("records"), "1",
             "The asserted streaming post-condition does not close exactly one latency record.")
+    }
+
+    // MARK: - Test G: the usage post-condition is still worth asserting
+
+    /// **Guards the guard.** ``expectedUsageLedgerLifecycle`` must keep describing a real
+    /// launch-shaped round trip — a first-run load, a fold that touched no file, a termination
+    /// write and a reload of the committed bytes — and must keep pinning the directory the drive
+    /// wrote to.
+    ///
+    /// The same protection the other guard-the-guard tests give their constants, and here it
+    /// defends two separate things. The first is the usual one: a constant that appears in a
+    /// failing diff gets regenerated, and regenerating this one to whatever the probe now prints
+    /// is the realistic way the discharged debt quietly comes back. The second is the founder's
+    /// own machine — a drive that stopped writing to a temporary directory would fold every probe
+    /// run into a real install's `~/Library/Application Support/Vocca/usage.json`, and the only
+    /// thing standing between that and a green suite is the pair of location fields below.
+    ///
+    /// It costs no probe run: the constant is what is under test, not the process.
+    func testTheAssertedUsagePostConditionStillDescribesALoadAndARoundTrip() throws {
+        let fields = try Self.parseFields(of: Self.expectedUsageLedgerLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        // Where the drive wrote. Both halves, because either alone can be satisfied by a mistake:
+        // "temporary" alone would pass for a default location that happened to be reported wrong,
+        // and "not the default" alone would pass for any directory anywhere on the disk.
+        XCTAssertEqual(
+            try value("store.location"), "temporary",
+            "The asserted usage post-condition no longer requires the probe's store to live under "
+                + "the temporary directory — which is the only thing keeping a probe run out of a "
+                + "real install's usage history.")
+        XCTAssertEqual(
+            try value("store.isDefaultLocation"), "false",
+            "The asserted usage post-condition tolerates a drive built over "
+                + "PersistentUsageStore()'s default location — the founder's own "
+                + "~/Library/Application Support/Vocca. Do not relax this field.")
+
+        // The first-run load: no file, and the empty window the store answers for one. A
+        // `file.beforeLoad=present` would mean the drive is reading somebody else's bytes, and a
+        // non-zero `load.days` would mean the load it claims to exercise was never a first run.
+        XCTAssertEqual(
+            try value("file.beforeLoad"), "absent",
+            "The asserted usage post-condition starts against an existing file, so the load it "
+                + "claims to exercise is not a first run.")
+        XCTAssertEqual(
+            try value("load.days"), "0",
+            "The asserted usage post-condition's first-run load does not answer the empty window.")
+
+        // The seam the composition installs: the ledger finalized, and its sink delivered. A
+        // `finalized=false` is a refused finalize, which delivers nothing and folds nothing.
+        XCTAssertEqual(
+            try value("finalized"), "true",
+            "The asserted usage post-condition's record was never finalized, so the sink it "
+                + "claims to exercise carried nothing.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("sink.records")) ?? 0, 1,
+            "The asserted usage post-condition never has the LatencyLedger sink deliver a record.")
+
+        // The fold, and the silence that must come with it — the probe's own echo of D3. A
+        // `file.afterFold=present` would be a write inside the dictation path, which is the one
+        // thing the write cadence exists to prevent.
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("fold.sessions")) ?? 0, 1,
+            "The asserted usage post-condition's record never reached a day aggregate.")
+        XCTAssertEqual(
+            try value("file.afterFold"), "absent",
+            "The asserted usage post-condition tolerates a file appearing on the fold. Folding is "
+                + "in-memory and O(1); a write there is on the dictation path the P2 latency gate "
+                + "reads.")
+
+        // Termination wrote, and the bytes came back. Without both, the "real load" this drive
+        // exists to perform is a load of nothing.
+        XCTAssertEqual(
+            try value("file.afterFlush"), "present",
+            "The asserted usage post-condition never commits the window, so the reload below "
+                + "reads no bytes the drive wrote.")
+        XCTAssertEqual(
+            try value("reload.days"), "1",
+            "The asserted usage post-condition's second store loads no day back.")
+        XCTAssertEqual(
+            try value("reload.sessions"), "1",
+            "The asserted usage post-condition's round trip loses the session it wrote.")
+        XCTAssertEqual(
+            try value("reload.delivered"), "1",
+            "The asserted usage post-condition's round trip loses the outcome class it wrote.")
+        XCTAssertEqual(
+            try value("reload.clipboardPaste"), "1",
+            "The asserted usage post-condition's round trip loses the delivering rung it wrote.")
+        XCTAssertEqual(
+            try value("reload.dayMatchesProvider"), "true",
+            "The asserted usage post-condition tolerates a session filed under a day the calendar "
+                + "provider did not name.")
     }
 
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the

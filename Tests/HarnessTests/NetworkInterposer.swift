@@ -307,6 +307,27 @@ struct NetworkObservation {
         return nil
     }
 
+    /// The usage-ledger post-condition the probe observed after driving a launch-shaped round trip
+    /// through the daily-use ledger, or `nil` if the probe never reported one.
+    ///
+    /// The seventh effect-not-reference post-condition, and the one that discharges a debt rather
+    /// than merely following a precedent: `PersistentUsageStore.self` sat in the probe's module
+    /// list and satisfied the coverage guard whether or not a single line of `VoccaUsage` ever
+    /// executed — `usage-store` recorded that in its own spec as bookkeeping, not proof. This
+    /// payload is a line of `key=value` fields the probe can only produce by running the module:
+    /// the first-run load against a missing file, the finalized record the real `LatencyLedger`
+    /// sink carried, the fold that touched no file, the termination flush that did, and a second
+    /// store loading the committed bytes back. It also carries where the drive wrote, so "no test
+    /// writes to the founder's real Application Support" is an asserted fact rather than a comment.
+    /// Deleting the drive takes the whole line with it and the assertion fails on `nil`.
+    var reportedUsageLedger: String? {
+        for line in probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-USAGE\t") {
+            return String(line.dropFirst("PROBE-USAGE\t".count))
+        }
+        return nil
+    }
+
     var events: [ObservedNetworkEvent] {
         rawLog.split(separator: "\n").compactMap { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
