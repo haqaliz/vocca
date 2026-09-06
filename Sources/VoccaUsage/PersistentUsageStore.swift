@@ -113,16 +113,15 @@ public struct DefaultUsageFileSystem: UsageFileSystem {
 /// parser's gate: an impossible date in a hand-edited file yields `nil` and the row is skipped,
 /// never repaired into a plausible one.
 ///
-/// ## Only the format landed here
+/// ## Tolerant on the way in, and loud about it
 ///
-/// The three tolerance gates — a top level that is not an object, an unknown `version`, and
-/// **bounds that are not this build's** — and every loud log line are the next slice's
-/// (`plan_20260907.md` Phase 4), each written as a test watched failing first. Until then this
-/// store reads the version and the bounds *structurally* — a file that does not carry them is
-/// not this format and loads empty — but it does not yet refuse a file that carries different
-/// ones, and it skips a corrupt row **silently** where the contract says loudly. The ``log``
-/// closure is injected and held for exactly that, unused for one slice. A visible gap, in the
-/// shape the Phase 1 stub used: it is named here rather than left for a reader to discover.
+/// Three gates refuse a whole file — a top level that is not an object, a `version` this build
+/// has never seen, and **bucket bounds that are not this build's** — and each emits exactly one
+/// line through the injected ``log``. Below them, each day row is decoded on its own, and a row
+/// that cannot be read is skipped with one line of its own rather than costing the file. Nothing
+/// is repaired: a refused file and a skipped row are both left exactly as the user wrote them,
+/// because a load that rewrites is a load that can delete history the user opened the file to
+/// read.
 ///
 /// ## Concurrency contract
 ///
@@ -144,6 +143,11 @@ public actor PersistentUsageStore: UsageStore {
 
     /// The suffix of the temp file mid-commit — never readable, never loaded.
     private static let tempSuffix = ".tmp"
+
+    /// The format's version, in one place so ``encode(_:)`` and the version gate in
+    /// ``decode(_:onInvalidRow:)`` cannot drift into writing one number and accepting another.
+    /// Version 1 is the first version and there is no migration machinery (`spec.md`).
+    private static let formatVersion = 1
 
     /// The file itself — `<directory>/usage.json`.
     public var fileURL: URL { directory.appendingPathComponent(Self.fileName) }
@@ -172,11 +176,27 @@ public actor PersistentUsageStore: UsageStore {
     /// even if the Application Support directory is unavailable to resolve — a defensive default,
     /// not a decision about where the history lives.
     public init() {
-        let base = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support")
-        self.init(directory: base.appendingPathComponent("Vocca"))
+        self.init(
+            directory: Self.defaultDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask
+                ).first,
+                home: FileManager.default.homeDirectoryForCurrentUser))
+    }
+
+    /// Where ``init()`` puts the ledger, as a pure function of what the file system answered —
+    /// `<applicationSupport>/Vocca`, or `<home>/Library/Application Support/Vocca` when
+    /// Application Support could not be resolved.
+    ///
+    /// Separated from ``init()`` because the fallback is otherwise unreachable in a test: the
+    /// only way to drive it through the initialiser is a machine whose Application Support does
+    /// not resolve, and the only way to check the resolved branch is to write into the
+    /// developer's own. A pure function makes both assertable without a test ever creating a
+    /// file where a real install keeps its history.
+    static func defaultDirectory(applicationSupport: URL?, home: URL) -> URL {
+        let base =
+            applicationSupport ?? home.appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("Vocca")
     }
 
     // MARK: - The persisted shape
@@ -230,7 +250,7 @@ public actor PersistentUsageStore: UsageStore {
     /// function's output, and the next slice asserts it on the bytes rather than on this comment.
     public static func encode(_ window: UsageWindow) throws -> Data {
         let file = PersistedFile(
-            version: 1,
+            version: formatVersion,
             bucketUpperBoundsMilliseconds: LatencyHistogram.bucketUpperBoundsMilliseconds,
             days: window.days.map(persistedDay))
         let encoder = JSONEncoder()
@@ -280,32 +300,62 @@ public actor PersistentUsageStore: UsageStore {
     /// user's thirty days of history must not be lost because one row was hand-edited into
     /// nonsense. A row that cannot be read — bad JSON, a missing field, an impossible date, a
     /// negative count, a bucket array of the wrong length, or a rung this build does not have —
-    /// is **skipped**, and the readable remainder loads.
+    /// is **skipped** with one `onInvalidRow` call, and the readable remainder loads.
+    ///
+    /// Above the rows, three gates refuse the whole file with one `onInvalidRow` call each and no
+    /// partial belief:
+    ///
+    /// - **A top level that is not a JSON object.** Not this format, and nothing in it can be
+    ///   placed.
+    /// - **A `version` that is not ``formatVersion``.** A version-2 file a later build wrote is
+    ///   loaded empty rather than guessed at; a guess about a format this build has never seen is
+    ///   a silent misreading of a user's history. A version-less file is the same case.
+    /// - **`bucketUpperBoundsMilliseconds` that are not this build's.** This is the
+    ///   reinterpretation trap the bounds are in the file to catch: bucket counts mean nothing
+    ///   without the bounds that produced them, so a table that differs — in its numbers or its
+    ///   length — makes every retained latency a different latency. The file is not repaired and
+    ///   not partially trusted, because the counts are not wrong, they are *about something
+    ///   else*.
     ///
     /// Never throws, and a load never writes: a file this build cannot interpret is not a file
     /// this build may overwrite.
-    ///
-    /// The three tolerance gates and the loud logs are Phase 4's; see the type's doc comment.
-    public static func decode(_ data: Data) -> UsageWindow {
+    public static func decode(
+        _ data: Data,
+        onInvalidRow: @escaping @Sendable (String) -> Void
+    ) -> UsageWindow {
         guard let object = try? JSONSerialization.jsonObject(with: data),
-            let file = object as? [String: Any],
-            file["version"] is Int,
-            // Read structurally, not yet compared: counts without their bounds are not this
-            // format at all. The equality check — and the loud refusal a mismatch deserves —
-            // is Phase 4's.
-            file["bucketUpperBoundsMilliseconds"] is [Int],
-            let rows = file["days"] as? [Any]
+            let file = object as? [String: Any]
         else {
+            onInvalidRow(
+                "usage-ledger: the file's top level is not a JSON object; loading an empty history")
+            return UsageWindow()
+        }
+        guard let version = file["version"] as? Int, version == formatVersion else {
+            onInvalidRow("usage-ledger: unknown usage.json version; loading an empty history")
+            return UsageWindow()
+        }
+        guard let bounds = file["bucketUpperBoundsMilliseconds"] as? [Int],
+            bounds == LatencyHistogram.bucketUpperBoundsMilliseconds
+        else {
+            onInvalidRow(
+                "usage-ledger: usage.json's latency bucket bounds are not this build's; "
+                    + "loading an empty history rather than re-reading its buckets as different "
+                    + "latencies")
+            return UsageWindow()
+        }
+        guard let rows = file["days"] as? [Any] else {
+            onInvalidRow("usage-ledger: usage.json holds no days list; loading an empty history")
             return UsageWindow()
         }
 
         var window = UsageWindow()
-        for row in rows {
+        for (index, row) in rows.enumerated() {
             guard JSONSerialization.isValidJSONObject(row),
                 let rowData = try? JSONSerialization.data(withJSONObject: row),
                 let persisted = try? JSONDecoder().decode(PersistedDay.self, from: rowData),
                 let aggregate = aggregate(from: persisted)
             else {
+                onInvalidRow("usage-ledger: skipping unreadable day row at index \(index)")
                 continue
             }
             window.insert(aggregate)
@@ -377,7 +427,7 @@ public actor PersistentUsageStore: UsageStore {
         let url = fileURL
         guard await fileSystem.fileExists(atPath: url.path) else { return UsageWindow() }
         guard let data = await fileSystem.read(url) else { return UsageWindow() }
-        return Self.decode(data)
+        return Self.decode(data, onInvalidRow: log)
     }
 
     /// Replace the persisted window atomically: create the directory, encode, temp-write
