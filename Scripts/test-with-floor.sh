@@ -1459,8 +1459,42 @@ set -euo pipefail
 # with `contains`. `testExactlyOneSourceLineRecordsATranscriptAsLost` scans comment-stripped
 # `Sources/` so a second loss site has to be a reviewed edit rather than a quiet addition.
 #
+# The usage-vocabulary aspect adds fifty-six (1764 -> 1820), in five groups.
+#
+# Session kind (3): `testTheRecordTellsASetupDemoApartFromARealDictation` pins that a setup demo
+# and a real dictation do not record identically — onboarding shares the production ledger and its
+# injector never holds, so a refused TRY IT finalizes `.lost`. `SessionKindWiringTests`' pair pins
+# the one place a composition becomes a kind (`AppBootstrap.configure`) and proves the scan rejects
+# an exchange of the two arms: swapped, every onboarding session records as real work and the rest
+# of the suite stays green.
+#
+# CalendarDay (8): the proleptic Gregorian day-number conversion, so "consecutive" is integer
+# subtraction in a module that has no `Calendar`. Boundaries across months, years and a leap day,
+# plus the leap-century case (2000 has a February 29, 1900 does not) that catches an ad-hoc
+# divisible-by-four calendar. An impossible date is refused rather than repaired, since a clamped
+# date yields a `dayNumber` indistinguishable from a real one.
+#
+# LatencyHistogram (9): bucketing with inclusive upper bounds — a dictation of exactly 800 ms is
+# inside the P2 gate — and milliseconds rounded up, never truncated, since truncation moves
+# readings into buckets they exceed. Percentiles by integer nearest rank, reported as a bucket
+# bound so a UI cannot render one as a spot value, and `nil` rather than a fabricated zero when
+# there are no samples. The load-bearing row is the window percentile, which sums buckets and is
+# demonstrably not the average of per-day percentiles — the reason the format stores buckets at all.
+#
+# DayAggregate (12): the fold, total over all six outcome classes and both session kinds with
+# nothing coerced. Onboarding is counted beside real work and never inside it, rung tallies come
+# only from `.delivered`, and a session that measured nothing contributes no latency sample rather
+# than a zero.
+#
+# UsageWindow (24, including the streak refinement): a day extends a streak only when a transcript
+# existed — `delivered`, `failsafeHeld` or `lost` — so a stray hotkey press, a cancellation, and a
+# day of nothing but transcription failures do not. `.lost` counts because the transcript existed.
+# Thirty days, evicted oldest-first on insertion. An onboarding-only day and a stray-press-only day
+# each break a run exactly as an absent day does, asserted as equality against the absent case so
+# the rules cannot drift apart.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1764
+MINIMUM_EXECUTED_TESTS=1820
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
