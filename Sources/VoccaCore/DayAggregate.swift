@@ -110,6 +110,29 @@ public struct DayAggregate: Sendable, Equatable {
             delivered + failsafeHeld + aborted + failed + lost + emptySkip
         }
 
+        /// The sessions in which a transcript existed — the day's actual dictations.
+        ///
+        /// Three of the six classes mean the user spoke and the engine transcribed:
+        /// ``SessionOutcomeClass/delivered(rung:verified:)``,
+        /// ``SessionOutcomeClass/failsafeHeld`` and ``SessionOutcomeClass/lost``. `lost` counts
+        /// here precisely *because* the transcript existed — its existence is what makes its
+        /// disappearance a loss rather than a failure, and that loss is already reported, at zero
+        /// tolerance, by ``lost`` itself. Deducting it twice would let one defect quietly shrink
+        /// an unrelated figure.
+        ///
+        /// The other three produced no text at all: ``SessionOutcomeClass/emptySkip`` is a press
+        /// that recorded nothing, ``SessionOutcomeClass/aborted`` is a cancellation, and
+        /// ``SessionOutcomeClass/failed`` is a day the tool did not work.
+        ///
+        /// The set is named once, here, because more than one reader needs it —
+        /// ``UsageWindow/streak(asOf:)`` asks whether a day was a day of dictation, and the Usage
+        /// tab will want to say how many dictations a day held without counting a stray hotkey
+        /// press as one. Open-coded at each call site, the two would eventually disagree about
+        /// what a dictation is.
+        public var transcriptsProduced: Int {
+            delivered + failsafeHeld + lost
+        }
+
         /// How many sessions `rung` delivered.
         public func deliveries(via rung: InjectionRung) -> Int {
             deliveriesByRung[rung] ?? 0

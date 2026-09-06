@@ -478,4 +478,63 @@ final class DayAggregateTests: XCTestCase {
             measured, unmeasured,
             "two days with the same counts and different latencies are different days. If equality ignored the histogram, a store that lost every sample would still compare equal to one that kept them")
     }
+
+    // MARK: - Which sessions are evidence a dictation happened
+
+    /// ``DayAggregate/OutcomeCounts/transcriptsProduced`` counts the three classes in which a
+    /// transcript existed, and only those.
+    ///
+    /// The claim is named here, once, because two different readers need it: ``UsageWindow``'s
+    /// streak, which asks whether the day was a day of dictation, and the Usage tab, which will
+    /// want to say how many dictations a day held without implying that a stray hotkey press was
+    /// one. `delivered`, `failsafeHeld` and `lost` all mean the user spoke and the engine
+    /// transcribed — `lost` included, since the transcript's existence is exactly what makes its
+    /// disappearance a loss. `emptySkip`, `aborted` and `failed` produced no text at all.
+    ///
+    /// Open-coding that set at each call site is how the two readers eventually disagree about
+    /// what a dictation is, so the set lives on the counts and the callers read a claim.
+    func testTranscriptsProducedCountsExactlyTheClassesInWhichATranscriptExisted() throws {
+        var aggregate = DayAggregate(day: try Self.aDay())
+        for (index, outcome) in Self.oneOfEachOutcome().enumerated() {
+            aggregate.fold(Self.record(outcome, id: index + 1))
+        }
+
+        XCTAssertEqual(
+            aggregate.realWork.transcriptsProduced, 3,
+            """
+            One session of each of the six classes yields three transcripts: the delivered one, \
+            the one the failsafe held, and the lost one. The other three — a stray press, a \
+            cancellation and a transcription failure — produced no text, and counting them would \
+            let days nobody dictated on look like days of use.
+            """)
+
+        var noTranscripts = DayAggregate(day: try Self.aDay())
+        for (index, outcome) in [SessionOutcomeClass.emptySkip, .aborted, .failed].enumerated() {
+            noTranscripts.fold(Self.record(outcome, id: index + 1))
+        }
+        XCTAssertEqual(
+            noTranscripts.realWork.transcriptsProduced, 0,
+            """
+            A day of presses that recorded nothing, cancellations and engine failures produced no \
+            transcript at all. Its sessions are still counted as themselves — the day is not \
+            hidden — but none of them is evidence that a dictation happened.
+            """)
+        XCTAssertEqual(
+            noTranscripts.realWork.total, 3,
+            """
+            The day still holds three sessions. Producing no transcript is not the same as not \
+            existing, and the class counts stay whole so the Usage tab can show a day of \
+            failures as the defect it is.
+            """)
+
+        var onboardingOnly = DayAggregate(day: try Self.aDay())
+        onboardingOnly.fold(
+            Self.record(.delivered(rung: .clipboardPaste, verified: true), kind: .onboarding))
+        XCTAssertEqual(
+            onboardingOnly.realWork.transcriptsProduced, 0,
+            "an onboarding demo's transcript is counted in the onboarding column, and the real-work column stays empty — the two columns never mix, here as everywhere else")
+        XCTAssertEqual(
+            onboardingOnly.onboarding.transcriptsProduced, 1,
+            "the same claim is available on the onboarding column, because it is the same shape twice — a question asked of one column must be askable of the other")
+    }
 }
