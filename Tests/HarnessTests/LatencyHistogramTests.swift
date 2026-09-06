@@ -360,4 +360,58 @@ final class LatencyHistogramTests: XCTestCase {
             Self.filesSpellingTheBounds(in: ["Prose.swift": "// \(Self.boundsSpelling)"]).isEmpty,
             "a comment quoting the bounds is documentation, not a second declaration — the scan strips comments so prose stays free to explain the format")
     }
+
+    // MARK: - The way back from a persisted day
+
+    /// A histogram rebuilt from its own bucket counts is the **same histogram** — equal, and
+    /// answering every percentile identically.
+    ///
+    /// This is the store's round trip stated at the level of the type: the persisted form is the
+    /// counts, so if reconstruction from counts lost anything, every loaded day's p50 and p95
+    /// would be a different number from the one the day actually measured. The percentiles are
+    /// asserted across the whole 1...100 range rather than at two spot values, because the
+    /// nearest-rank walk is where a padded or reordered array would show up.
+    func testAHistogramRebuiltFromItsBucketCountsAnswersEveryPercentileIdentically() throws {
+        var measured = LatencyHistogram()
+        for milliseconds in [12, 26, 88, 99, 140, 260, 399, 401, 780, 1_500, 9_000, 9_001] {
+            measured.record(.milliseconds(milliseconds))
+        }
+
+        let rebuilt = try XCTUnwrap(
+            LatencyHistogram(bucketCounts: measured.bucketCounts),
+            "counts that came out of a histogram must go back into one")
+
+        XCTAssertEqual(rebuilt, measured, "the counts are the whole of the value")
+        XCTAssertEqual(rebuilt.sampleCount, measured.sampleCount)
+        XCTAssertEqual(rebuilt.overflowCount, measured.overflowCount, "the overflow bucket survives")
+        for percent in 1...100 {
+            XCTAssertEqual(
+                rebuilt.percentile(percent), measured.percentile(percent),
+                "a day loaded from disk must report the same p\(percent) it measured")
+        }
+    }
+
+    /// Counts that no ``LatencyHistogram/record(_:)`` could have produced are **refused, not
+    /// repaired**: too few buckets, too many, and a negative tally all yield `nil`.
+    ///
+    /// Padding a short array would silently re-bucket every reading it holds — the exact
+    /// reinterpretation the persisted bounds exist to make loud — and clamping a negative would
+    /// fabricate a count. The empty histogram's own counts are checked back in as the vacuity
+    /// guard: an initialiser that refused everything would pass the three refusals above.
+    func testBucketCountsThatCouldNotHaveBeenRecordedAreRefused() {
+        let valid = LatencyHistogram().bucketCounts
+        XCTAssertNotNil(
+            LatencyHistogram(bucketCounts: valid),
+            "vacuity guard: the shape that exists must be accepted")
+
+        XCTAssertNil(
+            LatencyHistogram(bucketCounts: Array(valid.dropLast())),
+            "a short array must not be padded — every reading it holds would move bucket")
+        XCTAssertNil(
+            LatencyHistogram(bucketCounts: valid + [0]),
+            "a long array is a file this build cannot read, not a bucket to discard")
+        XCTAssertNil(
+            LatencyHistogram(bucketCounts: [-1] + valid.dropFirst()),
+            "a negative tally is nonsense; clamping it to zero would fabricate a count")
+    }
 }

@@ -104,6 +104,44 @@ public struct DayAggregate: Sendable, Equatable {
             }
         }
 
+        /// A column rebuilt from counts — the store's way back from a persisted day.
+        ///
+        /// **Failable, and it refuses rather than repairs.** A count off disk is the one number
+        /// here that did not come from ``count(_:)``, so a negative tally — the only way these
+        /// six values can be nonsense — yields `nil` and leaves the store to skip the row, rather
+        /// than being clamped into a plausible zero. Rung tallies are held to the same rule.
+        ///
+        /// The every-rung-present invariant is **maintained, not bypassed**: construction starts
+        /// from ``init()``'s zero-filled table and `deliveriesByRung` is merged over it, so a
+        /// column rebuilt from a file that named two rungs still holds all four and still
+        /// compares with a folded column on counts rather than on which keys happen to exist. A
+        /// rung the running build does not have is not this initialiser's problem — an unknown
+        /// raw value never becomes an ``InjectionRung``, so it cannot arrive here at all.
+        ///
+        /// - Returns: `nil` if any outcome count or any rung tally is negative.
+        public init?(
+            delivered: Int, failsafeHeld: Int, aborted: Int, failed: Int, lost: Int,
+            emptySkip: Int, deliveriesByRung: [InjectionRung: Int]
+        ) {
+            guard
+                ![delivered, failsafeHeld, aborted, failed, lost, emptySkip]
+                    .contains(where: { $0 < 0 }),
+                !deliveriesByRung.values.contains(where: { $0 < 0 })
+            else {
+                return nil
+            }
+            self.init()
+            self.delivered = delivered
+            self.failsafeHeld = failsafeHeld
+            self.aborted = aborted
+            self.failed = failed
+            self.lost = lost
+            self.emptySkip = emptySkip
+            for (rung, count) in deliveriesByRung {
+                self.deliveriesByRung[rung] = count
+            }
+        }
+
         /// Every session in this column. The six classes are exhaustive over the routes the
         /// pipeline can exit by, so this is a sum and never an estimate.
         public var total: Int {
@@ -174,6 +212,25 @@ public struct DayAggregate: Sendable, Equatable {
         realWork = OutcomeCounts()
         onboarding = OutcomeCounts()
         realWorkLatency = LatencyHistogram()
+    }
+
+    /// A day rebuilt from its three parts — the store's way back from a persisted row.
+    ///
+    /// Not failable, and it does not need to be: every part that can be nonsense already refused
+    /// to be built. ``CalendarDay/init(year:month:day:)`` gates the date, ``OutcomeCounts``'
+    /// counts initialiser gates the tallies and ``LatencyHistogram/init(bucketCounts:)`` gates
+    /// the buckets, so by the time three of them exist there is nothing left here to validate.
+    /// Nothing is cross-checked either — this type never held such a rule, and inventing one
+    /// here (that `delivered` equals the rung tallies, say) would make the store the first place
+    /// in the tree that decides what a consistent day is.
+    public init(
+        day: CalendarDay, realWork: OutcomeCounts, onboarding: OutcomeCounts,
+        realWorkLatency: LatencyHistogram
+    ) {
+        self.day = day
+        self.realWork = realWork
+        self.onboarding = onboarding
+        self.realWorkLatency = realWorkLatency
     }
 
     /// Every session the day saw, both kinds together.

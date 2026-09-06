@@ -93,6 +93,35 @@ public struct LatencyHistogram: Sendable, Equatable {
         }
     }
 
+    /// A histogram rebuilt from bucket counts — the store's way back from a persisted day, and
+    /// the only one: the samples themselves are never retained, so a loaded day can be rebuilt
+    /// from its counts or not at all.
+    ///
+    /// **Failable, and it refuses rather than repairs.** Counts read off disk are the one input
+    /// to this type that did not come from ``record(_:)``, so they are the one input that can be
+    /// nonsense: a hand-edited file with fourteen buckets, or with a negative tally. Neither is
+    /// padded, truncated or clamped — a padded array silently re-buckets every reading it holds,
+    /// and a clamped negative is a fabricated count. `nil` is ``CalendarDay/init(year:month:day:)``'s
+    /// answer to the same question, for the same reason, and it leaves the caller (the store,
+    /// which skips the row) to decide what an unreadable day means.
+    ///
+    /// The two conditions are exactly ``init()``'s own invariants — one entry per bound plus the
+    /// overflow bucket, no count below zero — so nothing constructible through here is a
+    /// histogram ``record(_:)`` could not also have produced.
+    ///
+    /// - Parameter bucketCounts: one count per bound in ``bucketUpperBoundsMilliseconds`` order,
+    ///   plus the trailing overflow count.
+    /// - Returns: `nil` when the array is not exactly `bucketUpperBoundsMilliseconds.count + 1`
+    ///   long, or when any count is negative.
+    public init?(bucketCounts: [Int]) {
+        guard bucketCounts.count == Self.bucketUpperBoundsMilliseconds.count + 1,
+            !bucketCounts.contains(where: { $0 < 0 })
+        else {
+            return nil
+        }
+        self.bucketCounts = bucketCounts
+    }
+
     /// How many samples the histogram holds, overflow included.
     public var sampleCount: Int {
         bucketCounts.reduce(0, +)
