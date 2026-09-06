@@ -350,6 +350,92 @@ final class OnboardingInjectorTests: XCTestCase {
             "before completion the loop's injector is the onboarding sink — the delivery end "
                 + "swapped, nothing else")
     }
+
+    // MARK: - The kind of session the record is of
+
+    /// **A setup demo and a real dictation record identically — and must not.** TRY IT runs
+    /// through the *production* ledger: `AppBootstrap.swift:443-457` swaps the injector on
+    /// ``AppBootstrap/injectorComposition(completionFlag:)`` and passes the same `recorder:` on
+    /// both branches. The two sessions below are that wiring, headless — the same audio, the same
+    /// engine, the same clock, the same delivered result — differing in exactly one thing: which
+    /// composition delivered them. The record has nowhere to put that.
+    ///
+    /// It is a measurement defect, not a cosmetic one. The onboarding injector never holds (the
+    /// sink owns delivery — `OnboardingInjector.swift`'s documented divergence), so a refused TRY
+    /// IT finalizes ``SessionOutcomeClass/lost`` — the same class a real dictation gets when its
+    /// transcript vanishes. Aggregated, the P0 loss figure cannot separate a setup demo nobody had
+    /// typed a word into yet from a transcript lost during the user's real work, and
+    /// `ROADMAP.md:102`'s gate is about daily use as primary text input: a setup failure must stay
+    /// visible without being counted as a day of use, and a real loss must never hide behind one.
+    ///
+    /// The equality guards come first and stay true afterwards: everything the record carries
+    /// today *should* match across these two sessions, so the rendering difference this test
+    /// demands can only be the session's kind.
+    func testTheRecordTellsASetupDemoApartFromARealDictation() async {
+        let engine = StubEngine.parakeet()
+        let clock = TableClock()
+        let ledger = LatencyLedger()
+        let holder = OnboardingLedgerHolder()
+        // The onboarding injector's own delivered answer (`OnboardingInjector.swift`): the
+        // clipboard-paste rung, unverified, no ladder rung attempted, zero elapsed. The ladder
+        // stand-in is given exactly that result, so the two records differ in nothing the ledger
+        // records — only in the composition that produced them.
+        let deliveredLikeTheOnboardingSink = InjectionResult(
+            rung: .clipboardPaste, attempted: [], verified: false, elapsed: .zero)
+
+        let onboardingPipeline = DictationPipeline(
+            engine: engine,
+            injector: OnboardingInjector(sink: RecordingOnboardingSink()),
+            holder: holder,
+            recorder: ledger,
+            clock: clock)
+        let dictationPipeline = DictationPipeline(
+            engine: engine,
+            injector: LedgerTextInjector(result: deliveredLikeTheOnboardingSink),
+            holder: holder,
+            recorder: ledger,
+            clock: clock)
+
+        let onboardingID = await ledger.beginSession()
+        let onboardingSurface = await onboardingPipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target(), sessionID: onboardingID)
+        let dictationID = await ledger.beginSession()
+        let dictationSurface = await dictationPipeline.route(
+            SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
+            target: target(), sessionID: dictationID)
+
+        XCTAssertEqual(onboardingSurface, .idle)
+        XCTAssertEqual(dictationSurface, .idle)
+        let records = await ledger.snapshot()
+        XCTAssertEqual(records.count, 2, "one record per session — the shared production ledger")
+        guard let onboardingRecord = records.first, let dictationRecord = records.last else { return }
+        XCTAssertEqual(
+            onboardingRecord.outcome, dictationRecord.outcome,
+            "guard: both sessions delivered — the outcome class is not what tells them apart")
+        XCTAssertEqual(
+            onboardingRecord.spans, dictationRecord.spans,
+            "guard: the same hand-moved clock and the same zero-elapsed delivery — the spans are "
+                + "not what tells them apart")
+        XCTAssertEqual(
+            onboardingRecord.engine, dictationRecord.engine,
+            "guard: one engine transcribed both — attribution is not what tells them apart")
+
+        /// The record's rendering with its minted id taken off: the ledger mints in order, so the
+        /// ids differ by construction and are the one difference that carries no meaning.
+        func body(of line: String) -> String {
+            String(line.drop(while: { $0 != ":" }).dropFirst())
+        }
+        let lines = await ledger.describe().split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertNotEqual(
+            body(of: lines[0]), body(of: lines[1]),
+            "the setup demo and the real dictation render the same line — the record does not "
+                + "carry which composition delivered it. So the P0 loss figure cannot separate a "
+                + "TRY IT the sink refused from a transcript that vanished during real work, and "
+                + "an onboarding-only day counts as a day of daily use; `ROADMAP.md:102`'s gate "
+                + "is about daily use as primary text input, which a setup demo is not")
+    }
 }
 
 // MARK: - The sink double
