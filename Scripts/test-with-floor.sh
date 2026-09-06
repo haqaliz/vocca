@@ -1493,8 +1493,30 @@ set -euo pipefail
 # each break a run exactly as an absent day does, asserted as equality against the absent case so
 # the rules cannot drift apart.
 #
+# The usage-store aspect adds fifteen (1820 -> 1835): the round trip through a real temp
+# directory, and the tolerance gates. Two of the gates found defects rather than confirming
+# behaviour — a file carrying an unknown `version` loaded its rows, and a file whose latency
+# bucket bounds were not this build's loaded its days as data. Both now load an empty history
+# with one loud log, the bounds gate rejecting a same-length array with shifted values and not
+# only an obviously wrong one, because bucket counts are meaningless without the bounds that
+# produced them and a silent re-read is the failure nobody would report.
+#
+# The rest: a missing file is empty and silent, since a first run is not an error; a corrupt row
+# is skipped loudly while its neighbours load; a load never rewrites the file; a stray `.tmp`
+# from a crash is never read, pinned with a *decodable* planted file so it cannot pass on
+# garbage; a failed rename leaves the previous commit intact; six spellings of an impossible or
+# malformed date skip their row rather than being repaired; retention survives the round trip;
+# and the default location is asserted on the constructed URL rather than by writing to a real
+# Application Support directory.
+#
+# `testTheEncodedBytesCarryNoTextAndNoWallClockTime` is the unit's central promise asserted on
+# the artifact instead of in a doc comment: no phrase, no `HH:MM`, no ISO-8601 marker, no
+# epoch-looking integer. Its time half has teeth today — a `generatedAt` is one line away and
+# every shape of it is caught — and its phrase half is the assertion that fires the day a row is
+# widened to carry a name.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1820
+MINIMUM_EXECUTED_TESTS=1835
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
