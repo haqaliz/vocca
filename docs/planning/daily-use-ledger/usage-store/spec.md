@@ -120,6 +120,24 @@ hand-edited file yields `nil` and the row is skipped, never repaired into a plau
 | A partially-written file on power loss | Atomic temp + `replaceItemAt`, C7/C8 |
 | Adding a module is more disruptive than expected | `adapterModules` already exists as a category; the change is one Package.swift target, one lint set, one seam row |
 
+## Debt this aspect creates, for `usage-wiring` to discharge
+
+Adding a `.library` product makes `VoccaUsage` a **shipping** target, and `ZeroNetworkTests`'
+`modulesRequiringCoverage` requires every shipping module to be witnessed by the zero-network
+probe — `justifiedExclusions` refuses to let a shipping target be excluded
+(`ZeroNetworkTests.swift:1330`). With no format yet, there is no default-configuration work in the
+module to drive, so Phase 1 satisfies it with a **metatype reference**
+(`PersistentUsageStore.self`) alongside the three remaining placeholder modules.
+
+**That is bookkeeping, not proof.** A reference shows the module was reached; it does not show the
+module makes no network call. The probe's other drives are written under an effect-not-reference
+rule, and this entry is the exception.
+
+**`usage-wiring` must replace it with a real witness**: once `AppBootstrap` loads a window at
+launch, that load is the effect the probe should exercise. Recorded here rather than only in the
+code comment beside it, because a comment asking a future slice for something is how a temporary
+exception becomes permanent.
+
 ## Note
 
 This aspect creates the first on-disk artifact of the unit. Everything before it was reversible by

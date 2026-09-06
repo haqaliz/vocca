@@ -1140,7 +1140,11 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// temp-write→rename pair) above it in the headless store tests. `PersistentInjectionStrategyStore`
     /// is the strategy seam's, added by the `store-seam` aspect: the same adapter shape again —
     /// load, atomic update/save — with every decision (version tolerance, corrupt-element
-    /// skips, the learning cap) above it in the headless store tests.
+    /// skips, the learning cap) above it in the headless store tests. `PersistentUsageStore` is
+    /// the usage seam's, added by the `usage-store` aspect: the same adapter shape once more —
+    /// load, atomic save — with every decision (version tolerance, per-row skips, the
+    /// bucket-bounds check) above it in the headless store tests. It is the only file in its
+    /// module, which is the cleanest form the rule takes.
     ///
     /// **The family is scoped per module, and that is a correction to the plan, not a
     /// weakening of it.** `FileManager` is already named in three `VoccaASR` files
@@ -1156,18 +1160,21 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         "dictionary": ["Dictionary/FileSystemDictionaryStore.swift"],
         "config": ["Cleanup/CleanupConfigStore.swift"],
         "strategy": ["Memory/PersistentInjectionStrategyStore.swift"],
+        "usage": ["PersistentUsageStore.swift"],
     ]
 
     /// The module root each FileManager seam scans, keyed by the same seam names as
     /// ``filesPermittedToNameFileManagerIdentifiersBySeam``. The table's paths are
     /// module-relative, so each row needs its own root: the journal and strategy rows scan
-    /// `VoccaInject`, the dictionary and config rows scan `VoccaText` — the per-seam claim
-    /// actually reaches the module that owns each seam, and stops at it.
+    /// `VoccaInject`, the dictionary and config rows scan `VoccaText`, and the usage row scans
+    /// `VoccaUsage` — the per-seam claim actually reaches the module that owns each seam, and
+    /// stops at it.
     private static let fileManagerSeamModuleRoots: [String: String] = [
         "journal": "VoccaInject",
         "dictionary": "VoccaText",
         "config": "VoccaText",
         "strategy": "VoccaInject",
+        "usage": "VoccaUsage",
     ]
 
     /// The FileManager table flattened — every permitted file in every seam. The module-wide
@@ -1291,18 +1298,20 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         }
     }
 
-    /// **The FileManager seam table names exactly the four shipped seams** — the `store-seam`
-    /// aspect's S15 pin: `journal` (VoccaInject), `dictionary` (VoccaText), `config`
-    /// (VoccaText), and the strategy store the `store-seam` aspect adds (VoccaInject). An
-    /// exact-set pin, so a seam that moves without its row — or a row that appears without a
-    /// seam — fails here rather than in the review.
-    func testTheFileManagerSeamTableNamesExactlyTheFourShippedSeams() {
+    /// **The FileManager seam table names exactly the five shipped seams** — the `store-seam`
+    /// aspect's S15 pin, widened once: `journal` (VoccaInject), `dictionary` (VoccaText),
+    /// `config` (VoccaText), the strategy store the `store-seam` aspect adds (VoccaInject), and
+    /// the usage ledger the `usage-store` aspect adds (VoccaUsage). An exact-set pin, so a seam
+    /// that moves without its row — or a row that appears without a seam — fails here rather
+    /// than in the review. Widening it is the deliberate, reviewable act of admitting a fifth
+    /// place in this tree where the file system is touched at all.
+    func testTheFileManagerSeamTableNamesExactlyTheFiveShippedSeams() {
         XCTAssertEqual(
             Set(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys),
-            ["journal", "dictionary", "config", "strategy"],
+            ["journal", "dictionary", "config", "strategy", "usage"],
             """
-            The FileManager seam table must name exactly the four shipped seams: journal, \
-            dictionary, config, strategy. Got \
+            The FileManager seam table must name exactly the five shipped seams: journal, \
+            dictionary, config, strategy, usage. Got \
             \(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted().joined(separator: ", ")). \
             A seam whose adapter moved without its row, or a row without a seam, is a leak the \
             other pins cannot see.

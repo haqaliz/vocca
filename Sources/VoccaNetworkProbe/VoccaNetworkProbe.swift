@@ -23,6 +23,7 @@ import VoccaInject
 import VoccaSpeech
 import VoccaText
 import VoccaUI
+import VoccaUsage
 
 /// Test fixture for `ZeroNetworkTests`. It exists as a separate executable because the network
 /// interposer is delivered with `DYLD_INSERT_LIBRARIES`, and the `xctest` host that runs the
@@ -289,6 +290,14 @@ struct VoccaNetworkProbe {
             injection.moduleWitness,
             VoccaSpeechPlaceholder.self,
             VoccaUIPlaceholder.self,
+            // `VoccaUsage`, referenced and not yet driven. The module holds the daily-use
+            // ledger's file-system seam, whose format lands in the next slice; until it does
+            // there is no default-configuration work in it to run, so this entry stands for a
+            // module that was reached, exactly as the three placeholders above it do. When the
+            // store gets its format and `AppBootstrap` loads a window at launch, that load is
+            // the witness this line must be replaced by — the effect-not-reference rule the
+            // session, injection and cycle drives are each written under.
+            PersistentUsageStore.self,
             AppBootstrap.self,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
