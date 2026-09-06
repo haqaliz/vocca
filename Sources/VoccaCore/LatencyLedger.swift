@@ -44,7 +44,31 @@
 /// unknown id, or a write after finalize (spec A3, plan §6). Refusals fail loudly in a test —
 /// `VoccaCore` permits no `@discardableResult`, so an ignored answer is a compiler warning and a
 /// CI failure — never a crash, never a silent drop.
+///
+/// ## The sink
+///
+/// An optional ``Sink`` observes each record at the moment it becomes one — the seam the usage
+/// ledger folds a day's counts over (`usage-wiring/spec.md` §1). It is an *observer*, never a
+/// participant, and three properties of its type say so rather than a comment asking politely:
+///
+/// - It returns `Void` and cannot throw, so `finalize` answers on its own terms. The record is
+///   appended and the cap applied *before* the sink is called, and the `true` it returns was
+///   already determined by then.
+/// - It is **synchronous**, so calling it introduces no suspension point inside `finalize`.
+///   An `async` sink would let another `beginSession`/`recordSpan`/`finalize` interleave
+///   mid-finalize on the actor; this one cannot.
+/// - Being synchronous, it also cannot re-enter the ledger: every entry point here is `async`,
+///   and a synchronous closure has no `await` with which to reach one.
+///
+/// What the sink sees is what the ledger got: **every** finalize that produced a record,
+/// including the ones ``maximumRetainedRecords`` later evicts. The cap bounds what the ledger
+/// *shows*; it never claimed to bound what happened, and a day's count is the number of
+/// sessions.
 public actor LatencyLedger: LatencyRecorder {
+    /// An observer of complete records, invoked once per successful `finalize`, in finalize
+    /// order. See the type's "The sink" section for why it is synchronous and non-throwing.
+    public typealias Sink = @Sendable (SessionRecord) -> Void
+
     /// The fixed cap on retained complete records: at the cap, the oldest drops first. Pinned by
     /// `LatencyLedgerTests.testBoundedTheOldestDropsTheNewestSurvivesAndTheCapHolds`; changing it
     /// is a deliberate decision that re-tests every consumer.
@@ -67,7 +91,13 @@ public actor LatencyLedger: LatencyRecorder {
         var spans: [LatencySpan] = []
     }
 
-    public init() {}
+    /// The installed observer, or `nil` — the shipped default, and what every caller written
+    /// before the usage ledger existed still gets.
+    private let sink: Sink?
+
+    public init(sink: Sink? = nil) {
+        self.sink = sink
+    }
 
     public func beginSession() async -> SessionRecord.ID {
         let id = SessionRecord.ID(rawValue: nextSessionID)
@@ -89,12 +119,16 @@ public actor LatencyLedger: LatencyRecorder {
         kind: SessionKind
     ) async -> Bool {
         guard let pending = inFlight.removeValue(forKey: id) else { return false }
-        records.append(
-            SessionRecord(
-                id: id, outcome: outcome, spans: pending.spans, engine: engine, kind: kind))
+        let record = SessionRecord(
+            id: id, outcome: outcome, spans: pending.spans, engine: engine, kind: kind)
+        records.append(record)
         if records.count > Self.maximumRetainedRecords {
             records.removeFirst(records.count - Self.maximumRetainedRecords)
         }
+        // Last, and only once the record is complete, appended and the cap applied: the answer
+        // below is already settled, so nothing the observer does can change it. A refused
+        // finalize returned above and delivers nothing — nothing became a record.
+        sink?(record)
         return true
     }
 
