@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import Synchronization
 import VoccaBootstrap
 import XCTest
 
@@ -32,11 +33,24 @@ final class AppQuitPolicyTests: XCTestCase {
     private final class Probe {
         var keepInTray = false
         var stayInTrayCalls = 0
+        /// What the policy told AppKit about a deferred termination, in order. Recorded rather
+        /// than sent: a real reply on a real `NSApplication` would be a test host asking to be
+        /// terminated.
+        var replies: [Bool] = []
 
         func makePolicy() -> AppQuitPolicy {
             AppQuitPolicy(
                 keepInTray: { self.keepInTray },
-                stayInTray: { self.stayInTrayCalls += 1 })
+                stayInTray: { self.stayInTrayCalls += 1 },
+                replyWhenFinished: { self.replies.append($0) })
+        }
+
+        func makePolicy(finishing work: TerminationWork) -> AppQuitPolicy {
+            AppQuitPolicy(
+                keepInTray: { self.keepInTray },
+                stayInTray: { self.stayInTrayCalls += 1 },
+                flushBeforeTerminating: work.work,
+                replyWhenFinished: { self.replies.append($0) })
         }
     }
 
@@ -107,5 +121,98 @@ final class AppQuitPolicyTests: XCTestCase {
         probe.keepInTray = true
         XCTAssertEqual(policy.applicationShouldTerminate(NSApplication.shared), .terminateCancel)
         XCTAssertEqual(probe.stayInTrayCalls, 1)
+    }
+
+    // MARK: - The work that must finish before the process ends (usage-wiring Phase 4)
+
+    /// **A quit that has work to finish defers the termination and replies when it is done.**
+    ///
+    /// The daily-use ledger's unwritten counts live only in memory, and committing them is
+    /// asynchronous. `.terminateNow` would end the process while the save was still in flight, so
+    /// a policy with work installed answers `.terminateLater` — AppKit's documented "I will tell
+    /// you when" — runs the work, and then replies.
+    ///
+    /// The reply is injected rather than sent to `NSApplication.shared`: a test host that told
+    /// AppKit a real termination could proceed would be asking to be killed mid-suite.
+    func testAQuitWithWorkToFinishDefersAndRepliesWhenTheWorkIsDone() async {
+        let probe = Probe()
+        let work = TerminationWork()
+        let policy = probe.makePolicy(finishing: work)
+
+        XCTAssertEqual(
+            policy.applicationShouldTerminate(NSApplication.shared), .terminateLater,
+            "a quit with work to finish must defer — `.terminateNow` races the save it exists for")
+
+        await work.ran()
+        XCTAssertEqual(work.runCount, 1, "the work runs exactly once per quit")
+        XCTAssertEqual(
+            probe.replies, [true],
+            """
+            the policy never told AppKit the termination could proceed. `.terminateLater` without \
+            a reply is an app that refuses to quit.
+            """)
+    }
+
+    /// With keep-in-tray on, a refused quit runs **no** termination work.
+    ///
+    /// The app is not ending: it is going back to the menu bar, where the ordinary write cadence
+    /// goes on running. Committing here would put a file write on every ⌘Q of a session.
+    func testARefusedQuitRunsNoTerminationWork() {
+        let probe = Probe()
+        probe.keepInTray = true
+        let work = TerminationWork()
+        let policy = probe.makePolicy(finishing: work)
+
+        XCTAssertEqual(policy.applicationShouldTerminate(NSApplication.shared), .terminateCancel)
+        XCTAssertEqual(work.runCount, 0, "a quit that was refused has nothing to finish")
+        XCTAssertEqual(probe.replies, [], "a refused quit owes AppKit no reply")
+    }
+
+    /// The shipped default — no work installed — is `.terminateNow`, exactly as before.
+    ///
+    /// Pinned so the deferral cannot become the general case: an app that answers
+    /// `.terminateLater` with nothing to do and nothing to reply with never quits at all.
+    func testWithNoWorkInstalledTheQuitIsUnchanged() {
+        let probe = Probe()
+        let policy = probe.makePolicy()
+
+        XCTAssertEqual(policy.applicationShouldTerminate(NSApplication.shared), .terminateNow)
+        XCTAssertEqual(probe.replies, [], "nothing was deferred, so nothing is replied to")
+    }
+}
+
+/// The termination work a test installs: it records that it ran and lets the test await it,
+/// because the whole point of `.terminateLater` is that the work outlives the delegate call.
+private final class TerminationWork: Sendable {
+    private let runs = Mutex<Int>(0)
+    private let waiters = Mutex<[CheckedContinuation<Void, Never>]>([])
+
+    var runCount: Int { runs.withLock { $0 } }
+
+    /// The closure the policy is given.
+    var work: @Sendable () async -> Void {
+        { self.run() }
+    }
+
+    private func run() {
+        runs.withLock { $0 += 1 }
+        let pending = waiters.withLock { value -> [CheckedContinuation<Void, Never>] in
+            defer { value = [] }
+            return value
+        }
+        for waiter in pending { waiter.resume() }
+    }
+
+    /// Suspends until the work has run at least once.
+    func ran() async {
+        guard runCount == 0 else { return }
+        await withCheckedContinuation { continuation in
+            let alreadyRan = waiters.withLock { value -> Bool in
+                guard runCount == 0 else { return true }
+                value.append(continuation)
+                return false
+            }
+            if alreadyRan { continuation.resume() }
+        }
     }
 }

@@ -23,6 +23,7 @@ import VoccaHotkey
 import VoccaInject
 import VoccaText
 import VoccaUI
+import VoccaUsage
 
 /// Vocca's composition root: everything the process does before it starts taking events.
 ///
@@ -110,11 +111,40 @@ public enum AppBootstrap {
         // same way.
         let clock = ContinuousMonotonicClock()
 
+        // MARK: The daily-use ledger
+        //
+        // The holder that owns the live `UsageWindow` (`usage-wiring/spec.md`): the shipped store
+        // over `~/Library/Application Support/Vocca/usage.json`, the day provider that makes
+        // "today" the day on the *user's own wall* rather than UTC, and the one clock above. Every
+        // decision it makes is `UsageRecorder`'s and is driven headlessly; this is composition.
+        let usageRecorder = UsageRecorder(
+            store: PersistentUsageStore(),
+            day: SystemCalendarDayProvider().provider,
+            clock: clock)
+        // The launch load, in a task for the reason the journal's assembly is in one: `configure`
+        // may not block, and the store's load reads a file. Disk only — the zero-network probe
+        // stays green. Folds that beat it are held by the recorder and applied on its way in, so a
+        // fast first dictation is neither dropped nor allowed to drop the history it arrived
+        // before.
+        Task { await usageRecorder.load() }
+
         // The latency ledger every session records through, and the box the router shares with
         // the microphone: the router begins a session's record at `.opening` and the microphone
         // closes the capture-close span at key-up through this box (spec §3 — the machine's
         // single-session invariant is what makes the box's one slot safe).
-        let ledger = LatencyLedger()
+        //
+        // Its sink is the daily-use ledger's whole input. It sees **every** finalize, including
+        // the ones the 512-record cap evicts, and it is an observer: `finalize` has already
+        // returned its answer by the time this runs, and the fold happens in a detached task, so
+        // nothing here is on the dictation path. The fold itself touches no file
+        // (`UsageRecorderTests`' D3); `flushIfDue()` is what decides whether this is one of the
+        // few moments a day the window reaches disk.
+        let ledger = LatencyLedger(sink: { record in
+            Task {
+                await usageRecorder.fold(record)
+                await usageRecorder.flushIfDue()
+            }
+        })
         let sessionBox = LatencySessionBox()
 
         // The model store every engine loads through — one store, keyed by engine id and version,
@@ -495,6 +525,10 @@ public enum AppBootstrap {
         // shape (both are window-adjacent surfaces, neither exists for the probe).
         root.onboardingStore = onboardingStore
         root.onboardingSink = onboardingSink
+        // The daily-use ledger, carried on the root so `main()` can flush it at quit — the same
+        // assigned-after-construction shape. Nothing on the dictation path reads it; the sink
+        // above holds the recorder directly.
+        root.usageRecorder = usageRecorder
         // The Speech tab's store: the same one every engine loads through, so a row's
         // `[ installed ]`, the bytes beside [Remove] and the model the engine opens are all one
         // directory. Assigned after construction, the `strategyMemory` shape.
@@ -546,12 +580,20 @@ public enum AppBootstrap {
         // The quit policy — the "keep in tray" option's decision half. Installed here, never in
         // `configure`, for the same window-server rule that keeps `configure` window-free: the
         // probe drives `configure`, and the delegate's one job is answering a real user's ⌘Q.
+        //
+        // It also carries the run's last write. The daily-use ledger's counts since the last
+        // cadence tick live only in memory, so an accepted quit commits them before the process
+        // ends — `flush()` and not `flushIfDue()`, because termination has no next tick to wait
+        // for. The recorder is captured directly (it is an actor, and Sendable); a refused quit
+        // runs none of this, since the app is returning to the tray where the cadence goes on.
+        let usageRecorder = root.usageRecorder
         let quitPolicy = AppQuitPolicy(
             keepInTray: { [weak root] in root?.keepInTray() ?? false },
             stayInTray: { [weak root] in
                 root?.closeSettingsWindow()
                 application.setActivationPolicy(.accessory)
-            })
+            },
+            flushBeforeTerminating: { await usageRecorder?.flush() })
         root.quitPolicy = quitPolicy
         application.delegate = quitPolicy
         attachMenuBarItem(to: root, quitPolicy: quitPolicy)
@@ -1450,6 +1492,13 @@ public final class DictationLoopRoot {
     /// quits (`quitFromTray`, `markIntentionalQuit`) no-op through the optional chain, which is
     /// safe because those tests never terminate anyway.
     public var quitPolicy: AppQuitPolicy?
+
+    /// The daily-use ledger's live window, assigned by `configure` after construction — the
+    /// `onboardingStore` shape.
+    ///
+    /// The root carries it for one reason: `configure` builds it and `main()` needs it, because
+    /// the last write of a run happens on the quit `main()` installs the policy for.
+    public var usageRecorder: UsageRecorder?
 
     /// Called on every change to ``menuBarConditions``. `main()` connects the status item here;
     /// `configure` leaves it nil, which is what keeps the composition root window-free for the
