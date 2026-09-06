@@ -73,7 +73,8 @@ final class SpeculativeFeedIntegrationTests: XCTestCase {
         let sink = StoreFoldingPartialSink()
         let pipeline = DictationPipeline(
             engine: engine, injector: injector, holder: BenchmarkHolder(),
-            recorder: ledger, clock: clock, partialSink: sink)
+            recorder: ledger, clock: clock, partialSink: sink,
+            sessionKind: .dictation)
         let resolver = DictationEngineResolver(selection: .defaultSelection) { _ in engine }
         let focusedApp = FakeFocusedApp(
             identity: FocusedAppIdentity(
@@ -109,7 +110,8 @@ final class SpeculativeFeedIntegrationTests: XCTestCase {
             runningAppName: FakeRunningAppName(),
             widgetClock: FakeTimer(),
             liveLevel: BenchmarkLevelSource(level: 0),
-            holdFeed: microphone.feed)
+            holdFeed: microphone.feed,
+            sessionKind: .dictation)
         root.markEnginePrepared()
         sink.store = root.widgetStore
         // The shipped default mode is `.toggle`; this test drives the hold-to-talk machine, so
@@ -490,7 +492,8 @@ final class SpeculativeFeedIntegrationTests: XCTestCase {
             let sink = StoreFoldingPartialSink()
             let pipeline = DictationPipeline(
                 engine: engine, injector: injector, holder: BenchmarkHolder(),
-                recorder: ledger, clock: clock, partialSink: sink)
+                recorder: ledger, clock: clock, partialSink: sink,
+                sessionKind: .dictation)
             let resolver = DictationEngineResolver(selection: .defaultSelection) { _ in engine }
             let targetResolution = TargetResolution(
                 focusedApp: FakeFocusedApp(
@@ -523,7 +526,8 @@ final class SpeculativeFeedIntegrationTests: XCTestCase {
                 widgetClock: FakeTimer(),
                 liveLevel: BenchmarkLevelSource(level: 0),
                 holdFeed: holdFeed,
-                toggleFeed: toggleFeed)
+                toggleFeed: toggleFeed,
+                sessionKind: .dictation)
             sink.store = root.widgetStore
             if prepared {
                 root.markEnginePrepared()

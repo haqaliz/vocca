@@ -17,11 +17,12 @@
 ///
 /// One record per session: ``LatencyRecorder/beginSession()`` mints the ``SessionRecord.ID`` and
 /// opens the session's span list; spans are appended in call order between begin and finalize;
-/// ``LatencyRecorder/finalize(id:outcome:engine:)`` closes the session with its outcome class and
-/// engine attribution, and the record enters ``snapshot()``/``describe()``. A session that never
-/// finalizes leaves nothing observable: the record's data accumulates from begin, but a
-/// ``SessionRecord`` — which carries a concrete ``SessionOutcomeClass`` — is materialised only at
-/// finalize, so the ledger can never present an unended session under a class it never got.
+/// ``LatencyRecorder/finalize(id:outcome:engine:kind:)`` closes the session with its outcome
+/// class, engine attribution and ``SessionKind``, and the record enters
+/// ``snapshot()``/``describe()``. A session that never finalizes leaves nothing observable: the
+/// record's data accumulates from begin, but a ``SessionRecord`` — which carries a concrete
+/// ``SessionOutcomeClass`` — is materialised only at finalize, so the ledger can never present an
+/// unended session under a class it never got.
 ///
 /// ## Bounded
 ///
@@ -84,10 +85,13 @@ public actor LatencyLedger: LatencyRecorder {
     }
 
     public func finalize(
-        id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?
+        id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?,
+        kind: SessionKind
     ) async -> Bool {
         guard let pending = inFlight.removeValue(forKey: id) else { return false }
-        records.append(SessionRecord(id: id, outcome: outcome, spans: pending.spans, engine: engine))
+        records.append(
+            SessionRecord(
+                id: id, outcome: outcome, spans: pending.spans, engine: engine, kind: kind))
         if records.count > Self.maximumRetainedRecords {
             records.removeFirst(records.count - Self.maximumRetainedRecords)
         }
@@ -106,6 +110,11 @@ public actor LatencyLedger: LatencyRecorder {
     /// order regardless of finalize order, and a session's spans keep the order they were
     /// recorded in. A ``LatencySpan/Presence/notPresent`` span renders as `notPresent` — never a
     /// fabricated duration.
+    ///
+    /// The line ends in the session's ``SessionKind``, so the headless surface a reader counts
+    /// P0's numbers off — the zero-network probe's `PROBE-LATENCY` line included — says which
+    /// composition produced each record rather than leaving a setup demo indistinguishable from
+    /// a day of real work.
     public func describe() async -> String {
         let ordered = records.sorted { $0.id.rawValue < $1.id.rawValue }
         return ordered.map { record in
@@ -133,7 +142,15 @@ public actor LatencyLedger: LatencyRecorder {
                 }
             }.joined(separator: ", ")
             let engineText = record.engine.map { "engine \($0.id)" } ?? "engine none"
-            return "session \(record.id.rawValue): \(classLabel), \(spans), \(engineText)"
+            let kindLabel: String
+            switch record.kind {
+            case .dictation:
+                kindLabel = "dictation"
+            case .onboarding:
+                kindLabel = "onboarding"
+            }
+            return "session \(record.id.rawValue): \(classLabel), \(spans), \(engineText), "
+                + "kind \(kindLabel)"
         }.joined(separator: "\n")
     }
 }

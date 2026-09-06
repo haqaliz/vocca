@@ -97,6 +97,11 @@ public enum PipelineSurface: Sendable, Equatable {
 /// wired cleanup stage with the same injected clock, on every answer — the timed-out and throwing
 /// paths included; a pipeline built without a cleanup stage carries the span as `notPresent` by
 /// construction (`LatencySpan.swift:27-32`).
+///
+/// Every one of those rows also carries the pipeline's ``SessionKind`` — the composition it was
+/// built as, fixed at construction and read by no route. It is what keeps onboarding's TRY IT,
+/// which runs through this same pipeline over the production ledger, separable from real work in
+/// the record.
 public struct DictationPipeline: Sendable {
     private let engine: any ASREngine
     private let injector: any TextInjector
@@ -105,6 +110,7 @@ public struct DictationPipeline: Sendable {
     private let clock: (any MonotonicClock & Sendable)?
     private let cleanup: (any CleanupProvider)?
     private let partialSink: (any PartialTranscriptSink)?
+    private let sessionKind: SessionKind
 
     /// - Parameters:
     ///   - engine: The prepared engine, resolved once at launch by the composition root's engine
@@ -127,6 +133,12 @@ public struct DictationPipeline: Sendable {
     ///     (the default) keeps the pipeline exactly as it was — no partial is ever presented,
     ///     and ``routeStreaming(chunks:target:sessionID:)``'s final still routes through the
     ///     same decision table.
+    ///   - sessionKind: Which composition this pipeline is — ``SessionKind/dictation`` for the
+    ///     shipping ladder, ``SessionKind/onboarding`` for the TRY IT sink. Required and not
+    ///     defaulted: it is fixed at construction exactly like `recorder` and `clock`, the
+    ///     composition root already knows the answer where it chooses the injector, and a
+    ///     default would let a new composition record onboarding sessions as real work by
+    ///     saying nothing. It changes no route — only what the record says it was.
     public init(
         engine: any ASREngine,
         injector: any TextInjector,
@@ -134,7 +146,8 @@ public struct DictationPipeline: Sendable {
         recorder: (any LatencyRecorder)? = nil,
         clock: (any MonotonicClock & Sendable)? = nil,
         cleanup: (any CleanupProvider)? = nil,
-        partialSink: (any PartialTranscriptSink)? = nil
+        partialSink: (any PartialTranscriptSink)? = nil,
+        sessionKind: SessionKind
     ) {
         self.engine = engine
         self.injector = injector
@@ -143,6 +156,7 @@ public struct DictationPipeline: Sendable {
         self.clock = clock
         self.cleanup = cleanup
         self.partialSink = partialSink
+        self.sessionKind = sessionKind
     }
 
     /// Routes one session effect through the dictation loop and answers what the widget should
@@ -498,13 +512,19 @@ public struct DictationPipeline: Sendable {
             LatencySpan.recorded(name: .inject, elapsed: result.elapsed), for: sessionID)
     }
 
-    /// Closes the session's record with the class from the pipeline's own table. A no-op when
-    /// nothing was begun (no session id) or no recorder is wired.
+    /// Closes the session's record with the class from the pipeline's own table, and with the
+    /// kind this pipeline was composed as. A no-op when nothing was begun (no session id) or no
+    /// recorder is wired.
+    ///
+    /// Every row of the table finalizes through here, so the kind reaches every record without a
+    /// single route being able to disagree about it — the same reason the class labels are
+    /// decided in one place.
     private func finalize(
         sessionID: SessionRecord.ID?, outcome: SessionOutcomeClass, engine: EngineIdentity?
     ) async {
         guard let sessionID, let recorder else { return }
-        _ = await recorder.finalize(id: sessionID, outcome: outcome, engine: engine)
+        _ = await recorder.finalize(
+            id: sessionID, outcome: outcome, engine: engine, kind: sessionKind)
     }
 }
 

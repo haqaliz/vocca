@@ -330,7 +330,10 @@ extension VoccaNetworkProbe {
         let pipeline = DictationPipeline(
             engine: engine, injector: injectorLedger, holder: handoff,
             recorder: ledger, clock: ContinuousMonotonicClock(), cleanup: cleanup,
-            partialSink: sink)
+            partialSink: sink,
+            // The probe composes its own ladder over rung fakes — a dictation composition,
+            // never onboarding's sink.
+            sessionKind: .dictation)
 
         let targetResolution = TargetResolution(
             focusedApp: ProbeFocusedApp(
@@ -368,7 +371,8 @@ extension VoccaNetworkProbe {
             widgetClock: ProbeTimer(),
             liveLevel: MicrophoneLevelSource(graph: graph),
             holdFeed: microphone.feed,
-            toggleFeed: toggleMicrophone.feed)
+            toggleFeed: toggleMicrophone.feed,
+            sessionKind: .dictation)
         root.markEnginePrepared()
         sink.store = root.widgetStore
 

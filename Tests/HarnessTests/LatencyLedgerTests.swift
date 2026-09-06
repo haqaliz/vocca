@@ -78,7 +78,7 @@ final class LatencyLedgerTests: XCTestCase {
                 LatencySpan.recorded(name: .inject, elapsed: .milliseconds(9)), for: id)
             XCTAssertTrue(inject)
             let finalized = await ledger.finalize(
-                id: id, outcome: outcome, engine: engine(for: outcome))
+                id: id, outcome: outcome, engine: engine(for: outcome), kind: .dictation)
             XCTAssertTrue(finalized)
         }
 
@@ -122,7 +122,8 @@ final class LatencyLedgerTests: XCTestCase {
         XCTAssertTrue(
             acceptedOther, "a different name for the same session is still accepted")
 
-        let finalized = await ledger.finalize(id: id, outcome: .failed, engine: engine)
+        let finalized = await ledger.finalize(
+            id: id, outcome: .failed, engine: engine, kind: .dictation)
         XCTAssertTrue(finalized)
 
         let snapshot = await ledger.snapshot()
@@ -153,7 +154,8 @@ final class LatencyLedgerTests: XCTestCase {
             _ = await ledger.recordSpan(
                 LatencySpan.recorded(name: .captureClose, elapsed: .milliseconds(Int64(session))),
                 for: id)
-            _ = await ledger.finalize(id: id, outcome: .emptySkip, engine: nil)
+            _ = await ledger.finalize(
+                id: id, outcome: .emptySkip, engine: nil, kind: .dictation)
         }
 
         let snapshot = await ledger.snapshot()
@@ -168,7 +170,8 @@ final class LatencyLedgerTests: XCTestCase {
 
         for _ in 0..<40 {
             let id = await ledger.beginSession()
-            _ = await ledger.finalize(id: id, outcome: .emptySkip, engine: nil)
+            _ = await ledger.finalize(
+                id: id, outcome: .emptySkip, engine: nil, kind: .dictation)
         }
         let after = await ledger.snapshot()
         XCTAssertEqual(
@@ -226,7 +229,8 @@ final class LatencyLedgerTests: XCTestCase {
             _ = await ledger.recordSpan(
                 LatencySpan.recorded(name: .inject, elapsed: injectElapsed), for: id)
             _ = await ledger.finalize(
-                id: id, outcome: outcome, engine: (index == 1 || index == 3) ? engine : nil)
+                id: id, outcome: outcome, engine: (index == 1 || index == 3) ? engine : nil,
+                kind: .dictation)
         }
 
         let first = await ledger.describe()
@@ -291,12 +295,13 @@ final class LatencyLedgerTests: XCTestCase {
         ]
 
         let prefix = "session 0: "
-        let suffix = ", , engine none"
+        let suffix = ", , engine none, kind dictation"
         var labels: [String] = []
         for outcome in classes {
             let ledger = LatencyLedger()
             let id = await ledger.beginSession()
-            let finalized = await ledger.finalize(id: id, outcome: outcome, engine: nil)
+            let finalized = await ledger.finalize(
+                id: id, outcome: outcome, engine: nil, kind: .dictation)
             XCTAssertTrue(finalized)
             let line = await ledger.describe()
             XCTAssertTrue(
@@ -360,7 +365,8 @@ final class LatencyLedgerTests: XCTestCase {
         XCTAssertTrue(asr)
         let cleanup = await ledger.recordSpan(LatencySpan.cleanupNotPresent(), for: id)
         XCTAssertTrue(cleanup)
-        let finalized = await ledger.finalize(id: id, outcome: .failed, engine: engine)
+        let finalized = await ledger.finalize(
+            id: id, outcome: .failed, engine: engine, kind: .dictation)
         XCTAssertTrue(finalized)
 
         let snapshot = await ledger.snapshot()
@@ -394,7 +400,8 @@ final class LatencyLedgerTests: XCTestCase {
                         let id = await recorder.beginSession()
                         _ = await recorder.recordSpan(
                             LatencySpan.recorded(name: .asr, elapsed: .milliseconds(10)), for: id)
-                        _ = await recorder.finalize(id: id, outcome: .failed, engine: engine)
+                        _ = await recorder.finalize(
+                            id: id, outcome: .failed, engine: engine, kind: .dictation)
                     }
                 }
             }
@@ -420,11 +427,13 @@ final class LatencyLedgerTests: XCTestCase {
         let recorded = await ledger.recordSpan(
             LatencySpan.recorded(name: .asr, elapsed: .milliseconds(30)), for: id)
         XCTAssertTrue(recorded)
-        let finalized = await ledger.finalize(id: id, outcome: .failed, engine: engine)
+        let finalized = await ledger.finalize(
+            id: id, outcome: .failed, engine: engine, kind: .dictation)
         XCTAssertTrue(finalized)
 
         let secondFinalize = await ledger.finalize(
-            id: id, outcome: .delivered(rung: .accessibility, verified: true), engine: engine)
+            id: id, outcome: .delivered(rung: .accessibility, verified: true), engine: engine,
+            kind: .dictation)
         XCTAssertFalse(secondFinalize, "finalize twice is refused (plan §6)")
         let afterFinalize = await ledger.recordSpan(
             LatencySpan.recorded(name: .inject, elapsed: .milliseconds(5)), for: id)
@@ -444,7 +453,8 @@ final class LatencyLedgerTests: XCTestCase {
         let recorded = await ledger.recordSpan(
             LatencySpan.recorded(name: .asr, elapsed: .milliseconds(1)), for: ghost)
         XCTAssertFalse(recorded, "recordSpan for an unknown id is refused")
-        let finalized = await ledger.finalize(id: ghost, outcome: .aborted, engine: nil)
+        let finalized = await ledger.finalize(
+            id: ghost, outcome: .aborted, engine: nil, kind: .dictation)
         XCTAssertFalse(finalized, "finalize for an unknown id is refused")
 
         let snapshot = await ledger.snapshot()

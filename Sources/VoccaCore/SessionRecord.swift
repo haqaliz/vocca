@@ -24,6 +24,12 @@
 /// included, since a lost transcript is one the engine produced; nil only on the routes that
 /// never asked, ``SessionOutcomeClass/aborted`` (Escape before anything was asked) and
 /// ``SessionOutcomeClass/emptySkip`` (no audio — the injector was skipped).
+///
+/// ``kind`` is which composition produced the session — real work or onboarding's setup demo
+/// (``SessionKind``). It is set at finalize with the rest, from a value fixed when the injector
+/// was chosen; nothing on any route reads it, and no class means anything different because of
+/// it. It exists so a reader counting P0's numbers off these records can leave a setup demo out
+/// of them without losing sight of it.
 public struct SessionRecord: Sendable, Equatable {
     /// The stable opaque handle the ledger mints at ``LatencyRecorder/beginSession()``.
     ///
@@ -49,12 +55,18 @@ public struct SessionRecord: Sendable, Equatable {
     /// Which engine produced the transcript, when one was asked; nil only on the
     /// never-asked paths (`aborted`/`emptySkip`).
     public var engine: EngineIdentity?
+    /// Whether this was real work or onboarding's TRY IT — the composition that delivered it.
+    public var kind: SessionKind
 
     /// Plain memberwise and public — the ledger and the harness build records by hand.
-    public init(id: ID, outcome: SessionOutcomeClass, spans: [LatencySpan], engine: EngineIdentity?) {
+    public init(
+        id: ID, outcome: SessionOutcomeClass, spans: [LatencySpan], engine: EngineIdentity?,
+        kind: SessionKind
+    ) {
         self.id = id
         self.outcome = outcome
         self.spans = spans
         self.engine = engine
+        self.kind = kind
     }
 }

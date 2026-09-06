@@ -262,7 +262,8 @@ final class HotkeySurfaceAgreementTests: XCTestCase {
                         result: InjectionResult(
                             rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
                             elapsed: .zero)),
-                    holder: holder),
+                    holder: holder,
+                    sessionKind: .dictation),
                 settings: AgreementSettingsStore(chord: chord),
                 toggleConfiguration: configurations.toggle,
                 toggleSource: RecordingAudioSource(),
@@ -270,7 +271,8 @@ final class HotkeySurfaceAgreementTests: XCTestCase {
                 runningAppName: FakeRunningAppName(),
                 widgetClock: FakeTimer(),
                 liveLevel: SilentSurfaceLevelSource(),
-                makeWatchdogTimer: { FakeTimer() })
+                makeWatchdogTimer: { FakeTimer() },
+                sessionKind: .dictation)
         }
     }
 }

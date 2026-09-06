@@ -73,7 +73,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         return (
             DictationPipeline(
                 engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
-                cleanup: cleanup, partialSink: sink),
+                cleanup: cleanup, partialSink: sink,
+                sessionKind: .dictation),
             injector,
             sink)
     }
@@ -168,7 +169,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let injector = LedgerInjectorDouble(result: deliveredResult())
         let pipeline = DictationPipeline(
             engine: StubEngine.parakeet(), injector: injector,
-            holder: LedgerTranscriptHolder(), partialSink: sink)
+            holder: LedgerTranscriptHolder(), partialSink: sink,
+            sessionKind: .dictation)
         let target = target()
 
         let surface = await pipeline.routeStreaming(
@@ -186,7 +188,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let batchInjector = LedgerInjectorDouble(result: deliveredResult())
         let batchPipeline = DictationPipeline(
             engine: StubEngine.parakeet(), injector: batchInjector,
-            holder: LedgerTranscriptHolder())
+            holder: LedgerTranscriptHolder(),
+            sessionKind: .dictation)
         let batchSurface = await batchPipeline.route(
             SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
             target: target)
@@ -214,7 +217,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
             finalText: "hello world", gated: true)
         let pipeline = DictationPipeline(
             engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
-            partialSink: sink)
+            partialSink: sink,
+            sessionKind: .dictation)
         let target = target()
         let chunks = streamOf([buffer([1, 2, 3])])
 
@@ -312,7 +316,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
             let sessionID = await ledger.beginSession()
             let pipeline = DictationPipeline(
                 engine: testCase.engine, injector: LedgerInjectorDouble(result: deliveredResult()),
-                holder: LedgerTranscriptHolder(), recorder: ledger)
+                holder: LedgerTranscriptHolder(), recorder: ledger,
+                sessionKind: .dictation)
 
             let surface = await pipeline.routeStreaming(
                 chunks: streamOf([buffer([1, 2, 3])]), target: target(), sessionID: sessionID)
@@ -378,7 +383,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let batchInjector = LedgerInjectorDouble(result: deliveredResult())
         let batchPipeline = DictationPipeline(
             engine: StubEngine.parakeet(), injector: batchInjector,
-            holder: LedgerTranscriptHolder())
+            holder: LedgerTranscriptHolder(),
+            sessionKind: .dictation)
         let batchSurface = await batchPipeline.route(
             SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
             target: target)
@@ -387,7 +393,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let streamingPipeline = DictationPipeline(
             engine: StreamingStubEngine(
                 identity: streamingIdentity(), partials: ["hel", "hello "], finalText: "1 2 3"),
-            injector: streamingInjector, holder: LedgerTranscriptHolder())
+            injector: streamingInjector, holder: LedgerTranscriptHolder(),
+            sessionKind: .dictation)
         let streamingSurface = await streamingPipeline.routeStreaming(
             chunks: streamOf([buffer([1, 2, 3])]), target: target)
 

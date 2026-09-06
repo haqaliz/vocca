@@ -156,7 +156,8 @@ final class LatencyVocabularyTests: XCTestCase {
             outcome: .delivered(rung: .accessibility, verified: true),
             spans: spans,
             engine: EngineIdentity(
-                id: "parakeet-tdt-0.6b-v3", displayName: "Parakeet", isLocal: true))
+                id: "parakeet-tdt-0.6b-v3", displayName: "Parakeet", isLocal: true),
+            kind: .dictation)
         XCTAssertEqual(record.id, id)
         XCTAssertEqual(record.outcome, .delivered(rung: .accessibility, verified: true))
         XCTAssertEqual(
@@ -175,9 +176,11 @@ final class LatencyVocabularyTests: XCTestCase {
             id: "whisper-large-v3-turbo", displayName: "Whisper", isLocal: true)
 
         let aborted = SessionRecord(
-            id: SessionRecord.ID(rawValue: 1), outcome: .aborted, spans: [], engine: nil)
+            id: SessionRecord.ID(rawValue: 1), outcome: .aborted, spans: [], engine: nil,
+            kind: .dictation)
         let emptySkip = SessionRecord(
-            id: SessionRecord.ID(rawValue: 2), outcome: .emptySkip, spans: [], engine: nil)
+            id: SessionRecord.ID(rawValue: 2), outcome: .emptySkip, spans: [], engine: nil,
+            kind: .dictation)
         XCTAssertNil(
             aborted.engine,
             "an aborted session never asked the engine — the record must not fabricate an engine")
@@ -187,11 +190,14 @@ final class LatencyVocabularyTests: XCTestCase {
 
         let delivered = SessionRecord(
             id: SessionRecord.ID(rawValue: 3),
-            outcome: .delivered(rung: .clipboardPaste, verified: false), spans: [], engine: engine)
+            outcome: .delivered(rung: .clipboardPaste, verified: false), spans: [], engine: engine,
+            kind: .dictation)
         let failsafe = SessionRecord(
-            id: SessionRecord.ID(rawValue: 4), outcome: .failsafeHeld, spans: [], engine: engine)
+            id: SessionRecord.ID(rawValue: 4), outcome: .failsafeHeld, spans: [], engine: engine,
+            kind: .dictation)
         let failed = SessionRecord(
-            id: SessionRecord.ID(rawValue: 5), outcome: .failed, spans: [], engine: engine)
+            id: SessionRecord.ID(rawValue: 5), outcome: .failed, spans: [], engine: engine,
+            kind: .dictation)
         XCTAssertEqual(delivered.engine, engine)
         XCTAssertEqual(failsafe.engine, engine)
         XCTAssertEqual(failed.engine, engine)
@@ -213,16 +219,19 @@ final class LatencyVocabularyTests: XCTestCase {
             seen.contains(sameValueHandedBackAcrossCalls),
             "the id must be usable as a set/dictionary key — mint once, hold it, use it twice")
 
-        let first = SessionRecord(id: id, outcome: .aborted, spans: [], engine: nil)
-        let second = SessionRecord(id: id, outcome: .aborted, spans: [], engine: nil)
+        let first = SessionRecord(
+            id: id, outcome: .aborted, spans: [], engine: nil, kind: .dictation)
+        let second = SessionRecord(
+            id: id, outcome: .aborted, spans: [], engine: nil, kind: .dictation)
         XCTAssertEqual(first.id, second.id)
     }
 
     // MARK: - LatencyRecorder
 
     /// The seam has exactly three entry points: begin (mints the id), record (a span for a
-    /// session), finalize (the outcome class and engine attribution) — all `async` because the
-    /// ledger is an actor (spec A8), and `Sendable` because the seam crosses module boundaries.
+    /// session), finalize (the outcome class, engine attribution and ``SessionKind``) — all
+    /// `async` because the ledger is an actor (spec A8), and `Sendable` because the seam crosses
+    /// module boundaries.
     ///
     /// If a fourth requirement appears, or any signature changes, this conformance stops
     /// compiling — the compiler pins the seam the way the exhaustive switch pins the outcome
@@ -235,7 +244,8 @@ final class LatencyVocabularyTests: XCTestCase {
                 true
             }
             func finalize(
-                id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?
+                id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?,
+                kind: SessionKind
             ) async -> Bool {
                 true
             }
@@ -275,12 +285,14 @@ final class LatencyVocabularyTests: XCTestCase {
         _ = requireSendable(SessionRecord.ID(rawValue: 1))
         _ = requireSendable(
             SessionRecord(
-                id: SessionRecord.ID(rawValue: 1), outcome: .emptySkip, spans: [], engine: nil))
+                id: SessionRecord.ID(rawValue: 1), outcome: .emptySkip, spans: [], engine: nil,
+                kind: .dictation))
         _ = requireSendable(
             SessionRecord(
                 id: SessionRecord.ID(rawValue: 2), outcome: .delivered(rung: .accessibility, verified: true),
                 spans: [LatencySpan.cleanupNotPresent()],
-                engine: EngineIdentity(id: "e", displayName: "E", isLocal: true)))
+                engine: EngineIdentity(id: "e", displayName: "E", isLocal: true),
+                kind: .dictation))
         requireSendableProtocol(LatencyRecorder.self)
     }
 

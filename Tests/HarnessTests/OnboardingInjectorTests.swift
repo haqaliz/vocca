@@ -79,7 +79,8 @@ final class OnboardingInjectorTests: XCTestCase {
                 injector: OnboardingInjector(sink: sink),
                 holder: holder,
                 recorder: ledger,
-                clock: clock),
+                clock: clock,
+                sessionKind: .onboarding),
             holder,
             ledger)
     }
@@ -383,18 +384,26 @@ final class OnboardingInjectorTests: XCTestCase {
         let deliveredLikeTheOnboardingSink = InjectionResult(
             rung: .clipboardPaste, attempted: [], verified: false, elapsed: .zero)
 
+        // The kinds are the compositions' own, exactly as `AppBootstrap.configure` derives
+        // them from ``AppBootstrap/injectorComposition(completionFlag:)`` — the onboarding sink
+        // branch records `.onboarding`, the ladder branch `.dictation`. Stated here because a
+        // headless pipeline has no composition root above it, never inferred from the injector:
+        // nothing in the pipeline reads the injector's type, and a kind guessed from it would be
+        // a second, quieter answer to a question the root already answers once.
         let onboardingPipeline = DictationPipeline(
             engine: engine,
             injector: OnboardingInjector(sink: RecordingOnboardingSink()),
             holder: holder,
             recorder: ledger,
-            clock: clock)
+            clock: clock,
+            sessionKind: .onboarding)
         let dictationPipeline = DictationPipeline(
             engine: engine,
             injector: LedgerTextInjector(result: deliveredLikeTheOnboardingSink),
             holder: holder,
             recorder: ledger,
-            clock: clock)
+            clock: clock,
+            sessionKind: .dictation)
 
         let onboardingID = await ledger.beginSession()
         let onboardingSurface = await onboardingPipeline.route(

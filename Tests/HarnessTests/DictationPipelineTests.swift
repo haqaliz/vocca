@@ -59,7 +59,8 @@ final class DictationPipelineTests: XCTestCase {
         let injector = LedgerTextInjector(result: injectorResult)
         let holder = LedgerTranscriptHolder(held: held)
         return (
-            DictationPipeline(engine: engine, injector: injector, holder: holder),
+            DictationPipeline(
+                engine: engine, injector: injector, holder: holder, sessionKind: .dictation),
             injector,
             holder)
     }
@@ -370,7 +371,8 @@ final class DictationPipelineTests: XCTestCase {
             injector: LedgerTextInjector(result: injectorResult),
             holder: LedgerTranscriptHolder(held: held),
             recorder: ledger,
-            clock: clock)
+            clock: clock,
+            sessionKind: .dictation)
         return (pipeline, ledger, sessionID)
     }
 
@@ -400,7 +402,8 @@ final class DictationPipelineTests: XCTestCase {
             holder: holder,
             recorder: ledger,
             clock: clock,
-            cleanup: cleanup)
+            cleanup: cleanup,
+            sessionKind: .dictation)
         return (pipeline, injector, holder, ledger)
     }
 
@@ -731,7 +734,8 @@ final class DictationPipelineTests: XCTestCase {
                 elapsed: .zero))
         let pipeline = DictationPipeline(
             engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
-            recorder: ledger, clock: TableClock())
+            recorder: ledger, clock: TableClock(),
+            sessionKind: .dictation)
 
         let surface = await pipeline.route(
             SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),

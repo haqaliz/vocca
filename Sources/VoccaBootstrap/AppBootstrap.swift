@@ -366,6 +366,22 @@ public enum AppBootstrap {
         let injectorComposition = Self.injectorComposition(
             completionFlag: CompletionFlagStore().isComplete())
 
+        // The *record's* vocabulary for that same choice, derived here — once, beside the
+        // decision it follows from — rather than re-derived wherever a record is finalized. The
+        // pipeline and the router each take it, because the router owns two terminals that never
+        // reach the pipeline (`.captureUnavailable`, and an ended session that found no pipeline)
+        // and finalize their own records.
+        //
+        // Total, with no `default:`: a third composition must say which kind of session it
+        // records as, rather than inheriting `.dictation` from a branch nobody re-read.
+        let sessionKind: SessionKind
+        switch injectorComposition {
+        case .ladder:
+            sessionKind = .dictation
+        case .onboarding:
+            sessionKind = .onboarding
+        }
+
         // MARK: The onboarding flow (A5 — onboarding-window)
         //
         // The store and its delivery sink are **window-free objects** built here, so `configure`
@@ -453,7 +469,8 @@ public enum AppBootstrap {
                     engine: engine, injector: injector, holder: custody.holder,
                     recorder: ledger, clock: clock,
                     cleanup: try await cleanupResolver.resolve(),
-                    partialSink: partialSink)
+                    partialSink: partialSink,
+                    sessionKind: sessionKind)
             },
             makeResolver: makeResolver,
             settings: settings,
@@ -467,7 +484,8 @@ public enum AppBootstrap {
             widgetClock: MainRunLoopTimer(),
             liveLevel: liveLevel,
             holdFeed: holdFeed,
-            toggleFeed: toggleFeed)
+            toggleFeed: toggleFeed,
+            sessionKind: sessionKind)
         rootBox.value = root
         // The partial sink's store box: filled now that the store exists — the `menuBarItem`
         // shape (assigned after construction, the box pattern for a circular graph).
@@ -1597,6 +1615,11 @@ public final class DictationLoopRoot {
     ///     `.opening` and terminates it at every terminal. `nil` (every headless composition)
     ///     keeps the router on the batch route, byte for byte.
     ///   - toggleFeed: The toggle microphone's own feed — the same absence semantics.
+    ///   - sessionKind: Which composition this root is — the same value its pipeline carries.
+    ///     The router owns two terminals that never reach the pipeline and finalize their own
+    ///     records, so it needs the answer independently. Required and not defaulted, for the
+    ///     reason ``DictationPipeline``'s is: a composition that said nothing would record
+    ///     onboarding's failures as real work, silently.
     public init(
         configuration: HotkeyConfiguration,
         ceiling: Duration,
@@ -1626,7 +1649,8 @@ public final class DictationLoopRoot {
         liveLevel: any LiveLevelSource,
         holdFeed: SpeculativeFeed? = nil,
         toggleFeed: SpeculativeFeed? = nil,
-        makeWatchdogTimer: @escaping @MainActor () -> any RepeatingTimer = { MainRunLoopTimer() }
+        makeWatchdogTimer: @escaping @MainActor () -> any RepeatingTimer = { MainRunLoopTimer() },
+        sessionKind: SessionKind
     ) {
         precondition(
             pipeline == nil || pipelineAssembly == nil,
@@ -1678,6 +1702,7 @@ public final class DictationLoopRoot {
             panel: panel, targetResolution: targetResolution, readiness: readiness,
             pipeline: pipeline, runningAppName: runningAppName, widgetStore: widgetStore,
             widgetClock: widgetClock, recorder: recorder, sessionBox: sessionBox,
+            sessionKind: sessionKind,
             activeFeed: initialMode == .holdToTalk ? holdFeed : toggleFeed)
         self.router = router
 
@@ -2490,6 +2515,12 @@ private final class EffectRouter {
     /// The box the microphone reads the session's record id from at `endCapture()` — written by
     /// the mint below, cleared with ``pendingSessionID`` on every terminal.
     private let sessionBox: LatencySessionBox?
+    /// **The composition's ``SessionKind``** — the same value the pipeline was assembled with,
+    /// because the router owns the two terminals that never reach the pipeline and finalize
+    /// their own records. Passed in rather than read off the pipeline: `.captureUnavailable` can
+    /// arrive before the pipeline exists at all, and a terminal that guessed `.dictation` there
+    /// would record onboarding's failures as real work.
+    private let sessionKind: SessionKind
     private var pipelineTask: Task<DictationPipeline, Never>?
     private var pendingResolution: Task<(target: TargetContext, name: String), Never>?
     /// **The in-flight session's record id** — the router's own copy of the box's slot, written
@@ -2546,6 +2577,7 @@ private final class EffectRouter {
         widgetClock: any RepeatingTimer,
         recorder: (any LatencyRecorder)?,
         sessionBox: LatencySessionBox?,
+        sessionKind: SessionKind,
         activeFeed: SpeculativeFeed? = nil
     ) {
         self.panel = panel
@@ -2556,6 +2588,7 @@ private final class EffectRouter {
         self.widgetClock = widgetClock
         self.recorder = recorder
         self.sessionBox = sessionBox
+        self.sessionKind = sessionKind
         self.activeFeed = activeFeed
         self.pipelineTask = pipeline.map { pipeline in Task { pipeline } }
     }
@@ -2636,7 +2669,8 @@ private final class EffectRouter {
                     // The one terminal that never reaches the pipeline still owes its record:
                     // finalized failed, attributed to no engine.
                     if let sessionID, let recorder = self.recorder {
-                        _ = await recorder.finalize(id: sessionID, outcome: .failed, engine: nil)
+                        _ = await recorder.finalize(
+                            id: sessionID, outcome: .failed, engine: nil, kind: self.sessionKind)
                     }
                     self.clearPendingSession()
                     self.panel.presentReasonOnly(.exhausted)
@@ -2691,7 +2725,8 @@ private final class EffectRouter {
                 Task { [weak self] in
                     guard let self else { return }
                     let id = await mint.value
-                    _ = await recorder.finalize(id: id, outcome: .failed, engine: nil)
+                    _ = await recorder.finalize(
+                        id: id, outcome: .failed, engine: nil, kind: self.sessionKind)
                     self.clearPendingSession()
                 }
             }

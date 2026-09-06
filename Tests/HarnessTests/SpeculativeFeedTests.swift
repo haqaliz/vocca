@@ -280,7 +280,8 @@ final class SpeculativeFeedTests: XCTestCase {
         let injector = FeedTestInjector()
         let pipeline = DictationPipeline(
             engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
-            recorder: ledger, clock: ContinuousMonotonicClock())
+            recorder: ledger, clock: ContinuousMonotonicClock(),
+            sessionKind: .dictation)
         let target = TargetContext(
             bundleID: "com.example.Notes", windowTitle: "The Draft", isSecureInput: false)
         let stream = AsyncStream<AudioBuffer> { continuation in

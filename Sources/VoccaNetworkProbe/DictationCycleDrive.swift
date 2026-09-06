@@ -427,7 +427,10 @@ extension VoccaNetworkProbe {
         // a real measurement rather than a fabricated constant.
         let pipeline = DictationPipeline(
             engine: engine, injector: injectorLedger, holder: handoff,
-            recorder: ledger, clock: ContinuousMonotonicClock(), cleanup: cleanup)
+            recorder: ledger, clock: ContinuousMonotonicClock(), cleanup: cleanup,
+            // The probe composes its own ladder over rung fakes — a dictation composition,
+            // never onboarding's sink.
+            sessionKind: .dictation)
 
         let targetResolution = TargetResolution(
             focusedApp: ProbeFocusedApp(
@@ -465,7 +468,8 @@ extension VoccaNetworkProbe {
             widgetClock: ProbeTimer(),
             liveLevel: MicrophoneLevelSource(graph: graph),
             holdFeed: microphone.feed,
-            toggleFeed: toggleMicrophone.feed)
+            toggleFeed: toggleMicrophone.feed,
+            sessionKind: .dictation)
         // The readiness gate: the test hook, and the launch path's last step — the session may
         // open the microphone and the router may route the ended session into the injected
         // pipeline.
