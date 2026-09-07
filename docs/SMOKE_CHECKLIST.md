@@ -170,6 +170,22 @@ failed step.
 > run Vocca. Steps 1–4 (build/sign/verify) overlap what the workflow does; the rest of the checklist
 > is the reason a tag push must wait until these have passed on a real Mac.
 
+> **Upgrading in place hides a stale permission — observed 2026-09-07, not theoretical.** TCC keys
+> an Accessibility grant to the *code signature*, not the bundle id alone, so a `dev.vocca.Vocca`
+> that has been signed by more than one identity accumulates **one entry per signature**. Replacing
+> an installed `Vocca.app` with a differently-signed build (a brew-cask install swapped for a local
+> one, or a Developer ID build the day one exists) leaves the old entries behind: System Settings
+> lists Vocca as granted, the running app reads `AXIsProcessTrusted() == false`, and the tray shows
+> the `.noAccessibility` triangle. Removing and re-adding through the UI does **not** fix it — the
+> row the user can see is not the row being consulted. `tccutil reset Accessibility dev.vocca.Vocca`
+> reported success three times on one machine, once per accumulated signature.
+>
+> The fix is `tccutil reset Accessibility dev.vocca.Vocca` (and `Microphone`, `ListenEvent`) then
+> relaunch. **Verify the upgrade path, not only the clean install**, before any release that changes
+> the signing identity, and say so in the release notes — a user whose permission silently stops
+> working will conclude the app is broken, and the one screen that would tell them otherwise is the
+> one the missing grant disables.
+
 ### Build and identity
 
 1. `./Scripts/dev-identity.sh` if this machine has no stable identity yet, then build Release:
