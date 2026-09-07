@@ -132,6 +132,12 @@ actor StubEngine: ASREngine, EngineRewarmable {
 /// opens it, so the route is *held before the final* and the cancellation lands
 /// deterministically — the ``TableEngine`` gate precedent
 /// (`DictationPipelineTests.swift:1250-1301`).
+///
+/// `omitsFinal` is the broken-engine row: the stream yields its partials and then finishes
+/// *without* a final, violating the seam's "exactly one final" contract on purpose. No shipped
+/// engine may do this — which is exactly why the route's guard for it
+/// (`DictationPipeline.swift:246-253`) is otherwise unreachable from a test, and why the row
+/// exists here rather than as a second double.
 actor StreamingStubEngine: ASREngine {
     let identity: EngineIdentity
     /// `true` — this is the streaming half of the story; the batch default is ``StubEngine``'s,
@@ -146,6 +152,8 @@ actor StreamingStubEngine: ASREngine {
     private let error: Error?
     /// When `true`, the stream parks before the final until ``openGate()``.
     private let gated: Bool
+    /// When `true`, the stream finishes after the partials without ever yielding a final.
+    private let omitsFinal: Bool
     private var gate: CheckedContinuation<Void, Never>?
     private(set) var transcribeCalls = 0
     private(set) var prepareCount = 0
@@ -154,13 +162,14 @@ actor StreamingStubEngine: ASREngine {
 
     init(
         identity: EngineIdentity, partials: [String], finalText: String,
-        error: Error? = nil, gated: Bool = false
+        error: Error? = nil, gated: Bool = false, omitsFinal: Bool = false
     ) {
         self.identity = identity
         self.partials = partials
         self.finalText = finalText
         self.error = error
         self.gated = gated
+        self.omitsFinal = omitsFinal
     }
 
     func prepare() async throws {
@@ -239,6 +248,12 @@ actor StreamingStubEngine: ASREngine {
         }
         guard !Task.isCancelled else {
             continuation.finish(throwing: CancellationError())
+            return
+        }
+        // The broken-engine row: finish where the final belonged. The stream ends cleanly — no
+        // error, no cancellation — and the seam's one promise is simply not kept.
+        if omitsFinal {
+            continuation.finish()
             return
         }
         continuation.yield(Transcript(

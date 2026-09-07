@@ -85,6 +85,11 @@ private struct EventTypeSighting: Equatable, CustomStringConvertible {
 /// completion flag's one-file seam in `VoccaUI`, the repository's first `UserDefaults`-naming
 /// file — the family ships with its row so the "one file per seam" claim is explicit and
 /// enforced from day one (``filesPermittedToNameUserDefaultsIdentifiersBySeam``).
+/// The `usage-wiring` aspect adds the `Calendar` family on the same terms: the usage ledger's
+/// day provider is the repository's first `Calendar`-naming file, and its table
+/// (``filesPermittedToNameCalendarIdentifiersBySeam``) ships with it. It is the one family
+/// matched **whole rather than by prefix** — the tree owns a pure `CalendarDay` type that a
+/// prefix rule would flag in five files, forcing the lint to be weakened to get green again.
 ///
 /// ## Where the rules live
 ///
@@ -170,15 +175,16 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// list is keyed on that path, so the failure is a lint that names files nobody can find and
     /// silently stops matching its own allow-list.
     ///
-    /// The identifier matcher is a parameter because the file hosts seven families now — the
+    /// The identifier matcher is a parameter because the file hosts eight families now — the
     /// CoreGraphics event types (``eventTypeIdentifiers(inSource:)``), the pasteboard's
     /// `NSPasteboard` family (``pasteboardIdentifiers(inSource:)``), the Accessibility family
     /// (``accessibilityIdentifiers(inSource:)``), the Secure Input read
     /// (``secureInputIdentifiers(inSource:)``), the journal's `FileManager` family
     /// (``fileManagerIdentifiers(inSource:)``), the Keychain's `SecItem`/`kSec` family
     /// (``securityIdentifiers(inSource:)``) and the onboarding flag's `UserDefaults` family
-    /// (``userDefaultsIdentifiers(inSource:)``) — and the walk must be one
-    /// implementation, not seven copies that could drift apart in the direction that matters
+    /// (``userDefaultsIdentifiers(inSource:)``) and the usage ledger's calendar family
+    /// (``calendarIdentifiers(inSource:)``) — and the walk must be one
+    /// implementation, not eight copies that could drift apart in the direction that matters
     /// (the subdirectory walk). The default keeps the earlier call sites unchanged.
     private static func sightings(
         under root: URL,
@@ -1140,7 +1146,11 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// temp-write→rename pair) above it in the headless store tests. `PersistentInjectionStrategyStore`
     /// is the strategy seam's, added by the `store-seam` aspect: the same adapter shape again —
     /// load, atomic update/save — with every decision (version tolerance, corrupt-element
-    /// skips, the learning cap) above it in the headless store tests.
+    /// skips, the learning cap) above it in the headless store tests. `PersistentUsageStore` is
+    /// the usage seam's, added by the `usage-store` aspect: the same adapter shape once more —
+    /// load, atomic save — with every decision (version tolerance, per-row skips, the
+    /// bucket-bounds check) above it in the headless store tests. It is the only file in its
+    /// module, which is the cleanest form the rule takes.
     ///
     /// **The family is scoped per module, and that is a correction to the plan, not a
     /// weakening of it.** `FileManager` is already named in three `VoccaASR` files
@@ -1156,18 +1166,21 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         "dictionary": ["Dictionary/FileSystemDictionaryStore.swift"],
         "config": ["Cleanup/CleanupConfigStore.swift"],
         "strategy": ["Memory/PersistentInjectionStrategyStore.swift"],
+        "usage": ["PersistentUsageStore.swift"],
     ]
 
     /// The module root each FileManager seam scans, keyed by the same seam names as
     /// ``filesPermittedToNameFileManagerIdentifiersBySeam``. The table's paths are
     /// module-relative, so each row needs its own root: the journal and strategy rows scan
-    /// `VoccaInject`, the dictionary and config rows scan `VoccaText` — the per-seam claim
-    /// actually reaches the module that owns each seam, and stops at it.
+    /// `VoccaInject`, the dictionary and config rows scan `VoccaText`, and the usage row scans
+    /// `VoccaUsage` — the per-seam claim actually reaches the module that owns each seam, and
+    /// stops at it.
     private static let fileManagerSeamModuleRoots: [String: String] = [
         "journal": "VoccaInject",
         "dictionary": "VoccaText",
         "config": "VoccaText",
         "strategy": "VoccaInject",
+        "usage": "VoccaUsage",
     ]
 
     /// The FileManager table flattened — every permitted file in every seam. The module-wide
@@ -1291,18 +1304,20 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         }
     }
 
-    /// **The FileManager seam table names exactly the four shipped seams** — the `store-seam`
-    /// aspect's S15 pin: `journal` (VoccaInject), `dictionary` (VoccaText), `config`
-    /// (VoccaText), and the strategy store the `store-seam` aspect adds (VoccaInject). An
-    /// exact-set pin, so a seam that moves without its row — or a row that appears without a
-    /// seam — fails here rather than in the review.
-    func testTheFileManagerSeamTableNamesExactlyTheFourShippedSeams() {
+    /// **The FileManager seam table names exactly the five shipped seams** — the `store-seam`
+    /// aspect's S15 pin, widened once: `journal` (VoccaInject), `dictionary` (VoccaText),
+    /// `config` (VoccaText), the strategy store the `store-seam` aspect adds (VoccaInject), and
+    /// the usage ledger the `usage-store` aspect adds (VoccaUsage). An exact-set pin, so a seam
+    /// that moves without its row — or a row that appears without a seam — fails here rather
+    /// than in the review. Widening it is the deliberate, reviewable act of admitting a fifth
+    /// place in this tree where the file system is touched at all.
+    func testTheFileManagerSeamTableNamesExactlyTheFiveShippedSeams() {
         XCTAssertEqual(
             Set(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys),
-            ["journal", "dictionary", "config", "strategy"],
+            ["journal", "dictionary", "config", "strategy", "usage"],
             """
-            The FileManager seam table must name exactly the four shipped seams: journal, \
-            dictionary, config, strategy. Got \
+            The FileManager seam table must name exactly the five shipped seams: journal, \
+            dictionary, config, strategy, usage. Got \
             \(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted().joined(separator: ", ")). \
             A seam whose adapter moved without its row, or a row without a seam, is a leak the \
             other pins cannot see.
@@ -1697,6 +1712,323 @@ final class InjectionSeamBoundaryTests: XCTestCase {
                     let defaults = UserDefaults.standard
                     """),
             ["UserDefaults"],
+            """
+            ...but stripping comments must not make the lint blind to real code beside them. \
+            Without this, the previous assertion could be satisfied by a scan that gives up on \
+            any file containing a comment.
+            """)
+    }
+
+    // MARK: - The Calendar family (usage-wiring Phase 2)
+
+    /// Files allowed to name `Calendar`, `TimeZone` or `DateComponents`, relative to `Sources/`,
+    /// keyed by seam.
+    ///
+    /// **One file per seam, and nothing else ever joins a seam's entry** — the H7 rule, stated
+    /// for the calendar family the usage ledger's day resolution needs.
+    /// `SystemCalendarDayProvider` is the adapter: a wall-clock instant in, a `CalendarDay` out,
+    /// with both of the decisions that resolution carries — the day is *local* rather than UTC,
+    /// and the calendar is fixed Gregorian rather than the user's locale's — visible in one
+    /// twelve-line function that ``CalendarDayProviderTests`` drives from a table of hardcoded
+    /// epoch seconds. This was the first `Calendar`-naming file in the repository (`Calendar`,
+    /// `TimeZone` and `DateComponents` appeared only in `VoccaCore`'s doc comments before it,
+    /// explaining their own absence), and the family ships with its row so the "one file per
+    /// seam" claim is explicit and enforced from day one — the reviewed amendment the pasteboard
+    /// and `UserDefaults` families both began with.
+    ///
+    /// The rule earns its place here rather than being ceremony: a second file resolving a day
+    /// is how "which day did this dictation happen on" quietly becomes two answers — one for the
+    /// fold and one for the tab — and a disagreement between them is a wrong number in a report,
+    /// not a crash anything would notice.
+    private static let filesPermittedToNameCalendarIdentifiersBySeam: [String: Set<String>] = [
+        "usageDay": ["VoccaUsage/SystemCalendarDayProvider.swift"]
+    ]
+
+    /// The Calendar table flattened — every permitted file in every seam. The tree-wide scan is
+    /// aimed at this set.
+    private static var filesPermittedToNameCalendarIdentifiers: Set<String> {
+        Set(filesPermittedToNameCalendarIdentifiersBySeam.values.flatMap { $0 })
+    }
+
+    /// The identifier prefixes that constitute the calendar family: the zone type and the
+    /// components type, each whole, in the shape every other family's table uses.
+    private static let calendarIdentifierPrefixes = ["TimeZone", "DateComponents"]
+
+    /// The calendar family's **exact** names — `Calendar` and nothing that merely starts with it.
+    ///
+    /// This is the one family where the prefix rule the others use would be actively wrong. The
+    /// tree owns `CalendarDay`, a pure `VoccaCore` value type with its own integer arithmetic and
+    /// no Foundation anywhere near it, named in five files by design; a prefix rule would flag
+    /// every one of them, and the only way to make the lint pass again would be to weaken it. So
+    /// `Calendar` is matched whole — `Calendar.current` and `Calendar(identifier:)` are sightings,
+    /// `CalendarDay` is not — and ``testTheCalendarLintDoesNotFlagTheTreesOwnCalendarDay`` pins
+    /// exactly that distinction, because it is the one a future edit is most likely to lose.
+    private static let calendarExactIdentifiers = ["Calendar"]
+
+    /// `Date` is deliberately not in this family, and the omission is a finding rather than an
+    /// oversight.
+    ///
+    /// A tree-wide `Date` claim is impossible: `Date` is already named in
+    /// `VoccaBootstrap/AppBootstrap.swift` and in four `VoccaNetworkProbe` drives (run-loop
+    /// deadlines), so the family would ship red or ship with five exemptions, which is a table
+    /// that permits everything. A per-module `Date` claim — the `FileManager` family's shape —
+    /// would be enforceable but would guard nothing this seam cares about: `Date` is the
+    /// *instant*, and an instant carries no decision. The decisions the seam exists to confine
+    /// are which zone and which calendar the instant is read through, and those are spelled
+    /// `TimeZone` and `Calendar`. This constant exists to say so where the next person will look.
+    private static let identifiersDeliberatelyOutsideTheCalendarFamily = ["Date"]
+
+    /// Every occurrence of a calendar identifier in `source`, comments removed first.
+    ///
+    /// A pure function over a string, so it can be run against source that violates the rule —
+    /// which is the only way to know it would catch one. See
+    /// ``testTheCalendarLintDetectsAPlantedIdentifier``.
+    private static func calendarIdentifiers(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let whole = "\\b(" + calendarExactIdentifiers.joined(separator: "|") + ")\\b"
+        let prefixed = "\\b(" + calendarIdentifierPrefixes.joined(separator: "|")
+            + ")[A-Za-z0-9_]*"
+        guard let regex = try? NSRegularExpression(pattern: whole + "|" + prefixed) else {
+            return []
+        }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// The tree-wide scan, aimed at the Calendar table: no calendar identifier is named outside
+    /// the family's one permitted file.
+    ///
+    /// The day provider's whole point is that its two decisions run headless over hardcoded
+    /// instants and named zones; a second file naming the family is a decision that escaped CI
+    /// forever — the same shape as the `UserDefaults` scan above, for the family
+    /// `SystemCalendarDayProvider` is the one file for.
+    func testNoCalendarIdentifierEscapesTheCalendarSeamTable() throws {
+        let root = try sourcesRoot()
+        for seam in Self.filesPermittedToNameCalendarIdentifiersBySeam.keys.sorted() {
+            guard let files = Self.filesPermittedToNameCalendarIdentifiersBySeam[seam] else {
+                continue
+            }
+            for relativePath in files {
+                let directory = root.appendingPathComponent(relativePath)
+                    .deletingLastPathComponent()
+                guard FileManager.default.fileExists(atPath: directory.path) else {
+                    throw InjectionSeamTestError.seamDirectoryMissing(expectedAt: directory.path)
+                }
+            }
+        }
+
+        let sightings = try Self.sightings(
+            under: root,
+            permitting: Self.filesPermittedToNameCalendarIdentifiers,
+            identifiersIn: Self.calendarIdentifiers)
+
+        XCTAssertEqual(
+            sightings, [],
+            """
+            A calendar identifier is named outside its seam's permitted file: \
+            \(sightings.map(\.description).joined(separator: "; ")). Which zone and which \
+            calendar a wall-clock instant is read through are the usage ledger's two day \
+            decisions; a second naming file is a second answer to "what day is it", and two \
+            answers disagreeing is a wrong number in a report rather than a crash.
+            """)
+    }
+
+    /// The "one file per seam" claim for the calendar family, enforced rather than asserted in a
+    /// comment — the sibling of ``testEachSeamPermitsExactlyOneFile``, for the family table.
+    func testEachCalendarSeamPermitsExactlyOneFile() {
+        XCTAssertFalse(
+            Self.filesPermittedToNameCalendarIdentifiersBySeam.isEmpty,
+            """
+            The calendar seam table must not be empty — an empty table passes "no file names the \
+            family" vacuously, and a seam with no file is a seam whose adapter has moved without \
+            the amendment noticing.
+            """)
+        for seam in Self.filesPermittedToNameCalendarIdentifiersBySeam.keys.sorted() {
+            XCTAssertEqual(
+                Self.filesPermittedToNameCalendarIdentifiersBySeam[seam]?.count, 1,
+                """
+                The calendar family permits one file per seam. The \(seam) seam permits \
+                \(Self.filesPermittedToNameCalendarIdentifiersBySeam[seam]?.sorted().joined(separator: ", ") ?? "none"). \
+                A second entry means a day-resolution decision has moved below the seam, where no \
+                CI run can reach it.
+                """)
+        }
+    }
+
+    /// **Every permitted calendar file actually names its family** — the two-sided pin, in the
+    /// same shape as ``testEachPermittedFileActuallyNamesItsFamily``.
+    ///
+    /// Two independent claims, because either one failing alone still passes a one-sided check:
+    /// "no other file names the family" passes if the permitted file *also* lost its
+    /// implementation (vacuous), and "the permitted file names the family" passes if several do
+    /// (the seam has sprung a leak). The exact-set half walks the whole tree with
+    /// `permitting: []`, so the set of sighting-bearing files must be exactly the table's union.
+    func testEachPermittedCalendarFileActuallyNamesItsFamily() throws {
+        let root = try sourcesRoot()
+        let permitted = Self.filesPermittedToNameCalendarIdentifiers
+        XCTAssertFalse(
+            permitted.isEmpty,
+            "the permitted set must not be empty — an empty set passes 'no file names it' vacuously")
+
+        for relativePath in permitted.sorted() {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+            XCTAssertFalse(
+                Self.calendarIdentifiers(inSource: source).isEmpty,
+                """
+                \(relativePath) is permitted to name the calendar family, but names none. A \
+                permitted file that does not name its family means the family moved somewhere \
+                else and the lint cannot see it.
+                """)
+        }
+
+        let allSightings = try Self.sightings(
+            under: root, permitting: [], identifiersIn: Self.calendarIdentifiers)
+        XCTAssertEqual(
+            Set(allSightings.map(\.file)), permitted,
+            """
+            exactly the permitted set may name the calendar family: \
+            \(permitted.sorted().joined(separator: ", ")), got \
+            \(Set(allSightings.map(\.file)).sorted().joined(separator: ", ")). A file outside the \
+            table with a sighting is a leak; a permitted file without one is a vacuous pin.
+            """)
+    }
+
+    /// The calendar family's planted-tree negative control: the scan reaches a `Calendar`
+    /// identifier planted inside a fabricated root, and stops at it.
+    func testTheCalendarScanSeesAPlantedIdentifierAtTheSourcesRoot() throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-calendar-\(UUID().uuidString)")
+        let sourcesRoot = scratch.appendingPathComponent("Sources")
+        let outsideRoot = scratch.appendingPathComponent("Outside")
+        try FileManager.default.createDirectory(at: sourcesRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        try "let today = Calendar.current.startOfDay(for: instant)\n".write(
+            to: sourcesRoot.appendingPathComponent("Planted.swift"), atomically: true,
+            encoding: .utf8)
+        try "let today = Calendar.current.startOfDay(for: instant)\n".write(
+            to: outsideRoot.appendingPathComponent("Control.swift"), atomically: true,
+            encoding: .utf8)
+
+        let sightings = try Self.sightings(
+            under: sourcesRoot, permitting: [], identifiersIn: Self.calendarIdentifiers)
+
+        XCTAssertEqual(
+            Set(sightings.map(\.file)), ["Planted.swift"],
+            """
+            The Sources-rooted scan must see the planted identifier and stop at the root: got \
+            \(Set(sightings.map(\.file)).sorted().joined(separator: ", ")). A file outside the \
+            root that is flagged proves the scan wanders; a planted file that is not flagged \
+            proves the scan does not reach the tree it claims to guard.
+            """)
+        XCTAssertTrue(
+            sightings.allSatisfy { $0.identifier == "Calendar" },
+            """
+            The sighted identifier must be the planted family member: got \
+            \(Set(sightings.map(\.identifier)).sorted().joined(separator: ", ")).
+            """)
+    }
+
+    /// The calendar family's negative control: planted source is caught, across all three names.
+    func testTheCalendarLintDetectsAPlantedIdentifier() {
+        XCTAssertEqual(
+            Self.calendarIdentifiers(inSource: "let calendar = Calendar.current"),
+            ["Calendar"],
+            "the current calendar is the family's front door — the leak that matters most.")
+
+        XCTAssertEqual(
+            Self.calendarIdentifiers(inSource: "let zone = TimeZone.autoupdatingCurrent"),
+            ["TimeZone"],
+            "the zone is half of the day decision; a second file reading it is a second answer.")
+
+        XCTAssertEqual(
+            Self.calendarIdentifiers(
+                inSource: "func day(_ parts: DateComponents) -> Int { parts.day ?? 0 }"),
+            ["DateComponents"],
+            "a signature phrased in the components type needs the calendar to produce one.")
+
+        XCTAssertEqual(
+            Self.calendarIdentifiers(
+                inSource: """
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = TimeZone(identifier: "UTC")!
+                    """),
+            ["Calendar", "TimeZone"],
+            "every sighting is reported, in source order — a leak is rarely one line.")
+    }
+
+    /// **`CalendarDay` is not a sighting**, and this is the assertion the family is most likely
+    /// to lose.
+    ///
+    /// ``CalendarDay`` is `VoccaCore`'s own pure value type — no Foundation, no clock, integer
+    /// arithmetic it wrote itself — and it is named in five shipping files by design. The other
+    /// families match by prefix; if this one ever does, every one of those files becomes a
+    /// violation and the only way to get the suite green again is to weaken the lint. Matching
+    /// `Calendar` whole is what keeps the rule enforceable, so the distinction is pinned in both
+    /// directions rather than left to the regex being read carefully.
+    func testTheCalendarLintDoesNotFlagTheTreesOwnCalendarDay() {
+        XCTAssertEqual(
+            Self.calendarIdentifiers(
+                inSource: """
+                    let day = CalendarDay(year: 2026, month: 9, day: 7)
+                    let days = CalendarDayProvider.self
+                    """),
+            [],
+            """
+            CalendarDay is the tree's own pure type, named in five files by design. A prefix rule \
+            would flag all of them and force the lint to be weakened to get green again.
+            """)
+
+        XCTAssertEqual(
+            Self.calendarIdentifiers(
+                inSource: """
+                    let day = CalendarDay(year: 2026, month: 9, day: 7)
+                    let calendar = Calendar(identifier: .gregorian)
+                    """),
+            ["Calendar"],
+            """
+            ...but the whole-word rule must still see the real thing beside it. Without this, the \
+            assertion above could be satisfied by a lint that gave up on any line mentioning a day.
+            """)
+
+        for identifier in Self.identifiersDeliberatelyOutsideTheCalendarFamily {
+            XCTAssertEqual(
+                Self.calendarIdentifiers(inSource: "let instant = \(identifier)()"),
+                [],
+                """
+                \(identifier) is outside this family on purpose — see \
+                identifiersDeliberatelyOutsideTheCalendarFamily for why. If it is ever added, it \
+                is added with the exemptions its existing call sites need, not silently.
+                """)
+        }
+    }
+
+    /// Comments are stripped before the scan, and that is load-bearing rather than incidental:
+    /// the one-file adapter's documentation has to be able to name the family it translates, and
+    /// `CalendarDay`'s own doc comment explains at length why it has no `Calendar`, no
+    /// `TimeZone` and no `DateComponents` — a file that would otherwise be a permanent violation.
+    func testTheCalendarLintIgnoresIdentifiersInComments() {
+        XCTAssertEqual(
+            Self.calendarIdentifiers(
+                inSource: """
+                    /// There is no Calendar, no DateComponents and no TimeZone to borrow this
+                    /// arithmetic from.
+                    let day = CalendarDay(year: 2026, month: 9, day: 7)
+                    """),
+            [],
+            "VoccaCore's own explanation of why it has no calendar must not trip the lint.")
+
+        XCTAssertEqual(
+            Self.calendarIdentifiers(
+                inSource: """
+                    /// The one file permitted to name Calendar.
+                    let calendar = Calendar(identifier: .gregorian)
+                    """),
+            ["Calendar"],
             """
             ...but stripping comments must not make the lint blind to real code beside them. \
             Without this, the previous assertion could be satisfied by a scan that gives up on \

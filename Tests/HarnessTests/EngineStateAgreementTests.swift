@@ -316,7 +316,8 @@ final class AgreementHarness {
                         result: InjectionResult(
                             rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
                             elapsed: .zero)),
-                    holder: holder)
+                    holder: holder,
+                    sessionKind: .dictation)
             },
             makeResolver: makeResolver,
             settings: AgreementSettingsStore(),
@@ -326,7 +327,8 @@ final class AgreementHarness {
             toggleTimer: FakeTimer(),
             runningAppName: FakeRunningAppName(),
             widgetClock: FakeTimer(),
-            liveLevel: SilentAgreementLevelSource())
+            liveLevel: SilentAgreementLevelSource(),
+            sessionKind: .dictation)
 
         self.root = root
         self.source = source

@@ -73,7 +73,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         return (
             DictationPipeline(
                 engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
-                cleanup: cleanup, partialSink: sink),
+                cleanup: cleanup, partialSink: sink,
+                sessionKind: .dictation),
             injector,
             sink)
     }
@@ -168,7 +169,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let injector = LedgerInjectorDouble(result: deliveredResult())
         let pipeline = DictationPipeline(
             engine: StubEngine.parakeet(), injector: injector,
-            holder: LedgerTranscriptHolder(), partialSink: sink)
+            holder: LedgerTranscriptHolder(), partialSink: sink,
+            sessionKind: .dictation)
         let target = target()
 
         let surface = await pipeline.routeStreaming(
@@ -186,7 +188,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let batchInjector = LedgerInjectorDouble(result: deliveredResult())
         let batchPipeline = DictationPipeline(
             engine: StubEngine.parakeet(), injector: batchInjector,
-            holder: LedgerTranscriptHolder())
+            holder: LedgerTranscriptHolder(),
+            sessionKind: .dictation)
         let batchSurface = await batchPipeline.route(
             SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
             target: target)
@@ -214,7 +217,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
             finalText: "hello world", gated: true)
         let pipeline = DictationPipeline(
             engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
-            partialSink: sink)
+            partialSink: sink,
+            sessionKind: .dictation)
         let target = target()
         let chunks = streamOf([buffer([1, 2, 3])])
 
@@ -281,6 +285,60 @@ final class DictationPipelineStreamingTests: XCTestCase {
                 + "ever produced")
     }
 
+    // MARK: - Neither streaming failure is a transcript loss (`loss-observability` A4)
+
+    /// The streaming route's two failure rows — the stream that **threw**
+    /// (`DictationPipeline.swift:239`) and the stream that **ended without ever yielding a
+    /// final** (`:251`) — each finalize `.failed`, and neither may drift to `.lost`.
+    ///
+    /// `.lost` is the class the P0 transcript-loss metric counts, and `ROADMAP.md:96` fixes that
+    /// count at zero with no acceptable non-zero value. Both rows here produced *nothing*: there
+    /// was never a transcript for anyone to lose, so recording either as a loss would report a
+    /// loss the product did not have and make the only metric that must read zero read false
+    /// instead. The batch route's equivalent row is pinned by `DictationPipelineTests`' decision
+    /// table (the throwing-`transcribe` row); these two are the streaming route's own, and
+    /// nothing else in the tree records what class the streaming route finalizes on a failure.
+    ///
+    /// The assertion is the class, not the spans: no clock is wired, because what the two rows
+    /// measured is not what the adjudication turns on.
+    func testNeitherStreamingFailureRowIsRecordedAsATranscriptLoss() async {
+        let cases: [(name: String, engine: StreamingStubEngine)] = [
+            ("the stream threw", StreamingStubEngine(
+                identity: streamingIdentity(), partials: [], finalText: "hello world",
+                error: FakeStreamingError.boom)),
+            ("the stream ended with no final", StreamingStubEngine(
+                identity: streamingIdentity(), partials: ["hel"], finalText: "hello world",
+                omitsFinal: true)),
+        ]
+
+        for testCase in cases {
+            let ledger = LatencyLedger()
+            let sessionID = await ledger.beginSession()
+            let pipeline = DictationPipeline(
+                engine: testCase.engine, injector: LedgerInjectorDouble(result: deliveredResult()),
+                holder: LedgerTranscriptHolder(), recorder: ledger,
+                sessionKind: .dictation)
+
+            let surface = await pipeline.routeStreaming(
+                chunks: streamOf([buffer([1, 2, 3])]), target: target(), sessionID: sessionID)
+
+            XCTAssertEqual(
+                surface, .reasonOnly(.transcriptionFailed),
+                "\(testCase.name): the surface is the reason-only notice, unchanged")
+            let records = await ledger.snapshot()
+            XCTAssertEqual(
+                records.count, 1,
+                "\(testCase.name): exactly one record — a route that finalized nothing would "
+                    + "leave the class below unasserted rather than wrong")
+            XCTAssertEqual(
+                records.first?.outcome, .failed,
+                "\(testCase.name): a stream that produced nothing has nothing to lose, so the "
+                    + "record is `.failed` and never `.lost` — `.lost` is what the P0 "
+                    + "transcript-loss count counts, and a failure counted there would report a "
+                    + "lost transcript that never existed")
+        }
+    }
+
     // MARK: - Post-cleanup cancellation
 
     /// Esc during the cleanup stage of the streaming route: the cleaned text is discarded,
@@ -325,7 +383,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let batchInjector = LedgerInjectorDouble(result: deliveredResult())
         let batchPipeline = DictationPipeline(
             engine: StubEngine.parakeet(), injector: batchInjector,
-            holder: LedgerTranscriptHolder())
+            holder: LedgerTranscriptHolder(),
+            sessionKind: .dictation)
         let batchSurface = await batchPipeline.route(
             SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),
             target: target)
@@ -334,7 +393,8 @@ final class DictationPipelineStreamingTests: XCTestCase {
         let streamingPipeline = DictationPipeline(
             engine: StreamingStubEngine(
                 identity: streamingIdentity(), partials: ["hel", "hello "], finalText: "1 2 3"),
-            injector: streamingInjector, holder: LedgerTranscriptHolder())
+            injector: streamingInjector, holder: LedgerTranscriptHolder(),
+            sessionKind: .dictation)
         let streamingSurface = await streamingPipeline.routeStreaming(
             chunks: streamOf([buffer([1, 2, 3])]), target: target)
 

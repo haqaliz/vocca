@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "VoccaInject", targets: ["VoccaInject"]),
         .library(name: "VoccaSpeech", targets: ["VoccaSpeech"]),
         .library(name: "VoccaUI", targets: ["VoccaUI"]),
+        .library(name: "VoccaUsage", targets: ["VoccaUsage"]),
         // The app's composition root. It is a package module rather than a file in the Xcode app
         // target so that VoccaNetworkProbe can drive it: sources under App/ are outside the
         // package and therefore outside the zero-network invariant.
@@ -115,6 +116,16 @@ let package = Package(
             dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // An adapter, not a leaf: it implements a seam VoccaCore owns (the UsageStore), so it
+        // depends on VoccaCore and VoccaCore does not depend on it. See ModuleBoundaryTests' rule
+        // 3 for why the arrow points this way and what still constrains it. Its one file is the
+        // usage seam's entry in the per-seam FileManager table — the daily-use ledger's path
+        // resolution and atomic commit, with every decision above it.
+        .target(
+            name: "VoccaUsage",
+            dependencies: ["VoccaCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // The app's composition root. It wires the other modules together, so it depends on them
         // (ModuleBoundaryTests' rule 5 pins the direction: the root may import modules, and
         // nothing in the package may import it). It is a package module rather than a file in the
@@ -130,6 +141,7 @@ let package = Package(
                 "VoccaInject",
                 "VoccaText",
                 "VoccaUI",
+                "VoccaUsage",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -147,7 +159,7 @@ let package = Package(
             dependencies: [
                 "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR",
                 "VoccaText", "VoccaInject", "VoccaSpeech", "VoccaUI",
-                "VoccaBootstrap",
+                "VoccaUsage", "VoccaBootstrap",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

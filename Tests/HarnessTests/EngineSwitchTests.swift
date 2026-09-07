@@ -125,7 +125,8 @@ final class EngineSwitchTests: XCTestCase {
                 pipelineAssembly: { engine in
                     assembled.record(engine)
                     return DictationPipeline(
-                        engine: engine, injector: injector, holder: holder)
+                        engine: engine, injector: injector, holder: holder,
+                        sessionKind: .dictation)
                 },
                 makeResolver: makeResolver,
                 settings: settings,
@@ -134,7 +135,8 @@ final class EngineSwitchTests: XCTestCase {
                 toggleTimer: FakeTimer(),
                 runningAppName: FakeRunningAppName(),
                 widgetClock: FakeTimer(),
-                liveLevel: QuietLevelSource())
+                liveLevel: QuietLevelSource(),
+                sessionKind: .dictation)
 
             self.clock = clock
             self.keyboard = keyboard

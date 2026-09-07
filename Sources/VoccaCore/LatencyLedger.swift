@@ -17,11 +17,12 @@
 ///
 /// One record per session: ``LatencyRecorder/beginSession()`` mints the ``SessionRecord.ID`` and
 /// opens the session's span list; spans are appended in call order between begin and finalize;
-/// ``LatencyRecorder/finalize(id:outcome:engine:)`` closes the session with its outcome class and
-/// engine attribution, and the record enters ``snapshot()``/``describe()``. A session that never
-/// finalizes leaves nothing observable: the record's data accumulates from begin, but a
-/// ``SessionRecord`` — which carries a concrete ``SessionOutcomeClass`` — is materialised only at
-/// finalize, so the ledger can never present an unended session under a class it never got.
+/// ``LatencyRecorder/finalize(id:outcome:engine:kind:)`` closes the session with its outcome
+/// class, engine attribution and ``SessionKind``, and the record enters
+/// ``snapshot()``/``describe()``. A session that never finalizes leaves nothing observable: the
+/// record's data accumulates from begin, but a ``SessionRecord`` — which carries a concrete
+/// ``SessionOutcomeClass`` — is materialised only at finalize, so the ledger can never present an
+/// unended session under a class it never got.
 ///
 /// ## Bounded
 ///
@@ -43,7 +44,31 @@
 /// unknown id, or a write after finalize (spec A3, plan §6). Refusals fail loudly in a test —
 /// `VoccaCore` permits no `@discardableResult`, so an ignored answer is a compiler warning and a
 /// CI failure — never a crash, never a silent drop.
+///
+/// ## The sink
+///
+/// An optional ``Sink`` observes each record at the moment it becomes one — the seam the usage
+/// ledger folds a day's counts over (`usage-wiring/spec.md` §1). It is an *observer*, never a
+/// participant, and three properties of its type say so rather than a comment asking politely:
+///
+/// - It returns `Void` and cannot throw, so `finalize` answers on its own terms. The record is
+///   appended and the cap applied *before* the sink is called, and the `true` it returns was
+///   already determined by then.
+/// - It is **synchronous**, so calling it introduces no suspension point inside `finalize`.
+///   An `async` sink would let another `beginSession`/`recordSpan`/`finalize` interleave
+///   mid-finalize on the actor; this one cannot.
+/// - Being synchronous, it also cannot re-enter the ledger: every entry point here is `async`,
+///   and a synchronous closure has no `await` with which to reach one.
+///
+/// What the sink sees is what the ledger got: **every** finalize that produced a record,
+/// including the ones ``maximumRetainedRecords`` later evicts. The cap bounds what the ledger
+/// *shows*; it never claimed to bound what happened, and a day's count is the number of
+/// sessions.
 public actor LatencyLedger: LatencyRecorder {
+    /// An observer of complete records, invoked once per successful `finalize`, in finalize
+    /// order. See the type's "The sink" section for why it is synchronous and non-throwing.
+    public typealias Sink = @Sendable (SessionRecord) -> Void
+
     /// The fixed cap on retained complete records: at the cap, the oldest drops first. Pinned by
     /// `LatencyLedgerTests.testBoundedTheOldestDropsTheNewestSurvivesAndTheCapHolds`; changing it
     /// is a deliberate decision that re-tests every consumer.
@@ -66,7 +91,13 @@ public actor LatencyLedger: LatencyRecorder {
         var spans: [LatencySpan] = []
     }
 
-    public init() {}
+    /// The installed observer, or `nil` — the shipped default, and what every caller written
+    /// before the usage ledger existed still gets.
+    private let sink: Sink?
+
+    public init(sink: Sink? = nil) {
+        self.sink = sink
+    }
 
     public func beginSession() async -> SessionRecord.ID {
         let id = SessionRecord.ID(rawValue: nextSessionID)
@@ -84,13 +115,20 @@ public actor LatencyLedger: LatencyRecorder {
     }
 
     public func finalize(
-        id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?
+        id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?,
+        kind: SessionKind
     ) async -> Bool {
         guard let pending = inFlight.removeValue(forKey: id) else { return false }
-        records.append(SessionRecord(id: id, outcome: outcome, spans: pending.spans, engine: engine))
+        let record = SessionRecord(
+            id: id, outcome: outcome, spans: pending.spans, engine: engine, kind: kind)
+        records.append(record)
         if records.count > Self.maximumRetainedRecords {
             records.removeFirst(records.count - Self.maximumRetainedRecords)
         }
+        // Last, and only once the record is complete, appended and the cap applied: the answer
+        // below is already settled, so nothing the observer does can change it. A refused
+        // finalize returned above and delivers nothing — nothing became a record.
+        sink?(record)
         return true
     }
 
@@ -106,6 +144,11 @@ public actor LatencyLedger: LatencyRecorder {
     /// order regardless of finalize order, and a session's spans keep the order they were
     /// recorded in. A ``LatencySpan/Presence/notPresent`` span renders as `notPresent` — never a
     /// fabricated duration.
+    ///
+    /// The line ends in the session's ``SessionKind``, so the headless surface a reader counts
+    /// P0's numbers off — the zero-network probe's `PROBE-LATENCY` line included — says which
+    /// composition produced each record rather than leaving a setup demo indistinguishable from
+    /// a day of real work.
     public func describe() async -> String {
         let ordered = records.sorted { $0.id.rawValue < $1.id.rawValue }
         return ordered.map { record in
@@ -119,6 +162,8 @@ public actor LatencyLedger: LatencyRecorder {
                 classLabel = "aborted"
             case .failed:
                 classLabel = "failed"
+            case .lost:
+                classLabel = "lost"
             case .emptySkip:
                 classLabel = "emptySkip"
             }
@@ -131,7 +176,15 @@ public actor LatencyLedger: LatencyRecorder {
                 }
             }.joined(separator: ", ")
             let engineText = record.engine.map { "engine \($0.id)" } ?? "engine none"
-            return "session \(record.id.rawValue): \(classLabel), \(spans), \(engineText)"
+            let kindLabel: String
+            switch record.kind {
+            case .dictation:
+                kindLabel = "dictation"
+            case .onboarding:
+                kindLabel = "onboarding"
+            }
+            return "session \(record.id.rawValue): \(classLabel), \(spans), \(engineText), "
+                + "kind \(kindLabel)"
         }.joined(separator: "\n")
     }
 }

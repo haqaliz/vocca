@@ -192,14 +192,16 @@ final class ActivationPersistenceTests: XCTestCase {
                         result: InjectionResult(
                             rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
                             elapsed: .zero)),
-                    holder: holder),
+                    holder: holder,
+                    sessionKind: .dictation),
                 settings: settings,
                 toggleConfiguration: ActivationPersistenceTests.toggleConfiguration,
                 toggleSource: toggleSource,
                 toggleTimer: FakeTimer(),
                 runningAppName: FakeRunningAppName(),
                 widgetClock: FakeTimer(),
-                liveLevel: SilentLevelSource())
+                liveLevel: SilentLevelSource(),
+                sessionKind: .dictation)
 
             self.keyboard = keyboard
             self.tap = tap

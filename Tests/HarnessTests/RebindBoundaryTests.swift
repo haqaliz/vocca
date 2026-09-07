@@ -593,7 +593,8 @@ final class RebindBoundaryTests: XCTestCase {
                         result: InjectionResult(
                             rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
                             elapsed: .zero)),
-                    holder: holder),
+                    holder: holder,
+                    sessionKind: .dictation),
                 settings: settings,
                 toggleConfiguration: configurations.toggle,
                 toggleSource: toggleSource,
@@ -601,7 +602,8 @@ final class RebindBoundaryTests: XCTestCase {
                 runningAppName: FakeRunningAppName(),
                 widgetClock: FakeTimer(),
                 liveLevel: SilentLevelSource(),
-                makeWatchdogTimer: { timers.make() })
+                makeWatchdogTimer: { timers.make() },
+                sessionKind: .dictation)
 
             self.keyboard = keyboard
             self.tap = tap

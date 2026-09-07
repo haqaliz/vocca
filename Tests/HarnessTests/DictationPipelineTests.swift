@@ -59,7 +59,8 @@ final class DictationPipelineTests: XCTestCase {
         let injector = LedgerTextInjector(result: injectorResult)
         let holder = LedgerTranscriptHolder(held: held)
         return (
-            DictationPipeline(engine: engine, injector: injector, holder: holder),
+            DictationPipeline(
+                engine: engine, injector: injector, holder: holder, sessionKind: .dictation),
             injector,
             holder)
     }
@@ -370,7 +371,8 @@ final class DictationPipelineTests: XCTestCase {
             injector: LedgerTextInjector(result: injectorResult),
             holder: LedgerTranscriptHolder(held: held),
             recorder: ledger,
-            clock: clock)
+            clock: clock,
+            sessionKind: .dictation)
         return (pipeline, ledger, sessionID)
     }
 
@@ -400,7 +402,8 @@ final class DictationPipelineTests: XCTestCase {
             holder: holder,
             recorder: ledger,
             clock: clock,
-            cleanup: cleanup)
+            cleanup: cleanup,
+            sessionKind: .dictation)
         return (pipeline, injector, holder, ledger)
     }
 
@@ -606,8 +609,9 @@ final class DictationPipelineTests: XCTestCase {
                         capturedAt: .seconds(7)))
             }),
             // Row 10: a `.widgetFailsafe` with *nothing* held — the journal refused custody —
-            // is a visible failure, not a silent idle.
-            ("widgetFailsafe with nothing held", .failed, .reasonOnly(.exhausted),
+            // is a visible failure, not a silent idle, and the one route that *lost* a
+            // transcript: `.lost`, never `.failed` (the class the loss metric counts).
+            ("widgetFailsafe with nothing held", .lost, .reasonOnly(.exhausted),
                 [.asr, .inject], true, {
                 let clock = TableClock()
                 let engine = TableEngine(clock: clock)
@@ -665,6 +669,58 @@ final class DictationPipelineTests: XCTestCase {
         }
     }
 
+    /// The transcript-loss pin (spec A1): the one route that *loses* a transcript has to be
+    /// tellable from the route that never produced one to lose.
+    ///
+    /// Two rows of the table above finalize the same class today. Row 4
+    /// (`DictationPipeline.swift:312`) is a `transcribe` that threw, and the site records its own
+    /// adjudication — "Nothing was ever produced, so nothing is held and nothing is lost." Row 10
+    /// (`DictationPipeline.swift:376`) is the ladder returning `.widgetFailsafe` with the journal
+    /// refusing custody: a transcript existed, the user spoke it, and nobody has it.
+    ///
+    /// The P0 gate counts transcript loss at exactly zero (`ROADMAP.md:96` — "This metric has no
+    /// acceptable non-zero value"), and the ledger's outcome class is where it would be counted.
+    /// So the assertion is distinguishability, not a spelling: the two routes must not finalize
+    /// as one class. Any honest separation satisfies it.
+    func testALostTranscriptIsDistinguishableFromAFailureThatHadNoneToLose() async {
+        let injectElapsed = Duration.milliseconds(3)
+
+        // The failsafe rung with nothing held — the loss.
+        let lossClock = TableClock()
+        let lossEngine = TableEngine(clock: lossClock)
+        let loss = await runRecordedRoute(
+            outcome(.retained(.keyUp), [1, 2, 3]), engine: lossEngine, clock: lossClock,
+            injectorResult: InjectionResult(
+                rung: .widgetFailsafe, attempted: [.accessibility], verified: false,
+                elapsed: injectElapsed))
+
+        // The engine failed before it produced anything — the failure with nothing to lose.
+        let failureClock = TableClock()
+        let failureEngine = TableEngine(clock: failureClock, error: FakeTranscriptionError.boom)
+        let failure = await runRecordedRoute(
+            outcome(.retained(.keyUp), [1, 2, 3]), engine: failureEngine, clock: failureClock,
+            injectorResult: InjectionResult(
+                rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
+                elapsed: injectElapsed))
+
+        guard let lostOutcome = loss.records.first?.outcome,
+            let failedOutcome = failure.records.first?.outcome
+        else {
+            XCTFail("both routes finalize exactly one record — the table above is what pins that")
+            return
+        }
+
+        XCTAssertNotEqual(
+            lostOutcome, failedOutcome,
+            """
+            A transcript that reached the failsafe and was refused custody is recorded under the \
+            same outcome as a transcription that never produced anything. The P0 gate counts \
+            transcript loss at exactly zero (ROADMAP.md:96), and this makes that count \
+            uncomputable: the failure that lost a transcript is indistinguishable from the \
+            failure that had none to lose.
+            """)
+    }
+
     /// The absence pin (spec W1, plan §6): the recorder and the clock are wired, but the router
     /// did not begin a session — `sessionID` is the default `nil` — so the route must behave
     /// exactly as before (transcribe and inject, the same `.idle` surface) and record nothing:
@@ -678,7 +734,8 @@ final class DictationPipelineTests: XCTestCase {
                 elapsed: .zero))
         let pipeline = DictationPipeline(
             engine: engine, injector: injector, holder: LedgerTranscriptHolder(),
-            recorder: ledger, clock: TableClock())
+            recorder: ledger, clock: TableClock(),
+            sessionKind: .dictation)
 
         let surface = await pipeline.route(
             SessionEffect<AudioBuffer>.ended(outcome(.retained(.keyUp), [1, 2, 3])),

@@ -274,6 +274,37 @@ Selecting the cloud rung shows a one-time confirmation naming exactly what gets 
 
 **Apps** — per-app injection strategy and overrides, with a plain-language health column (`typing directly` / `pasting` / `manual only`) and a "reset what Vocca learned" button.
 
+**Usage** — the local metrics viewer §12 promises: the screen a sceptical user opens to see exactly what Vocca keeps about them. Every number on it is read from one file on this Mac.
+
+```
+  You've dictated on 4 days in a row.          12 days recorded · 38 dictations
+
+  Day          Dictations  How they ended         How Vocca typed them  Cycle time
+  2026-09-06           12  typed for you: 11      pasted: 11            half at most 400 ms, 19 in 20 at most 800 ms
+                           held in the window: 1  typed directly: 1
+  2026-09-05            0  cancelled: 2           —                     not recorded
+
+  Setup demos                                                           2 sessions
+  Counted on their own. The numbers above are your real dictations.
+
+  [ Clear usage data ]   Deletes the file Vocca keeps this in. It can't be undone.
+```
+
+The six ways a dictation can end are named in full — `typed for you`, `held in the window`, `cancelled`, `failed`, `lost`, `nothing recorded` — and so are the four ways the text arrived: `typed directly`, `pasted`, `typed key by key`, `handed to you`. They are the past tense of the Apps tab's vocabulary, deliberately: that tab says how Vocca *will* type into an app, this one says how it *did*. With no run of days going, the first line reads `No run of days going right now.`
+
+Four rules hold this page to what it actually knows, and each one is pinned by a test:
+
+- **A time is a bound, never a spot value.** Vocca stores a distribution of buckets rather than stopwatch readings, so the strongest true thing it can say about a percentile is `at most 400 ms` — and past the last bucket, `over 5 s`. Printing "376 ms" from that data would be an invention.
+- **`not recorded` is not zero.** A day whose sessions measured nothing reads `not recorded`, never `0 ms`.
+- **The delivery tallies are counts, not a rate.** `pasted: 11` counts what happened. This page never renders a percentage of injection success — that figure belongs to the injection matrix, and this is not it.
+- **Setup demos are labelled, never merged.** Onboarding's TRY IT sits under its own heading, with its own numbers.
+
+And nothing here is a verdict. A streak is a fact about days, not a badge: there is no pass mark, no target met, no grade. The page says so in its own words — **"These are counts of what happened, not a score. Vocca doesn't grade itself."** — alongside the reason it can afford to: **"All of this is read from a file on this Mac. None of it has ever left it."**
+
+Before the file has been read the page says `Reading what Vocca has recorded…`; once it has been read and holds nothing it says `Vocca hasn't recorded any use yet. It starts counting the first time you dictate.` The two never look alike — the same distinction the Dictionary tab draws between "we haven't looked" and "there is nothing here".
+
+`[ Clear usage data ]` empties the window and deletes the file behind it, behind a confirmation, because it removes bytes from disk rather than resetting something derived. Vocca keeps the last 30 days and forgets the rest.
+
 **Privacy** — the honest page: what's stored, where, and a one-click "open the folder." Local metrics viewer. Recovery-journal retention control. A single prominent line: **"Vocca has made 0 network connections."** with a counter that is real.
 
 ---
@@ -335,7 +366,7 @@ Minimal by design: current state, mode toggle, "show last transcript" (re-opens 
 
 - **No transcript history browser.** A searchable archive of everything you've ever said is a liability, not a feature, in a privacy-first tool. The recovery journal is bounded, purposeful, and purged.
 - **No account, no login, no sync.** Nothing to sign into. Settings are a JSON file the user can sync themselves if they want to.
-- **No usage analytics.** Metrics are local and inspectable. P5's install counting is opt-in and aggregate-only.
+- **No usage analytics.** Metrics are local and inspectable — §7's **Usage** tab is where you inspect them, and the button that clears them. P5's install counting is opt-in and aggregate-only.
 - **No floating "AI suggestions."** Vocca acts when asked. It does not volunteer.
 - **No auto-updating models.** Model changes alter output; the user decides when that happens.
 

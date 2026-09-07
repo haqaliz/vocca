@@ -35,7 +35,14 @@ public protocol LatencyRecorder: Sendable {
     /// unknown or already finalized, or the span name is a duplicate.
     func recordSpan(_ span: LatencySpan, for sessionID: SessionRecord.ID) async -> Bool
 
-    /// Closes a session with its outcome class and engine attribution. `false` if the id is
-    /// unknown or already finalized.
-    func finalize(id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?) async -> Bool
+    /// Closes a session with its outcome class, engine attribution and ``SessionKind``. `false`
+    /// if the id is unknown or already finalized.
+    ///
+    /// The kind is the caller's, not the ledger's: it is fixed when the composition chose its
+    /// injector, so the recorder is told which kind of session it just closed rather than
+    /// inferring one.
+    func finalize(
+        id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?,
+        kind: SessionKind
+    ) async -> Bool
 }

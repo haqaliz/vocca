@@ -202,7 +202,17 @@ real-run harness (GO/NO-GO/VOID verdicts, **recorded, never gated** — the verd
 empty until the founder's first real run, and a NO-GO blocks claiming the latency win, never
 shipping the feed), and re-warm-after-idle (5-minute idle policy behind the `EngineRewarmable`
 seam). The benchmark gate's closed four-span contract deliberately stays post-key-up, named
-rather than silently drifted.)*
+rather than silently drifted. Amended by the `daily-use-ledger` unit, 2026-09-07: the
+**"inspectable by the user"** half of this capability's first bullet is now true. The ledger's
+records fold into bounded per-day aggregates persisted at
+`~/Library/Application Support/Vocca/usage.json` — shape only, 30 days, clearable — and a sixth
+Settings tab, **Usage**, reads them. The histogram stores bucket counts rather than percentiles,
+because percentiles do not average and a window figure has to be computable; its bounds travel in
+the file, so a later change to them loads empty and loudly rather than silently re-reading old
+buckets as different latencies. The unit also found that the transcript-loss metric this
+instrumentation exists to serve was **not computable**: `SessionOutcomeClass.failed` covered six
+sites of which one lost a transcript, and `.lost` now separates them. **No gate passes** — the
+numbers are recorded, never gated, and no real session has been folded on this machine.)*
 
 ---
 

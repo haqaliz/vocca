@@ -121,7 +121,8 @@ final class LatencyBenchmarkRealEngineTests: XCTestCase {
                     .recorded(name: .inject, elapsed: .milliseconds(7)),
                     .cleanupNotPresent(),
                 ],
-                engine: StubEngine.parakeet().identity)
+                engine: StubEngine.parakeet().identity,
+                kind: .dictation)
         ])
         XCTAssertEqual(
             withLedgerCleanup.cleanupStatus, .notPresent,

@@ -104,8 +104,17 @@ final class ModuleBoundaryTests: XCTestCase {
     /// engine's vocabulary (`ReplacementRule`) lives there — while the engine stays stdlib-only
     /// beyond it, and the declared inward-ring graph (`ARCHITECTURE.md` §2) now matches the
     /// enforced lint.
+    ///
+    /// `VoccaUsage` joined in the `usage-store` aspect: it implements the `UsageStore` seam (the
+    /// `FileManager`-backed `PersistentUsageStore`). The move is what lets it import `VoccaCore` —
+    /// the window it persists (`UsageWindow`, `DayAggregate`, `CalendarDay`, `LatencyHistogram`)
+    /// lives there — while the per-seam FileManager lint in `InjectionSeamBoundaryTests` keeps the
+    /// file system confined to the store's one file. It is a module rather than a folder in
+    /// `VoccaUI` because a UI module owning persistence inverts the layering, and rooting the seam
+    /// in `VoccaBootstrap` would have forced permitting `AppBootstrap.swift`, which already names
+    /// `FileManager` — see `usage-store/spec.md`'s rejected alternatives.
     private static let adapterModules: Set<String> = [
-        "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio", "VoccaText",
+        "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio", "VoccaText", "VoccaUsage",
     ]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.

@@ -376,7 +376,8 @@ final class MicrophoneSourceTests: XCTestCase {
         // ledger — and the finalize below is ordered after it. (A bare `Task.yield()` is a
         // scheduling hint, not a barrier — this ordering must not depend on one.)
         await Task { @MainActor in }.value
-        let finalized = await recorder.finalize(id: id, outcome: .aborted, engine: nil)
+        let finalized = await recorder.finalize(
+            id: id, outcome: .aborted, engine: nil, kind: .dictation)
         XCTAssertTrue(
             finalized,
             "the finalize must be accepted — the span was recorded while the session was in flight")
@@ -407,7 +408,8 @@ final class MicrophoneSourceTests: XCTestCase {
 
         _ = source.endCapture()
         await Task { @MainActor in }.value
-        let finalized = await recorder.finalize(id: id, outcome: .aborted, engine: nil)
+        let finalized = await recorder.finalize(
+            id: id, outcome: .aborted, engine: nil, kind: .dictation)
         XCTAssertTrue(finalized)
 
         let snapshot = await recorder.snapshot()
@@ -435,7 +437,8 @@ final class MicrophoneSourceTests: XCTestCase {
 
         _ = source.endCapture()
         await Task { @MainActor in }.value
-        let finalized = await recorder.finalize(id: id, outcome: .aborted, engine: nil)
+        let finalized = await recorder.finalize(
+            id: id, outcome: .aborted, engine: nil, kind: .dictation)
         XCTAssertTrue(finalized)
 
         let snapshot = await recorder.snapshot()

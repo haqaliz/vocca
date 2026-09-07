@@ -1440,8 +1440,133 @@ set -euo pipefail
 # per-cycle totals over the recorded spans (exactly 15 ms over the seeded 3/5/7 ms deltas),
 # nearest-rank p50/p95, and the cleanup span's presence named notPresent, never dropped.
 #
+# The loss-observability pins add four (1760 -> 1764), and the floor closes a two-test gap it
+# was already carrying: at the branch point the suite executed 1760 against a floor of 1758.
+# `docs/STATUS.md`'s "Floor 1758 -> 1760 tests" for the matrix-harness work reads as a ratchet
+# but was an executed count — `1985da6` changed only `Scripts/injection-matrix.sh` and never
+# touched this line — so the floor stayed at 1758 while the suite grew past it. Raising it to
+# the observed 1764 restores the invariant that the floor is the current count, not a stale one.
+#
+# The four: `testALostTranscriptIsDistinguishableFromAFailureThatHadNoneToLose` pins the defect
+# behaviourally — the route that loses a transcript (the ladder reaching `.widgetFailsafe` with
+# the journal refusing custody) must not finalize as the same class as a route that never
+# produced one, or the P0 gate's count of exactly zero (`ROADMAP.md:96`) is uncomputable.
+# `testNeitherStreamingFailureRowIsRecordedAsATranscriptLoss` covers a hole: no streaming test
+# was recorder-wired, so what class `routeStreaming` finalizes on a failure was asserted by
+# nothing — both rows (the stream that threw, the stream that ended with no final) are `.failed`,
+# neither a loss. `testEveryOutcomeClassRendersAsItsOwnStringThroughDescribe` pins all six
+# renderings mutually distinct and non-nesting, because every consumer of `describe()` reads it
+# with `contains`. `testExactlyOneSourceLineRecordsATranscriptAsLost` scans comment-stripped
+# `Sources/` so a second loss site has to be a reviewed edit rather than a quiet addition.
+#
+# The usage-vocabulary aspect adds fifty-six (1764 -> 1820), in five groups.
+#
+# Session kind (3): `testTheRecordTellsASetupDemoApartFromARealDictation` pins that a setup demo
+# and a real dictation do not record identically — onboarding shares the production ledger and its
+# injector never holds, so a refused TRY IT finalizes `.lost`. `SessionKindWiringTests`' pair pins
+# the one place a composition becomes a kind (`AppBootstrap.configure`) and proves the scan rejects
+# an exchange of the two arms: swapped, every onboarding session records as real work and the rest
+# of the suite stays green.
+#
+# CalendarDay (8): the proleptic Gregorian day-number conversion, so "consecutive" is integer
+# subtraction in a module that has no `Calendar`. Boundaries across months, years and a leap day,
+# plus the leap-century case (2000 has a February 29, 1900 does not) that catches an ad-hoc
+# divisible-by-four calendar. An impossible date is refused rather than repaired, since a clamped
+# date yields a `dayNumber` indistinguishable from a real one.
+#
+# LatencyHistogram (9): bucketing with inclusive upper bounds — a dictation of exactly 800 ms is
+# inside the P2 gate — and milliseconds rounded up, never truncated, since truncation moves
+# readings into buckets they exceed. Percentiles by integer nearest rank, reported as a bucket
+# bound so a UI cannot render one as a spot value, and `nil` rather than a fabricated zero when
+# there are no samples. The load-bearing row is the window percentile, which sums buckets and is
+# demonstrably not the average of per-day percentiles — the reason the format stores buckets at all.
+#
+# DayAggregate (12): the fold, total over all six outcome classes and both session kinds with
+# nothing coerced. Onboarding is counted beside real work and never inside it, rung tallies come
+# only from `.delivered`, and a session that measured nothing contributes no latency sample rather
+# than a zero.
+#
+# UsageWindow (24, including the streak refinement): a day extends a streak only when a transcript
+# existed — `delivered`, `failsafeHeld` or `lost` — so a stray hotkey press, a cancellation, and a
+# day of nothing but transcription failures do not. `.lost` counts because the transcript existed.
+# Thirty days, evicted oldest-first on insertion. An onboarding-only day and a stray-press-only day
+# each break a run exactly as an absent day does, asserted as equality against the absent case so
+# the rules cannot drift apart.
+#
+# The usage-store aspect adds fifteen (1820 -> 1835): the round trip through a real temp
+# directory, and the tolerance gates. Two of the gates found defects rather than confirming
+# behaviour — a file carrying an unknown `version` loaded its rows, and a file whose latency
+# bucket bounds were not this build's loaded its days as data. Both now load an empty history
+# with one loud log, the bounds gate rejecting a same-length array with shifted values and not
+# only an obviously wrong one, because bucket counts are meaningless without the bounds that
+# produced them and a silent re-read is the failure nobody would report.
+#
+# The rest: a missing file is empty and silent, since a first run is not an error; a corrupt row
+# is skipped loudly while its neighbours load; a load never rewrites the file; a stray `.tmp`
+# from a crash is never read, pinned with a *decodable* planted file so it cannot pass on
+# garbage; a failed rename leaves the previous commit intact; six spellings of an impossible or
+# malformed date skip their row rather than being repaired; retention survives the round trip;
+# and the default location is asserted on the constructed URL rather than by writing to a real
+# Application Support directory.
+#
+# `testTheEncodedBytesCarryNoTextAndNoWallClockTime` is the unit's central promise asserted on
+# the artifact instead of in a doc comment: no phrase, no `HH:MM`, no ISO-8601 marker, no
+# epoch-looking integer. Its time half has teeth today — a `generatedAt` is one line away and
+# every shape of it is caught — and its phrase half is the assertion that fires the day a row is
+# widened to carry a name.
+#
+# The usage-wiring aspect adds forty-three (1835 -> 1878), in four groups.
+#
+# The ledger sink (5): a finalized record reaches an installed sink exactly once and equals what
+# `snapshot()` kept; a refused finalize delivers nothing, since a record that never existed cannot
+# be folded; the sink sees all 600 finalizes while the snapshot keeps 512, because the cap bounds
+# what the ledger *shows* and never what happened — a fold reading from the snapshot would
+# undercount exactly the busiest days; a full drive over a sink-installed and a sink-free ledger
+# answers identically; and a ledger with no sink retains its record and delivers nothing.
+#
+# The day provider (with its Calendar seam): an instant resolves to the *local* calendar day, over
+# injected zones so the tests do not pass only on this machine, including an instant whose local
+# day differs from its UTC day — the reason the provider exists rather than dividing epoch seconds
+# — and a DST transition. The `Calendar` family table ships with the repository's first
+# `Calendar`-naming file, matched whole rather than by prefix, because the tree owns a pure
+# `CalendarDay` type a prefix rule would fire on.
+#
+# The recorder (the composition): a finalized record folds once, on the day the provider named;
+# every outcome class and both session kinds fold through the real wiring; a second launch sees the
+# first launch's counts; a load failure leaves a usable empty window and never blocks a dictation; a
+# fold after midnight lands on the new day; folds that arrive before the launch load are held and
+# applied on its way in, and nothing is written before that load completes, because committing a
+# window that has not read the file would replace a real history with a partial one.
+#
+# The cadence: `testFoldingPerformsNoWriteAtAll` is the one that matters — twenty-five folds
+# through the real store produce an empty call log on the injected file-system seam, with a flush
+# in the same test proving the seam records when a write does happen. A rollover commits the
+# completed day, termination commits whatever is unwritten, and many folds inside one interval
+# coalesce to a single write. The 60 s interval is pinned to its own constant tree-wide.
+#
+# And the probe's usage drive, which replaced `VoccaUsage`'s placeholder metatype witness with a
+# real launch-shaped round trip — load, finalize, fold, decline, flush, reload — so the module's
+# zero-network coverage comes from an effect rather than a reference.
+#
+# The usage-tab aspect adds fifty-two (1878 -> 1930): the sixth settings tab, its reducer, its
+# copy, and the clearing path.
+#
+# The four honesty rules are pinned rather than described, because this is the page a sceptical
+# user opens to check what Vocca keeps about them. A percentile renders as a bound — `at most
+# 400 ms`, and `over 5 s` past the last bucket — since printing a spot figure from bucketed data
+# would be an invention; `not recorded` is a state distinct from zero, with deliberately no code
+# path rendering a missing measurement as `0 ms`; the delivery tallies are counts and never a
+# rate, because that denominator belongs to the injection matrix; and setup demos are labelled,
+# never summed into real work. Nothing on the page is a verdict, which the copy says in its own
+# words rather than leaving to a test alone.
+#
+# Clearing is pinned all the way down: the recorder empties its window and marks itself loaded so
+# a launch read already in flight cannot seed the deleted history back, the store removes the file
+# rather than saving an empty one, and a failed removal is loud and leaves the window unwritten so
+# the next write still empties it. A cancelled confirmation clears nothing.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1758
+MINIMUM_EXECUTED_TESTS=1930
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

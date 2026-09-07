@@ -128,7 +128,8 @@ final class DictationLoopTests: XCTestCase {
             let pipeline = DictationPipeline(
                 engine: engine, injector: injector, holder: holder,
                 recorder: ledger,
-                clock: ledger != nil ? SendableTestClock() : nil)
+                clock: ledger != nil ? SendableTestClock() : nil,
+                sessionKind: .dictation)
             let root = DictationLoopRoot(
                 configuration: DictationLoopTests.configuration,
                 ceiling: SessionCeiling.default,
@@ -151,7 +152,8 @@ final class DictationLoopTests: XCTestCase {
                 toggleTimer: toggleTimer,
                 runningAppName: appName,
                 widgetClock: widgetClock,
-                liveLevel: liveLevel)
+                liveLevel: liveLevel,
+                sessionKind: .dictation)
 
             self.clock = clock
             self.keyboard = keyboard

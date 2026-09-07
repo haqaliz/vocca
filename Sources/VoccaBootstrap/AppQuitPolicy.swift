@@ -32,6 +32,25 @@ import AppKit
 ///   (`stayInTray` closes the settings window and drops the activation policy back to
 ///   `.accessory`, so the Dock icon goes away).
 ///
+/// ## The work that must finish before the process ends
+///
+/// A quit is also the last chance to commit anything held in memory — today, the daily-use
+/// ledger's unwritten counts (`usage-wiring/spec.md` §3). Committing is asynchronous, and
+/// `.terminateNow` would end the process with the save still in flight, so a policy with
+/// ``flushBeforeTerminating`` installed answers **`.terminateLater`** — AppKit's documented "I
+/// will tell you when" — runs the work, and only then replies. Every quit that actually ends the
+/// process passes through here, marked or not, so this one hook catches ⌘Q, the Dock's Quit, the
+/// tray menu's and the onboarding restart's alike.
+///
+/// A **refused** quit runs none of it: the app is going back to the menu bar, not ending, and the
+/// ordinary write cadence goes on running there. With nothing installed the answer is
+/// `.terminateNow`, exactly as before — an app that defers with nothing to reply with never quits
+/// at all.
+///
+/// The reply is a separate injected closure for one reason: a test that sent a real
+/// `reply(toApplicationShouldTerminate: true)` on `NSApplication.shared` would be telling AppKit
+/// a genuine termination could proceed, and the test host is what would end.
+///
 /// **The policy only marks; the caller terminates.** `markIntentionalQuit()` never terminates
 /// itself — the tray menu's wiring and `AppRelaunch` call `NSApplication.terminate` after marking.
 /// That keeps the policy testable headlessly (a policy that terminated from inside would kill the
@@ -55,6 +74,15 @@ public final class AppQuitPolicy: NSObject, NSApplicationDelegate {
     /// What returning to the tray means: close the focus-taking window and drop the Dock icon.
     private let stayInTray: () -> Void
 
+    /// Work that must finish before the process ends — the daily-use ledger's unwritten counts,
+    /// committed. `nil` is the shipped default for a policy built without one, and answers
+    /// `.terminateNow` exactly as before.
+    private let flushBeforeTerminating: (@Sendable () async -> Void)?
+
+    /// How the policy tells AppKit that a deferred termination may proceed. Injected so a test
+    /// can watch the reply without a real `NSApplication` acting on it.
+    private let replyWhenFinished: @MainActor (Bool) -> Void
+
     /// Set by an intentional quit immediately before terminating; consumed by the refusal check.
     private var intentionalQuit = false
 
@@ -62,12 +90,22 @@ public final class AppQuitPolicy: NSObject, NSApplicationDelegate {
     ///   - keepInTray: reads the persisted option.
     ///   - stayInTray: the refused quit's consequence — the `[weak root]` wiring closes the
     ///     settings window and sets the activation policy back to `.accessory`.
+    ///   - flushBeforeTerminating: work that must finish before the process ends. Installing it
+    ///     is what turns an accepted quit into a `.terminateLater`.
+    ///   - replyWhenFinished: how the deferred termination is released. The default is AppKit's
+    ///     own reply; see the type's doc comment for why it is injectable.
     public init(
         keepInTray: @escaping () -> Bool,
-        stayInTray: @escaping () -> Void
+        stayInTray: @escaping () -> Void,
+        flushBeforeTerminating: (@Sendable () async -> Void)? = nil,
+        replyWhenFinished: @escaping @MainActor (Bool) -> Void = {
+            NSApplication.shared.reply(toApplicationShouldTerminate: $0)
+        }
     ) {
         self.keepInTray = keepInTray
         self.stayInTray = stayInTray
+        self.flushBeforeTerminating = flushBeforeTerminating
+        self.replyWhenFinished = replyWhenFinished
         super.init()
     }
 
@@ -79,12 +117,25 @@ public final class AppQuitPolicy: NSObject, NSApplicationDelegate {
     }
 
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard keepInTray() else { return .terminateNow }
+        guard keepInTray() else { return accept() }
         guard !intentionalQuit else {
             intentionalQuit = false
-            return .terminateNow
+            return accept()
         }
         stayInTray()
         return .terminateCancel
+    }
+
+    /// The accepted quit: immediate when there is nothing to finish, deferred when there is.
+    ///
+    /// The task runs on the main actor — the policy's own isolation — so the reply lands where
+    /// AppKit expects it, and the work itself is whatever the composition installed.
+    private func accept() -> NSApplication.TerminateReply {
+        guard let flushBeforeTerminating else { return .terminateNow }
+        Task { @MainActor in
+            await flushBeforeTerminating()
+            replyWhenFinished(true)
+        }
+        return .terminateLater
     }
 }

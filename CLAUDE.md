@@ -2,10 +2,30 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-05).** The skeleton exists; **the product does not.**
-> A Swift 6 package with nine modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
-> `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaBootstrap`.
+> **Status (2026-09-07).** The skeleton exists; **the product does not.**
+> A Swift 6 package with ten modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
+> `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaUsage`, `VoccaBootstrap`.
 > `VoccaSpeech` is the one module still a placeholder.
+>
+> **`daily-use-ledger` (2026-09-07):** the P0 gate's observable legs are now recorded rather than
+> remembered — and one of them was **not computable at all** until this unit. `SessionOutcomeClass`
+> `.failed` covered six sites of which only one meant a transcript was lost, so the gate's
+> zero-loss leg (`ROADMAP.md:96`) was unmeasurable *in principle*; `.lost` now separates them at
+> exactly one site. Shipped: `SessionKind` (onboarding separable from real work — its injector
+> never holds, so a refused TRY IT is a lost transcript), `CalendarDay` with hand-written
+> proleptic-Gregorian arithmetic, `DayAggregate`'s fold, `UsageWindow` (30 days; a streak counts
+> only days a transcript existed), a bounded latency histogram whose bounds straddle the P2 targets
+> so "is p95 ≤ 800 ms?" answers exactly, the new **`VoccaUsage`** adapter module persisting
+> `~/Library/Application Support/Vocca/usage.json` atomically and shape-only, the wiring (ledger
+> sink, folds held until the launch load, writes debounced at 60 s and **never inside a
+> dictation**), and a sixth Settings tab, **Usage**. Test floor: **1930**.
+> **No gate passes.** This instruments the P0 gate; it does not meet it — seven consecutive days
+> have not accumulated, no streak number exists, and no real session has been folded on this
+> machine. The gate's matrix leg is untouched, and the tab's rung tallies are counts, never an
+> injection-success rate. Two postures were deliberately revised and recorded, not drifted: the
+> ledger no longer "never leaves the process" (it persists, clearable, with a byte-level pin that
+> no transcript text or wall-clock time can reach the file), and `ARCHITECTURE.md` now names
+> `usage.json` where it had reserved `metrics.sqlite`. See `docs/STATUS.md`.
 >
 > **`unmeasured-numbers-sweep` (2026-09-04):** the sweep's numbers are recorded, never gated —
 > SMOKE 102 verified both whisper tiers against the shipped manifests (bytes from
@@ -93,7 +113,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 1758 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 1930 tests**, including the zero-network invariant (a `dyld`
 > interposer over `connect(2)`), module-boundary and per-seam lint, and the built-bundle
 > and entitlement contracts. CI runs three jobs; every `swift test` goes through
 > `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.

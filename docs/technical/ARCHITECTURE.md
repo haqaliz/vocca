@@ -593,8 +593,20 @@ That is unchanged by the 2026-08-25 amendment making **toggle the shipped defaul
   dictionary.json                   # user replacement rules — hand-editable
   strategies.json                   # per-app injection memory
   recovery/                         # transcript journal (bounded, purged)
-  metrics.sqlite                    # local-only latency/success — never sent
+  usage.json                        # local-only daily-use ledger — never sent: one row per
+                                    #   calendar day, bounded at 30, holding outcome counts,
+                                    #   rung tallies and latency histogram buckets. Shape only —
+                                    #   no transcript text, no wall-clock times, no per-session
+                                    #   rows (daily-use-ledger, 2026-09-07)
 ```
+
+**`usage.json`, not `metrics.sqlite`** (amended 2026-09-07). This slot reserved SQLite before
+anything was built. JSON is what shipped: thirty day-rows sit well under 10 KB, every other store
+in the tree is versioned JSON behind a one-file `FileManager` seam, and SQLite would have added a
+dependency and a migration surface to a file that is a tally. The file carries the histogram's
+bucket bounds alongside its counts, because counts are meaningless without the bounds that
+produced them — a build whose bounds differ loads an empty history loudly rather than re-reading
+old buckets as different latencies.
 
 **Keyed by tier, not by engine** (`settings-live-controls`, 2026-08-29). An engine's tiers are
 different artifacts of different sizes under different names, so two tiers sharing a directory key

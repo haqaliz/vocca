@@ -188,13 +188,15 @@ struct VoccaNetworkProbe {
     ///
     /// **This function is the scope of the zero-network guarantee — keep it honest.** The
     /// assertion in `testDefaultConfigurationMakesZeroNetworkConnections` only covers code that
-    /// actually runs here. Four of the modules have real work today and it is run: `VoccaBootstrap`'s
-    /// start-up path, `VoccaCore`'s session lifecycle, `VoccaInject`'s ladder, and — since
-    /// `probe-full-cycle` — `VoccaAudio`'s capture path and `VoccaASR`'s manifest loader through
-    /// the composed dictation cycle. The other four are still placeholders, so all this can do for
-    /// them is link each one and force it to load. As their capabilities land (audio capture is
-    /// driven; hotkey flag translation, text cleanup, TTS and the widget surface still are not),
-    /// their default-configuration start-up work must be invoked from here too.
+    /// actually runs here. Most of the modules have real work today and it is run:
+    /// `VoccaBootstrap`'s start-up path, `VoccaCore`'s session lifecycle, `VoccaInject`'s ladder,
+    /// `VoccaAudio`'s capture path, `VoccaASR`'s manifest loader and `VoccaText`'s cleanup stage
+    /// through the composed dictation cycle, and — since `usage-wiring` — `VoccaUsage`'s
+    /// launch-time load, fold and write cadence through the daily-use ledger drive. Three are
+    /// still placeholders (`VoccaHotkey`'s flag translation, `VoccaSpeech`, and `VoccaUI`'s
+    /// non-panel surface), so all this can do for them is link each one and force it to load. As
+    /// their capabilities land, their default-configuration start-up work must be invoked from
+    /// here too.
     ///
     /// That instruction is enforced rather than merely written down: the returned module list is
     /// checked against the package manifest and the `Sources/` listing, so adding any module
@@ -280,6 +282,20 @@ struct VoccaNetworkProbe {
         // line carries the detail — classes, spans, engine attribution, in mint order.
         print("PROBE-LATENCY\t\(cycle.latencyReport)")
 
+        // `VoccaUsage`'s real work, run rather than referenced — the drive that discharges the debt
+        // `usage-store` recorded against itself. The daily-use ledger now has a launch-time load, a
+        // fold per finalized session and a write cadence, so all three are driven here through the
+        // real `PersistentUsageStore`, the real `SystemCalendarDayProvider` and the real
+        // `UsageRecorder`, over a **temporary directory** — never the location a real install keeps
+        // its history. See `UsageLedgerDrive.swift`.
+        //
+        // Reported as an effect for the same reason the three drives above are:
+        // `PersistentUsageStore.self` used to sit in the list below and satisfied the coverage
+        // guard whether or not a line of `VoccaUsage` ever executed. The witness that replaces it
+        // is minted *by* this call, so the entry cannot outlive the call it stands for.
+        let usage = exerciseUsageLedger()
+        print("PROBE-USAGE\t\(usage.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -289,6 +305,7 @@ struct VoccaNetworkProbe {
             injection.moduleWitness,
             VoccaSpeechPlaceholder.self,
             VoccaUIPlaceholder.self,
+            usage.moduleWitness,
             AppBootstrap.self,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is

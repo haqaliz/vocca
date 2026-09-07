@@ -752,7 +752,8 @@ clock: clock,
             let holder = BenchmarkHolder()
             let pipeline = DictationPipeline(
                 engine: engine, injector: injector, holder: holder,
-                recorder: ledger, clock: clock)
+                recorder: ledger, clock: clock,
+                sessionKind: .dictation)
             let resolver = DictationEngineResolver(selection: .defaultSelection) { _ in engine }
             let focusedApp = FakeFocusedApp(
                 identity: FocusedAppIdentity(
@@ -783,7 +784,8 @@ clock: clock,
                 runningAppName: FakeRunningAppName(),
                 widgetClock: FakeTimer(),
                 liveLevel: BenchmarkLevelSource(level: 0),
-                holdFeed: feedTimer == nil ? nil : microphone.feed)
+                holdFeed: feedTimer == nil ? nil : microphone.feed,
+                sessionKind: .dictation)
             root.markEnginePrepared()
             // The shipped default mode is `.toggle`; the streaming cycles drive the hold-to-talk
             // machine, so the mode is switched first — the router's active feed follows the

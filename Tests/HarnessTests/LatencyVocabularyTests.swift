@@ -28,7 +28,7 @@ import XCTest
 /// - the presence state exists so C5's absence is *representable* without fabrication: the
 ///   ledger must never write a `0` for a span that never ran (spec A2), so `notPresent` is a
 ///   distinct state from a recorded zero — never a fake duration;
-/// - the outcome classes are exactly the five routes the P0 pipeline can exit by, and they are
+/// - the outcome classes are exactly the six routes the P0 pipeline can exit by, and they are
 ///   never force-labeled: the first-method-success metric is *derived* from `delivered` counts
 ///   (spec "Outcome classes", prd.md confirmed decision).
 final class LatencyVocabularyTests: XCTestCase {
@@ -78,11 +78,11 @@ final class LatencyVocabularyTests: XCTestCase {
 
     // MARK: - SessionOutcomeClass
 
-    /// Exactly the five classes, each constructed by hand — the ``InjectionResult`` precedent.
+    /// Exactly the six classes, each constructed by hand — the ``InjectionResult`` precedent.
     ///
-    /// The exhaustive switch has no default case, so a sixth class is a compile error in this
+    /// The exhaustive switch has no default case, so a seventh class is a compile error in this
     /// file: the compiler makes the suite grow, not the prose.
-    func testSessionOutcomeClassHasExactlyTheFiveClasses() {
+    func testSessionOutcomeClassHasExactlyTheSixClasses() {
         func label(of outcome: SessionOutcomeClass) -> String {
             switch outcome {
             case .delivered(let rung, let verified):
@@ -93,6 +93,8 @@ final class LatencyVocabularyTests: XCTestCase {
                 return "aborted"
             case .failed:
                 return "failed"
+            case .lost:
+                return "lost"
             case .emptySkip:
                 return "emptySkip"
             }
@@ -102,12 +104,16 @@ final class LatencyVocabularyTests: XCTestCase {
             .failsafeHeld,
             .aborted,
             .failed,
+            .lost,
             .emptySkip,
         ]
-        XCTAssertEqual(classes.count, 5)
+        XCTAssertEqual(classes.count, 6)
         XCTAssertEqual(
             classes.map(label(of:)),
-            ["delivered(accessibility, true)", "failsafeHeld", "aborted", "failed", "emptySkip"])
+            [
+                "delivered(accessibility, true)", "failsafeHeld", "aborted", "failed", "lost",
+                "emptySkip",
+            ])
     }
 
     /// The `delivered` class carries the rung and verification state read off a hand-built
@@ -150,7 +156,8 @@ final class LatencyVocabularyTests: XCTestCase {
             outcome: .delivered(rung: .accessibility, verified: true),
             spans: spans,
             engine: EngineIdentity(
-                id: "parakeet-tdt-0.6b-v3", displayName: "Parakeet", isLocal: true))
+                id: "parakeet-tdt-0.6b-v3", displayName: "Parakeet", isLocal: true),
+            kind: .dictation)
         XCTAssertEqual(record.id, id)
         XCTAssertEqual(record.outcome, .delivered(rung: .accessibility, verified: true))
         XCTAssertEqual(
@@ -169,9 +176,11 @@ final class LatencyVocabularyTests: XCTestCase {
             id: "whisper-large-v3-turbo", displayName: "Whisper", isLocal: true)
 
         let aborted = SessionRecord(
-            id: SessionRecord.ID(rawValue: 1), outcome: .aborted, spans: [], engine: nil)
+            id: SessionRecord.ID(rawValue: 1), outcome: .aborted, spans: [], engine: nil,
+            kind: .dictation)
         let emptySkip = SessionRecord(
-            id: SessionRecord.ID(rawValue: 2), outcome: .emptySkip, spans: [], engine: nil)
+            id: SessionRecord.ID(rawValue: 2), outcome: .emptySkip, spans: [], engine: nil,
+            kind: .dictation)
         XCTAssertNil(
             aborted.engine,
             "an aborted session never asked the engine — the record must not fabricate an engine")
@@ -181,11 +190,14 @@ final class LatencyVocabularyTests: XCTestCase {
 
         let delivered = SessionRecord(
             id: SessionRecord.ID(rawValue: 3),
-            outcome: .delivered(rung: .clipboardPaste, verified: false), spans: [], engine: engine)
+            outcome: .delivered(rung: .clipboardPaste, verified: false), spans: [], engine: engine,
+            kind: .dictation)
         let failsafe = SessionRecord(
-            id: SessionRecord.ID(rawValue: 4), outcome: .failsafeHeld, spans: [], engine: engine)
+            id: SessionRecord.ID(rawValue: 4), outcome: .failsafeHeld, spans: [], engine: engine,
+            kind: .dictation)
         let failed = SessionRecord(
-            id: SessionRecord.ID(rawValue: 5), outcome: .failed, spans: [], engine: engine)
+            id: SessionRecord.ID(rawValue: 5), outcome: .failed, spans: [], engine: engine,
+            kind: .dictation)
         XCTAssertEqual(delivered.engine, engine)
         XCTAssertEqual(failsafe.engine, engine)
         XCTAssertEqual(failed.engine, engine)
@@ -207,16 +219,19 @@ final class LatencyVocabularyTests: XCTestCase {
             seen.contains(sameValueHandedBackAcrossCalls),
             "the id must be usable as a set/dictionary key — mint once, hold it, use it twice")
 
-        let first = SessionRecord(id: id, outcome: .aborted, spans: [], engine: nil)
-        let second = SessionRecord(id: id, outcome: .aborted, spans: [], engine: nil)
+        let first = SessionRecord(
+            id: id, outcome: .aborted, spans: [], engine: nil, kind: .dictation)
+        let second = SessionRecord(
+            id: id, outcome: .aborted, spans: [], engine: nil, kind: .dictation)
         XCTAssertEqual(first.id, second.id)
     }
 
     // MARK: - LatencyRecorder
 
     /// The seam has exactly three entry points: begin (mints the id), record (a span for a
-    /// session), finalize (the outcome class and engine attribution) — all `async` because the
-    /// ledger is an actor (spec A8), and `Sendable` because the seam crosses module boundaries.
+    /// session), finalize (the outcome class, engine attribution and ``SessionKind``) — all
+    /// `async` because the ledger is an actor (spec A8), and `Sendable` because the seam crosses
+    /// module boundaries.
     ///
     /// If a fourth requirement appears, or any signature changes, this conformance stops
     /// compiling — the compiler pins the seam the way the exhaustive switch pins the outcome
@@ -229,7 +244,8 @@ final class LatencyVocabularyTests: XCTestCase {
                 true
             }
             func finalize(
-                id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?
+                id: SessionRecord.ID, outcome: SessionOutcomeClass, engine: EngineIdentity?,
+                kind: SessionKind
             ) async -> Bool {
                 true
             }
@@ -256,6 +272,7 @@ final class LatencyVocabularyTests: XCTestCase {
         _ = requireSendable(SessionOutcomeClass.failsafeHeld)
         _ = requireSendable(SessionOutcomeClass.aborted)
         _ = requireSendable(SessionOutcomeClass.failed)
+        _ = requireSendable(SessionOutcomeClass.lost)
         _ = requireSendable(SessionOutcomeClass.emptySkip)
     }
 
@@ -268,12 +285,98 @@ final class LatencyVocabularyTests: XCTestCase {
         _ = requireSendable(SessionRecord.ID(rawValue: 1))
         _ = requireSendable(
             SessionRecord(
-                id: SessionRecord.ID(rawValue: 1), outcome: .emptySkip, spans: [], engine: nil))
+                id: SessionRecord.ID(rawValue: 1), outcome: .emptySkip, spans: [], engine: nil,
+                kind: .dictation))
         _ = requireSendable(
             SessionRecord(
                 id: SessionRecord.ID(rawValue: 2), outcome: .delivered(rung: .accessibility, verified: true),
                 spans: [LatencySpan.cleanupNotPresent()],
-                engine: EngineIdentity(id: "e", displayName: "E", isLocal: true)))
+                engine: EngineIdentity(id: "e", displayName: "E", isLocal: true),
+                kind: .dictation))
         requireSendableProtocol(LatencyRecorder.self)
+    }
+
+    // MARK: - The single loss site (`loss-observability` A6)
+
+    /// **The source scan.** Exactly one line under `Sources/` hands
+    /// ``SessionOutcomeClass/lost`` to a `finalize` call — the failsafe arm of
+    /// `DictationPipeline.swift`, where the ladder reached ``InjectionRung/widgetFailsafe`` and
+    /// the journal refused custody.
+    ///
+    /// One *site*, not one *way in*. That line has two callers — the ordinary dictation route
+    /// and the onboarding injector, whose refused `OnboardingSink` leaves the holder empty by
+    /// construction — and both arrive at the same cause, so the count below is a claim about
+    /// where a loss can be recorded, never about how many ways a session can reach it.
+    ///
+    /// The count is what the scan is for. `.lost` is the class the P0 transcript-loss metric
+    /// counts, and `ROADMAP.md:96` fixes that count at zero with no acceptable non-zero value —
+    /// so a second site is a second way for the product to lose a transcript, and it must be a
+    /// reviewed decision rather than a line that arrived with something else. The compiler
+    /// cannot force that: an enum's exhaustiveness constrains `switch`es, and nothing at all
+    /// constrains call sites. This scan is the only thing in the tree that can.
+    ///
+    /// Vacuity is guarded in both directions, the ``InjectionStrategyStoreTests`` precedent: the
+    /// scan must have seen files at all and must find the site that exists, and the matcher is
+    /// then run over hand-written source that violates the rule and over source that keeps it,
+    /// so a matcher that had quietly stopped matching anything could not read as a pass.
+    func testExactlyOneSourceLineRecordsATranscriptAsLost() throws {
+        // `[^)]*` cannot cross a closing paren, so the match is confined to one `finalize(`
+        // argument list; comments are stripped first, so a doc comment naming the class is not
+        // a site.
+        let pattern = #"finalize\([^)]*outcome:\s*\.lost"#
+        func lossSites(in source: String) -> Int {
+            let stripped = SwiftSourceScanner.stripComments(from: source)
+            var count = 0
+            var searchFrom = stripped.startIndex
+            while let found = stripped.range(
+                of: pattern, options: .regularExpression,
+                range: searchFrom..<stripped.endIndex)
+            {
+                count += 1
+                searchFrom = found.upperBound
+            }
+            return count
+        }
+
+        let root = try PackageRootLocator.find(from: #filePath)
+        let namedFile = "DictationPipeline.swift"
+        var scannedFiles = 0
+        var sightings: [String: Int] = [:]
+        for file in SwiftSourceScanner.swiftFiles(under: root.appendingPathComponent("Sources")) {
+            scannedFiles += 1
+            let sites = lossSites(in: try String(contentsOf: file, encoding: .utf8))
+            if sites > 0 { sightings[file.lastPathComponent] = sites }
+        }
+
+        XCTAssertGreaterThan(scannedFiles, 0, "vacuity guard: the scan saw no files at all")
+        XCTAssertEqual(
+            sightings, [namedFile: 1],
+            """
+            A transcript may be recorded as lost from exactly one place — the failsafe arm that \
+            found the journal holding nothing. The P0 gate counts transcript loss at exactly \
+            zero (ROADMAP.md:96), so a second site is a second way the product can lose a \
+            transcript and has to be a decision somebody made on purpose. Got: \(sightings)
+            """)
+
+        // The matcher's own control, in both directions: source that violates the rule must be
+        // seen to violate it, and source that keeps it must not be counted as a site.
+        let twoSites = """
+            await finalize(sessionID: sessionID, outcome: .lost, engine: transcript.engine)
+            await finalize(sessionID: other, outcome: .lost, engine: nil)
+            """
+        XCTAssertEqual(
+            lossSites(in: twoSites), 2,
+            "the matcher must see a second site — a scan that cannot fail proves nothing about "
+                + "the tree it passed on")
+        let noSite = """
+            await finalize(sessionID: sessionID, outcome: .failed, engine: engine.identity)
+            // await finalize(sessionID: sessionID, outcome: .lost, engine: nil)
+            case .lost: classLabel = "lost"
+            """
+        XCTAssertEqual(
+            lossSites(in: noSite), 0,
+            "neither a `.failed` finalize, nor a commented-out one, nor a `switch` arm naming "
+                + "the class is a site — a matcher that counted them would fail the tree for "
+                + "lines that record nothing")
     }
 }

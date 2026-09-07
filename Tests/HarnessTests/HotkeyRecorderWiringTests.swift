@@ -264,7 +264,8 @@ final class HotkeyRecorderWiringTests: XCTestCase {
                         result: InjectionResult(
                             rung: .clipboardPaste, attempted: [.clipboardPaste], verified: false,
                             elapsed: .zero)),
-                    holder: holder),
+                    holder: holder,
+                    sessionKind: .dictation),
                 settings: RecorderSettingsStore(chord: chord),
                 toggleConfiguration: configurations.toggle,
                 toggleSource: RecordingAudioSource(),
@@ -272,7 +273,8 @@ final class HotkeyRecorderWiringTests: XCTestCase {
                 runningAppName: FakeRunningAppName(),
                 widgetClock: FakeTimer(),
                 liveLevel: SilentRecorderLevelSource(),
-                makeWatchdogTimer: { FakeTimer() })
+                makeWatchdogTimer: { FakeTimer() },
+                sessionKind: .dictation)
             root.markEnginePrepared()
 
             self.root = root

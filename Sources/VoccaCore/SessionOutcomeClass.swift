@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// How a session ended — exactly the five routes the P0 pipeline can exit by.
+/// How a session ended — exactly the six routes the P0 pipeline can exit by.
 ///
 /// The classes are **never force-labeled**: the P0 first-method-success metric is derived, not
 /// stored (prd.md, confirmed decision) — it counts ``delivered`` outcomes, and no other class may
@@ -29,6 +29,11 @@ public enum SessionOutcomeClass: Sendable, Equatable {
     case aborted
     /// The session failed — a transcription or injection failure with no delivery.
     case failed
+    /// A transcript existed and nobody has it: the ladder reached ``InjectionRung/widgetFailsafe``
+    /// and the journal refused custody, so the text was neither delivered nor held. The only
+    /// class the transcript-loss metric counts — ``failed`` never produced a transcript to lose,
+    /// and coercing the two into one makes the P0 count of zero uncomputable.
+    case lost
     /// A short press with nothing recorded — skipped the injector entirely.
     case emptySkip
 }

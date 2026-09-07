@@ -21,6 +21,11 @@ import VoccaCore
 /// it types into a given application. Every one of these has been editable since the day it
 /// shipped — by hand, in JSON, in Application Support. This window is the same settings with a
 /// surface on them.
+///
+/// **Usage is the sixth, and it is not a decision.** It changes nothing: it is the screen a user
+/// opens to see what Vocca has recorded about them, which is what makes `PRODUCT_SPEC.md` §12's
+/// *"Metrics are local and inspectable"* something checkable rather than a claim. It reads last
+/// because it is the only tab about what already happened.
 public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
 
     /// The hotkey and how it activates.
@@ -33,6 +38,8 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
     case dictionary
     /// What Vocca learned about typing into each application, and the user's own pins over it.
     case apps
+    /// What Vocca has recorded about its own use — the ledger, and the button that empties it.
+    case usage
 
     public var id: String { rawValue }
 
@@ -44,6 +51,7 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
         case .cleanup: return "Cleanup"
         case .dictionary: return "Dictionary"
         case .apps: return "Apps"
+        case .usage: return "Usage"
         }
     }
 
@@ -55,6 +63,10 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
         case .cleanup: return "wand.and.stars"
         case .dictionary: return "character.book.closed"
         case .apps: return "square.grid.2x2"
+        // `calendar` rather than a chart glyph: this tab is a ledger of days, and a bar chart is
+        // the picture of exactly the analytics dashboard `PRODUCT_SPEC.md` §12 says the product
+        // does not have.
+        case .usage: return "calendar"
         }
     }
 }

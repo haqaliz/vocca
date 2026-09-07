@@ -92,7 +92,8 @@ final class IdleReWarmWiringTests: XCTestCase {
                 focusedApp: focusedApp, secureInput: secureInput)
             let resolver = DictationEngineResolver(selection: .defaultSelection) { _ in engine }
             let pipeline = DictationPipeline(
-                engine: engine, injector: injector, holder: holder)
+                engine: engine, injector: injector, holder: holder,
+                sessionKind: .dictation)
             let root = DictationLoopRoot(
                 configuration: IdleReWarmWiringTests.configuration,
                 ceiling: SessionCeiling.default,
@@ -114,7 +115,8 @@ final class IdleReWarmWiringTests: XCTestCase {
                 toggleTimer: FakeTimer(),
                 runningAppName: FakeRunningAppName(),
                 widgetClock: widgetClock,
-                liveLevel: StillLevelSource())
+                liveLevel: StillLevelSource(),
+                sessionKind: .dictation)
 
             self.clock = clock
             self.keyboard = keyboard
