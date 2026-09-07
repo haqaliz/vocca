@@ -1548,8 +1548,25 @@ set -euo pipefail
 # real launch-shaped round trip — load, finalize, fold, decline, flush, reload — so the module's
 # zero-network coverage comes from an effect rather than a reference.
 #
+# The usage-tab aspect adds fifty-two (1878 -> 1930): the sixth settings tab, its reducer, its
+# copy, and the clearing path.
+#
+# The four honesty rules are pinned rather than described, because this is the page a sceptical
+# user opens to check what Vocca keeps about them. A percentile renders as a bound — `at most
+# 400 ms`, and `over 5 s` past the last bucket — since printing a spot figure from bucketed data
+# would be an invention; `not recorded` is a state distinct from zero, with deliberately no code
+# path rendering a missing measurement as `0 ms`; the delivery tallies are counts and never a
+# rate, because that denominator belongs to the injection matrix; and setup demos are labelled,
+# never summed into real work. Nothing on the page is a verdict, which the copy says in its own
+# words rather than leaving to a test alone.
+#
+# Clearing is pinned all the way down: the recorder empties its window and marks itself loaded so
+# a launch read already in flight cannot seed the deleted history back, the store removes the file
+# rather than saving an empty one, and a failed removal is loud and leaves the window unwritten so
+# the next write still empties it. A cancelled confirmation clears nothing.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1878
+MINIMUM_EXECUTED_TESTS=1930
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

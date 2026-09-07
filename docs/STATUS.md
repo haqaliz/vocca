@@ -10,6 +10,54 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `daily-use-ledger` unit landed 2026-09-07 — the P0 gate's observable legs became recorded
+evidence rather than founder memory, and one of them turned out not to be computable at all.**
+Five aspects, on `origin/master` @ `6ac909f`. Test floor **1758 → 1930**.
+
+**The defect found first, which reshaped the unit.** `SessionOutcomeClass.failed` was recorded at
+six sites and only one of them meant a transcript was lost: `DictationPipeline.swift:376`, where
+the ladder reached `.widgetFailsafe` and the journal refused custody. The other five — two stream
+failures, a transcribe failure, and two bootstrap terminals — each produced nothing, and three of
+them say so in their own code comments. So a count of `.failed` was not a loss count, and the P0
+gate's hardest leg (`ROADMAP.md:96`, transcript loss at exactly zero, "no acceptable non-zero
+value") was **unmeasurable in principle, not merely unpersisted**. `.lost` now separates them,
+recorded at exactly one site, pinned by a source scan. Site 376 has two callers, not one: the
+onboarding injector reaches it too, and never holds, so a refused TRY IT is a lost transcript.
+
+**What shipped.** `SessionKind` on every record, so a setup demo is separable from real work.
+`CalendarDay` with proleptic-Gregorian day arithmetic, written because `VoccaCore` imports nothing
+and has no `Calendar`. `DayAggregate`'s fold, total over six outcome classes and both kinds.
+`UsageWindow`: 30 days, oldest evicted on insertion, and a streak that counts only days a
+transcript existed — `delivered`, `failsafeHeld` or `lost` — so a stray hotkey press, a
+cancellation, and a day of nothing but transcription failures do not extend it. A bounded latency
+histogram whose bounds straddle the P2 targets, so "is p95 ≤ 800 ms?" is answered exactly.
+`VoccaUsage`, a new adapter module, persisting `~/Library/Application Support/Vocca/usage.json`
+atomically. The wiring: a synchronous ledger sink, folds held until the launch load returns, and
+writes on rollover, on termination, and otherwise debounced at 60 s — never inside a dictation.
+And a sixth Settings tab, **Usage**.
+
+**What this is NOT, and must not be claimed:**
+- **No gate passes.** This instruments the P0 gate; it does not meet it. Seven consecutive days of
+  founder dictation have still not accumulated, and no streak number exists yet because no real
+  session has been folded on this machine.
+- **The gate's third leg is untouched.** Injection success "≥90% across the matrix"
+  (`ROADMAP.md:102`) belongs to the matrix harness, which remains at 10 of 20 deliverable rows and
+  structurally capped at 17/20 here. The Usage tab's rung tallies are counts of what happened and
+  are **not** an injection-success rate; the tab is written so it cannot render one.
+- **No latency claim.** The histogram reports bucket bounds, never spot values, and a day that
+  measured nothing reads `not recorded`, never `0 ms`.
+- **The founder has not seen the tab with real data in it.** Everything is headless: 1930 tests, a
+  probe drive, and temp directories. `~/Library/Application Support/Vocca/usage.json` does not
+  exist on this machine.
+
+**Two postures deliberately revised, not drifted.** `latency-instrumentation/prd.md:118-120` wrote
+that the ledger "never leaves the process"; it now persists, shape-only and user-clearable, with
+the byte-level pin asserting no transcript text and no wall-clock time can appear in the file.
+And `ARCHITECTURE.md:596` reserved `metrics.sqlite` for this data; it now names `usage.json`, with
+the reasoning recorded.
+
+---
+
 **The injection matrix resumed 2026-09-05 and stopped again at 10 of 20 deliverable rows —
 6 firmly recorded, 4 voided, and one harness defect found and fixed test-first.** The run
 continued on v0.2.1 after the `injection-matrix-completion` unit's early conclusion.
