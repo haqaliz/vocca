@@ -502,6 +502,59 @@ final class PersistentUsageStoreTests: XCTestCase {
             "the shipped default resolves the documented path, got: \(real.path)")
     }
 
+    // MARK: - C13 · clearing the ledger
+
+    /// **Clear deletes the file**, and a load after it is the empty window.
+    ///
+    /// `PRODUCT_SPEC.md:306` says the control "empties the window and deletes the file behind
+    /// it", and `UsageTabCopy.clearExplanation` says so to the user in the same words. An
+    /// implementation that wrote an empty window instead would leave a file on disk that the copy
+    /// says is gone — a false statement on the one page whose entire job is being checkable.
+    func testClearDeletesTheFileSoALoadAfterItIsEmpty() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileSystem = RecordingUsageFileSystem()
+        let store = PersistentUsageStore(directory: directory, fileSystem: fileSystem)
+        try await store.save(Self.twoDayWindow())
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("usage.json").path),
+            "the fixture must actually be on disk, or the removal below proves nothing")
+
+        try await store.clear()
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("usage.json").path),
+            "clear removes the ledger's file — the copy says it deletes it, so it deletes it")
+        let events = await fileSystem.events
+        XCTAssertEqual(
+            events.last, .removal("usage.json"),
+            "the removal goes through the seam, not around it: FileManager in this module lives "
+                + "in the adapter alone, got: \(events)")
+        let reloaded = await PersistentUsageStore(directory: directory).load()
+        XCTAssertEqual(
+            reloaded, UsageWindow(),
+            "and a fresh store loads nothing afterwards — a Clear whose history comes back at "
+                + "the next launch is a disclosure that lied")
+    }
+
+    /// Clearing a ledger that was never written is not an error.
+    ///
+    /// The missing file is the first-run state (`C2`), and a user who presses Clear on a fresh
+    /// install must not be told something failed: there was nothing to delete, which is the
+    /// outcome they asked for.
+    func testClearOverAMissingFileIsNotAnError() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PersistentUsageStore(directory: directory)
+
+        try await store.clear()
+
+        let reloaded = await store.load()
+        XCTAssertEqual(reloaded, UsageWindow(), "nothing to delete is nothing to report")
+    }
+
     // MARK: - Fixtures
 
     private static func tempDirectory() -> URL {
@@ -727,6 +780,8 @@ enum UsageFileSystemEvent: Equatable {
     case tempWrite(String)
     /// The temp file was renamed over the ledger's name — the commit point.
     case rename(String)
+    /// The ledger's file was deleted — what Clear does, and the one event that is not a write.
+    case removal(String)
 }
 
 /// A ``UsageFileSystem`` over real temp directories whose every save is recorded as the atomic
@@ -748,6 +803,11 @@ actor RecordingUsageFileSystem: UsageFileSystem {
     func moveItem(at source: URL, to destination: URL) async throws {
         _ = try FileManager.default.replaceItemAt(destination, withItemAt: source)
         events.append(.rename(destination.lastPathComponent))
+    }
+
+    func removeItem(at url: URL) async throws {
+        try FileManager.default.removeItem(at: url)
+        events.append(.removal(url.lastPathComponent))
     }
 
     func read(_ url: URL) async -> Data? {
@@ -774,6 +834,10 @@ struct FailingRenameUsageFileSystem: UsageFileSystem {
         throw UsageStoreTestError.renameFailed
     }
 
+    func removeItem(at url: URL) async throws {
+        try FileManager.default.removeItem(at: url)
+    }
+
     func read(_ url: URL) async -> Data? {
         FileManager.default.contents(atPath: url.path)
     }
@@ -788,5 +852,7 @@ struct FailingRenameUsageFileSystem: UsageFileSystem {
 enum UsageStoreTestError: Error {
     /// The rename between the pair failed.
     case renameFailed
+    /// The ledger's file could not be deleted — the Clear half of the same contract.
+    case removalFailed
 }
 

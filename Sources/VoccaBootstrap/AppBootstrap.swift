@@ -1329,6 +1329,41 @@ public final class DictationLoopRoot {
                         }
                         try await memory.replaceAll(strategies)
                     },
+                    // MARK: Usage
+                    //
+                    // Read off the **live recorder**, and this is the one binding deliberately
+                    // unlike the Apps rows above it. Apps reads a fresh store because the running
+                    // memory holds seeded-hostile entries that are seed rather than learning, so
+                    // the file is the more honest source. Here the asymmetry inverts: the
+                    // recorder's window *is* the loaded file plus every fold since, and the file
+                    // lags it by up to `UsageRecorder.writeInterval` — a fresh-store read would
+                    // tell a user who dictated a minute ago that it never happened, on the one
+                    // page whose whole job is showing them what Vocca recorded.
+                    //
+                    // The streak is answered here because `VoccaCore` reads no clock: today is a
+                    // wall-clock instant resolved through the same local-day adapter the ledger
+                    // folds through, so the tab and the ledger cannot come to disagree about
+                    // which day it is. A day nobody can name is no streak rather than a guessed
+                    // one — the days themselves are still shown, because they are what was
+                    // recorded.
+                    loadUsageSnapshot: { [weak self] in
+                        guard let recorder = self?.usageRecorder else {
+                            return UsageSnapshot(days: [], streak: 0)
+                        }
+                        let window = await recorder.currentWindow
+                        guard let today = SystemCalendarDayProvider().today() else {
+                            return UsageSnapshot(days: window.days, streak: 0)
+                        }
+                        return UsageSnapshot(days: window.days, streak: window.streak(asOf: today))
+                    },
+                    // Routed to the recorder because it is the only object holding both halves.
+                    // A store-only clear leaves this run counting from the history the user
+                    // deleted and writes it back at the next tick; a window-only clear leaves the
+                    // file to reload it at the next launch. A disclosure whose Clear is cosmetic
+                    // is worse than no disclosure.
+                    clearUsage: { [weak self] in
+                        await self?.usageRecorder?.clear()
+                    },
                     // MARK: Speech
                     //
                     // The selection is read off the resolver, which *is* the fact rather than a

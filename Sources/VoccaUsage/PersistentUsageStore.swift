@@ -38,6 +38,10 @@ public protocol UsageFileSystem: Sendable {
     /// refusal.
     func moveItem(at source: URL, to destination: URL) async throws
 
+    /// Delete the file at `url`. Called only for a file the store has just seen exist, so a
+    /// missing one may throw — the store's own ``PersistentUsageStore/clear()`` asks first.
+    func removeItem(at url: URL) async throws
+
     /// The file's bytes, or `nil` if it cannot be read.
     func read(_ url: URL) async -> Data?
 
@@ -65,6 +69,10 @@ public struct DefaultUsageFileSystem: UsageFileSystem {
         // and every day after it would throw. `replaceItemAt` is the same rename-over commit
         // and succeeds whether or not the destination is there.
         _ = try FileManager.default.replaceItemAt(destination, withItemAt: source)
+    }
+
+    public func removeItem(at url: URL) async throws {
+        try FileManager.default.removeItem(at: url)
     }
 
     public func read(_ url: URL) async -> Data? {
@@ -444,5 +452,26 @@ public actor PersistentUsageStore: UsageStore {
         let tempURL = directory.appendingPathComponent(Self.fileName + Self.tempSuffix)
         try await fileSystem.write(data, to: tempURL)
         try await fileSystem.moveItem(at: tempURL, to: fileURL)
+    }
+
+    /// Delete `usage.json`, so that the next ``load()`` answers the empty window.
+    ///
+    /// **Deletion, not a save of nothing.** The user is told the file goes (`PRODUCT_SPEC.md:306`,
+    /// and `UsageTabCopy.clearExplanation` in the same words), and this is the page where the
+    /// product's claims are supposed to be checkable — an empty file left where the copy says
+    /// there is none would be a small lie told on the privacy screen.
+    ///
+    /// Asked-then-removed rather than removed-and-ignore-the-error: `FileManager.removeItem`
+    /// fails for a missing file and for a file that cannot be deleted, and swallowing both would
+    /// make a permission failure look exactly like a first run. A missing file returns quietly; a
+    /// removal that fails throws, and the caller says so.
+    ///
+    /// The stray `<dir>/usage.json.tmp` a torn save can leave is deliberately not touched: it is
+    /// never read (`C8`), and a `clear()` that reached for a second file would be reaching past
+    /// the one name this store owns.
+    public func clear() async throws {
+        let url = fileURL
+        guard await fileSystem.fileExists(atPath: url.path) else { return }
+        try await fileSystem.removeItem(at: url)
     }
 }

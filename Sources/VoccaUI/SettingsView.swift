@@ -101,6 +101,35 @@ public struct SettingsBindings {
     /// next dictation rather than to the next launch.
     public var saveStrategies: ([AppStrategyEntry]) async throws -> Void
 
+    // MARK: - Usage
+
+    /// The daily-use ledger as the Usage tab reads it: the days the window holds, and the streak
+    /// off them.
+    ///
+    /// Asynchronous and asked once per opening, the ``loadStrategies`` shape — and answered from
+    /// the **live** window rather than the file, which is the one place this tab is deliberately
+    /// unlike the Apps one. The recorder holds folds the write cadence has not committed yet, so
+    /// a page reading the file would tell a user who just dictated that it never happened, on the
+    /// screen that exists to show them what Vocca recorded.
+    ///
+    /// The streak arrives in the snapshot rather than being computed here, because it is a fact
+    /// about **today** and `VoccaCore` reads no clock: resolving a wall-clock instant into a
+    /// ``CalendarDay`` — with the time zone and the day-rollover question that comes with it — is
+    /// the wiring's job, where it can be seen and configured.
+    public var loadUsageSnapshot: () async -> UsageSnapshot
+
+    /// Forgets everything the ledger holds — **the window and the file together**.
+    ///
+    /// Routed to the one object that owns both halves. Clearing either alone is a Clear the
+    /// user's history survives: the file reloads at the next launch, or the still-full window is
+    /// written straight back at the next cadence tick.
+    ///
+    /// It reports no failure because the page offers no words for one: `PRODUCT_SPEC.md` §7 gives
+    /// this control a button, a sentence and a confirmation, and nothing to say when a deletion
+    /// does not take. The failure is not swallowed — the recorder logs it loudly and leaves the
+    /// empty window marked unwritten, so the next write empties the file anyway.
+    public var clearUsage: () async -> Void
+
     // MARK: - Speech
 
     /// The engine and tier in use **right now**, read rather than captured: the window is built
@@ -152,6 +181,17 @@ public struct SettingsBindings {
         saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
         loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
         saveStrategies: @escaping ([AppStrategyEntry]) async throws -> Void = { _ in },
+        // The usage defaults claim **nothing** and delete **nothing**, for the reason the Speech
+        // and cleanup defaults do. An empty snapshot renders the empty state — the honest "we
+        // have nothing to show you" — where a fabricated day or streak would be this page's one
+        // unforgivable failure: inventing the very numbers a sceptic opened it to check. And a
+        // clear that deletes nothing is the safe direction of a destructive control: a default
+        // that reported a deletion nothing performed would let the page tell a user their history
+        // was gone while it sat on disk.
+        loadUsageSnapshot: @escaping () async -> UsageSnapshot = {
+            UsageSnapshot(days: [], streak: 0)
+        },
+        clearUsage: @escaping () async -> Void = {},
         // The Speech defaults claim **nothing**, and that is deliberate. A default that pretended
         // to work — a `ready` gate, a tier reported present — would let a page offer a dictation
         // and a download that nothing is behind. Closed and empty is the safe direction, exactly
@@ -183,6 +223,8 @@ public struct SettingsBindings {
         self.saveDictionary = saveDictionary
         self.loadStrategies = loadStrategies
         self.saveStrategies = saveStrategies
+        self.loadUsageSnapshot = loadUsageSnapshot
+        self.clearUsage = clearUsage
         self.engineSelection = engineSelection
         self.setEngineSelection = setEngineSelection
         self.engineReadiness = engineReadiness

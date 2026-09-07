@@ -533,6 +533,118 @@ final class UsageRecorderTests: XCTestCase {
             "a failed save must not cost the counts already folded")
     }
 
+    // MARK: - Clearing · the Usage tab's one destructive control
+
+    /// **Clear empties the window and the file together.**
+    ///
+    /// Both halves matter and neither is enough alone. Emptying only the window is a Clear that
+    /// comes back at the next launch; deleting only the file leaves the tab — and every fold for
+    /// the rest of the run — describing a history the user has just been told is gone, and the
+    /// next cadence tick would write it straight back.
+    func testClearEmptiesTheWindowAndTheFileTogether() async throws {
+        let harness = Harness()
+        let day = Self.day(2026, 9, 7)
+        harness.days.set([day])
+        await harness.recorder.load()
+        await harness.recorder.fold(Self.delivered(via: .accessibility))
+        await harness.recorder.flush()
+        let seeded = await harness.freshStore().load()
+        XCTAssertFalse(
+            seeded.days.isEmpty,
+            "the fixture must be on disk first, or clearing it proves nothing")
+
+        await harness.recorder.clear()
+
+        let held = await harness.recorder.currentWindow
+        XCTAssertEqual(
+            held, UsageWindow(),
+            "the live window the tab reads must hold nothing the moment Clear returns")
+        let events = await harness.fileSystem.events
+        XCTAssertEqual(
+            events.last, .removal("usage.json"),
+            "and the file goes with it — `PRODUCT_SPEC.md:306` promises a deletion, got: \(events)")
+        let persisted = await harness.freshStore().load()
+        XCTAssertEqual(
+            persisted, UsageWindow(),
+            "a Clear whose history returns at the next launch is worse than no Clear at all")
+    }
+
+    /// Clearing before the launch load has completed leaves nothing for the load to bring back.
+    ///
+    /// The store here answers the **pre-clear** window whenever it is read — a launch load that
+    /// had already taken its bytes off disk before the user pressed Clear, landing afterwards.
+    /// That read must not seed the history back over an explicit erasure, and the folds held for
+    /// it must go too: they are the same history by another name.
+    ///
+    /// The recorder counts itself loaded from the moment it is cleared, for the honest reason:
+    /// the window in memory and the file now agree — both are empty — which is exactly what the
+    /// flag asserts, and it is what makes the late read a no-op.
+    func testAClearBeforeTheLoadCompletesLeavesNothingToComeBack() async throws {
+        let day = Self.day(2026, 9, 7)
+        var aggregate = DayAggregate(day: day)
+        aggregate.fold(Self.delivered(via: .accessibility))
+        var persisted = UsageWindow()
+        persisted.insert(aggregate)
+        let store = StaleLoadUsageStore(window: persisted)
+        let days = SequencedDayProvider([day])
+        let recorder = UsageRecorder(
+            store: store, day: days.provider, clock: HandMovedClock(), log: { _ in })
+        await recorder.fold(Self.delivered(via: .clipboardPaste))
+
+        await recorder.clear()
+        await recorder.load()
+
+        let held = await recorder.currentWindow
+        XCTAssertEqual(
+            held, UsageWindow(),
+            """
+            a load landing after a Clear restored the history the user deleted. The read was in \
+            flight before they pressed it; the window they were shown emptying must stay empty.
+            """)
+        let clears = await store.clears
+        XCTAssertEqual(clears, 1, "and the store was asked exactly once to delete it")
+    }
+
+    /// A removal that fails is **loud**, and the erasure still lands.
+    ///
+    /// The window is empty either way — the user asked for that and watched it happen — but the
+    /// file is not, so the counts are left marked unwritten: the next cadence tick or the quit
+    /// flush commits the empty window over it. That is the ``persist()`` failure policy, pointed
+    /// the other way, and it is what keeps a failed deletion from becoming a history that
+    /// reappears at the next launch with no line anywhere saying why.
+    func testAFailedRemovalIsLoudAndTheNextWriteEmptiesTheFileAnyway() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logs = LogCollector()
+        let day = Self.day(2026, 9, 7)
+        let store = PersistentUsageStore(
+            directory: directory, fileSystem: FailingRemovalUsageFileSystem(),
+            log: { logs.append($0) })
+        let days = SequencedDayProvider([day])
+        let recorder = UsageRecorder(
+            store: store, day: days.provider, clock: HandMovedClock(), log: { logs.append($0) })
+        await recorder.load()
+        await recorder.fold(Self.delivered(via: .accessibility))
+        await recorder.flush()
+
+        await recorder.clear()
+
+        XCTAssertFalse(
+            logs.entries.isEmpty,
+            "a deletion that failed must be visible: the user was told the file was gone")
+        let held = await recorder.currentWindow
+        XCTAssertEqual(
+            held, UsageWindow(),
+            "the window the user cleared is empty whatever the file system did")
+
+        await recorder.flush()
+
+        let persisted = await PersistentUsageStore(directory: directory).load()
+        XCTAssertEqual(
+            persisted, UsageWindow(),
+            "and the next write empties the file, so the cleared history does not come back")
+    }
+
     // MARK: - The harness
 
     /// Everything one recorder needs, over one temp directory: the real store, its recording
@@ -659,4 +771,53 @@ final class HandMovedClock: MonotonicClock, @unchecked Sendable {
     func advance(by delta: Duration) {
         reading.withLock { $0 += delta }
     }
+}
+
+/// The other torn half, for Clear: the file is there and will not be deleted — a permissions
+/// refusal, staged. `save` still works, which is what lets the recorder's fallback be observed.
+struct FailingRemovalUsageFileSystem: UsageFileSystem {
+    func createDirectory(at url: URL) async throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    func write(_ data: Data, to url: URL) async throws {
+        try data.write(to: url)
+    }
+
+    func moveItem(at source: URL, to destination: URL) async throws {
+        _ = try FileManager.default.replaceItemAt(destination, withItemAt: source)
+    }
+
+    func removeItem(at url: URL) async throws {
+        throw UsageStoreTestError.removalFailed
+    }
+
+    func read(_ url: URL) async -> Data? {
+        FileManager.default.contents(atPath: url.path)
+    }
+
+    func fileExists(atPath path: String) async -> Bool {
+        FileManager.default.fileExists(atPath: path)
+    }
+}
+
+/// A ``UsageStore`` that answers the same window every time it is read, however many times it has
+/// been cleared — a launch load that took its bytes off disk *before* a Clear and lands after it.
+///
+/// The only stale read that can happen in the shipped graph, staged: `PersistentUsageStore`
+/// deletes the file, so a load issued afterwards would come back empty and could never catch a
+/// recorder that let a late read seed over an erasure.
+actor StaleLoadUsageStore: UsageStore {
+    private let window: UsageWindow
+    private(set) var clears = 0
+
+    init(window: UsageWindow) {
+        self.window = window
+    }
+
+    func load() async -> UsageWindow { window }
+
+    func save(_ window: UsageWindow) async throws {}
+
+    func clear() async throws { clears += 1 }
 }

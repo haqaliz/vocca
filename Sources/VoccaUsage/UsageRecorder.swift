@@ -204,6 +204,41 @@ public actor UsageRecorder {
         await persist()
     }
 
+    /// **Forget everything** — the Usage tab's Clear, and the only destructive control the ledger
+    /// has.
+    ///
+    /// Both halves, together, because either alone is a lie of a different shape: a window emptied
+    /// without the file is a history that returns at the next launch, and a file deleted without
+    /// the window is a run that goes on counting from what the user just erased and writes it
+    /// back at the next tick.
+    ///
+    /// Marked **loaded** afterwards, whether or not ``load()`` ever ran. The flag's meaning is
+    /// "the window in memory is the window on disk", which is now true by construction — both are
+    /// empty — and it is what stops a launch read that is still in flight from seeding the
+    /// deleted history back over an explicit erasure (``load()`` re-checks it after its
+    /// suspension). The folds held for that read go the same way, for the same reason: they are
+    /// that history's remainder.
+    ///
+    /// A deletion that fails is logged and leaves the counts marked **unwritten**, so the next
+    /// cadence tick or the quit flush writes the empty window over the file. That is
+    /// ``persist()``'s retry policy pointed the other way — the erasure lands either way, and
+    /// never silently fails to.
+    public func clear() async {
+        window = UsageWindow()
+        heldUntilLoaded.removeAll()
+        lastFoldedDay = nil
+        hasLoaded = true
+        hasUnwrittenFolds = false
+        dayRolledOver = false
+        do {
+            try await store.clear()
+        } catch {
+            log("Usage ledger: deleting the daily-use window failed (\(error)); the next write "
+                + "will empty the file instead.")
+            hasUnwrittenFolds = true
+        }
+    }
+
     /// Folds a record into its day and marks the window unwritten. The one place the window is
     /// mutated by a session.
     private func apply(_ record: SessionRecord, on today: CalendarDay) {

@@ -56,4 +56,19 @@ public protocol UsageStore: Sendable {
     /// the file was *not* updated while the caller's window says it was, and the caller must be
     /// able to see and log that.
     func save(_ window: UsageWindow) async throws
+
+    /// Forget everything: **delete the backing**, so that a later ``load()`` answers the empty
+    /// window.
+    ///
+    /// Deletion rather than a save of the empty window, because the user was told deletion —
+    /// `PRODUCT_SPEC.md:306` ("empties the window and deletes the file behind it") and the Usage
+    /// tab's own Clear copy. On a page whose whole purpose is that the claim can be checked, a
+    /// file left on disk that the copy says is gone is the one failure worth more than the bytes
+    /// it saves.
+    ///
+    /// A backing that is not there is not a failure: nothing to delete is the outcome the caller
+    /// asked for, and a first run has no file. Throws only when a file that *is* there could not
+    /// be removed — the ``save(_:)`` contract, for the same reason: the caller's window says the
+    /// history is gone and the disk disagrees, and only the caller can say so out loud.
+    func clear() async throws
 }
