@@ -17,7 +17,8 @@ import VoccaUI
 import XCTest
 
 /// **The settings window's tabs** — the first test this enum has ever had, added because the
-/// Apps tab is the first case appended to it since the window shipped.
+/// Apps tab is the first case appended to it since the window shipped, and updated for Usage,
+/// the sixth (`daily-use-ledger/usage-tab/spec.md` E1).
 ///
 /// `SettingsView` iterates `allCases` and switches exhaustively over them, so a case that exists
 /// gets a tab and a page or the build fails. What the compiler cannot check is the part a user
@@ -25,15 +26,15 @@ import XCTest
 /// case was not silently dropped while another was added.
 final class SettingsTabTests: XCTestCase {
 
-    /// Five tabs: the four the window shipped with, and Apps.
-    func testAllCasesAreTheFiveShippedTabs() {
+    /// Six tabs: the four the window shipped with, Apps, and Usage.
+    func testAllCasesAreTheSixShippedTabs() {
         XCTAssertEqual(
-            SettingsTab.allCases, [.general, .speech, .cleanup, .dictionary, .apps],
+            SettingsTab.allCases, [.general, .speech, .cleanup, .dictionary, .apps, .usage],
             """
             The settings window's tabs changed. Each one is a thing a user can decide about, so \
             adding or removing one is a product decision — and the order is the order they read \
             in: how you start, who hears you, what happens to the text, which words Vocca gets \
-            wrong, and where it all ends up.
+            wrong, where it all ends up, and how it went.
             """)
     }
 
@@ -42,6 +43,15 @@ final class SettingsTabTests: XCTestCase {
         XCTAssertEqual(SettingsTab.apps.title, "Apps")
         XCTAssertEqual(SettingsTab.apps.symbolName, "square.grid.2x2")
         XCTAssertEqual(SettingsTab.apps.id, "apps")
+    }
+
+    /// The Usage tab's own label and symbol. `calendar` rather than a chart glyph: the tab is a
+    /// ledger of days, and a bar chart is the picture of the analytics dashboard
+    /// `PRODUCT_SPEC.md:367` says this product does not have.
+    func testTheUsageTabIsLabelledAndSymbolled() {
+        XCTAssertEqual(SettingsTab.usage.title, "Usage")
+        XCTAssertEqual(SettingsTab.usage.symbolName, "calendar")
+        XCTAssertEqual(SettingsTab.usage.id, "usage")
     }
 
     /// Every tab has a non-empty title and symbol, and no two share either. A duplicate symbol

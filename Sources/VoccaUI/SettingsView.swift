@@ -248,6 +248,7 @@ public struct SettingsView: View {
             CleanupSettingsPage(bindings: bindings, openDictionary: { self.selection = .dictionary })
         case .dictionary: DictionarySettingsPage(bindings: bindings)
         case .apps: AppsSettingsPage(bindings: bindings)
+        case .usage: UsageSettingsPage(bindings: bindings)
         }
     }
 }
