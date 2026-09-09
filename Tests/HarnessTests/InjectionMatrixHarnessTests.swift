@@ -338,4 +338,37 @@ final class InjectionMatrixHarnessTests: XCTestCase {
             result.output.contains("fires on an empty host id"),
             "The self-check did not name the empty-host firing:\n\(result.output)")
     }
+
+    // MARK: - The FMS question (2026-09-09, spec R2: the landing-rung observation)
+
+    /// The shipped self-check must report the landing-rung observation as active. Under the old
+    /// expected-rung y/N question a demotion-honored delivery — bytes matched, ladder landed on
+    /// the memory-ordered first method after the expected rung was demoted — was recorded as a
+    /// failed row with `rung: null`, which made the ratified memory-ordered FMS metric (PRD M3)
+    /// unmeasurable. A self-check that says nothing about the observation cannot catch the
+    /// regression that drops it.
+    func testTheSelfCheckReportsTheLandingRungObservation() throws {
+        let result = try run(try scriptURL, ["--self-check"])
+        XCTAssertEqual(result.status, 0, "self-check failed:\n\(result.output)")
+        XCTAssertTrue(
+            result.output.contains("landing rung"),
+            "The self-check no longer reports the landing-rung observation:\n\(result.output)")
+    }
+
+    /// The wiring pin (spec R2): run_row must ask the founder to enter the rung the ladder's log
+    /// named as landing — the first rung the per-app strategy memory chose — and the self-check
+    /// must catch a copy that restores the old expected-rung y/N question. The old question
+    /// records a miss with no rung at all, and the FMS metric becomes unmeasurable again.
+    func testTheSelfCheckCatchesARowThatRecordsNoLandingRung() throws {
+        let copy = try scriptCopy(
+            replacing: "Enter the rung the ladder's log named as landing (accessibility/clipboardPaste/keystrokeSynthesis/none)",
+            with: "Did the ladder's log name .$rung as the landing rung? [y/N] ")
+        let result = try run(copy, ["--self-check"])
+        XCTAssertNotEqual(
+            result.status, 0,
+            "A run_row whose landing-rung question was replaced by the old y/N question passed the self-check.")
+        XCTAssertTrue(
+            result.output.contains("no longer asks the founder to enter the rung"),
+            "The self-check did not name the missing landing-rung question:\n\(result.output)")
+    }
 }

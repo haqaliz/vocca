@@ -30,7 +30,8 @@
 #      exists to stop guessing.
 #
 # So a row passes on two independent facts: the field held the transcript byte-for-byte, AND
-# the log named the expected rung. Either alone is not a pass — `.accessibility` named with
+# the log's landing rung was the memory's first attempt (the `attempted:` trace began with it —
+# the ratified memory-ordered FMS metric). Either alone is not a pass — a rung named with
 # nothing in the field is the read-back verification lying (SMOKE_CHECKLIST.md's own rule), and
 # text in the field via a fallback rung is a delivery without first-method success.
 #
@@ -495,6 +496,19 @@ self_check() {
         failures=$((failures + 1))
     fi
 
+    # The landing-rung wiring pin (2026-09-09, spec R2): run_row must ask the founder to enter
+    # the rung the ladder's log named as landing. The ratified FMS metric counts the
+    # memory-ordered first method; a question that only asks about the expected rung records a
+    # demotion-honored delivery as a miss with `rung: null`, and the metric becomes
+    # unmeasurable again.
+    if ! grep -q 'Enter the rung the ladder'"'"'s log named as landing' "${BASH_SOURCE[0]}"; then
+        printf 'FAIL: run_row no longer asks the founder to enter the rung the ladder'"'"'s\n' >&2
+        printf '      log named as landing — a demotion-honored delivery would record a miss\n' >&2
+        printf '      with no rung, and the memory-ordered FMS metric would be unmeasurable\n' >&2
+        printf '      again (wiring pin).\n' >&2
+        failures=$((failures + 1))
+    fi
+
     if [ "$failures" -ne 0 ]; then
         printf '\n%d self-check failure(s).\n' "$failures" >&2
         return 1
@@ -506,6 +520,7 @@ self_check() {
     printf 'first-method-success bar: %d of %d deliverable rows (>=95%%).\n' \
         "$(( (deliverable * 95 + 99) / 100 ))" "$deliverable"
     printf 'self-capture guard active (host: %s).\n' "${host_id:-none}"
+    printf 'landing-rung observation active: every deliverable row records the observed landing rung (FMS counts the memory-ordered first method).\n'
 }
 
 # ---------------------------------------------------------------------------
@@ -587,6 +602,13 @@ verify_bundle_ids() {
 # The live run. One row at a time, the founder in the loop for the two things a script cannot
 # honestly do.
 # ---------------------------------------------------------------------------
+
+# The pass kind of the most recently completed deliverable row: "expected" when the landing
+# rung equaled the expected rung, "memory-ordered" when the landing rung was the memory's
+# first method after the expected rung was demoted, "" for every non-pass outcome. full_run
+# tallies the memory-ordered FMS and the expected-rung calibration from it.
+PASS_KIND=""
+
 run_row() {
     local row="$1"
     local name application rung target
@@ -594,6 +616,7 @@ run_row() {
     application="$(field "$row" 2)"
     rung="$(field "$row" 6)"
     target="$(field "$row" 7)"
+    PASS_KIND=""
 
     printf '\n=== %s (%s) — expecting %s ===\n' "$name" "$application" "$rung"
 
@@ -697,20 +720,52 @@ run_row() {
         return 1
     fi
 
-    read -r -p "Did the ladder's log name .$rung as the landing rung? [y/N] " answer
-    if [ "$answer" != "y" ]; then
-        printf 'MISS: delivered, but not by the memory-chosen first rung. That is a\n'
-        printf '      demote-on-fail signal for the memory and a miss for first-method-success.\n'
-        log_run_row "$name" null true failed "log did not name .$rung"
+    # The landing-rung observation (2026-09-09, spec R2): the ratified FMS metric counts the
+    # first rung the per-app strategy memory chose — read from the ladder's log, not guessed
+    # from the expected-rung column. The founder enters the observed landing rung, the script
+    # validates it against the closed vocabulary (refusing `none` — a deliverable row must
+    # have landed on a rung), then records whether the log's `attempted:` trace began with it.
+    local landing first
+    landing=""
+    while :; do
+        read -r -p "Enter the rung the ladder's log named as landing (accessibility/clipboardPaste/keystrokeSynthesis/none): " landing
+        case " ${VALID_RUNGS[*]} " in
+            *" $landing "*) ;;
+            *)
+                printf 'Invalid rung "%s" — the ladder names only accessibility, clipboardPaste,\n' "$landing"
+                printf 'keystrokeSynthesis or none.\n'
+                continue
+                ;;
+        esac
+        if [ "$landing" = "none" ]; then
+            printf 'Refusing "none" for a deliverable row: the log must name a landing rung.\n'
+            continue
+        fi
+        break
+    done
+    read -r -p "Did the log's attempted: trace begin with that rung? [y/N] " first
+    if [ "$first" != "y" ]; then
+        printf 'FAIL: delivered via fallback rung .%s — the memory'"'"'s first attempt was\n' "$landing"
+        printf '      another rung, so this row is not a first-method success.\n'
+        log_run_row "$name" "$landing" true failed "delivered via fallback rung .$landing"
         return 1
     fi
-    log_run_row "$name" "$rung" true pass ""
-    printf 'PASS: bytes match and the log names .%s.\n' "$rung"
+    if [ "$landing" = "$rung" ]; then
+        PASS_KIND="expected"
+        log_run_row "$name" "$landing" true pass ""
+        printf 'PASS: bytes match and the log names .%s as the landing rung.\n' "$landing"
+        return 0
+    fi
+    PASS_KIND="memory-ordered"
+    log_run_row "$name" "$landing" true pass "delivered by memory-ordered first method .$landing (expected .$rung demoted)"
+    printf 'PASS: bytes match; the log names .%s, not the expected .%s — the memory'"'"'s\n' "$landing" "$rung"
+    printf '      first method after the expected rung was demoted, which is a first-method success.\n'
     return 0
 }
 
 full_run() {
     local passed=0 failed=0 skipped=0 voided=0 refusals_ok=0 refusals_bad=0
+    local fms=0 calibrated=0
     for row in "${ROWS[@]}"; do
         local rung
         rung="$(field "$row" 6)"
@@ -720,7 +775,11 @@ full_run() {
         set -e
         case "$status" in
             0) if [ "$rung" = "none" ]; then refusals_ok=$((refusals_ok + 1));
-               else passed=$((passed + 1)); fi ;;
+               else
+                   passed=$((passed + 1))
+                   fms=$((fms + 1))
+                   if [ "$PASS_KIND" = "expected" ]; then calibrated=$((calibrated + 1)); fi
+               fi ;;
             2) skipped=$((skipped + 1)) ;;
             3) voided=$((voided + 1)) ;;
             *) if [ "$rung" = "none" ]; then refusals_bad=$((refusals_bad + 1));
@@ -736,6 +795,10 @@ full_run() {
     if [ "$deliverable" -gt 0 ]; then
         printf 'first-method-success: %d/%d (%d%%)\n' \
             "$passed" "$deliverable" "$((passed * 100 / deliverable))"
+        printf 'first-method-success (memory-ordered): %d/%d (%d%%)\n' \
+            "$fms" "$deliverable" "$((fms * 100 / deliverable))"
+        printf 'expected-rung landings: %d/%d (%d%%)\n' \
+            "$calibrated" "$deliverable" "$((calibrated * 100 / deliverable))"
     fi
     printf '\nA skipped or voided row is not a pass. Append one row to the tracked table in\n'
     printf 'docs/SMOKE_CHECKLIST.md with the release, the date, the counts above and any swaps.\n'
