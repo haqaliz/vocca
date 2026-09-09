@@ -217,6 +217,43 @@ capture_target_matches() {
     [ -n "$1" ] && [ "$1" = "$2" ]
 }
 
+# The self-capture guard (2026-09-09, the Terminal/Warp rows): a terminal-class row whose
+# target terminal is the one hosting this harness has its phrase in the host's own scrollback
+# — the containment byte-compare can be satisfied without any injection (the hazard is
+# documented above). `host_terminal_bundle_id` walks the parent-process chain for the
+# terminal's bundle id; `is_self_capture` fires only on equal non-empty ids — an empty host
+# (CI, no terminal ancestor) is unreadable, never a self-capture.
+host_terminal_bundle_id() {
+    # Walk the parent chain from the script's own process up to depth 8, looking for the first
+    # ancestor whose command path contains `.app/Contents/MacOS/` — the app that hosts a
+    # terminal. Every discovery command is failure-tolerant: a `ps`/`plutil` hiccup must not
+    # abort the harness under `set -euo pipefail`, and a chain with no such ancestor (CI,
+    # launched bare) returns empty.
+    local pid="$$" depth=0 cmd app bundle_id
+    while [ "$depth" -lt 8 ]; do
+        cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+        if [ -n "$cmd" ]; then
+            case "$cmd" in
+                *.app/Contents/MacOS/*)
+                    app="${cmd%%/Contents/MacOS/*}"
+                    bundle_id="$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist" 2>/dev/null || true)"
+                    printf '%s' "$bundle_id"
+                    return 0
+                    ;;
+            esac
+        fi
+        pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+        [ -n "$pid" ] || break
+        depth=$((depth + 1))
+    done
+    printf '%s' ""
+    return 0
+}
+
+is_self_capture() {
+    [ -n "$1" ] && [ -n "$2" ] && [ "$1" = "$2" ]
+}
+
 # ---------------------------------------------------------------------------
 # --self-check: everything about this harness a machine can verify.
 #
@@ -410,6 +447,54 @@ self_check() {
         failures=$((failures + 1))
     fi
 
+    # The self-capture guard pins (2026-09-09, R1b): the guard fires only on equal non-empty
+    # ids — an empty host (CI, no terminal ancestor) is unreadable, never a self-capture — and
+    # the host discovery must produce a bundle-id shape when it finds a terminal at all. The
+    # wiring pins grep the script's own text for the guard call site and its VOID message, the
+    # seeded-slow-injector discipline: a guard that is defined but never called protects
+    # nothing.
+    local host_id
+    host_id="$(host_terminal_bundle_id)"
+    if ! is_self_capture "com.apple.Terminal" "com.apple.Terminal"; then
+        printf 'FAIL: the self-capture guard does not fire on equal non-empty ids. A\n' >&2
+        printf '      terminal-class row run from its own terminal would reach the\n' >&2
+        printf '      comparison half and can PASS on the script'"'"'s own output.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if is_self_capture "com.apple.Terminal" "dev.warp.Warp-Stable"; then
+        printf 'FAIL: the self-capture guard fires on differing ids. A row run from a\n' >&2
+        printf '      different terminal is a real capture, not a self-capture.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if is_self_capture "com.apple.Terminal" ""; then
+        printf 'FAIL: the self-capture guard fires on an empty host id. An unreadable\n' >&2
+        printf '      host (CI, no terminal ancestor) is a VOID decision, never a\n' >&2
+        printf '      self-capture — the guard must need both ids.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if is_self_capture "" "com.apple.Terminal"; then
+        printf 'FAIL: the self-capture guard fires on an empty target id. The guard\n' >&2
+        printf '      must need both ids to fire.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if [ -n "$host_id" ] && [ "${host_id#*.}" = "$host_id" ]; then
+        printf 'FAIL: the host discovery produced "%s", which is not a bundle-id shape\n' "$host_id" >&2
+        printf '      (no dot). The self-capture check cannot aim itself with it.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if ! grep -q 'is_self_capture "\$activation_id"' "${BASH_SOURCE[0]}"; then
+        printf 'FAIL: run_row no longer calls the self-capture guard before the sentinel\n' >&2
+        printf '      copy — a terminal-class row run from its own terminal could record\n' >&2
+        printf '      a PASS on the script'"'"'s own output (wiring pin).\n' >&2
+        failures=$((failures + 1))
+    fi
+    if ! grep -q 'self-capture: harness runs inside the target terminal' "${BASH_SOURCE[0]}"; then
+        printf 'FAIL: run_row no longer names a self-capture VOID with its reason — a\n' >&2
+        printf '      capture taken from the row'"'"'s own terminal would not be voided\n' >&2
+        printf '      (wiring pin).\n' >&2
+        failures=$((failures + 1))
+    fi
+
     if [ "$failures" -ne 0 ]; then
         printf '\n%d self-check failure(s).\n' "$failures" >&2
         return 1
@@ -420,6 +505,7 @@ self_check() {
     printf 'byte-compare normalization active (phrase compare).\n'
     printf 'first-method-success bar: %d of %d deliverable rows (>=95%%).\n' \
         "$(( (deliverable * 95 + 99) / 100 ))" "$deliverable"
+    printf 'self-capture guard active (host: %s).\n' "${host_id:-none}"
 }
 
 # ---------------------------------------------------------------------------
@@ -569,6 +655,18 @@ run_row() {
         printf '      the wrong application; with containment semantics it can even PASS on the\n'
         printf '      phrase this script printed. Focus %s and re-run the row.\n' "$application"
         log_run_row "$name" null null voided "frontmost was ${frontmost_id:-unreadable}, not $activation_id"
+        return 3
+    fi
+    # The self-capture guard (2026-09-09): a terminal-class row whose target terminal hosts
+    # this harness has the phrase in its own scrollback, so the containment byte-compare can
+    # be satisfied without any injection. Runs after the aim check and before the sentinel
+    # copy: a capture taken from the row's own terminal is a VOID, never a PASS.
+    if [ "$(field "$row" 4)" = "terminal" ] && is_self_capture "$activation_id" "$(host_terminal_bundle_id)"; then
+        printf 'VOID: self-capture: harness runs inside the target terminal. This terminal\n'
+        printf '      hosts %s, and its own scrollback holds the phrase this script printed —\n' "$application"
+        printf '      the containment byte-compare could PASS without any injection. Run\n'
+        printf '      the row from a different terminal.\n'
+        log_run_row "$name" null null voided "self-capture: harness runs inside the target terminal"
         return 3
     fi
     printf '%s' "vocca-matrix-void-sentinel" | pbcopy
