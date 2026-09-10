@@ -39,3 +39,5 @@ recordings/
 
 # graphify knowledge-graph output — regenerable, large (graph.json alone is ~9 MB)
 graphify-out/
+
+.serena/
