@@ -202,7 +202,8 @@ final class AccessibilityRungTests: XCTestCase {
             focusedApp: FakeFocusedAppReader(
                 identity: FocusedAppIdentity(
                     bundleID: "com.example.Notes", windowTitle: "Notes - The Draft")),
-            secureInput: FakeSecureInputReader())
+            secureInput: FakeSecureInputReader(),
+            frontmost: FakeFrontmostAppReader())
 
         let context = await resolver.resolve()
 
@@ -216,7 +217,8 @@ final class AccessibilityRungTests: XCTestCase {
     func testNothingFocusedResolvesToNilBundleID() async {
         let resolver = TargetResolution(
             focusedApp: FakeFocusedAppReader(),
-            secureInput: FakeSecureInputReader())
+            secureInput: FakeSecureInputReader(),
+            frontmost: FakeFrontmostAppReader())
 
         let context = await resolver.resolve()
 
@@ -232,7 +234,8 @@ final class AccessibilityRungTests: XCTestCase {
         let resolver = TargetResolution(
             focusedApp: FakeFocusedAppReader(
                 identity: FocusedAppIdentity(bundleID: nil, windowTitle: "Untitled")),
-            secureInput: FakeSecureInputReader())
+            secureInput: FakeSecureInputReader(),
+            frontmost: FakeFrontmostAppReader())
 
         let context = await resolver.resolve()
 
@@ -248,7 +251,8 @@ final class AccessibilityRungTests: XCTestCase {
         let resolver = TargetResolution(
             focusedApp: FakeFocusedAppReader(
                 identity: FocusedAppIdentity(bundleID: "com.example.Notes", windowTitle: nil)),
-            secureInput: secureInput)
+            secureInput: secureInput,
+            frontmost: FakeFrontmostAppReader())
 
         await secureInput.set(active: false)
         let first = await resolver.resolve()
@@ -265,12 +269,122 @@ final class AccessibilityRungTests: XCTestCase {
     func testSecureInputIsReadEvenWhenNothingIsFocused() async {
         let resolver = TargetResolution(
             focusedApp: FakeFocusedAppReader(),
-            secureInput: FakeSecureInputReader(active: true))
+            secureInput: FakeSecureInputReader(active: true),
+            frontmost: FakeFrontmostAppReader())
 
         let context = await resolver.resolve()
 
         XCTAssertNil(context.bundleID)
         XCTAssertTrue(context.isSecureInput)
+    }
+
+    // MARK: - The frontmost-app fallback (R1-R2, M6)
+
+    /// The Chromium focused-field lie, answered: when AX reports "nothing focused" but the
+    /// frontmost application is a regular, unseeded app with a bundle identifier, its bundle ID
+    /// stands in as the target — so the ladder can run its no-AX rungs. The fallback carries no
+    /// window title (R2: `windowTitle = nil` on fallback).
+    func testTheFrontmostFallbackSuppliesTheBundleIDWhenAXAnswersNil() async {
+        let resolver = TargetResolution(
+            focusedApp: FakeFocusedAppReader(),
+            secureInput: FakeSecureInputReader(),
+            frontmost: FakeFrontmostAppReader(
+                identity: FrontmostAppIdentity(
+                    bundleID: "com.microsoft.VSCode", isRegular: true)))
+
+        let context = await resolver.resolve()
+
+        XCTAssertEqual(context.bundleID, "com.microsoft.VSCode")
+        XCTAssertNil(context.windowTitle, "the fallback cannot name a focused window")
+        XCTAssertFalse(context.isSecureInput)
+    }
+
+    /// The policy gate (R2): a frontmost application that is not `.regular` — dock, menu bar,
+    /// a utility — is not a dictation target. The fallback must not invent one for the dock.
+    func testNoFallbackWhenTheFrontmostAppIsNotRegular() async {
+        let resolver = TargetResolution(
+            focusedApp: FakeFocusedAppReader(),
+            secureInput: FakeSecureInputReader(),
+            frontmost: FakeFrontmostAppReader(
+                identity: FrontmostAppIdentity(
+                    bundleID: "com.apple.dock", isRegular: false)))
+
+        let context = await resolver.resolve()
+
+        XCTAssertNil(context.bundleID, "a non-regular app must not become a target")
+        XCTAssertNil(context.windowTitle)
+    }
+
+    /// Finder is the desktop, not a field to type into: the seeded no-field set
+    /// (``SeededNoFieldApps``) withholds the fallback from it.
+    func testNoFallbackWhenTheFrontmostAppIsFinder() async {
+        let resolver = TargetResolution(
+            focusedApp: FakeFocusedAppReader(),
+            secureInput: FakeSecureInputReader(),
+            frontmost: FakeFrontmostAppReader(
+                identity: FrontmostAppIdentity(
+                    bundleID: "com.apple.finder", isRegular: true)))
+
+        let context = await resolver.resolve()
+
+        XCTAssertNil(context.bundleID, "Finder is the desktop - no field to type into")
+        XCTAssertNil(context.windowTitle)
+    }
+
+    /// A frontmost application with no bundle identifier cannot be allowlist-gated, so it is
+    /// the same "no usable target" row the AX path already produces.
+    func testNoFallbackWhenTheFrontmostAppHasNoBundleID() async {
+        let resolver = TargetResolution(
+            focusedApp: FakeFocusedAppReader(),
+            secureInput: FakeSecureInputReader(),
+            frontmost: FakeFrontmostAppReader(
+                identity: FrontmostAppIdentity(bundleID: nil, isRegular: true)))
+
+        let context = await resolver.resolve()
+
+        XCTAssertNil(context.bundleID)
+        XCTAssertNil(context.windowTitle)
+    }
+
+    /// M6, pinned by the read-count: when AX answers a real application, the frontmost read is
+    /// never consulted — the fallback cannot shadow a genuine focus, and the count proves the
+    /// call is not made.
+    func testTheFallbackNeverConsultsTheFrontmostReadWhenAXAnswers() async {
+        let frontmost = FakeFrontmostAppReader(
+            identity: FrontmostAppIdentity(
+                bundleID: "com.microsoft.VSCode", isRegular: true))
+        let resolver = TargetResolution(
+            focusedApp: FakeFocusedAppReader(
+                identity: FocusedAppIdentity(
+                    bundleID: "com.apple.Notes", windowTitle: "Notes - The Draft")),
+            secureInput: FakeSecureInputReader(),
+            frontmost: frontmost)
+
+        let context = await resolver.resolve()
+
+        XCTAssertEqual(context.bundleID, "com.apple.Notes")
+        let reads = await frontmost.readCount
+        XCTAssertEqual(reads, 0, "M6: the frontmost read must not be consulted when AX answers")
+    }
+
+    /// Secure Input is read fresh on the fallback path too — exactly once, the same doctrine as
+    /// the AX path: the rung-0 refusal must never face a stale answer just because the target
+    /// came from the fallback.
+    func testSecureInputIsReadFreshOnTheFallbackPath() async {
+        let secureInput = FakeSecureInputReader(active: true)
+        let resolver = TargetResolution(
+            focusedApp: FakeFocusedAppReader(),
+            secureInput: secureInput,
+            frontmost: FakeFrontmostAppReader(
+                identity: FrontmostAppIdentity(
+                    bundleID: "com.microsoft.VSCode", isRegular: true)))
+
+        let context = await resolver.resolve()
+
+        XCTAssertEqual(context.bundleID, "com.microsoft.VSCode")
+        XCTAssertTrue(context.isSecureInput, "the fallback path must still honor Secure Input")
+        let reads = await secureInput.readCount
+        XCTAssertEqual(reads, 1, "Secure Input is read exactly once, fresh, on the fallback path")
     }
 
     // MARK: - The target carries no AX element (PRD R1)
@@ -362,6 +476,24 @@ private actor FakeFocusedAppReader: FocusedAppReading {
     }
 
     func focusedApp() async -> FocusedAppIdentity? {
+        readCount += 1
+        return identity
+    }
+}
+
+/// **A frontmost-app query the test dictates** — the ``FakeFocusedAppReader`` shape: the
+/// identity fixed at construction. Defaults to answering `nil` (nothing frontmost), so
+/// unrelated tests keep the genuine-refusal semantics when they do not exercise the fallback.
+/// An actor, for the same boundary reason as ``FakeFocusedAppReader``.
+private actor FakeFrontmostAppReader: FrontmostAppReading {
+    private let identity: FrontmostAppIdentity?
+    private(set) var readCount = 0
+
+    init(identity: FrontmostAppIdentity? = nil) {
+        self.identity = identity
+    }
+
+    func frontmostApp() async -> FrontmostAppIdentity? {
         readCount += 1
         return identity
     }

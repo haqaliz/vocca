@@ -122,7 +122,8 @@ final class DictationLoopTests: XCTestCase {
             let holder = LedgerHolder(held: held)
             let injector = LedgerInjector(result: injectorResult)
             let targetResolution = TargetResolution(
-                focusedApp: focusedApp, secureInput: secureInput)
+                focusedApp: focusedApp, secureInput: secureInput,
+                frontmost: FakeFrontmostApp())
             let panel = RecordingPanel(holder: holder)
             let resolver = DictationEngineResolver(selection: .defaultSelection) { _ in engine }
             let pipeline = DictationPipeline(
@@ -1035,6 +1036,23 @@ final class FakeFocusedApp: FocusedAppReading, @unchecked Sendable {
     }
 
     func focusedApp() async -> FocusedAppIdentity? {
+        reads += 1
+        return identity
+    }
+}
+
+/// The frontmost application, as a fact the test sets — defaults to nothing frontmost, so the
+/// composed acceptance keeps the genuine AX path and the fallback seam stays unexercised. Same
+/// `@unchecked Sendable` confinement as ``FakeFocusedApp``.
+final class FakeFrontmostApp: FrontmostAppReading, @unchecked Sendable {
+    var identity: FrontmostAppIdentity?
+    private(set) var reads = 0
+
+    init(identity: FrontmostAppIdentity? = nil) {
+        self.identity = identity
+    }
+
+    func frontmostApp() async -> FrontmostAppIdentity? {
         reads += 1
         return identity
     }

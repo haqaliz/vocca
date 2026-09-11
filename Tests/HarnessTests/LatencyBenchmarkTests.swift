@@ -759,7 +759,8 @@ clock: clock,
                 identity: FocusedAppIdentity(
                     bundleID: "com.apple.Notes", windowTitle: "The Draft"))
             let targetResolution = TargetResolution(
-                focusedApp: focusedApp, secureInput: FakeSecureInput())
+                focusedApp: focusedApp, secureInput: FakeSecureInput(),
+                frontmost: FakeFrontmostApp())
             let panel = RecordingPanel(holder: holder)
             let root = DictationLoopRoot(
                 configuration: configuration,

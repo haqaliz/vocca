@@ -80,7 +80,8 @@ final class SpeculativeFeedIntegrationTests: XCTestCase {
             identity: FocusedAppIdentity(
                 bundleID: "com.example.Notes", windowTitle: "The Draft"))
         let targetResolution = TargetResolution(
-            focusedApp: focusedApp, secureInput: FakeSecureInput())
+            focusedApp: focusedApp, secureInput: FakeSecureInput(),
+            frontmost: FakeFrontmostApp())
         let holder = BenchmarkHolder()
         let panel = RecordingPanel(holder: holder)
         let configuration = HotkeyConfiguration(
@@ -499,7 +500,8 @@ final class SpeculativeFeedIntegrationTests: XCTestCase {
                 focusedApp: FakeFocusedApp(
                     identity: FocusedAppIdentity(
                         bundleID: "com.example.Notes", windowTitle: "The Draft")),
-                secureInput: FakeSecureInput())
+                secureInput: FakeSecureInput(),
+                frontmost: FakeFrontmostApp())
             let watchdogTimer = FakeTimer()
         self.watchdogTimer = watchdogTimer
         root = DictationLoopRoot(

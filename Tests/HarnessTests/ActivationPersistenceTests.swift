@@ -184,7 +184,8 @@ final class ActivationPersistenceTests: XCTestCase {
                     focusedApp: FakeFocusedApp(
                         identity: FocusedAppIdentity(
                             bundleID: "com.apple.Notes", windowTitle: "The Draft")),
-                    secureInput: FakeSecureInput()),
+                    secureInput: FakeSecureInput(),
+                    frontmost: FakeFrontmostApp()),
                 panel: RecordingPanel(holder: holder),
                 pipeline: DictationPipeline(
                     engine: engine,

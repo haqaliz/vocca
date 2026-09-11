@@ -96,7 +96,8 @@ final class EngineSwitchTests: XCTestCase {
                 focusedApp: FakeFocusedApp(
                     identity: FocusedAppIdentity(
                         bundleID: "com.apple.Notes", windowTitle: "The Draft")),
-                secureInput: FakeSecureInput())
+                secureInput: FakeSecureInput(),
+                frontmost: FakeFrontmostApp())
             let assembled = AssemblyLedger()
 
             // The recipe both the launch resolver and every switch are built from — the shipped
