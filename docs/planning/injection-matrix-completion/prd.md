@@ -1,164 +1,169 @@
-# PRD: injection-matrix-completion
+# PRD: Injection Matrix Completion (resumption)
 
-**Date:** 2026-09-05 · **Phase:** P2 (the latency + injection gate path) · **Unit type:** measurement + first-execution + defect fixes
-**Source:** `docs/planning/_card/issue.md` + `docs/planning/_card/understanding.md` (vocca-next handoff; founder's last pre-PH milestone)
-
----
+> **Revision 2026-09-09** — resumption of the unit concluded 2026-09-05 by founder decision
+> (`docs/STATUS.md`, `injection-matrix-completion` entry). Source card:
+> `docs/planning/_card/issue.md` (vocca-next handoff 2026-09-09). This revision supersedes the
+> 2026-09-05 PRD's scope: the harness and evidence chain are shipped and proven; what remains is
+> the run, its honest verdict, and one missing harness pin.
 
 ## Problem Statement
 
-The injection matrix's evidence chain is real but its measurement is incomplete: the
-tracked table's row reads **not closeable** (`SMOKE_CHECKLIST.md:1992`) — baseline run 2
-stopped at **1 of 18 deliverable rows** (Notes; byte mismatch recorded as step 19's matter,
-accessibility rung demoted with a fresh re-probe window), with 17 rows + step 92 (Secure
-Input refusals) remaining. The ≥95% FMS number is the P2 gate's matrix leg
-(`ROADMAP.md:176-181`), recorded never gated, and it is the number the Product Hunt
-launch narrative reads. The acceptance for this unit is already written — the smoke
-checklist's steps 88-93 — and the harness (`Scripts/injection-matrix.sh`) plus the
-evidence chain (`MatrixEvidence`, the ladder's delivery seam, the per-row JSONL run log,
-`strategies.json`) are shipped. This unit executes the remaining rows on the founder's
-machine, adjudicates byte-compare mismatches instead of chasing them, fixes test-first
-any defect the run surfaces, and records the FMS tally.
+The P2 injection matrix (`ROADMAP.md:164`, C8, `CAPABILITY_ROADMAP.md:219-234`) is at
+**10 of 20 deliverable rows** — 6 firmly recorded, 4 voided, 7 never run — and FMS is
+**not computable**. The result: the P2 gate's injection leg (`ROADMAP.md:172`: ≥95%
+first-method-success, 20-app matrix, strategy memory active) is blocked; **no
+injection-success percentage may be quoted** (`STATUS.md:99-100`); and R1 ("AX silently
+no-ops", fatal-trust risk, `ROADMAP.md:300`) has no measurement. Every remaining row is
+installed and runnable on this machine (verified 2026-09-09), so the block is execution,
+not capability. What happens if we don't build this: the tool ships with its core promise
+— "types into any app" — measured on 6 of 20 apps, and the P2 gate's hardest leg stays
+unmeasurable; users, not our matrix, would discover any silent-injection defect.
 
 ## Goals & Success Metrics
 
-1. **The tracked run completes on the founder's machine** — the 17 remaining deliverable
-   rows + step 92 (Secure Input refusals) executed and recorded, each with a file-based
-   artifact (a harness run-log JSONL line; `strategies.json` where a strategy changed).
-   **Measured by:** the tracked table's v0.2.1 row (`SMOKE_CHECKLIST.md:1984-1992`)
-   recording rows run / skipped / voided / FMS / notes.
-2. **FMS computed with denominator discipline** — deliverable rows whose expected rung
-   landed / deliverable rows actually run, skips and voids named; a "not closeable on this
-   machine" outcome recorded as such, never dressed as a pass or a failure
-   (`SMOKE_CHECKLIST.md:1986-1987`).
-3. **Byte-compare mismatches adjudicated, never auto-counted** — each mismatch triaged
-   against the engine's transcript (step 19's matter) vs a real injection failure; an
-   `.accessibility` byte mismatch is a read-back-lying bug, not a fallback
-   (`injection-matrix.sh:472-473`).
-4. **Every defect the run surfaces lands test-first** — RED→GREEN, suite floor 1758 never
-   drops (`Scripts/test-with-floor.sh:1444`); the branch stays green after every task.
-5. **The record is complete** — `STATUS.md` entry, the tracked-table v0.2.1 row, `CLAUDE.md`
-   front-door sync; steps 90-91's windows observed and recorded (elapsed or not), step 89
-   dispositioned.
-
-**Non-goal:** no number becomes a *gate pass*. The P2 gate needs latency targets + ≥95%
-matrix + ≥5 external users (`ROADMAP.md:176-180`); this unit produces the matrix leg's
-record, nothing more.
+- **M1 — The run completes.** All **17 installed deliverable rows** run against the
+  **installed v0.3.0 build** (ratified 2026-09-09), each with a recorded rung or a named
+  void in the run-log JSONL (`~/Library/Application Support/Vocca/matrix-runs/<date>.jsonl`).
+- **M2 — Step 92 executes** (`SMOKE_CHECKLIST.md:1977-1989`): Passwords + PasswordField rows,
+  all four pass conditions — log records `attempted: []`; failsafe shows the password-field
+  copy; transcript present and copyable; `strategies.json` gained nothing for the bundle ID.
+- **M3 — FMS computed under the ratified definition.** **Memory-ordered first method**:
+  a bytes-matched delivery via the first rung the memory chose counts as success; expected-rung
+  landings are tallied separately as calibration. Numerator and denominator over the 17
+  installed deliverable rows; refusals excluded from both; skips/voids are never passes.
+- **M4 — The honest gate-leg verdict.** FMS over 17 with the **17/20 ceiling** named
+  (Ghostty/IntelliJ/Zed not installed, no same-class swap available — verified), and the
+  ≥19/20 bar recorded as **structurally unreachable on this machine** — a recorded outcome,
+  never a pass or a failure.
+- **M5 — Windows observed, not forced.** Notes/Mail re-probe (window opens **2026-09-10**,
+  tomorrow) run as part of the run; step 91 promotion candidates' windows (~2026-09-12)
+  recorded **not elapsed**; step 90/91 observations dispositioned in the record.
+- **M6 — One harness pin ships test-first.** A **containment pin** asserting no row's capture
+  can originate from the harness's own terminal (the Terminal/Warp void reason, `386f433`
+  semantics) — RED before GREEN, floor 1930 never drops.
+- **M7 — Recorded, honestly.** Tracked-table **v0.3.0 row** appended (step 93), `STATUS.md`
+  entry, `CLAUDE.md` front-door sync.
+- **M8 — Defects have a named rule, not a mood.** A harness/app defect discovered during the
+  run is fixed **test-first, then the run continues** (the `1985da6` pattern — it happened
+  mid-run in 2026-09-05 and was the right call). Only a defect that invalidates the evidence
+  chain (run-log corruption, byte-compare false positive) stops the run; the affected rows are
+  voided with the reason named, never silently re-run or dropped.
 
 ## User Personas & Scenarios
 
-- **The founder (aliz)** — the only executor: runs the harness rows against installed
-  apps (Notes, TextEdit, Mail, Telegram, ChatGPT, Passwords, Warp, Teams, browsers,
-  terminals…), answers the per-row rung y/N, adjudicates byte mismatches, signs the record.
-  The run is the last pre-PH milestone — the FMS number (or its honest not-closeable
-  outcome) goes into the launch narrative.
-- **The future external user** — served indirectly: the matrix number is what P2's
-  injection-reliability claim is built on.
+- **The founder (solo user).** Dictates into Notes/Mail/Chrome daily. Scenario: the matrix
+  run is ~30 s of dictation per row; the verdicts and the gate-leg number must be
+  comprehensible from the record alone.
+- **A future external user / design partner.** The P2 gate requires ≥5 external users to
+  confirm dictation parity (`ROADMAP.md:180`). This unit produces the injection number that
+  leg depends on.
+- **A future contributor.** The per-row evidence chain (run-log JSONL + `strategies.json`
+  delta + founder rung answer) must let someone reconstruct any row's verdict from files
+  alone — "reported, not measured" is the state this unit retires (`SMOKE_CHECKLIST.md:1905`).
 
 ## Requirements
 
 ### Must-have
 
-- **M1 — The remaining 17 deliverable rows run.** `Scripts/injection-matrix.sh` full run
-  (or `--row` per row) on the founder's machine with the v0.2.1 build, each row recorded
-  in the run log with bytes_matched + verdict + note; per-row PASS = bytes **and** the
-  log naming the expected rung as the landing rung (founder y/N, `SMOKE_CHECKLIST.md:1806-1808`).
-- **M2 — Step 92 (Secure Input refusals).** All four pass conditions observed and
-  recorded: log `attempted: []`, the failsafe copy path, the transcript copyable, and
-  `strategies.json` gained nothing.
-- **M3 — FMS tally + tracked row.** FMS computed over the deliverable rows actually run
-  with denominator discipline; the **v0.2.1 row appended** to the tracked table
-  (`SMOKE_CHECKLIST.md:1989`, one row per release — the v0.2.0 row stays as recorded
-  history, not amended), a "not closeable" outcome recorded as such
-  (`understanding.md` of the prior unit: `_card/understanding.md:85-87`).
-- **M4 — Adjudication.** Every byte-compare mismatch triaged: re-transcribe the fixture
-  phrase through the real engine (step 19's WER machinery, `WhisperCppEngineWERTests`/
-  `ParakeetEngineWERTests` with `VOCCA_MODEL_DIR`) and compare — a transcript mismatch is
-  recorded as ASR's matter, not an injection failure; an `.accessibility` byte mismatch
-  with a lying read-back is a defect (fix test-first).
-- **M5 — Windows observed.** Step 90 (re-probe: ≥5 clipboard deliveries + 7-day window)
-  and step 91 (promotion) recorded with their window state — elapsed or not-elapsed —
-  and the daily-use accumulation started (it also feeds the P0 7-day gate log); step 89
-  dispositioned per `STATUS.md:260-262` (Teams half unrunnable while the row is Teams).
-- **M6 — Defect fixes, test-first.** Every defect surfaced by the M1-M5 runs — a harness/
-  script break on the founder's machine, a row that cannot be performed as written, a
-  lying read-back, a digest/evidence gap — is fixed RED→GREEN with a regression test; the
-  fix never lowers the floor (1758); a fix needing a PRD-level decision or a seam-contract
-  change escalates as its own card instead.
-- **M7 — The record.** `STATUS.md` entry (honesty-block format); `SMOKE_CHECKLIST.md`
-  tracked-table v0.2.1 row + step 88-92 notes; `CLAUDE.md` front-door sync (the matrix
-  row's "not closeable" claim replaced by the measured outcome).
+- **R1 (harness-containment):** a CI-run pin (planted-violation style, as in
+  `InjectionMatrixHarnessTests.swift`) asserting that when a terminal-class row's target
+  terminal is the harness's own host terminal, the row **cannot record a PASS** — it must
+  VOID with a named reason (self-capture), or refuse to run with the reason. Written first,
+  RED→GREEN; the suite keeps floor 1930. **The RED shape is defined before implementation:**
+  the pin's planted violation neutralizes the containment guard in a copy of the script and
+  the self-check must fail against it — a pin that cannot be made RED is not a pin.
+- **R2 (run):** the 11 remaining deliverable rows — VSCode, Teams, Discord, ChatGPT,
+  Obsidian, Safari, GoogleDocs (unrun), Messages, Firefox (aim-fixed harness `1985da6`),
+  Terminal, Warp (driven from a **non-target terminal**) — each with: run-log JSONL line,
+  founder rung y/N answered from the unified-log/ladder evidence, `strategies.json` delta,
+  and byte-compare result.
+- **R3 (re-probe):** Notes + Mail re-run (window opens 2026-09-10) with the demotion
+  expected to be re-probed; outcome recorded whether or not the rung flips.
+- **R4 (step 92):** Passwords + PasswordField refusal rows per M2.
+- **R5 (FMS + verdict):** FMS computed per M3 over the 17 installed rows; the ceiling and
+  gate-leg verdict recorded per M4. **No percentage may be quoted outside the record's
+  denominator discipline.**
+- **R6 (record):** tracked-table v0.3.0 row, `STATUS.md` entry (append-only), `CLAUDE.md`
+  sync, `SMOKE_CHECKLIST.md` table row updated.
+- **R7 (dispositions):** step 89 (seeded-hostile: Google Docs half — fresh-memory vs
+  steady-state decision; Slack half unrunnable while the row is Teams) and step 90/91
+  window observations recorded with their reasons.
 
 ### Should-have
 
-- **S1 — The unified-log evidence gets its first live check** if the founder consents
-  (the live `log stream` check was declined in the prior unit — the file chain remains
-  load-bearing either way; a consented check records the log lines beside the file chain).
+- **S1:** Slack seed `com.tinyspeck.slackmacgap` (`SMOKE_CHECKLIST.md:1940`) plutil-confirmed
+  or explicitly recorded as unconfirmable (app not installed).
+- **S2:** the unified-log live check (`session opened` + `delivery rung=…`) re-offered as
+  opt-in corroboration per row; the file chain stays load-bearing either way.
+- **S3:** the 3 skipped rows' bundle IDs recorded as **guesses** (never plutil-confirmed)
+  in the tracked row's notes.
 
 ### Nice-to-have
 
-- **N1 — Step 89's Docs half** (seeded-hostile) executed if the window allows.
+- **N1:** a one-line per-row table in the STATUS entry (row | verdict | rung landed | bytes).
 
 ## Technical Considerations
 
-- **Phase and placement:** P2 — the measurement half of make-or-break battle #2
-  (injection reliability). C8's strategy memory is shipped (`ARCHITECTURE.md`); this unit
-  measures what the ladder + memory do against real apps. Local-only; no cloud; the
-  zero-network invariant is untouched.
-- **Execution surface:** the matrix runs only on the founder's machine (real apps, real
-  grants); CI covers the harness's headless half (self-check, bundle-id verification
-  mechanism, evidence format). The v0.2.1 released build is the preferred run target
-  (`issue.md:51-53`).
-- **Headless regression bar:** `Scripts/test-with-floor.sh` (floor 1758) after every
-  task; the suite is a Swift 6 package.
-- **Evidence discipline:** every row's record cites the run-log line + `strategies.json`
-  state; the unified-log lines are corroboration, not the load-bearing artifact, until S1
-  is consented.
-
-### Execution order (sequencing guidance, not commitments)
-
-1. **Daily-use accumulation starts** (clipboard deliveries + P0 gate log) — parallel,
-   feeds steps 90-91's windows.
-2. **M6-style harness sanity + the control row** — `--dry-run` + **Notes re-run** (the
-   control: it has a recorded prior outcome — byte mismatch, accessibility demoted with a
-   fresh re-probe window, `SMOKE_CHECKLIST.md:1992` — so a changed outcome on v0.2.1 is
-   itself evidence, and a harness break has a specific regression shape to pin RED→GREEN).
-   The v0.2.0 tracked row stays as recorded history; the v0.2.1 row carries the
-   completion (one row per release, step 93).
-3. **M1 — the remaining 17 rows** — one session per app group (native AppKit, Electron,
-   browsers, terminals, hostile).
-4. **M2 — step 92** (Secure Input refusals).
-5. **M4 — adjudication pass** over every byte mismatch.
-6. **M3 — FMS tally + tracked-table row.**
-7. **M5 — windows + step 89 disposition.**
-8. **M7 — record + sync.**
-
-Session counts are guidance, not gates.
+- **Harness:** `Scripts/injection-matrix.sh` (696 lines) — rows at `:92-115`, flow at
+  `:504-612`; no changes expected beyond the containment pin unless a run surfaces a defect
+  (then: test-first, floor 1930).
+- **Evidence chain:** run-log JSONL (`start_run_log`/`log_run_row`), `MatrixEvidence` unified-
+  log lines (`Sources/VoccaCore/MatrixEvidence.swift`), `strategies.json` deltas
+  (`PersistentInjectionStrategyStore.swift`, byte-stable `.sortedKeys` output).
+- **Run target:** installed v0.3.0 build (ratified). Precondition: the installed app's
+  version is verified before the run; the tracked row names v0.3.0.
+- **Bundle-ID verification is a run precondition.** `--verify-bundle-ids` executes first;
+  a mismatch or an app that changed since 2026-09-05 (Teams, ChatGPT, system apps) is
+  **adjudicated, never run blind** — confirm the running app's real ID before the row, and
+  record the confirmation in the run log.
+- **Non-target terminal for Terminal/Warp rows:** the harness must be driven from a terminal
+  that is not the row's target (e.g. the other of Terminal/Warp, or the worktree's own shell
+  running in a non-target app). The containment pin makes a self-capture PASS impossible.
+- **Test discipline:** every code change RED→GREEN; suite run via `Scripts/test-with-floor.sh`
+  (floor 1930 — re-read from the script at record time, single-source discipline); CI runs
+  the harness's `--self-check` and planted-violation tests; the run itself is manual
+  (window server, Automation grants, mic, pasteboard).
+- **Memory state:** `strategies.json` currently holds Notes/Mail `.accessibility` demotions
+  (re-probe 2026-09-10) and Xcode/Telegram/Chrome clipboard-success promotion-candidate
+  windows. The run measures **with memory active** — no reset (that is step 89's fresh-memory
+  question, dispositioned separately, never folded into the steady-state run).
 
 ## Risks & Open Questions
 
-- **R1 (high, expected) — first-execution defects.** Every prior first execution found
-  defects CI cannot catch (short-press, evidence-chain absence, cask pin). The run's
-  control row (execution order step 2) is the early-warning pass; M6 fixes test-first.
-- **R2 — FMS not-closeable on this machine.** 3 rows are uninstalled with no same-class
-  swap; ≥19/20 may be structurally unreachable. Recorded as a named outcome, never as a
-  pass or failure (`_card/understanding.md` of the prior unit: 85-87).
-- **R3 — The live unified-log check.** The founder declined it once; S1 is opt-in.
-- **R4 — Adjudication ambiguity.** No checklist step prescribes formal triage; M4 defines
-  it (engine re-transcription comparison) so rows adjudicate consistently.
-- **OQ1 — Run target.** v0.2.1's installed build vs the worktree's dev build — the released
-  build is the honest target (the tracked row names the release).
-- **OQ2 — Window timing.** If the 7-day re-probe/promotion windows aren't elapsed by the
-  run, they record as not-elapsed and the tally proceeds — or the tally waits for them
-  (founder's call at the time).
+- **The ceiling is not closable here.** 17/20 vs ≥19/20 is a *named outcome* — never dressed
+  as a pass or failure. If the founder later installs same-class apps (iTerm2, a JetBrains
+  IDE, Zed), the row set becomes 20 and the bar reachable; that is a future unit or founder
+  decision, out of scope here.
+- **FMS semantics changed (ratified).** The memory-ordered definition differs from the
+  recorded "expected-rung landing" posture; the PRD and record must say so explicitly so the
+  number is never misread against `STATUS.md`'s earlier wording.
+- **Terminal/Warp self-capture:** if the containment pin cannot be made deterministic
+  headlessly (the harness's host-terminal detection), the fallback is a documented procedural
+  guard (run from a non-target terminal) *plus* the pin asserting the void, not the pass.
+- **Bundle-ID drift:** `--verify-bundle-ids` runs first; an unverified ID is adjudicated
+  before its row runs (per Technical Considerations). If the installed app genuinely changed
+  (e.g. Teams), the row's bundle ID is updated **test-first** against the harness's
+  planted-violation pins, and the change recorded.
+- **ChatGPT row:** bundle id `com.openai.codex` confirmed against the installed
+  `/Applications/ChatGPT.app` (2026-09-09) — resolved, recorded here for the run plan.
+- **Denominator history:** prior docs cite 18/20/17 inconsistently; this unit uses the plan
+  accounting (22 = 20 deliverable + 2 refusal; 17 installed; refusals excluded).
+- **Unified-log live check** was declined once (opt-in, S2); no dependency on it.
 
 ## Out of Scope
 
-- **Notarization / Developer ID** — blocked, not purchased; separate runbook.
-- **The P2 gate's third leg (≥5 external users)** — needs a release + users.
-- **C9 onward** — Kokoro, endpointing, dual mode, context, actions
-  (`CAPABILITY_ROADMAP.md:228-317`); guardrail-blocked until the P2 gate passes.
-- **New capability build** — the candidate set is closed at execution + adjudication +
-  defect fixes + record.
-- **Any gate claim** — the P2 gate is judged outside this unit.
-- **Cloud, telemetry, or egress** — the matrix runs local, artifacts stay on the machine.
+- **No gate passes claimed** — this unit produces evidence and a verdict, never a green gate.
+- **No row-set redefinition, no app installs** (ratified 2026-09-09).
+- **No strategy-memory code changes** unless a run surfaces a defect (then test-first).
+- **No latency work, no P3 work, no external-users leg** — those are separate units.
+- **No re-baselining of `tolerances_*` or cleanup targets.**
+
+---
+
+## Aspect decomposition
+
+| Aspect | Boundary |
+|--------|----------|
+| `harness-containment` | The containment pin (test-first) + any harness change needed to make self-capture unrecordable as a PASS; CI-safe. |
+| `matrix-run` | The run itself: 11 deliverable rows, Notes/Mail re-probe, step 92, FMS tally, verdict, step 89/90/91 dispositions. |
+| `record-and-sync` | Tracked-table v0.3.0 row, STATUS entry, CLAUDE.md sync, SMOKE table update, floor re-read. |

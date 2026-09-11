@@ -30,7 +30,8 @@
 #      exists to stop guessing.
 #
 # So a row passes on two independent facts: the field held the transcript byte-for-byte, AND
-# the log named the expected rung. Either alone is not a pass — `.accessibility` named with
+# the log's landing rung was the memory's first attempt (the `attempted:` trace began with it —
+# the ratified memory-ordered FMS metric). Either alone is not a pass — a rung named with
 # nothing in the field is the read-back verification lying (SMOKE_CHECKLIST.md's own rule), and
 # text in the field via a fallback rung is a delivery without first-method success.
 #
@@ -215,6 +216,43 @@ activation_target() { field "$1" 3; }
 
 capture_target_matches() {
     [ -n "$1" ] && [ "$1" = "$2" ]
+}
+
+# The self-capture guard (2026-09-09, the Terminal/Warp rows): a terminal-class row whose
+# target terminal is the one hosting this harness has its phrase in the host's own scrollback
+# — the containment byte-compare can be satisfied without any injection (the hazard is
+# documented above). `host_terminal_bundle_id` walks the parent-process chain for the
+# terminal's bundle id; `is_self_capture` fires only on equal non-empty ids — an empty host
+# (CI, no terminal ancestor) is unreadable, never a self-capture.
+host_terminal_bundle_id() {
+    # Walk the parent chain from the script's own process up to depth 8, looking for the first
+    # ancestor whose command path contains `.app/Contents/MacOS/` — the app that hosts a
+    # terminal. Every discovery command is failure-tolerant: a `ps`/`plutil` hiccup must not
+    # abort the harness under `set -euo pipefail`, and a chain with no such ancestor (CI,
+    # launched bare) returns empty.
+    local pid="$$" depth=0 cmd app bundle_id
+    while [ "$depth" -lt 8 ]; do
+        cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+        if [ -n "$cmd" ]; then
+            case "$cmd" in
+                *.app/Contents/MacOS/*)
+                    app="${cmd%%/Contents/MacOS/*}"
+                    bundle_id="$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist" 2>/dev/null || true)"
+                    printf '%s' "$bundle_id"
+                    return 0
+                    ;;
+            esac
+        fi
+        pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+        [ -n "$pid" ] || break
+        depth=$((depth + 1))
+    done
+    printf '%s' ""
+    return 0
+}
+
+is_self_capture() {
+    [ -n "$1" ] && [ -n "$2" ] && [ "$1" = "$2" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -410,6 +448,67 @@ self_check() {
         failures=$((failures + 1))
     fi
 
+    # The self-capture guard pins (2026-09-09, R1b): the guard fires only on equal non-empty
+    # ids — an empty host (CI, no terminal ancestor) is unreadable, never a self-capture — and
+    # the host discovery must produce a bundle-id shape when it finds a terminal at all. The
+    # wiring pins grep the script's own text for the guard call site and its VOID message, the
+    # seeded-slow-injector discipline: a guard that is defined but never called protects
+    # nothing.
+    local host_id
+    host_id="$(host_terminal_bundle_id)"
+    if ! is_self_capture "com.apple.Terminal" "com.apple.Terminal"; then
+        printf 'FAIL: the self-capture guard does not fire on equal non-empty ids. A\n' >&2
+        printf '      terminal-class row run from its own terminal would reach the\n' >&2
+        printf '      comparison half and can PASS on the script'"'"'s own output.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if is_self_capture "com.apple.Terminal" "dev.warp.Warp-Stable"; then
+        printf 'FAIL: the self-capture guard fires on differing ids. A row run from a\n' >&2
+        printf '      different terminal is a real capture, not a self-capture.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if is_self_capture "com.apple.Terminal" ""; then
+        printf 'FAIL: the self-capture guard fires on an empty host id. An unreadable\n' >&2
+        printf '      host (CI, no terminal ancestor) is a VOID decision, never a\n' >&2
+        printf '      self-capture — the guard must need both ids.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if is_self_capture "" "com.apple.Terminal"; then
+        printf 'FAIL: the self-capture guard fires on an empty target id. The guard\n' >&2
+        printf '      must need both ids to fire.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if [ -n "$host_id" ] && [ "${host_id#*.}" = "$host_id" ]; then
+        printf 'FAIL: the host discovery produced "%s", which is not a bundle-id shape\n' "$host_id" >&2
+        printf '      (no dot). The self-capture check cannot aim itself with it.\n' >&2
+        failures=$((failures + 1))
+    fi
+    if ! grep -q 'is_self_capture "\$activation_id"' "${BASH_SOURCE[0]}"; then
+        printf 'FAIL: run_row no longer calls the self-capture guard before the sentinel\n' >&2
+        printf '      copy — a terminal-class row run from its own terminal could record\n' >&2
+        printf '      a PASS on the script'"'"'s own output (wiring pin).\n' >&2
+        failures=$((failures + 1))
+    fi
+    if ! grep -q 'self-capture: harness runs inside the target terminal' "${BASH_SOURCE[0]}"; then
+        printf 'FAIL: run_row no longer names a self-capture VOID with its reason — a\n' >&2
+        printf '      capture taken from the row'"'"'s own terminal would not be voided\n' >&2
+        printf '      (wiring pin).\n' >&2
+        failures=$((failures + 1))
+    fi
+
+    # The landing-rung wiring pin (2026-09-09, spec R2): run_row must ask the founder to enter
+    # the rung the ladder's log named as landing. The ratified FMS metric counts the
+    # memory-ordered first method; a question that only asks about the expected rung records a
+    # demotion-honored delivery as a miss with `rung: null`, and the metric becomes
+    # unmeasurable again.
+    if ! grep -q 'Enter the rung the ladder'"'"'s log named as landing' "${BASH_SOURCE[0]}"; then
+        printf 'FAIL: run_row no longer asks the founder to enter the rung the ladder'"'"'s\n' >&2
+        printf '      log named as landing — a demotion-honored delivery would record a miss\n' >&2
+        printf '      with no rung, and the memory-ordered FMS metric would be unmeasurable\n' >&2
+        printf '      again (wiring pin).\n' >&2
+        failures=$((failures + 1))
+    fi
+
     if [ "$failures" -ne 0 ]; then
         printf '\n%d self-check failure(s).\n' "$failures" >&2
         return 1
@@ -420,6 +519,8 @@ self_check() {
     printf 'byte-compare normalization active (phrase compare).\n'
     printf 'first-method-success bar: %d of %d deliverable rows (>=95%%).\n' \
         "$(( (deliverable * 95 + 99) / 100 ))" "$deliverable"
+    printf 'self-capture guard active (host: %s).\n' "${host_id:-none}"
+    printf 'landing-rung observation active: every deliverable row records the observed landing rung (FMS counts the memory-ordered first method).\n'
 }
 
 # ---------------------------------------------------------------------------
@@ -501,6 +602,13 @@ verify_bundle_ids() {
 # The live run. One row at a time, the founder in the loop for the two things a script cannot
 # honestly do.
 # ---------------------------------------------------------------------------
+
+# The pass kind of the most recently completed deliverable row: "expected" when the landing
+# rung equaled the expected rung, "memory-ordered" when the landing rung was the memory's
+# first method after the expected rung was demoted, "" for every non-pass outcome. full_run
+# tallies the memory-ordered FMS and the expected-rung calibration from it.
+PASS_KIND=""
+
 run_row() {
     local row="$1"
     local name application rung target
@@ -508,6 +616,7 @@ run_row() {
     application="$(field "$row" 2)"
     rung="$(field "$row" 6)"
     target="$(field "$row" 7)"
+    PASS_KIND=""
 
     printf '\n=== %s (%s) — expecting %s ===\n' "$name" "$application" "$rung"
 
@@ -571,6 +680,18 @@ run_row() {
         log_run_row "$name" null null voided "frontmost was ${frontmost_id:-unreadable}, not $activation_id"
         return 3
     fi
+    # The self-capture guard (2026-09-09): a terminal-class row whose target terminal hosts
+    # this harness has the phrase in its own scrollback, so the containment byte-compare can
+    # be satisfied without any injection. Runs after the aim check and before the sentinel
+    # copy: a capture taken from the row's own terminal is a VOID, never a PASS.
+    if [ "$(field "$row" 4)" = "terminal" ] && is_self_capture "$activation_id" "$(host_terminal_bundle_id)"; then
+        printf 'VOID: self-capture: harness runs inside the target terminal. This terminal\n'
+        printf '      hosts %s, and its own scrollback holds the phrase this script printed —\n' "$application"
+        printf '      the containment byte-compare could PASS without any injection. Run\n'
+        printf '      the row from a different terminal.\n'
+        log_run_row "$name" null null voided "self-capture: harness runs inside the target terminal"
+        return 3
+    fi
     printf '%s' "vocca-matrix-void-sentinel" | pbcopy
     osascript -e 'tell application "System Events" to keystroke "a" using command down' \
         >/dev/null 2>&1 || true
@@ -599,20 +720,52 @@ run_row() {
         return 1
     fi
 
-    read -r -p "Did the ladder's log name .$rung as the landing rung? [y/N] " answer
-    if [ "$answer" != "y" ]; then
-        printf 'MISS: delivered, but not by the memory-chosen first rung. That is a\n'
-        printf '      demote-on-fail signal for the memory and a miss for first-method-success.\n'
-        log_run_row "$name" null true failed "log did not name .$rung"
+    # The landing-rung observation (2026-09-09, spec R2): the ratified FMS metric counts the
+    # first rung the per-app strategy memory chose — read from the ladder's log, not guessed
+    # from the expected-rung column. The founder enters the observed landing rung, the script
+    # validates it against the closed vocabulary (refusing `none` — a deliverable row must
+    # have landed on a rung), then records whether the log's `attempted:` trace began with it.
+    local landing first
+    landing=""
+    while :; do
+        read -r -p "Enter the rung the ladder's log named as landing (accessibility/clipboardPaste/keystrokeSynthesis/none): " landing
+        case " ${VALID_RUNGS[*]} " in
+            *" $landing "*) ;;
+            *)
+                printf 'Invalid rung "%s" — the ladder names only accessibility, clipboardPaste,\n' "$landing"
+                printf 'keystrokeSynthesis or none.\n'
+                continue
+                ;;
+        esac
+        if [ "$landing" = "none" ]; then
+            printf 'Refusing "none" for a deliverable row: the log must name a landing rung.\n'
+            continue
+        fi
+        break
+    done
+    read -r -p "Did the log's attempted: trace begin with that rung? [y/N] " first
+    if [ "$first" != "y" ]; then
+        printf 'FAIL: delivered via fallback rung .%s — the memory'"'"'s first attempt was\n' "$landing"
+        printf '      another rung, so this row is not a first-method success.\n'
+        log_run_row "$name" "$landing" true failed "delivered via fallback rung .$landing"
         return 1
     fi
-    log_run_row "$name" "$rung" true pass ""
-    printf 'PASS: bytes match and the log names .%s.\n' "$rung"
+    if [ "$landing" = "$rung" ]; then
+        PASS_KIND="expected"
+        log_run_row "$name" "$landing" true pass ""
+        printf 'PASS: bytes match and the log names .%s as the landing rung.\n' "$landing"
+        return 0
+    fi
+    PASS_KIND="memory-ordered"
+    log_run_row "$name" "$landing" true pass "delivered by memory-ordered first method .$landing (expected .$rung demoted)"
+    printf 'PASS: bytes match; the log names .%s, not the expected .%s — the memory'"'"'s\n' "$landing" "$rung"
+    printf '      first method after the expected rung was demoted, which is a first-method success.\n'
     return 0
 }
 
 full_run() {
     local passed=0 failed=0 skipped=0 voided=0 refusals_ok=0 refusals_bad=0
+    local fms=0 calibrated=0
     for row in "${ROWS[@]}"; do
         local rung
         rung="$(field "$row" 6)"
@@ -622,7 +775,11 @@ full_run() {
         set -e
         case "$status" in
             0) if [ "$rung" = "none" ]; then refusals_ok=$((refusals_ok + 1));
-               else passed=$((passed + 1)); fi ;;
+               else
+                   passed=$((passed + 1))
+                   fms=$((fms + 1))
+                   if [ "$PASS_KIND" = "expected" ]; then calibrated=$((calibrated + 1)); fi
+               fi ;;
             2) skipped=$((skipped + 1)) ;;
             3) voided=$((voided + 1)) ;;
             *) if [ "$rung" = "none" ]; then refusals_bad=$((refusals_bad + 1));
@@ -638,6 +795,10 @@ full_run() {
     if [ "$deliverable" -gt 0 ]; then
         printf 'first-method-success: %d/%d (%d%%)\n' \
             "$passed" "$deliverable" "$((passed * 100 / deliverable))"
+        printf 'first-method-success (memory-ordered): %d/%d (%d%%)\n' \
+            "$fms" "$deliverable" "$((fms * 100 / deliverable))"
+        printf 'expected-rung landings: %d/%d (%d%%)\n' \
+            "$calibrated" "$deliverable" "$((calibrated * 100 / deliverable))"
     fi
     printf '\nA skipped or voided row is not a pass. Append one row to the tracked table in\n'
     printf 'docs/SMOKE_CHECKLIST.md with the release, the date, the counts above and any swaps.\n'

@@ -270,4 +270,105 @@ final class InjectionMatrixHarnessTests: XCTestCase {
         XCTAssertNotEqual(result.status, 0, "A row expecting an invented rung passed the check.")
         XCTAssertTrue(result.output.contains("which the ladder never names"))
     }
+
+    // MARK: - The self-capture guard (2026-09-09, the Terminal/Warp rows)
+
+    /// The shipped self-check must report the self-capture guard as active. The guard is the
+    /// only thing that keeps a terminal-class row run from inside its own terminal from
+    /// recording a PASS on the phrase this script itself printed into the host's scrollback.
+    func testTheSelfCheckReportsTheSelfCaptureGuard() throws {
+        let result = try run(try scriptURL, ["--self-check"])
+        XCTAssertEqual(result.status, 0, "self-check failed:\n\(result.output)")
+        XCTAssertTrue(
+            result.output.contains("self-capture guard active"),
+            "The self-check no longer reports the self-capture guard:\n\(result.output)")
+    }
+
+    /// A guard that never fires protects nothing: a terminal-class row run from inside its own
+    /// terminal would sail through to the comparison half, and the containment byte-compare
+    /// would PASS on the phrase the harness printed into its own scrollback.
+    func testTheSelfCheckCatchesASelfCaptureCheckThatNeverFires() throws {
+        let copy = try scriptCopy(
+            replacing: "[ -n \"$1\" ] && [ -n \"$2\" ] && [ \"$1\" = \"$2\" ]",
+            with: "[ -n \"$1\" ] && [ -n \"$2\" ] && [ \"$1\" = \"com.apple.Never\" ]")
+        let result = try run(copy, ["--self-check"])
+        XCTAssertNotEqual(
+            result.status, 0,
+            "A self-capture check that can never fire passed the self-check.")
+        XCTAssertTrue(
+            result.output.contains("does not fire on equal non-empty ids"),
+            "The self-check did not name the never-firing guard:\n\(result.output)")
+    }
+
+    /// The wiring pin: the guard must exist at its call site, before the sentinel copy. A
+    /// guard that is defined but never called is the same defect as one that never fires.
+    func testTheSelfCheckCatchesAWiringThatDroppedTheGuard() throws {
+        let copy = try scriptCopy(
+            replacing: """
+                if [ "$(field "$row" 4)" = "terminal" ] && is_self_capture "$activation_id" "$(host_terminal_bundle_id)"; then
+                    printf 'VOID: self-capture: harness runs inside the target terminal. This terminal\\n'
+                    printf '      hosts %s, and its own scrollback holds the phrase this script printed —\\n' "$application"
+                    printf '      the containment byte-compare could PASS without any injection. Run\\n'
+                    printf '      the row from a different terminal.\\n'
+                    log_run_row "$name" null null voided "self-capture: harness runs inside the target terminal"
+                    return 3
+                fi
+            """,
+            with: "")
+        let result = try run(copy, ["--self-check"])
+        XCTAssertNotEqual(
+            result.status, 0,
+            "A run_row whose self-capture guard call site was dropped passed the self-check.")
+        XCTAssertTrue(
+            result.output.contains("no longer calls the self-capture guard"),
+            "The self-check did not name the dropped call site:\n\(result.output)")
+    }
+
+    /// An empty host is unreadable, not a self-capture: in CI there is no terminal ancestor at
+    /// all, and a guard that fired on that would void every CI-shaped run of the harness.
+    func testTheSelfCheckRejectsAnEmptyHostAsNotSelfCapture() throws {
+        let copy = try scriptCopy(
+            replacing: "[ -n \"$1\" ] && [ -n \"$2\" ] && [ \"$1\" = \"$2\" ]",
+            with: "[ -z \"$2\" ] || [ \"$1\" = \"$2\" ]")
+        let result = try run(copy, ["--self-check"])
+        XCTAssertNotEqual(
+            result.status, 0,
+            "A self-capture check that fires on an empty host passed the self-check.")
+        XCTAssertTrue(
+            result.output.contains("fires on an empty host id"),
+            "The self-check did not name the empty-host firing:\n\(result.output)")
+    }
+
+    // MARK: - The FMS question (2026-09-09, spec R2: the landing-rung observation)
+
+    /// The shipped self-check must report the landing-rung observation as active. Under the old
+    /// expected-rung y/N question a demotion-honored delivery — bytes matched, ladder landed on
+    /// the memory-ordered first method after the expected rung was demoted — was recorded as a
+    /// failed row with `rung: null`, which made the ratified memory-ordered FMS metric (PRD M3)
+    /// unmeasurable. A self-check that says nothing about the observation cannot catch the
+    /// regression that drops it.
+    func testTheSelfCheckReportsTheLandingRungObservation() throws {
+        let result = try run(try scriptURL, ["--self-check"])
+        XCTAssertEqual(result.status, 0, "self-check failed:\n\(result.output)")
+        XCTAssertTrue(
+            result.output.contains("landing rung"),
+            "The self-check no longer reports the landing-rung observation:\n\(result.output)")
+    }
+
+    /// The wiring pin (spec R2): run_row must ask the founder to enter the rung the ladder's log
+    /// named as landing — the first rung the per-app strategy memory chose — and the self-check
+    /// must catch a copy that restores the old expected-rung y/N question. The old question
+    /// records a miss with no rung at all, and the FMS metric becomes unmeasurable again.
+    func testTheSelfCheckCatchesARowThatRecordsNoLandingRung() throws {
+        let copy = try scriptCopy(
+            replacing: "Enter the rung the ladder's log named as landing (accessibility/clipboardPaste/keystrokeSynthesis/none)",
+            with: "Did the ladder's log name .$rung as the landing rung? [y/N] ")
+        let result = try run(copy, ["--self-check"])
+        XCTAssertNotEqual(
+            result.status, 0,
+            "A run_row whose landing-rung question was replaced by the old y/N question passed the self-check.")
+        XCTAssertTrue(
+            result.output.contains("no longer asks the founder to enter the rung"),
+            "The self-check did not name the missing landing-rung question:\n\(result.output)")
+    }
 }
