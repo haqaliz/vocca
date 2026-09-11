@@ -90,6 +90,12 @@ private struct EventTypeSighting: Equatable, CustomStringConvertible {
 /// (``filesPermittedToNameCalendarIdentifiersBySeam``) ships with it. It is the one family
 /// matched **whole rather than by prefix** — the tree owns a pure `CalendarDay` type that a
 /// prefix rule would flag in five files, forcing the lint to be weakened to get green again.
+/// The `resolver-fallback` aspect adds the `NSWorkspace` family on the FileManager family's
+/// terms: `NSWorkspace` is already named in `VoccaUI` (three files) and `VoccaBootstrap`
+/// (one), so the claim is *per-seam within its module* — the frontmost-app adapter
+/// (``filesPermittedToNameWorkspaceIdentifiersBySeam``) is the only `VoccaInject` file naming
+/// the family, exactly as the journal adapter is the only `VoccaInject` file naming
+/// `FileManager`.
 ///
 /// ## Where the rules live
 ///
@@ -175,16 +181,17 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// list is keyed on that path, so the failure is a lint that names files nobody can find and
     /// silently stops matching its own allow-list.
     ///
-    /// The identifier matcher is a parameter because the file hosts eight families now — the
+    /// The identifier matcher is a parameter because the file hosts nine families now — the
     /// CoreGraphics event types (``eventTypeIdentifiers(inSource:)``), the pasteboard's
     /// `NSPasteboard` family (``pasteboardIdentifiers(inSource:)``), the Accessibility family
     /// (``accessibilityIdentifiers(inSource:)``), the Secure Input read
     /// (``secureInputIdentifiers(inSource:)``), the journal's `FileManager` family
     /// (``fileManagerIdentifiers(inSource:)``), the Keychain's `SecItem`/`kSec` family
-    /// (``securityIdentifiers(inSource:)``) and the onboarding flag's `UserDefaults` family
-    /// (``userDefaultsIdentifiers(inSource:)``) and the usage ledger's calendar family
-    /// (``calendarIdentifiers(inSource:)``) — and the walk must be one
-    /// implementation, not eight copies that could drift apart in the direction that matters
+    /// (``securityIdentifiers(inSource:)``), the onboarding flag's `UserDefaults` family
+    /// (``userDefaultsIdentifiers(inSource:)``), the usage ledger's calendar family
+    /// (``calendarIdentifiers(inSource:)``) and the frontmost seam's `NSWorkspace` family
+    /// (``workspaceIdentifiers(inSource:)``) — and the walk must be one
+    /// implementation, not nine copies that could drift apart in the direction that matters
     /// (the subdirectory walk). The default keeps the earlier call sites unchanged.
     private static func sightings(
         under root: URL,
@@ -2029,6 +2036,275 @@ final class InjectionSeamBoundaryTests: XCTestCase {
                     let calendar = Calendar(identifier: .gregorian)
                     """),
             ["Calendar"],
+            """
+            ...but stripping comments must not make the lint blind to real code beside them. \
+            Without this, the previous assertion could be satisfied by a scan that gives up on \
+            any file containing a comment.
+            """)
+    }
+
+    // MARK: - The NSWorkspace family (resolver-fallback S1)
+
+    /// Files allowed to name `NSWorkspace`, relative to **the seam's own module root**, keyed by
+    /// seam.
+    ///
+    /// **One file per seam, and nothing else ever joins a seam's entry** — the H7 rule, stated
+    /// for the frontmost-app family the Chromium fallback needs. `SystemFrontmostApp` is the
+    /// seam's adapter: `NSWorkspace.shared.frontmostApplication` → the bundle identifier and
+    /// activation policy, translated into plain data, with every decision (the `.regular` gate,
+    /// the seeded no-field set, the M6 read-count discipline) above it in ``TargetResolution``
+    /// over the injected ``FrontmostAppReading`` seam (`plan_20260912.md` §2, T2).
+    ///
+    /// **The family is scoped per module, and that is the FileManager family's correction,
+    /// applied to a second family.** `NSWorkspace` is already named in `VoccaUI`
+    /// (`WidgetView.swift`, `AppRelaunch.swift`, `SystemSettingsPane.swift`) and `VoccaBootstrap`
+    /// (`AppBootstrap.swift`), so a tree-wide "exactly one file names `NSWorkspace`" claim is
+    /// impossible. The claim this family enforces is the one that matters: within `VoccaInject`
+    /// — the module that owns the seam — exactly the seam's one file names the family, and the
+    /// seam's logic names none of it. The scan root is the module
+    /// (``workspaceSeamModuleRoots``), the table is keyed on module-relative paths.
+    ///
+    /// The prefix is exactly `NSWorkspace`, and that is a deliberate scope: `AXSource`'s
+    /// focused-app read names `NSRunningApplication` (`AXSource.swift:174`), which predates the
+    /// family and stays — a broader AppKit prefix would flag it, and the family exists to
+    /// confine the frontmost-app fact, not the whole of AppKit.
+    private static let filesPermittedToNameWorkspaceIdentifiersBySeam: [String: Set<String>] = [
+        "frontmost": ["Accessibility/SystemFrontmostApp.swift"],
+    ]
+
+    /// The module root the NSWorkspace seam scans, keyed by the same seam names as
+    /// ``filesPermittedToNameWorkspaceIdentifiersBySeam``. The table's paths are
+    /// module-relative, so each row needs its own root — the frontmost row scans
+    /// `VoccaInject`, and stops at it.
+    private static let workspaceSeamModuleRoots: [String: String] = [
+        "frontmost": "VoccaInject",
+    ]
+
+    /// The NSWorkspace table flattened — every permitted file in every seam. The module-wide
+    /// scan is aimed at this set.
+    private static var filesPermittedToNameWorkspaceIdentifiers: Set<String> {
+        Set(filesPermittedToNameWorkspaceIdentifiersBySeam.values.flatMap { $0 })
+    }
+
+    /// The identifier prefixes that constitute the NSWorkspace family: the one type, whole.
+    /// There is nothing else to list, which is why the prefix rule costs nothing here — it is
+    /// the same shape as the other families', applied to a family with one member.
+    private static let workspaceIdentifierPrefixes = ["NSWorkspace"]
+
+    /// Every occurrence of a NSWorkspace identifier in `source`, comments removed first.
+    ///
+    /// A pure function over a string, so it can be run against source that violates the rule —
+    /// which is the only way to know it would catch one. See
+    /// ``testTheWorkspaceScanSeesAPlantedIdentifierInAnotherVoccaInjectFile``.
+    private static func workspaceIdentifiers(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let pattern = "\\b(" + workspaceIdentifierPrefixes.joined(separator: "|")
+            + ")[A-Za-z0-9_]*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// The module scan, aimed at the NSWorkspace table: within `VoccaInject`, no `NSWorkspace`
+    /// identifier is named outside the seam's permitted file.
+    ///
+    /// The frontmost adapter's whole point is that its decisions run headless over the injected
+    /// ``FrontmostAppReading`` seam; a second file naming the family in the same module is a
+    /// decision that moved into the half CI cannot reach — the same shape as the FileManager
+    /// scan above, for the family `SystemFrontmostApp` is the one file for.
+    func testNoWorkspaceIdentifierEscapesTheWorkspaceSeamTable() throws {
+        let sources = try sourcesRoot()
+        for seam in Self.filesPermittedToNameWorkspaceIdentifiersBySeam.keys.sorted() {
+            guard
+                let files = Self.filesPermittedToNameWorkspaceIdentifiersBySeam[seam],
+                let module = Self.workspaceSeamModuleRoots[seam]
+            else {
+                continue
+            }
+            let root = sources.appendingPathComponent(module)
+            for relativePath in files {
+                let directory = root.appendingPathComponent(relativePath)
+                    .deletingLastPathComponent()
+                guard FileManager.default.fileExists(atPath: directory.path) else {
+                    throw InjectionSeamTestError.seamDirectoryMissing(expectedAt: directory.path)
+                }
+            }
+
+            let sightings = try Self.sightings(
+                under: root,
+                permitting: files,
+                identifiersIn: Self.workspaceIdentifiers)
+
+            XCTAssertEqual(
+                sightings, [],
+                """
+                NSWorkspace is named outside \(module)'s permitted NSWorkspace file: \
+                \(sightings.map(\.description).joined(separator: "; ")). Every decision about \
+                the frontmost application must live above the one-file adapter, where a headless \
+                suite can drive it; a file naming the family in \(module) beyond the seam table \
+                is a decision that escaped CI forever.
+                """)
+        }
+    }
+
+    /// The "one file per seam" claim for the NSWorkspace family, enforced rather than asserted
+    /// in a comment — the sibling of ``testEachSeamPermitsExactlyOneFile``, for the family
+    /// table.
+    ///
+    /// The keys-equal assertion is the FileManager family's review'd form of the same claim: the
+    /// module-root table and the seam table must name exactly the same seams, or a seam whose
+    /// adapter moved without its root following would scan the wrong module.
+    func testEachWorkspaceSeamPermitsExactlyOneFile() {
+        XCTAssertFalse(
+            Self.filesPermittedToNameWorkspaceIdentifiersBySeam.isEmpty,
+            """
+            The NSWorkspace seam table must not be empty — an empty table passes "no file names \
+            the family" vacuously, and a seam with no file is a seam whose adapter has moved \
+            without the amendment noticing.
+            """)
+        XCTAssertEqual(
+            Set(Self.workspaceSeamModuleRoots.keys),
+            Set(Self.filesPermittedToNameWorkspaceIdentifiersBySeam.keys),
+            """
+            The module-root table and the NSWorkspace seam table must name exactly the same \
+            seams: root-only seams and seam-only roots are both a table the other half never \
+            enforces.
+            """)
+        for seam in Self.filesPermittedToNameWorkspaceIdentifiersBySeam.keys.sorted() {
+            XCTAssertEqual(
+                Self.filesPermittedToNameWorkspaceIdentifiersBySeam[seam]?.count, 1,
+                """
+                The NSWorkspace family permits one file per seam. The \(seam) seam permits \
+                \(Self.filesPermittedToNameWorkspaceIdentifiersBySeam[seam]?.sorted().joined(separator: ", ") ?? "none"). \
+                A second entry means a frontmost-app decision has moved below the seam, where no \
+                CI run can reach it.
+                """)
+        }
+    }
+
+    /// **Every permitted NSWorkspace file actually names its family** — the two-sided pin, in
+    /// the same shape as ``testEachPermittedFileActuallyNamesItsFamily``.
+    ///
+    /// Two independent claims, because either one failing alone still passes a one-sided check:
+    /// "no other file names the family" passes if the permitted file *also* lost its
+    /// implementation (vacuous), and "the permitted file names the family" passes if several do
+    /// (the seam has sprung a leak). The exact-set half walks the seam's module with
+    /// `permitting: []`, so the set of sighting-bearing files must be exactly the table's
+    /// union.
+    func testEachPermittedWorkspaceFileActuallyNamesItsFamily() throws {
+        let sources = try sourcesRoot()
+        let permitted = Self.filesPermittedToNameWorkspaceIdentifiers
+        XCTAssertFalse(
+            permitted.isEmpty,
+            "the permitted set must not be empty — an empty set passes 'no file names it' vacuously")
+
+        for seam in Self.filesPermittedToNameWorkspaceIdentifiersBySeam.keys.sorted() {
+            guard
+                let files = Self.filesPermittedToNameWorkspaceIdentifiersBySeam[seam],
+                let module = Self.workspaceSeamModuleRoots[seam]
+            else {
+                continue
+            }
+            let root = sources.appendingPathComponent(module)
+            for relativePath in files.sorted() {
+                let source = try String(
+                    contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+                XCTAssertFalse(
+                    Self.workspaceIdentifiers(inSource: source).isEmpty,
+                    """
+                    \(relativePath) is permitted to name NSWorkspace, but names none. A \
+                    permitted file that does not name its family means the family moved \
+                    somewhere else and the lint cannot see it.
+                    """)
+            }
+        }
+
+        var allSightings: [EventTypeSighting] = []
+        for seam in Self.filesPermittedToNameWorkspaceIdentifiersBySeam.keys.sorted() {
+            guard let module = Self.workspaceSeamModuleRoots[seam] else { continue }
+            allSightings += try Self.sightings(
+                under: sources.appendingPathComponent(module),
+                permitting: [],
+                identifiersIn: Self.workspaceIdentifiers)
+        }
+        XCTAssertEqual(
+            Set(allSightings.map(\.file)), permitted,
+            """
+            exactly the permitted set may name NSWorkspace within the NSWorkspace seam's module: \
+            \(permitted.sorted().joined(separator: ", ")), got \
+            \(Set(allSightings.map(\.file)).sorted().joined(separator: ", ")). A file outside \
+            the table with a sighting is a leak; a permitted file without one is a vacuous pin.
+            """)
+    }
+
+    /// The NSWorkspace family's planted-tree negative control: the scan catches an
+    /// `NSWorkspace.shared` use planted in a **copy of a real `VoccaInject` file**.
+    ///
+    /// The real check's own walk (`sightings(under:permitting:identifiersIn:)`) is run against a
+    /// fabricated `VoccaInject` root holding the shipped `TargetResolution.swift` — the
+    /// decision file that must never name the family — with a planted `NSWorkspace.shared` use
+    /// appended. The planted file is sighted: that is what proves the module-rooted scan would
+    /// catch the leak the row exists to prevent, even inside a realistic, comment-heavy file the
+    /// scanner has to strip before it can see the violation.
+    func testTheWorkspaceScanSeesAPlantedIdentifierInAnotherVoccaInjectFile() throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-workspace-\(UUID().uuidString)")
+        let injectRoot = scratch.appendingPathComponent("VoccaInject")
+        try FileManager.default.createDirectory(
+            at: injectRoot.appendingPathComponent("Accessibility"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let shipped = try sourcesRoot().appendingPathComponent(
+            "VoccaInject/Accessibility/TargetResolution.swift")
+        var planted = try String(contentsOf: shipped, encoding: .utf8)
+        planted += "\nfunc plantedLeak() async { _ = NSWorkspace.shared.frontmostApplication }\n"
+        try planted.write(
+            to: injectRoot.appendingPathComponent("Accessibility/TargetResolution.swift"),
+            atomically: true,
+            encoding: .utf8)
+
+        let sightings = try Self.sightings(
+            under: injectRoot, permitting: [], identifiersIn: Self.workspaceIdentifiers)
+
+        XCTAssertEqual(
+            Set(sightings.map(\.file)), ["Accessibility/TargetResolution.swift"],
+            """
+            The VoccaInject-rooted scan must see the planted NSWorkspace use inside a copy of \
+            the shipped resolver file: got \
+            \(Set(sightings.map(\.file)).sorted().joined(separator: ", ")). A scan that misses \
+            it permits the frontmost-app read to escape the seam's one file.
+            """)
+        XCTAssertEqual(
+            sightings.map(\.identifier), ["NSWorkspace"],
+            """
+            The sighted identifier must be the planted family member: got \
+            \(Set(sightings.map(\.identifier)).sorted().joined(separator: ", ")).
+            """)
+    }
+
+    /// Comments are stripped before the scan, and that is load-bearing rather than incidental:
+    /// the one-file adapter's documentation has to be able to name the family it translates
+    /// (`SystemFrontmostApp`'s does, at length, and should).
+    func testTheWorkspaceLintIgnoresIdentifiersInComments() {
+        XCTAssertEqual(
+            Self.workspaceIdentifiers(
+                inSource: """
+                    /// The only file in VoccaInject permitted to name NSWorkspace.
+                    let app = SystemFrontmostApp()
+                    """),
+            [],
+            "A doc comment naming the family must not trip the lint.")
+
+        XCTAssertEqual(
+            Self.workspaceIdentifiers(
+                inSource: """
+                    /// The only file permitted to name NSWorkspace.
+                    let app = NSWorkspace.shared.frontmostApplication
+                    """),
+            ["NSWorkspace"],
             """
             ...but stripping comments must not make the lint blind to real code beside them. \
             Without this, the previous assertion could be satisfied by a scan that gives up on \

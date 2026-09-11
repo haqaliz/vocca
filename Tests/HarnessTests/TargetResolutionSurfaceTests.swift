@@ -49,14 +49,18 @@ final class TargetResolutionSurfaceTests: XCTestCase {
     func testTheRootsRecipeConstructsOverTheShippedAdapters() {
         let resolver = TargetResolution(
             focusedApp: AXSource(),
-            secureInput: SystemSecureInputRead())
+            secureInput: SystemSecureInputRead(),
+            frontmost: SystemFrontmostApp())
 
         let focusedApp: any FocusedAppReading = AXSource()
         let secureInput: any SecureInputReading = SystemSecureInputRead()
+        let frontmost: any FrontmostAppReading = SystemFrontmostApp()
         XCTAssertTrue(focusedApp is AXSource,
             "the value the resolver receives is the shipped AX adapter, not a stand-in")
         XCTAssertTrue(secureInput is SystemSecureInputRead,
             "the value the resolver receives is the shipped Secure Input read, not a stand-in")
+        XCTAssertTrue(frontmost is SystemFrontmostApp,
+            "the value the resolver receives is the shipped frontmost read, not a stand-in")
         XCTAssertNotNil(resolver)
     }
 
@@ -68,7 +72,8 @@ final class TargetResolutionSurfaceTests: XCTestCase {
             focusedApp: FakeFocusedAppReader(
                 identity: FocusedAppIdentity(
                     bundleID: "com.example.Notes", windowTitle: "Notes - The Draft")),
-            secureInput: FakeSecureInputReader(active: true))
+            secureInput: FakeSecureInputReader(active: true),
+            frontmost: FakeFrontmostAppReader())
 
         let context = await resolver.resolve()
 
@@ -90,6 +95,20 @@ private actor FakeFocusedAppReader: FocusedAppReading {
     }
 
     func focusedApp() async -> FocusedAppIdentity? {
+        identity
+    }
+}
+
+/// A frontmost-app query the test dictates — defaults to nothing frontmost, so the recipe's
+/// semantics test keeps the genuine AX path. An actor, for the same boundary reason.
+private actor FakeFrontmostAppReader: FrontmostAppReading {
+    private let identity: FrontmostAppIdentity?
+
+    init(identity: FrontmostAppIdentity? = nil) {
+        self.identity = identity
+    }
+
+    func frontmostApp() async -> FrontmostAppIdentity? {
         identity
     }
 }

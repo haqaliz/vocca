@@ -307,7 +307,8 @@ final class AgreementHarness {
                     identity: FocusedAppIdentity(
                         bundleID: "com.apple.Notes",
                         windowTitle: AgreementHarness.targetAppName)),
-                secureInput: FakeSecureInput()),
+                secureInput: FakeSecureInput(),
+                frontmost: FakeFrontmostApp()),
             panel: RecordingPanel(holder: holder),
             pipelineAssembly: { engine in
                 DictationPipeline(

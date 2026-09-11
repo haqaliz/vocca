@@ -96,7 +96,8 @@ final class WarmStartLaunchTests: XCTestCase {
                     elapsed: .zero))
             let panel = RecordingPanel(holder: holder)
             let targetResolution = TargetResolution(
-                focusedApp: focusedApp, secureInput: secureInput)
+                focusedApp: focusedApp, secureInput: secureInput,
+                frontmost: FakeFrontmostApp())
             let resolver = DictationEngineResolver(selection: .defaultSelection) { _ in engine }
             let pipeline = DictationPipeline(
                 engine: engine, injector: injector, holder: holder,

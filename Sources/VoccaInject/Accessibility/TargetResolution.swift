@@ -35,6 +35,26 @@ public struct FocusedAppIdentity: Sendable, Equatable {
     }
 }
 
+/// **The identity of the frontmost application, raw** — what the system's frontmost-app query
+/// reported, before any decision about what it means.
+///
+/// The adapter's raw translation of the system's running-application answer into plain data
+/// (`isRegular` is the adapter's translation of the `.regular` activation policy — no
+/// application-framework type crosses the seam, the R1 shape). `nil` for the whole identity when there is no frontmost
+/// application; `bundleID == nil` when there is one that yields no bundle identifier.
+public struct FrontmostAppIdentity: Sendable, Equatable {
+    /// The frontmost application's bundle identifier; `nil` when there is none to report.
+    public var bundleID: String?
+    /// `true` when the frontmost application's activation policy is `.regular` — the policy
+    /// gate the fallback demands before it trusts a frontmost app as a target.
+    public var isRegular: Bool
+
+    public init(bundleID: String?, isRegular: Bool) {
+        self.bundleID = bundleID
+        self.isRegular = isRegular
+    }
+}
+
 /// **The seam for "which application is focused"** — the AX-focused-app query, taken out of the
 /// resolver so resolution is headless-testable (`plan_20260809.md` §2 Phase C).
 ///
@@ -53,6 +73,18 @@ public protocol FocusedAppReading: AnyObject, Sendable {
     func focusedApp() async -> FocusedAppIdentity?
 }
 
+/// **The seam for "which application is frontmost"** — the system's frontmost-app query, taken
+/// out of the resolver so the fallback is headless-testable.
+///
+/// The mirror of ``FocusedAppReading`` — the same "answer **now**, every time" doctrine and the
+/// same `async`/`AnyObject`/`Sendable` shape. Consulted **only** when the AX focused-app read
+/// answers `nil` (M6): it is the evidence for the Chromium focused-field lie, never a shadow
+/// over a genuine focus.
+public protocol FrontmostAppReading: AnyObject, Sendable {
+    /// The frontmost application's identity, raw; `nil` when there is no frontmost application.
+    func frontmostApp() async -> FrontmostAppIdentity?
+}
+
 /// **The seam for "is Secure Input in force right now"** — the Carbon read, taken out of the
 /// resolver so resolution is headless-testable.
 ///
@@ -69,7 +101,7 @@ public protocol SecureInputReading: AnyObject, Sendable {
     func isSecureInputActive() async -> Bool
 }
 
-/// **Focused-app resolution: turns the two injected reads into the ladder's ``TargetContext``.**
+/// **Focused-app resolution: turns the injected reads into the ladder's ``TargetContext``.**
 ///
 /// The decision about *which* application is focused is the AX call's raw output
 /// (``FocusedAppReading``); the decisions that stand between the raw output and the ladder are
@@ -80,6 +112,11 @@ public protocol SecureInputReading: AnyObject, Sendable {
 /// - a focused application that yields no bundle identifier → `bundleID == nil` too: an app
 ///   that cannot be identified cannot be allowlist-gated, so it is the same "no usable target"
 ///   row;
+/// - the **frontmost-app fallback** (the Chromium focused-field lie): when the AX identity's
+///   `bundleID == nil`, the frontmost read (``FrontmostAppReading``) is consulted, and its
+///   bundle ID stands in **iff** it is non-nil **and** the app is `.regular` **and** not in
+///   ``SeededNoFieldApps`` — with `windowTitle = nil`, because the fallback cannot name a
+///   focused window (`resolver-fallback` R2, `PRD` M4-M6);
 /// - Secure Input is read **once, at resolution time** (PRD R2) and carried in
 ///   ``TargetContext/isSecureInput`` — the fresh read, never a cached one, because the state
 ///   changes with no notification and the rung-0 refusal depends on it.
@@ -98,19 +135,38 @@ public protocol SecureInputReading: AnyObject, Sendable {
 public actor TargetResolution {
     private let focusedApp: any FocusedAppReading
     private let secureInput: any SecureInputReading
+    private let frontmostApp: any FrontmostAppReading
 
-    public init(focusedApp: any FocusedAppReading, secureInput: any SecureInputReading) {
+    public init(
+        focusedApp: any FocusedAppReading,
+        secureInput: any SecureInputReading,
+        frontmost: any FrontmostAppReading
+    ) {
         self.focusedApp = focusedApp
         self.secureInput = secureInput
+        self.frontmostApp = frontmost
     }
 
-    /// One resolution: the focused application's identity and the Secure Input state, as a
-    /// ``TargetContext`` the ladder can decide over.
+    /// One resolution: the focused application's identity (or its gated frontmost-app fallback)
+    /// and the Secure Input state, as a ``TargetContext`` the ladder can decide over.
     public func resolve() async -> TargetContext {
         let identity = await focusedApp.focusedApp()
+        var bundleID: String?
+        var windowTitle: String?
+        if let axBundleID = identity?.bundleID {
+            bundleID = axBundleID
+            windowTitle = identity?.windowTitle
+        } else if let fallback = await frontmostApp.frontmostApp(),
+                  let fallbackBundleID = fallback.bundleID,
+                  fallback.isRegular,
+                  !SeededNoFieldApps.bundleIDs.contains(fallbackBundleID) {
+            bundleID = fallbackBundleID
+        } else {
+            windowTitle = identity?.windowTitle
+        }
         return TargetContext(
-            bundleID: identity?.bundleID,
-            windowTitle: identity?.windowTitle,
+            bundleID: bundleID,
+            windowTitle: windowTitle,
             isSecureInput: await secureInput.isSecureInputActive())
     }
 }

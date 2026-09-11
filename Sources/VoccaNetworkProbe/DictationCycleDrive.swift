@@ -131,6 +131,21 @@ final class ProbeFocusedApp: FocusedAppReading {
     }
 }
 
+/// The frontmost application, as a fixed fact: none — the probe's AX adapter answers a real
+/// focused application, so the fallback's frontmost read is never consulted (M6). Immutable
+/// for the same reason ``ProbeFocusedApp``'s is.
+final class ProbeFrontmostApp: FrontmostAppReading {
+    let identity: FrontmostAppIdentity?
+
+    init(identity: FrontmostAppIdentity? = nil) {
+        self.identity = identity
+    }
+
+    func frontmostApp() async -> FrontmostAppIdentity? {
+        identity
+    }
+}
+
 /// Secure Input, off: the injection-time read the ladder's rung-0 refusal depends on. Immutable
 /// for the same reason ``ProbeFocusedApp``'s is.
 final class ProbeSecureInputRead: SecureInputReading {
@@ -436,7 +451,8 @@ extension VoccaNetworkProbe {
             focusedApp: ProbeFocusedApp(
                 identity: FocusedAppIdentity(
                     bundleID: "com.example.WordProcessor", windowTitle: "Document 1")),
-            secureInput: ProbeSecureInputRead(active: false))
+            secureInput: ProbeSecureInputRead(active: false),
+            frontmost: ProbeFrontmostApp())
 
         let panel = ProbePanel()
         let downloadSession = ProbeDownloadSession()

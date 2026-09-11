@@ -184,7 +184,8 @@ public enum AppBootstrap {
         // The two shipped adapters (AX + Carbon) need no grant to construct — the grants gate the
         // calls, not the objects.
         let targetResolution = TargetResolution(
-            focusedApp: AXSource(), secureInput: SystemSecureInputRead())
+            focusedApp: AXSource(), secureInput: SystemSecureInputRead(),
+            frontmost: SystemFrontmostApp())
 
         // MARK: The FAILSAFE window
         //

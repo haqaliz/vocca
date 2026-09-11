@@ -339,7 +339,8 @@ extension VoccaNetworkProbe {
             focusedApp: ProbeFocusedApp(
                 identity: FocusedAppIdentity(
                     bundleID: "com.example.WordProcessor", windowTitle: "Document 1")),
-            secureInput: ProbeSecureInputRead(active: false))
+            secureInput: ProbeSecureInputRead(active: false),
+            frontmost: ProbeFrontmostApp())
 
         let panel = ProbePanel()
         let downloadSession = ProbeDownloadSession()
