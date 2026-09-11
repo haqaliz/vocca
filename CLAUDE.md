@@ -61,21 +61,25 @@ This file orients a coding agent working in this repository. Read it first.
 > `AppBootstrap.configure` composes tap → session machine → `MicrophoneSource` → engine →
 > ladder → failsafe → widget, driven end to end by the zero-network probe.
 >
-> **`matrix-run` continuation (2026-09-05):** the matrix resumed on v0.2.1 and stopped again at
-> **10 of 20 deliverable rows — 6 firmly recorded, 4 voided.** Expected rung landed on 4
-> (TextEdit `.accessibility`; Xcode, Telegram, Chrome `.clipboardPaste`); Notes and Mail
-> delivered but missed it (`.accessibility` demoted, re-probe 2026-09-10 — the demotion-honored
-> outcome, a miss and not a defect). **Voided (4):** Messages and Firefox, whose byte mismatches
-> were adjudicated to a **harness** defect — not ASR, not injection — and fixed test-first
-> (`1985da6`: activation keys on the bundle identifier, polls up to 10 s for the row's app to
-> come frontmost, and VOIDs a capture taken from anything else; RED 24 → GREEN, floor 1760);
-> and Terminal and Warp, voided as **indistinguishable** because the harness runs inside a
-> terminal and its own scrollback holds the phrase, so a pass cannot be told from a self-capture
-> — re-run both from a non-target terminal. **FMS not computable** (4 of 20 landed the expected
-> rung), and the ≥19/20 bar is **structurally unreachable on this machine**: 3 permanent skips
-> put the ceiling at 17/20 — a recorded outcome, not a failure. Unrun: VSCode, Teams, Discord,
-> ChatGPT, Obsidian, Safari, GoogleDocs, plus step 92. **No gate passes; no injection-success
-> percentage may be quoted.** See `docs/STATUS.md` for the honesty block.
+> **`injection-matrix-completion` concluded (2026-09-12):** the unit shipped two harness
+> changes test-first and stopped on a **real product defect, not a harness defect**.
+> **Shipped:** the **self-capture guard** (a terminal row run from inside its own target
+> terminal is VOIDED — a self-capture PASS is now structurally impossible; planted-violation
+> pins, RED→GREEN, live-proofed by running `--row Warp` from inside Warp), and the
+> **memory-ordered FMS question** (each row records the observed landing rung + whether it was
+> the first `attempted:` rung; demotion-honored deliveries are PASSes; the tally prints FMS
+> and expected-rung calibration separately). Test floor 1930 → 1936. **The run (v0.3.0,
+> 2026-09-10): 7 of 17 installed deliverable rows recorded, all 7 landing their expected rung
+> — Notes and Mail re-probed `.accessibility` and it **landed** (promotion observed, the
+> demotion restored); Safari, Messages, Firefox, Terminal, Warp landed `.clipboardPaste`
+> (Terminal/Warp provenance founder-reported, run from non-target terminals).** GoogleDocs
+> and step 92 unexecuted; FMS not computable over 17. **The defect that stopped the unit:**
+> in Chromium/Electron apps (VSCode, Teams, Discord, ChatGPT, Obsidian) the AX focused-app
+> read answers "nothing focused", the ladder refuses at rung 0 with `.noFocusedField`, and
+> clipboardPaste — which needs no AX — never runs; 5 recovery journals + the usage ledger
+> (Sep 11: 2 delivered / 5 failsafeHeld) are the evidence, and the invariant held (no
+> transcript lost). **No gate passes; no injection-success percentage may be quoted.** The
+> Electron target-resolution fix is the next unit. See `docs/STATUS.md` for the honesty block.
 >
 > **`injection-matrix-record` (2026-09-03):** the matrix's evidence chain is real — the app
 > emits `session opened` + `delivery` info lines (shape-only, no transcript text) from the

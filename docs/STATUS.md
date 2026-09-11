@@ -10,6 +10,81 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `injection-matrix-completion` unit concluded 2026-09-12 by founder decision — two harness
+changes shipped test-first, the run recorded 7 of 17 installed deliverable rows with every
+recorded row landing its expected rung, and the unit stopped on a **real product defect, not a
+harness defect**: the ladder cannot resolve a target in Chromium/Electron apps, so five rows
+are blocked, not failed. Test floor **1930 → 1936**. Branch `feat/injection-matrix-completion/aliz`.
+
+**What shipped (test-first, RED→GREEN).** *The self-capture guard* (`d2fd842`): a terminal-class
+row whose target terminal is the harness's own host terminal can no longer record a PASS —
+`host_terminal_bundle_id()` walks the parent-process chain to the hosting terminal's bundle id,
+`is_self_capture` fires only on equal non-empty ids, and `run_row` VOIDs with the named reason
+`self-capture: harness runs inside the target terminal` before any copy; self-check pins cover
+the predicate's three edges, the host-id shape, and the wiring (grep pin); planted-violation
+tests were RED first (the guard did not exist) and GREEN after. Live-proofed (T5): `--row Warp`
+run from inside Warp → `verdict: voided, note: "self-capture: harness runs inside the target
+terminal"`, exit 3, one JSONL line (`20260909-t5-selfcapture-proof.jsonl`) — a self-capture PASS
+is now structurally impossible. *The memory-ordered FMS question* (`7adaf0f`): the y/N
+expected-rung question is replaced by a landing-rung observation (closed vocabulary, `none`
+refused for deliverable rows) + the `attempted:` first-method fact; verdicts now record a
+demotion-honored delivery (bytes matched, landed on the memory's first choice after the expected
+rung was demoted) as a **PASS** with the note naming it, and the tally prints both numbers —
+first-method-success (memory-ordered) and expected-rung landings — the metric the P2 gate
+(`ROADMAP.md:172`) actually names. `log_run_row` records the observed landing rung on every
+deliverable row; schema unchanged. RED pin first, planted-violation GREEN. The unit also
+produced the planning artifacts (`5e6a23d`): resumption card, understanding note, PRD rev
+(2026-09-09, four founder-ratified decisions), three aspect specs and plans.
+
+**The run (2026-09-10, installed v0.3.0 build, `20260910-v03.jsonl` + recovery journals).**
+7 of 17 installed deliverable rows recorded, **all 7 landing their expected rung**:
+- **Notes, Mail — re-probe landed.** The `.accessibility` demotion re-probed (window opened
+  2026-09-10) and **won in both apps** — the promotion was observed, the demotion restored
+  (`strategies.json` Notes shows `demotedRungs: []`). This closes the demotion-honored question
+  positively: the memory re-discovered the rung it had written off.
+- **Safari, Messages, Firefox, Terminal, Warp — `.clipboardPaste` landed.** Messages' earlier
+  grant-void was re-run to a pass within the same run. Terminal/Warp ran from non-target
+  terminals (Warp for Terminal's row, Terminal.app for Warp's), provenance founder-reported —
+  the guard-harness re-runs that make that mechanical are pending.
+- Under the ratified memory-ordered definition, all 7 recorded rows were also first-method
+  successes (landing rung == first `attempted:` rung); expected-rung landings: 7 of 7.
+**FMS is still not computable over the 17** — 5 rows blocked, 1 unrun (GoogleDocs), 3 permanent
+skips (Ghostty, IntelliJ, Zed → ceiling 17/20 vs the ≥19/20 bar, structurally unreachable on
+this machine, recorded not failed); step 92 (Passwords, PasswordField) unexecuted — the Secure
+Input gesture could not complete because capture is blocked by design while a password field is
+focused (the tap cannot fire; the corrected gesture — dictate in a normal app, switch focus to
+the password field before release, refuse at injection time — was delivered but not executed).
+
+**The defect that stopped the unit — escalated as the next unit, not fixed here.** In
+Chromium/Electron apps (VSCode, Teams, Discord, ChatGPT, Obsidian) the dictation completes but
+the delivery **refuses at rung 0**: `AXSource.focusedApp()` answers "nothing focused"
+(`kAXFocusedApplicationAttribute` answers nil — fast, within the 0.5 s budget), so
+`TargetContext.bundleID == nil` and `InjectionLadderDecision.swift:101` fires
+`.noFocusedField` **before any rung** — clipboardPaste, which needs no AX field, never runs.
+Evidence: 5 recovery journals, all `{"reason":"noFocusedField", ...}`; the usage ledger
+(2026-09-11: **2 delivered / 5 failsafeHeld** — the failing sessions); the failing set is
+exactly the Chromium apps while every native/WebKit/Gecko app resolved fine (Sep 10: Notes,
+Mail, Safari, Messages, Firefox, Terminal, Warp). The transcript was never lost — every refusal
+landed in the widget failsafe, the invariant held. **The fix is a seam-level decision** (the
+`.noFocusedField` refusal exists to stop text landing in the wrong place; a blind frontmost-app
+fallback could paste into Finder/desktop — the silent-drop shape this product exists to forbid),
+so it gets its own PRD: a gated frontmost fallback whose gate distinguishes a Chromium "nothing
+focused" lie from a genuine no-field state. See the `vocca-next` handoff for the unit card.
+
+**What this is NOT, and must not be claimed:**
+- **No gate passes. No injection-success percentage may be quoted.** 7 of 7 on recorded rows is
+  not a matrix rate; the denominator over 17 is not computable with 5 blocked + 1 unrun + 3
+  skips.
+- **The 5 Electron rows are blocked, not failed.** They have a named defect and a named next
+  unit; the runs left them untried-by-the-ladder (rung 0 refusal, not a rung failure).
+- **The Sep-10 rows ran against the master harness** (the founder ran from the primary
+  checkout; the run log's first Safari line carries the old note text). The guard + landing-rung
+  harness shipped in this unit was not the one the rows ran on — the T5 proof and the
+  guard-harness re-runs are the pending half of the provenance question.
+- **Step 92 and GoogleDocs are unexecuted**, and the 17/20 ceiling stands.
+
+---
+
 **The `daily-use-ledger` unit landed 2026-09-07 — the P0 gate's observable legs became recorded
 evidence rather than founder memory, and one of them turned out not to be computable at all.**
 Five aspects, on `origin/master` @ `6ac909f`. Test floor **1758 → 1930**.
