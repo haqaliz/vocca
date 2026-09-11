@@ -1,21 +1,26 @@
-# Card: feat/injection-matrix-completion
+# Card: feat/electron-target-resolution
 
 > Inline brief — no GitHub issue exists (`gh issue list` → empty; Issues are empty for
-> `haqaliz/vocca`). Source: the `vocca-next` handoff of 2026-09-09.
+> `haqaliz/vocca`). Source: the `vocca-next`/`injection-matrix-completion` handoff of 2026-09-12.
 
 ## Brief
 
-Resume the P2 injection-matrix leg (C8 remainder, `ROADMAP.md:164`; resumable per
-`docs/STATUS.md`): run the 7 unrun rows (VSCode, Teams, Discord, ChatGPT, Obsidian,
-Safari, GoogleDocs), the 4 voided re-runs on the aim-fixed harness (`1985da6`),
-Notes/Mail's 2026-09-10 re-probe, and Terminal/Warp driven from a non-target terminal.
+Fix the injection ladder's target resolution for Chromium/Electron apps (VSCode, Teams,
+Discord, ChatGPT, Obsidian): dictation completes but delivery refuses at rung 0 with
+`.noFocusedField` because `AXSource.focusedApp()` answers "nothing focused" for Chromium apps,
+so `TargetContext.bundleID == nil` and clipboardPaste — which needs no AX field — never runs.
 
-Tests first: a containment pin asserting no row's capture can originate from the
-harness's own terminal, plus RED→GREEN on any harness change.
+Evidence: 5 recovery journals `{"reason":"noFocusedField"}` + usage ledger 2026-09-11
+(2 delivered / 5 failsafeHeld); the failing set is exactly the Chromium apps while
+native/WebKit/Gecko apps resolve fine (7 of 7 matrix rows landed 2026-09-10).
 
-Caveat: the ≥19/20 gate bar is structurally unreachable while Ghostty/IntelliJ/Zed
-stay permanent skips (`STATUS.md:80-82`) — decide whether to swap in installed
-same-class apps or record the 17/20 ceiling.
+Caveat: the `.noFocusedField` refusal exists to stop text landing in the wrong place — the fix
+must be a GATED frontmost-app fallback (NSWorkspace frontmost bundleID) that distinguishes a
+Chromium "nothing focused" lie from a genuine no-field state, or it recreates the silent-drop
+shape R1 forbids.
 
-Deliverable: every row with a recorded rung or a named void, step 92 executed, and an
-honest gate-leg verdict.
+Tests first: RED for a resolution where AX answers nil but the frontmost app is a
+field-having app → bundleID must fall back; RED for the genuine-no-field case → must still
+refuse. Acceptance: the 5 Electron rows pass the matrix on v0.3.1, transcript loss stays 0%,
+the rung-0 refusal is structurally impossible for a frontmost app with a focused field, and
+the 17/20 ceiling record stands until the gate decision on the 3 permanent skips.
