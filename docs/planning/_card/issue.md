@@ -1,26 +1,26 @@
-# Card: feat/electron-target-resolution
+# Card: feat/kokoro-voice-output
 
 > Inline brief — no GitHub issue exists (`gh issue list` → empty; Issues are empty for
-> `haqaliz/vocca`). Source: the `vocca-next`/`injection-matrix-completion` handoff of 2026-09-12.
+> `haqaliz/vocca`). Source: the handoff of 2026-09-12.
 
 ## Brief
 
-Fix the injection ladder's target resolution for Chromium/Electron apps (VSCode, Teams,
-Discord, ChatGPT, Obsidian): dictation completes but delivery refuses at rung 0 with
-`.noFocusedField` because `AXSource.focusedApp()` answers "nothing focused" for Chromium apps,
-so `TargetContext.bundleID == nil` and clipboardPaste — which needs no AX field — never runs.
+Build C9, the first P3 capability: the SpeechSynthesizer seam with two real implementations
+(CAPABILITY_ROADMAP.md:238-253). VoccaSpeech is the last placeholder module; this unit gives
+it its purpose. Shipped test-first: the `SpeechSynthesizer` protocol (`speak(String) ->
+AudioStream`, cancellation as a first-class operation — C10's barge-in depends on halting
+mid-utterance), **Kokoro-82M** as the first implementation (voice selection + rate control),
+**macOS AVSpeechSynthesizer** as the shipped second (proves the seam, zero-download fallback),
+and sentence-level chunking so speech begins before the full reply is synthesized.
 
-Evidence: 5 recovery journals `{"reason":"noFocusedField"}` + usage ledger 2026-09-11
-(2 delivered / 5 failsafeHeld); the failing set is exactly the Chromium apps while
-native/WebKit/Gecko apps resolve fine (7 of 7 matrix rows landed 2026-09-10).
+Acceptance tests written first: both implementations run the same parameterized suite —
+known text produces non-empty audio of plausible duration; **cancellation halts output within
+50 ms**; safe to cancel and immediately re-invoke without deadlock or audio-session
+corruption; time-to-first-audio benchmarked with a ≤300 ms assertion (P3's metric,
+ROADMAP.md:209).
 
-Caveat: the `.noFocusedField` refusal exists to stop text landing in the wrong place — the fix
-must be a GATED frontmost-app fallback (NSWorkspace frontmost bundleID) that distinguishes a
-Chromium "nothing focused" lie from a genuine no-field state, or it recreates the silent-drop
-shape R1 forbids.
-
-Tests first: RED for a resolution where AX answers nil but the frontmost app is a
-field-having app → bundleID must fall back; RED for the genuine-no-field case → must still
-refuse. Acceptance: the 5 Electron rows pass the matrix on v0.3.1, transcript loss stays 0%,
-the rung-0 refusal is structurally impossible for a frontmost app with a focused field, and
-the 17/20 ceiling record stands until the gate decision on the 3 permanent skips.
+Caveat: the P2 gate is not cleared — the matrix feature was closed by founder decision
+2026-09-12 (docs/STATUS.md), so this builds ahead of the gate with the record naming that
+posture; and Kokoro is an external model dependency (Apache-2.0) — the download/verify path
+follows the C2 model-provisioning pattern, and the zero-network default must hold with
+AVSpeechSynthesizer as the shipped fallback.
