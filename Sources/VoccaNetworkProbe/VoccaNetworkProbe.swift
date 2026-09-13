@@ -190,13 +190,13 @@ struct VoccaNetworkProbe {
     /// assertion in `testDefaultConfigurationMakesZeroNetworkConnections` only covers code that
     /// actually runs here. Most of the modules have real work today and it is run:
     /// `VoccaBootstrap`'s start-up path, `VoccaCore`'s session lifecycle, `VoccaInject`'s ladder,
-    /// `VoccaAudio`'s capture path, `VoccaASR`'s manifest loader and `VoccaText`'s cleanup stage
-    /// through the composed dictation cycle, and — since `usage-wiring` — `VoccaUsage`'s
-    /// launch-time load, fold and write cadence through the daily-use ledger drive. Three are
-    /// still placeholders (`VoccaHotkey`'s flag translation, `VoccaSpeech`, and `VoccaUI`'s
-    /// non-panel surface), so all this can do for them is link each one and force it to load. As
-    /// their capabilities land, their default-configuration start-up work must be invoked from
-    /// here too.
+    /// `VoccaAudio`'s capture path, `VoccaASR`'s manifest loader, `VoccaText`'s cleanup stage
+    /// through the composed dictation cycle, `VoccaUsage`'s launch-time load, fold and write
+    /// cadence through the daily-use ledger drive, and — since system-synthesizer — `VoccaSpeech`'s
+    /// default-configuration surface through the speech drive (construct, empty-speak, cancel).
+    /// Two are still placeholders (`VoccaHotkey`'s flag translation and `VoccaUI`'s non-panel
+    /// surface), so all this can do for them is link each one and force it to load. As their
+    /// capabilities land, their default-configuration start-up work must be invoked from here too.
     ///
     /// That instruction is enforced rather than merely written down: the returned module list is
     /// checked against the package manifest and the `Sources/` listing, so adding any module
@@ -296,6 +296,16 @@ struct VoccaNetworkProbe {
         let usage = exerciseUsageLedger()
         print("PROBE-USAGE\t\(usage.report)")
 
+        // `VoccaSpeech`'s real work, run rather than referenced — the same shape as the drives
+        // above, for the module whose placeholder witness outlived its placeholder. The module
+        // ships the system synthesizer now, and its default-configuration surface is
+        // constructing it and speaking: the drive runs `speak("")` (the empty-text policy — an
+        // empty render touches no renderer path) and `cancel()` (safe with nothing in flight).
+        // See `SpeechDrive.swift`. The witness it mints is produced *by* the call, so the entry
+        // cannot outlive it.
+        let speech = exerciseSpeech()
+        print("PROBE-SPEECH\t\(speech.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -303,9 +313,9 @@ struct VoccaNetworkProbe {
             cycle.asrModuleWitness,
             cycle.cleanupModuleWitness,
             injection.moduleWitness,
-            SystemSynthesizer.self,
-            VoccaUIPlaceholder.self,
             usage.moduleWitness,
+            speech.moduleWitness,
+            VoccaUIPlaceholder.self,
             AppBootstrap.self,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
