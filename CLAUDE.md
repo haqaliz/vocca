@@ -20,11 +20,13 @@ This file orients a coding agent working in this repository. Read it first.
 > lint amendments landed (VoccaSpeech leaf → adapter, AVFoundation import-set + seam family),
 > the zero-network probe drives the module, and the floor was **ratcheted 1930 → 1949**
 > (executed 1977) — fixing the record drift where executed counts had been called floors.
-> **Kokoro is the recorded follow-on unit** (`kokoro-binding`): the runtime decision
-> (`ARCHITECTURE.md:706`) is founder-ratified to record — C/C++ shim via the reserved
-> `VoccaBridge` vs ONNX/CoreML vs bundled MLX — and the phonemizer (espeak-ng) is named as
-> the hidden cost of every option. **No gate passes; no user-visible surface ships in this
-> unit** (playback/ducking is C10's, the converse surface is C11's). Test floor: **1949**.
+> **Kokoro's runtime decision is made and recorded** (`kokoro-binding`, 2026-09-12): CoreML/ANE
+> via a Swift port — Jud/kokoro-coreml (Apache-2.0) — provisioned through the C2 store with
+> the path injected from the composition root, Misaki G2P replacing espeak-ng, one voice
+> (af_heart); the VoccaBridge C-shim reservation is recorded as overtaken by the ecosystem.
+> The binding's implementation is the recorded follow-on (its first step: the vetting gate).
+> **No gate passes; no user-visible surface ships in this unit** (playback/ducking is C10's,
+> the converse surface is C11's). Test floor: **1949**.
 >
 > **`daily-use-ledger` (2026-09-07):** the P0 gate's observable legs are now recorded rather than
 > remembered — and one of them was **not computable at all** until this unit. `SessionOutcomeClass`

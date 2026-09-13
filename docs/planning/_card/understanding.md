@@ -1,76 +1,86 @@
-# Understanding: injection-matrix-completion
+# Understanding: kokoro-binding
 
-> Phase 2 dig note. Source: `docs/planning/_card/issue.md` (vocca-next handoff 2026-09-09)
-> + harness map + planning-record reconstruction (explore agents, 2026-09-09).
+> Phase 2 dig note. Source: `docs/planning/_card/issue.md` (the recorded follow-on card) +
+> local mapping agent + web research (2026-09-12).
 
 ## What this work really is
 
-Resume the P2 injection-matrix leg (C8 remainder, `ROADMAP.md:164`, `CAPABILITY_ROADMAP.md:219-234`)
-to its recorded deliverable: **every row with a recorded rung or a named void, step 92 executed,
-an honest gate-leg verdict** (`_card/issue.md`). Not a new capability — the harness
-(`Scripts/injection-matrix.sh`, 696 lines), the evidence chain (`MatrixEvidence` vocabulary +
-OSLog adapter + run-log JSONL), and strategy memory (`strategies.json`) all shipped and were
-already used in three partial runs. The unit is resumable by record (`STATUS.md` injection-matrix
-entries; tracked-table rows v0.1.0 ×2, v0.2.1).
+Bind Kokoro-82M behind the shipped `SpeechSynthesizer` seam (C9's second half): make the
+runtime decision **here** (not deferred again — the card's first job), then ship the binding
+test-first: one entry in the parameterized suite, cancel ≤50 ms + re-invoke, TTFA compared
+against the system renderer's recorded ~178.8 ms baseline, C2-store provisioning, zero-egress
+default.
 
-## Row state (as of 2026-09-05 continuation, `STATUS.md:61-107`)
+## The runtime decision — the research changes the premise
 
-20 deliverable + 2 refusal rows (`injection-matrix.sh:92-115`):
+`ARCHITECTURE.md:706`'s open question (C/C++ shim vs ONNX/CoreML vs MLX) was written when the
+Swift ecosystem was thin. The 2026-09-12 research finds it mature:
 
-- **Landed expected rung (4):** TextEdit `.accessibility`; Xcode, Telegram, Chrome `.clipboardPaste`
-- **Delivered but missed (2):** Notes, Mail — bytes matched; `.accessibility` demoted by memory
-  (re-probe window **2026-09-10** — tomorrow); demotion-honored miss, not defect
-- **Voided, re-run needed (4):** Messages, Firefox — cold-launch harness defect, fixed test-first
-  in `1985da6` (activation keys on bundle id, 10 s frontmost poll, VOID-not-fail otherwise);
-  Terminal, Warp — **indistinguishable self-capture** (harness runs inside a terminal; its own
-  scrollback satisfies the containment compare) → re-run from a **non-target terminal**
-- **Unrun (7):** VSCode, Teams, Discord, ChatGPT, Obsidian, Safari, GoogleDocs
-- **Permanent skips (3):** Ghostty, IntelliJ, Zed — not installed; no same-class swap yet;
-  bundle IDs are guesses (never plutil-confirmed); **ceiling 17/20 vs ≥19/20 bar → structurally
-  unreachable on this machine** (`STATUS.md:80-82`)
-- **Refusal rows (2, step 92):** Passwords (`com.apple.Passwords`), PasswordField (Safari) —
-  unexecuted; PASS = log records `attempted: []`, failsafe shows copy, transcript copyable,
-  `strategies.json` gained nothing
+- **CoreML/ANE ports with pre-converted models:** Jud/kokoro-coreml (**Apache-2.0**, SPM,
+  streaming `AsyncStream` chunks, sentence-boundary chunking, ~99 MB 8-bit palettized model,
+  24 kHz mono PCM, 6-16× realtime, macOS 15+); mweinbach/kokoro-runtime-swift (MLX + CoreML
+  backends, phoneme-input oriented — more integration work); laishere/mattmireles conversions
+  (7/5-stage ANE pipelines — vendor-own territory).
+- **The phonemizer is no longer espeak-ng for English:** Misaki (hexgrad's G2P, Apple
+  NaturalLanguage-based) is bundled in the strongest ports — the recorded "hidden cost of
+  every option" is now a solved dependency for English; espeak-ng remains an option, not a
+  requirement.
+- **The C-shim/VoccaBridge reservation is stale:** the whisper precedent itself says a C-ABI
+  bridge "needs no module boundary of its own; it only needs the lint" (`ARCHITECTURE.md:48-51`),
+  and no maintained Swift Kokoro-on-onnxruntime path exists; the mature Swift ports make the
+  reservation moot. The unit should record this overturn.
 
-## Affected areas
+**Recommended family: CoreML/ANE via a Swift port**, the Parakeet precedent (CoreML/ANE,
+one seam file, SPM dependency). **Primary candidate: Jud/kokoro-coreml** (Apache-2.0, the
+streaming shape matches the seam's chunk stream; model bytes on HF — provenance/verify via
+the C2 manifest discipline as a plan gate).
 
-- `Scripts/injection-matrix.sh` — row table, run flow, verdicts, self-check, run-log JSONL
-- `Tests/HarnessTests/InjectionMatrixHarnessTests.swift` + `MatrixHarnessSelfCheckTests.swift`
-  — planted-violation pins; the missing **containment pin** is the unit's first test
-- `Sources/VoccaCore/StrategyMemory/*`, `PersistentInjectionStrategyStore.swift` — the memory
-  the matrix measures against; `strategies.json` deltas are per-row evidence
-- `docs/SMOKE_CHECKLIST.md` §12 (steps 87–93, tracked table) — step numbering owns "step 92";
-  harness has no step numbers
-- `docs/STATUS.md` + tracked table — the record surface (append-only; floor 1930 per
-  `test-with-floor.sh`, binding floor re-read at run time per record-and-sync discipline)
+## The integration points (from the local map)
 
-## Key ambiguities / decision points (from the docs' own flags)
+- **Seam surface (fixed):** `SpeechSynthesizer` (identity `"kokoro-82m"`, speak→chunk stream,
+  cancel ≤50 ms + no chunk after + safe re-invoke), `AudioChunk`, `VoiceIdentity`,
+  `SentenceChunker` — the binding implements exactly these four.
+- **Suite entry (fixed):** `SpeechFixtureSuite.evaluate` + an env-gated suite file mirroring
+  `SpeechSystemSuiteTests` (`VOCCA_RUN_REAL_SPEECH` presence gate); fixtures
+  `three-sentence-reply` (≥1.0 s) + `short-reply` (≥0.25 s); cancelLatency ≤50 ms wall-clock;
+  re-invoke full render.
+- **Provisioning:** `ModelStore`/`ModelManifest`/`ModelDownloader`/`DefaultModelTransport`
+  are **engine-agnostic and reusable unchanged** (string-keyed). Reachability is the only
+  friction: the machinery lives in VoccaASR; VoccaSpeech may import only VoccaCore. **Cleanest
+  path: dependency injection from the composition root** — `VoccaBootstrap` (which imports
+  everything) provisions via the store and passes the model directory URL + voice into
+  `KokoroEngine(modelDirectory:voice:)` as plain data; the engine never touches the store;
+  no boundary amendment. The TTS manifest loader must NOT grow the EngineTier-closed
+  `ShippedModelManifest` switch — a parallel loader in the speech side or bootstrap.
+- **Lints to add:** (1) a Kokoro-runtime family lint (one permitted file —
+  `VoccaSpeech/Kokoro/KokoroEngine.swift` — naming the port's identifiers, planted-violation
+  + comment-strip controls, the ParakeetSeamTests shape); (2) an AVFoundation expected-set
+  row if the engine touches AVFAudio (else avoid); (3) **no new URLSession file** — the port
+  must be given model bytes, not URLs (the port's own downloaders are NOT used — Vocca
+  provisions; the seam family keeps the port's networking out).
+- **Zero-network probe:** the Kokoro engine joins `VoccaSpeech`'s driven work (construct +
+  empty-speak + cancel) — **init must be pure-local** (no model load/download in init, the
+  SystemSynthesizer precedent); empty-speak short-circuits before any model touch.
+- **Floor:** 1949; the unit's tests raise it in the same commit (doctrine).
 
-- **D2 — FMS discipline for demotion-honored deliveries.** Notes/Mail bytes matched via
-  clipboard after memory demoted accessibility. Recorded posture: "rung miss… not a defect"
-  (counts against expected-rung landing). But the P2 gate says "first-method-success **with
-  per-app strategy memory active**" (`ROADMAP.md:172`) — memory-ordered first method *was*
-  clipboardPaste, and it succeeded. Which counting is FMS? (Interview question.)
-- **D4 — the ceiling.** Swap Ghostty/IntelliJ/Zed for installed same-class apps (class column is
-  the documented swap invariant, `injection-matrix.sh:77-78`) or record the 17/20 ceiling
-  honestly. Swap depends on what's installed (checking).
-- **D1 — step 89's Docs half** (fresh-memory run) vs protecting the steady-state run.
-- **OQ1 — run target:** installed v0.2.1 build vs worktree dev build. Released build is the
-  honest target; the tracked row names the release (v0.3.0 is current).
-- **OQ2/D3 — re-probe/promotion windows** (step 90/91): Notes/Mail windows open 2026-09-10;
-  step 91 promotion candidates (Xcode et al.) have 7-day windows from 2026-09-05 — not elapsed
-  until 2026-09-12; record not-elapsed and proceed, or wait (founder's call).
-- **Slack seed** `com.tinyspeck.slackmacgap` never plutil-confirmed (`SMOKE_CHECKLIST.md:1940`);
-  step 89's Slack half unrunnable while the row is Teams.
-- **Denominator inconsistency** in past docs ("18"/"20"/"17") — use the plan accounting:
-  22 = 20 deliverable + 2 refusal; 3 skips → 17 installed; refusals excluded from FMS
-  numerator and denominator.
+## Ambiguities / open questions
+
+- **The port's G2P/phonemization mechanism** (Jud's README doesn't name Misaki explicitly in
+  the snippets) — verified as a plan gate: license + provenance + phonemization + cancel
+  semantics of the chosen port, pinned before the dependency lands.
+- **The port's own model downloader must be suppressed** in Vocca (zero-network default) —
+  the port receives a provisioned path; its network surface must never run. Pinned by the
+  probe + the seam family lint.
+- **Cold-load TTFA:** CoreML first-run latency is high (the ports' own docs say warm runs are
+  much faster) — the engine's speak() must assume a provisioned+warm model (the ASR warm-start
+  pattern); the TTFA measurement runs warm, and the cold-load cost is recorded as a
+  provisioning/prepare fact, never as speak latency.
+- **Voice set:** one shipped voice (af_heart, the standard embedding) in the manifest;
+  the 54-voice on-demand downloaders of the ports are out of scope (zero-network).
 
 ## Honesty obligations (binding)
 
-- No gate passes; **no injection-success percentage may be quoted** until the run completes.
-- A skip/void is not a pass; Terminal/Warp are not passes.
-- Every row needs a machine artifact (run-log JSONL line + founder's rung y/N answered from the
-  log, `strategies.json` delta) — a row without one repeats the v0.1.0 "reported, not measured"
-  state.
-- The live unified-log check is opt-in (declined once); the file chain stays load-bearing.
+- The P3 gate stays uncleared; TTFA stays recorded, never gated; the record names the runtime
+  decision + the reservation overturn, not as vibes but with the research cited.
+- The dependency's license + the model bytes' digests are pinned before merge (the C2
+  provenance discipline).
