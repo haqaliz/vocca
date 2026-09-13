@@ -10,6 +10,43 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The matrix feature is CLOSED by founder decision 2026-09-12 — including its final
+`electron-target-resolution` unit, whose live proof was waived.** The record stays honest: the
+feature is closed, not finished. Test floor **1936 → 1949**.
+
+**What shipped (the feature's last code).** *The gated frontmost-app fallback*
+(`feat/electron-target-resolution/aliz`, PR #33, merged `db08249`): in Chromium/Electron apps
+the AX focused-app read answers "nothing focused", so the ladder refused at rung 0 with
+`.noFocusedField` and clipboardPaste — which needs no AX field — never ran (5 of 20 matrix
+rows blocked; evidence: 5 recovery journals + usage ledger 2026-09-11, 2 delivered / 5
+failsafeHeld). The fix, test-first (RED compile pins → GREEN; commits `fa62d0a`, `ad94351`):
+a `FrontmostAppReading` seam + `SystemFrontmostApp` adapter (the only `VoccaInject` file
+naming `NSWorkspace` — one-file family row with planted-violation pins), and a **gated**
+fallback in `TargetResolution.resolve()` that fires only when AX answers nil AND the frontmost
+app is `.regular` AND not in the seeded no-field set (`SeededNoFieldApps = ["com.apple.finder"]`
+— Finder *is* the desktop; dock/menu-bar/utility apps are `.accessory` and excluded by the
+policy gate). `windowTitle` nil on fallback; Secure Input read once, fresh, precedence
+untouched. **`InjectionLadderDecision.swift` and `TargetContext.swift` are byte-for-byte
+untouched** (pinned): `bundleID == nil` still means a genuine no-field refusal, and the
+desktop case is structurally refused. The fallback never consults the frontmost read when AX
+answers (M6 read-count pin). Three founder decisions ratified in the PRD (2026-09-12): the
+gate, the seeded exclusion set, windowTitle nil.
+
+**What the closure means — and what it does not.** The `electron-matrix-proof` aspect was
+**concluded by founder decision without executing the live run**: the 5 Electron rows were
+never re-run on a v0.3.1 build, the desktop-refusal negative proof never ran, and the fix's
+empirical halves (that `NSWorkspace.shared.frontmostApplication` answers Electron apps, and
+that the fallback's clipboardPaste then delivers in them) are **unverified-live at closure** —
+the gate's logic is tested headlessly; its live truth is not. The tracked table stands as
+recorded (v0.2.1 and v0.1.0 rows; **no v0.3.1 row is added** — none was run). **FMS remains
+not computable. No gate passes. No injection-success percentage may be quoted.** The feature's
+open threads at closure, named so the record cannot be misread as completion: step 92
+(Passwords, PasswordField) unexecuted; GoogleDocs unrun; the 3 permanent skips
+(Ghostty/IntelliJ/Zed) and the 17/20 ceiling record stand; the P2 gate's external-users leg
+unbegun; the P0 gate's 7-day accumulation and the P1 gate's blind ballot still open elsewhere.
+
+---
+
 **The `injection-matrix-completion` unit concluded 2026-09-12 by founder decision — two harness
 changes shipped test-first, the run recorded 7 of 17 installed deliverable rows with every
 recorded row landing its expected rung, and the unit stopped on a **real product defect, not a

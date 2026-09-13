@@ -61,25 +61,18 @@ This file orients a coding agent working in this repository. Read it first.
 > `AppBootstrap.configure` composes tap → session machine → `MicrophoneSource` → engine →
 > ladder → failsafe → widget, driven end to end by the zero-network probe.
 >
-> **`injection-matrix-completion` concluded (2026-09-12):** the unit shipped two harness
-> changes test-first and stopped on a **real product defect, not a harness defect**.
-> **Shipped:** the **self-capture guard** (a terminal row run from inside its own target
-> terminal is VOIDED — a self-capture PASS is now structurally impossible; planted-violation
-> pins, RED→GREEN, live-proofed by running `--row Warp` from inside Warp), and the
-> **memory-ordered FMS question** (each row records the observed landing rung + whether it was
-> the first `attempted:` rung; demotion-honored deliveries are PASSes; the tally prints FMS
-> and expected-rung calibration separately). Test floor 1930 → 1936. **The run (v0.3.0,
-> 2026-09-10): 7 of 17 installed deliverable rows recorded, all 7 landing their expected rung
-> — Notes and Mail re-probed `.accessibility` and it **landed** (promotion observed, the
-> demotion restored); Safari, Messages, Firefox, Terminal, Warp landed `.clipboardPaste`
-> (Terminal/Warp provenance founder-reported, run from non-target terminals).** GoogleDocs
-> and step 92 unexecuted; FMS not computable over 17. **The defect that stopped the unit:**
-> in Chromium/Electron apps (VSCode, Teams, Discord, ChatGPT, Obsidian) the AX focused-app
-> read answers "nothing focused", the ladder refuses at rung 0 with `.noFocusedField`, and
-> clipboardPaste — which needs no AX — never runs; 5 recovery journals + the usage ledger
-> (Sep 11: 2 delivered / 5 failsafeHeld) are the evidence, and the invariant held (no
-> transcript lost). **No gate passes; no injection-success percentage may be quoted.** The
-> Electron target-resolution fix is the next unit. See `docs/STATUS.md` for the honesty block.
+> **The matrix feature is closed by founder decision (2026-09-12).** Its last code shipped
+> test-first: the **gated frontmost-app fallback** (`electron-target-resolution`, PR #33) —
+> Chromium/Electron apps (VSCode, Teams, Discord, ChatGPT, Obsidian) resolve a target now
+> instead of refusing at rung 0 with `.noFocusedField`, because the fallback supplies the
+> frontmost app's bundle ID when AX answers nil, gated on `.regular` policy + a seeded
+> no-field set (`["com.apple.finder"]`); the ladder decision and `TargetContext` are
+> byte-for-byte untouched, so a genuine no-field state still refuses. Floor 1936 → 1949.
+> **The feature is closed, not finished** — the live proof (5 Electron matrix rows on v0.3.1
+> + the desktop-refusal check) was waived by founder decision; FMS stays not computable, no
+> gate passes, and no injection-success percentage may be quoted. Open threads named in the
+> record: step 92, GoogleDocs, the 3 permanent skips (17/20 ceiling), the P2 external-users
+> leg. See `docs/STATUS.md` for the honesty block.
 >
 > **`injection-matrix-record` (2026-09-03):** the matrix's evidence chain is real — the app
 > emits `session opened` + `delivery` info lines (shape-only, no transcript text) from the
