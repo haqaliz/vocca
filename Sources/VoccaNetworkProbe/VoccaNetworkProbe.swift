@@ -303,7 +303,7 @@ struct VoccaNetworkProbe {
             cycle.asrModuleWitness,
             cycle.cleanupModuleWitness,
             injection.moduleWitness,
-            VoccaSpeechPlaceholder.self,
+            SystemSynthesizer.self,
             VoccaUIPlaceholder.self,
             usage.moduleWitness,
             AppBootstrap.self,
