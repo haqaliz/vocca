@@ -1,26 +1,28 @@
-# Card: feat/kokoro-voice-output
+# Card: feat/kokoro-binding
 
 > Inline brief — no GitHub issue exists (`gh issue list` → empty; Issues are empty for
-> `haqaliz/vocca`). Source: the handoff of 2026-09-12.
+> `haqaliz/vocca`). Source: the `kokoro-voice-output` record + handoff of 2026-09-12
+> (the recorded follow-on card, `docs/STATUS.md`).
 
 ## Brief
 
-Build C9, the first P3 capability: the SpeechSynthesizer seam with two real implementations
-(CAPABILITY_ROADMAP.md:238-253). VoccaSpeech is the last placeholder module; this unit gives
-it its purpose. Shipped test-first: the `SpeechSynthesizer` protocol (`speak(String) ->
-AudioStream`, cancellation as a first-class operation — C10's barge-in depends on halting
-mid-utterance), **Kokoro-82M** as the first implementation (voice selection + rate control),
-**macOS AVSpeechSynthesizer** as the shipped second (proves the seam, zero-download fallback),
-and sentence-level chunking so speech begins before the full reply is synthesized.
+Bind **Kokoro-82M** behind the shipped `SpeechSynthesizer` seam (C9's second half,
+`CAPABILITY_ROADMAP.md:238-253`): the runtime decision recorded in `ARCHITECTURE.md:706`
+(C/C++ shim via the reserved `VoccaBridge` vs ONNX/CoreML on the ANE vs bundled MLX) is
+**made here, not deferred again** — the unit's first job is a research-grounded choice, then
+the binding ships test-first with the phonemizer (espeak-ng) provisioned as the hidden cost
+of every option.
 
-Acceptance tests written first: both implementations run the same parameterized suite —
-known text produces non-empty audio of plausible duration; **cancellation halts output within
-50 ms**; safe to cancel and immediately re-invoke without deadlock or audio-session
-corruption; time-to-first-audio benchmarked with a ≤300 ms assertion (P3's metric,
-ROADMAP.md:209).
+Acceptance (the parameterized suite from `kokoro-voice-output` — one entry joins it):
+known text → non-empty audio of pinned plausible duration; **cancellation halts ≤50 ms**;
+cancel-and-re-invoke safe; time-to-first-audio measured and **compared against the system
+renderer's recorded ~178.8 ms baseline** (the P3 ≤300 ms budget, recorded never gated).
+The Kokoro engine joins the zero-network probe; the model provisioning follows the C2 store
+pattern (download → verify → marker; the manifest ships in-repo); the phonemizer (espeak-ng
+or equivalent) is provisioned locally with its own verify step; the default configuration
+stays zero-egress.
 
-Caveat: the P2 gate is not cleared — the matrix feature was closed by founder decision
-2026-09-12 (docs/STATUS.md), so this builds ahead of the gate with the record naming that
-posture; and Kokoro is an external model dependency (Apache-2.0) — the download/verify path
-follows the C2 model-provisioning pattern, and the zero-network default must hold with
-AVSpeechSynthesizer as the shipped fallback.
+Caveat: the runtime decision is genuinely open — the options differ in dependency weight
+(VoccaBridge C shim vs CoreML conversion vs MLX), build risk, and phonemizer coupling; the
+record must name the tradeoffs as decided, not as vibes. The P3 gate stays uncleared; TTFA
+and the P3 budget remain recorded, never gated.

@@ -10,6 +10,49 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `kokoro-binding` unit concluded at the PRD gate 2026-09-12 — the runtime decision C9
+left open (`ARCHITECTURE.md:706`) is **made and recorded**; the binding's implementation is
+deferred by founder decision to the next implementation unit, with the decision's vetting gate
+named as its first step.** No code shipped; the planning artifacts (card, understanding, PRD)
+are the unit's deliverable.
+
+**The decision, made and recorded (four founder-ratified choices, 2026-09-12):**
+1. **Runtime family: CoreML/ANE via a Swift port** — the Parakeet precedent (CoreML/ANE, one
+   seam file, SPM dependency). The 2026-09-12 research found the Swift Kokoro ecosystem
+   mature: pre-converted models on HuggingFace, Apache-2.0 ports, and **Misaki (English G2P
+   on Apple NaturalLanguage) replacing espeak-ng** — the recorded "hidden cost of every
+   option" is solved for English without a phonemizer dependency.
+2. **Port: Jud/kokoro-coreml** (Apache-2.0, SPM, streaming chunks at sentence boundaries,
+   ~99 MB 8-bit palettized model, 24 kHz mono PCM, macOS 15+) — vetted at the follow-on
+   unit's plan gate (license, model provenance, phonemization, per-sentence cancel semantics
+   verified against the port's code, not its README); mweinbach's packages are the recorded
+   alternates (license review pending).
+3. **Provisioning: DI from the composition root** — `KokoroEngine(modelDirectory:voice:)`
+   receives a provisioned path as plain data; `VoccaBootstrap` provisions via the existing
+   string-keyed store machinery (reusable unchanged); no module-boundary amendment;
+   the port's own downloaders never run (zero-network default).
+4. **Voices: one** — af_heart in the initial manifest; the 54-voice on-demand downloaders
+   suppressed; more voices later via the store.
+
+**The reservation overturn, recorded:** `ARCHITECTURE.md`'s VoccaBridge C-shim reservation
+(for "Kokoro (C9) would be the first candidate", `:43-51`) is **overtaken by the ecosystem** —
+the whisper precedent itself says a C-ABI bridge "needs no module boundary of its own; it only
+needs the lint", and no maintained Swift-Kokoro-on-onnxruntime path exists. The bridge stays
+reserved for a genuinely second C-ABI consumer; Kokoro is not it. The binding's guaranteed
+cancel path is the SystemSynthesizer pattern (one render per sentence, cancel between calls) —
+the ≤50 ms contract does not depend on the port's streaming shape.
+
+**What this is NOT, and must not be claimed:**
+- **No Kokoro engine ships.** The `SpeechSynthesizer` seam still has one real implementation
+  (SystemSynthesizer); the two-implementation doctrine's interim state stands until the
+  follow-on implementation unit lands the binding (its first step: the vetting gate).
+- **No TTFA number exists for Kokoro** — SMOKE 129's ~178.8 ms row is the system renderer's
+  alone; a Kokoro number is unmeasured until the engine exists.
+- **The P3 gate stays uncleared** (unchanged, recorded posture); the runtime decision is a
+  record, not a gate.
+
+---
+
 **C9's first half landed 2026-09-12 — the `SpeechSynthesizer` seam is real, the system
 renderer is the shipped first implementation, and the first time-to-first-audio measurement
 came in **under the P3 budget** (~178.8 ms vs the ≤300 ms target), recorded, never gated.**
