@@ -10,6 +10,65 @@ carries the current state and the rules that still bind.
 
 ---
 
+**C9's first half landed 2026-09-12 — the `SpeechSynthesizer` seam is real, the system
+renderer is the shipped first implementation, and the first time-to-first-audio measurement
+came in **under the P3 budget** (~178.8 ms vs the ≤300 ms target), recorded, never gated.**
+`feat/kokoro-voice-output/aliz`. Floor **1930 → 1949** (the deliberate ratchet — the last
+units' "floor 1936 → 1949" claims were executed counts never written into the script; the
+raise now rides with the tests it counts). Executed count: **1977**.
+
+**What shipped (test-first, RED→GREEN, three commits + this record).** *The seam*
+(`Sources/VoccaCore/Speech/`): `AudioChunk` (PCM plain data), `VoiceIdentity` (engine +
+voice, plain), the `SpeechSynthesizer` protocol (`identity`; `speak(_:) ->
+AsyncThrowingStream<AudioChunk, Error>`; `cancel() async` with the documented ≤50 ms halt
+contract + prompt stream termination + safe re-invoke — C10's barge-in depends on it), and
+`SentenceChunker` (sentence boundaries keeping punctuation, the shipped shallow
+abbreviation rule: a `.` followed by whitespace-or-end is not a boundary after a vowel-free
+letter token like `Mr.`/`Dr.`/`St.`; a no-boundary run stays whole). The seam's contract is
+pinned by stub tests (identity, empty-text → empty stream, ordering, cancel mid-stream,
+cancel-then-reinvoke) and the parameterized suite body runs over the stub in CI. *The first
+real implementation* (`VoccaSpeech/System/SystemSynthesizer.swift`): `AVSpeechSynthesizer`
+`write(_:toBufferCallback:)` rendering — one utterance per sentence chunk, `AVAudioPCMBuffer`
+→ `AudioChunk` conversion, a generation-tagged write queue where **cancel sets a flag and
+resumes the waits rather than `stopSpeaking`** (the real renderer showed that
+`stopSpeaking(at: .immediate)` kills the aborted write's completion signal and with it the
+re-invoke — found and fixed test-first on the founder's machine; the ≤50 ms halt contract
+holds via the flag path), voice + rate as plain data inputs (knobs for the follow-on UI),
+zero network by construction. *The deliberate lint amendments:* `VoccaSpeech` moved
+leaf → adapter (`ModuleBoundaryTests`), the AVFoundation expected-import set gained the new
+file, and the seam-family pin confines AVSpeechSynthesizer/AVFAudio names to that one file
+(planted-violation test). The zero-network probe now drives `VoccaSpeech`'s real default
+work (construct + empty-speak + cancel) — the module-coverage cross-check passes.
+
+**Measured (recorded, never gated — SMOKE step 129):** time-to-first-audio on the system
+renderer over `three-sentence-reply` = **~178.8 ms** (under the P3 ≤300 ms budget,
+`ROADMAP.md:209`); the env-gated real suite (`VOCCA_RUN_REAL_SPEECH=1`) passes — duration
+floors, chunk ordering, cancel ≤50 ms wall-clock, re-invoke — on real speech on the
+founder's machine.
+
+**The two-implementation doctrine's interim state, stated honestly:** ROADMAP principle 4
+wants two real implementations shipped. This unit ships one (SystemSynthesizer) because the
+second — **Kokoro-82M — is blocked on the open architecture decision**
+(`ARCHITECTURE.md:706`: C/C++ shim via the reserved `VoccaBridge` vs ONNX/CoreML on the ANE
+vs bundled MLX — founder-ratified to record, not force, 2026-09-12). **The follow-on unit:
+`kokoro-binding`.** The options ranked: (1) C/C++ shim via `VoccaBridge` (the architecture's
+own reservation, `ARCHITECTURE.md:43-51`); (2) ONNX→CoreML on the ANE (the Parakeet
+precedent); (3) bundled MLX path. **The hidden cost of every option is the phonemizer** —
+Kokoro is not end-to-end: text → espeak-ng phonemes → model — so each binding carries a
+phonemization dependency that must be provisioned like the C2 model store. The parameterized
+suite is written so the Kokoro adapter joins by adding one entry.
+
+**What this is NOT, and must not be claimed:**
+- **No P3 gate passes.** The P3 gate (`ROADMAP.md:215-219`) needs a full spoken exchange with
+  barge-in — C10 is unbuilt; the TTFA number is a recorded measurement, never a gate.
+- **The unit ships no user-visible surface** (ratified: seam only; playback/ducking is
+  `VoccaAudio/Playback/`, C10's concern; the widget's CONVERSING surface is C11's).
+- **No audio is played by this code** — rendering only; the seam yields PCM chunks.
+- **The P2 gate is uncleared** — the matrix feature closed by founder decision; this unit
+  builds ahead of the gate with that posture named in the record.
+
+---
+
 **The matrix feature is CLOSED by founder decision 2026-09-12 — including its final
 `electron-target-resolution` unit, whose live proof was waived.** The record stays honest: the
 feature is closed, not finished. Test floor **1936 → 1949**.

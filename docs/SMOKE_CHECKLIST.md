@@ -2719,6 +2719,26 @@ anything.
     to be felt at the next press (the ordering pin's cost half — a re-baseline of the constant
     is the remedy, never a gate).
 
+129. **The first time-to-first-audio measurement (C9, recorded — never gated).**
+
+    *Gesture:* run the env-gated speech suite (`VOCCA_RUN_REAL_SPEECH=1 swift test --filter
+    SpeechSystemSuiteTests`) and the TTFA benchmark on the founder's machine — the system
+    renderer (`AVSpeechSynthesizer` via `write(toBufferCallback:)`) on a known multi-sentence
+    fixture.
+
+    *Verify the state was entered:* the env-gated rows did **not** print their skip message
+    (the skip is the tell-tale — a skipped test ran nothing) and the TTFA row shows a measured
+    number, not a placeholder.
+
+    *Pass:* the measured row is recorded verbatim with the never-gated note. First measurement
+    (2026-09-12): **~178.8 ms** to first chunk on `three-sentence-reply` — under the P3 budget
+    of ≤300 ms (`ROADMAP.md:209`), recorded, never gated (the P3 gate is uncleared; the budget
+    belongs to it). The Kokoro binding (the follow-on unit) owns the budget when it lands; a
+    warm-the-renderer mitigation is a recorded option if a future engine measures over.
+
+    *Failure:* a skipped run recorded as a number, a number recorded as a gate pass, or the
+    row missing the never-gated note.
+
 ---
 
 ## When this file is wrong

@@ -2,10 +2,29 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-07).** The skeleton exists; **the product does not.**
+> **Status (2026-09-12).** The skeleton exists; **the product does not.**
 > A Swift 6 package with ten modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaUsage`, `VoccaBootstrap`.
-> `VoccaSpeech` is the one module still a placeholder.
+> **`VoccaSpeech` is no longer a placeholder** — C9's first half shipped 2026-09-12.
+>
+> **`kokoro-voice-output` (C9 first half, 2026-09-12):** the `SpeechSynthesizer` seam is real
+> (`VoccaCore/Speech/`: `AudioChunk`, `VoiceIdentity`, the protocol with cancellation as a
+> first-class operation — the ≤50 ms halt contract C10's barge-in depends on — and the
+> `SentenceChunker` with its shipped shallow abbreviation rule), and the first real
+> implementation is the **system renderer** (`VoccaSpeech/System/SystemSynthesizer.swift`,
+> AVSpeechSynthesizer `write(toBufferCallback:)`, one utterance per sentence chunk, cancel via
+> a generation-tagged flag queue — `stopSpeaking` kills the re-invoke, found and fixed
+> test-first on real speech). The parameterized suite runs over a stub in CI and over the
+> system renderer env-gated; **time-to-first-audio measured ~178.8 ms on the founder's
+> machine** (SMOKE 129 — recorded, never gated; the P3 budget is ≤300 ms). The deliberate
+> lint amendments landed (VoccaSpeech leaf → adapter, AVFoundation import-set + seam family),
+> the zero-network probe drives the module, and the floor was **ratcheted 1930 → 1949**
+> (executed 1977) — fixing the record drift where executed counts had been called floors.
+> **Kokoro is the recorded follow-on unit** (`kokoro-binding`): the runtime decision
+> (`ARCHITECTURE.md:706`) is founder-ratified to record — C/C++ shim via the reserved
+> `VoccaBridge` vs ONNX/CoreML vs bundled MLX — and the phonemizer (espeak-ng) is named as
+> the hidden cost of every option. **No gate passes; no user-visible surface ships in this
+> unit** (playback/ducking is C10's, the converse surface is C11's). Test floor: **1949**.
 >
 > **`daily-use-ledger` (2026-09-07):** the P0 gate's observable legs are now recorded rather than
 > remembered — and one of them was **not computable at all** until this unit. `SessionOutcomeClass`

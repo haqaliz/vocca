@@ -69,9 +69,7 @@ private enum ModuleBoundaryTestError: Error, CustomStringConvertible {
 /// got its real implementation (`MicrophoneSource`). It was deliberately still a leaf until then:
 /// it imported nothing, and moving it would have loosened a rule that held for free.
 final class ModuleBoundaryTests: XCTestCase {
-    private static let leafModules: Set<String> = [
-        "VoccaSpeech",
-    ]
+    private static let leafModules: Set<String> = []
 
     /// Modules that implement a seam `VoccaCore` owns, and may therefore import it.
     ///
@@ -113,8 +111,18 @@ final class ModuleBoundaryTests: XCTestCase {
     /// `VoccaUI` because a UI module owning persistence inverts the layering, and rooting the seam
     /// in `VoccaBootstrap` would have forced permitting `AppBootstrap.swift`, which already names
     /// `FileManager` — see `usage-store/spec.md`'s rejected alternatives.
+    ///
+    /// `VoccaSpeech` joined in the system-synthesizer aspect: it implements the `SpeechSynthesizer`
+    /// seam (the `SystemSynthesizer` conformance). The move is what lets it import `VoccaCore` —
+    /// the seam's types (`AudioChunk`, `VoiceIdentity`, `SentenceChunker`) live there — while the
+    /// speech seam lint in `SpeechSeamBoundaryTests` keeps the AVFAudio surface confined to the
+    /// adapter's one file, and `AudioFormatConverterTests`' expected-import set keeps the
+    /// `AVFoundation` module name on the same reviewed row. It was the last module left in
+    /// `leafModules`; the move leaves that set empty, which is the point — every module now either
+    /// owns a seam or implements one.
     private static let adapterModules: Set<String> = [
         "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio", "VoccaText", "VoccaUsage",
+        "VoccaSpeech",
     ]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.
@@ -282,15 +290,19 @@ final class ModuleBoundaryTests: XCTestCase {
     /// it, and a rule that has only ever been run against a tree that satisfies it is a rule nobody
     /// has watched work. So it is run here against a map that violates it, in both shapes that
     /// matter: another leaf, and the composition root.
+    ///
+    /// `VoccaSpeech` joined the planted set when it moved out of ``leafModules``
+    /// (system-synthesizer): the move's coverage is only a replacement if rule 3 still reports an
+    /// adapter that imports the module it used to share the leaf list with.
     func testTheAdapterRuleDetectsAnAdapterImportingALeafModule() {
         let voccaModules: Set<String> = [
-            "VoccaCore", "VoccaHotkey", "VoccaText", "VoccaUI", "VoccaBootstrap",
+            "VoccaCore", "VoccaHotkey", "VoccaText", "VoccaUI", "VoccaBootstrap", "VoccaSpeech",
         ]
 
         XCTAssertEqual(
             Self.adapterImportViolations(
-                imports: ["VoccaCore", "VoccaText"], amongVoccaModules: voccaModules),
-            ["VoccaText"],
+                imports: ["VoccaCore", "VoccaText", "VoccaSpeech"], amongVoccaModules: voccaModules),
+            ["VoccaSpeech", "VoccaText"],
             "An adapter importing a leaf module must be reported, exactly as rule 2 reported it.")
 
         XCTAssertEqual(

@@ -1139,12 +1139,21 @@ final class AudioFormatConverterTests: XCTestCase {
     /// reviewed amendment is this row. `AVAudioFormat`/`AVAudioPCMBuffer` are system framework
     /// types, not FluidAudio names, so the H8b SDK confinement is unaffected: the file may speak
     /// both, each bounded by its own reviewed list.
+    ///
+    /// The system-synthesizer aspect adds the fifth file: the speech adapter
+    /// (`VoccaSpeech/System/SystemSynthesizer.swift`). The renderer's write callback delivers
+    /// `AVAudioPCMBuffer` — an AVFoundation type — so the adapter cannot be built without the
+    /// framework, and R7's reviewed amendment is this row. The speech seam lint
+    /// (`SpeechSeamBoundaryTests`) confines the AVFAudio *type names* to the same one file inside
+    /// `VoccaSpeech`, exactly as this list confines the module name tree-wide: the file may speak
+    /// both surfaces, each bounded by its own reviewed list.
     func testTheFilesThatImportAVFoundationAreExactlyTheExpectedSet() throws {
         let expected: Set<String> = [
             "VoccaAudio/AudioFormatConverter.swift",
             "VoccaAudio/AudioCaptureGraph.swift",
             "VoccaAudio/MicrophoneAuthorization.swift",
             "VoccaASR/Parakeet/ParakeetEngine.swift",
+            "VoccaSpeech/System/SystemSynthesizer.swift",
         ]
 
         let sources = try PackageRootLocator.find(from: #filePath)

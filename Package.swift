@@ -106,9 +106,14 @@ let package = Package(
             dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // An adapter, not a leaf: it implements a seam VoccaCore owns (the SpeechSynthesizer,
+        // via the SystemSynthesizer conformance — the module's product is now the adapter, the
+        // placeholder is retired), so it depends on VoccaCore and VoccaCore does not depend on
+        // it. See ModuleBoundaryTests' rule 3 for why the arrow points this way and what still
+        // constrains it. The AVFAudio surface is confined to one file by the speech seam lint.
         .target(
             name: "VoccaSpeech",
-            dependencies: [],
+            dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
