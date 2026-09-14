@@ -1580,8 +1580,22 @@ set -euo pipefail
 # URL is read from the manifest's raw text (SwiftPM encodes package-level dependencies nowhere the
 # `PackageManifest` dump helper decodes) and the target edges from `swift package dump-package`.
 #
+# The engine-binding raise (1952 -> 1963; executed 1991) adds the Kokoro conformance's headless
+# pins and its family lint. `KokoroEngineTests` pins the second real `SpeechSynthesizer`
+# implementation with no model and no network — identity (`engineID` "kokoro-82m", distinct from
+# the system engine), init purity over a nonexistent model directory (the port's own init would
+# throw there — the adapter stores plain data only), empty-speak short-circuiting before any port
+# touch, the absent-models stream error mapped to `KokoroEngineError.modelsUnavailable(directory)`
+# (asserted by identity, never a crash), cancel-with-nothing-in-flight as a safe no-op, and the
+# Float32-little-endian sample->chunk conversion (4 bytes per sample, 24 kHz mono, duration =
+# count/24000, empty -> nil). `KokoroSeamBoundaryTests` confines the Kokoro-runtime family
+# (Kokoro, SpeakEvent, SynthesisResult, VoiceStore, EnglishG2P, BARTG2P, Phonemizer) to the one
+# seam file `Kokoro/KokoroEngine.swift`, with the planted-violation and comment-strip controls,
+# and pins that the permitted file imports no AVFAudio/AVFoundation (the expected-import set is
+# unchanged) and names no URLSession (the port's downloader is never reached from the seam file).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1952
+MINIMUM_EXECUTED_TESTS=1963
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
