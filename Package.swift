@@ -34,6 +34,12 @@ let package = Package(
         // (Apache-2.0 — the repo's own licence). Pinned to the range the spike measured
         // (`spike_20260809.md`); confined to one file by the H8b seam lint.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
+        // The second external dependency in the repository: Jud/kokoro-coreml (Apache-2.0 —
+        // licence verified verbatim against the port's repository), the Kokoro TTS runtime the
+        // C9 speech binding speaks to. Pinned `from: "0.11.2"` (0.x: minor is breaking — a
+        // silent update surfaces in the engine-binding suite); the product is `KokoroCoreML`,
+        // confined to VoccaSpeech by the speech seam lint.
+        .package(url: "https://github.com/Jud/kokoro-coreml.git", from: "0.11.2"),
     ],
     targets: [
         .target(
@@ -113,7 +119,7 @@ let package = Package(
         // constrains it. The AVFAudio surface is confined to one file by the speech seam lint.
         .target(
             name: "VoccaSpeech",
-            dependencies: ["VoccaCore"],
+            dependencies: ["VoccaCore", .product(name: "KokoroCoreML", package: "kokoro-coreml")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
@@ -145,6 +151,7 @@ let package = Package(
                 "VoccaASR",
                 "VoccaInject",
                 "VoccaText",
+                "VoccaSpeech",
                 "VoccaUI",
                 "VoccaUsage",
             ],

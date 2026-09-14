@@ -1565,8 +1565,23 @@ set -euo pipefail
 # rather than saving an empty one, and a failed removal is loud and leaves the window unwritten so
 # the next write still empties it. A cancelled confirmation clears nothing.
 #
+# The speech first-half raise (1930 -> 1949) is restored here — it shipped without its ledger
+# paragraph. `07357c5` raised the line to 1949 in the same commit as the parameterized suite body
+# (`SpeechFixtureSuite` + `SpeechSynthesizerSuiteTests`, the stub run in CI and the system renderer
+# env-gated), and the matrix feature's "1936 -> 1949" history was a record-drift fix: that executed
+# count had never been written into this line, so the floor understated the suite while the history
+# claimed a raise that never landed. The floor now names what the suite executes.
+#
+# The port-vetting provenance pin adds three (1949 -> 1950; executed 1980): the kokoro-binding
+# unit's first aspect, `KokoroDependencyTests`, pins the dependency decision as a manifest fact —
+# the kokoro-coreml package URL (`https://github.com/Jud/kokoro-coreml.git`) declared in
+# `Package.swift`, the `VoccaSpeech` target's dependency on the `KokoroCoreML` product of that
+# package, and the `VoccaBootstrap` composition root's dependency on `VoccaSpeech`. Headless: the
+# URL is read from the manifest's raw text (SwiftPM encodes package-level dependencies nowhere the
+# `PackageManifest` dump helper decodes) and the target edges from `swift package dump-package`.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1949
+MINIMUM_EXECUTED_TESTS=1950
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

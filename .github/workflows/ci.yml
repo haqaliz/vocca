@@ -55,7 +55,7 @@ env:
   # The package floor is macOS 15 and this pins the toolchain to match it. Selected explicitly
   # below rather than inherited: a runner image bumping its default Xcode should be a job that
   # fails loudly, not a quiet change in what is being tested.
-  XCODE_MAJOR: "16"
+  XCODE_MAJOR: "26"
 
 jobs:
   headless:
