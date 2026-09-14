@@ -21,20 +21,27 @@ import VoccaSpeech
 // module's placeholder witness.
 //
 // The placeholder era ended with the system synthesizer: `VoccaSpeech` ships a real adapter now,
-// and its default-configuration surface is **constructing `SystemSynthesizer` and speaking**.
-// This drive runs that surface — construct, `speak("")` to completion (the seam's empty-text
-// policy: nothing to say is an answer, never an error, and an empty render touches no renderer
-// path that could reach out), then `cancel()` (the barge-in contract's other half: safe with
-// nothing in flight). The report is what stands in for `SystemSynthesizer.self` in the probe's
-// module list — a witness minted *by* the call, so the entry cannot outlive the call it stands
-// for, exactly as the other drives' witnesses work.
+// and its default-configuration surface is **constructing `SystemSynthesizer` and speaking** —
+// and, since `kokoro-binding`, **constructing `KokoroEngine` over a fresh, empty model
+// directory**, which the engine's pure init makes safe: the port engine is built lazily on the
+// first non-empty speak, so construction touches nothing and needs no model bytes. This drive
+// runs that surface — construct, `speak("")` to completion (the seam's empty-text policy:
+// nothing to say is an answer, never an error, and an empty render touches no renderer path
+// that could reach out), then `cancel()` (the barge-in contract's other half: safe with
+// nothing in flight) — for both implementations, on the same round trip. The report is what
+// stands in for `SystemSynthesizer.self` in the probe's module list — a witness minted *by* the
+// call, so the entry cannot outlive the call it stands for, exactly as the other drives'
+// witnesses work. The Kokoro leg rides the same module, so the witness list is unchanged.
 //
 // ## What this drive does not do
 //
 // It does **not** render speech. An empty utterance renders nothing — that is the point of the
 // empty-text policy — so the drive needs no voices and no renderer, and the zero-network
-// observation stays deterministic on every machine, CI included. Real rendering is the
-// env-gated suite's job (`SpeechSystemSuiteTests`), which the founder's machine runs and records.
+// observation stays deterministic on every machine, CI included. The Kokoro leg in particular
+// never reaches the port's loader: an empty speak short-circuits before any port touch, which
+// is the probe's pin that the engine's default work (construction and the empty path) performs
+// no download. Real rendering is the env-gated suite's job (`SpeechSystemSuiteTests` and the
+// Kokoro suite), which the founder's machine runs and records.
 
 extension VoccaNetworkProbe {
 
@@ -102,6 +109,33 @@ extension VoccaNetworkProbe {
         // `cancel()` with nothing in flight — the barge-in contract's safe-when-idle half.
         await synth.cancel()
 
+        // The Kokoro engine's default-configuration surface (`kokoro-binding`/`engine-binding`).
+        // Construction is pure — the port engine is built lazily on the first non-empty speak —
+        // so this leg pins that against a fresh, empty model directory the engine touches
+        // nothing: no model load, no download. `speak("")` short-circuits before any port touch
+        // (the same empty-text policy as above), so the empty speak reports zero chunks and no
+        // error, and `cancel()` with nothing in flight is the same safe-when-idle half.
+        let modelDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "vocca-network-probe-kokoro-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: modelDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: modelDirectory) }
+
+        let kokoro = KokoroEngine(modelDirectory: modelDirectory, voice: "af_heart", rate: nil)
+
+        var kokoroChunks = 0
+        var kokoroErrorNote: String?
+        do {
+            for try await _ in kokoro.speak("") {
+                kokoroChunks += 1
+            }
+        } catch {
+            kokoroErrorNote = "\(error)"
+        }
+
+        await kokoro.cancel()
+
         return SpeechDrive(
             report: [
                 "identity=\(synth.identity.engineID)",
@@ -109,6 +143,9 @@ extension VoccaNetworkProbe {
                 "emptySpeak.chunks=\(chunks)",
                 "emptySpeak.error=\(errorNote ?? "none")",
                 "cancel.afterEmptySpeak=true",
+                "kokoro.emptySpeak.chunks=\(kokoroChunks)",
+                "kokoro.emptySpeak.error=\(kokoroErrorNote ?? "none")",
+                "cancel.afterKokoroEmptySpeak=true",
             ].joined(separator: " "),
             moduleWitness: type(of: synth))
     }
