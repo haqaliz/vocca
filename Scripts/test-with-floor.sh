@@ -1572,7 +1572,7 @@ set -euo pipefail
 # count had never been written into this line, so the floor understated the suite while the history
 # claimed a raise that never landed. The floor now names what the suite executes.
 #
-# The port-vetting provenance pin adds three (1949 -> 1950; executed 1980): the kokoro-binding
+# The port-vetting provenance pin adds three (1949 -> 1952; executed 1980): the kokoro-binding
 # unit's first aspect, `KokoroDependencyTests`, pins the dependency decision as a manifest fact —
 # the kokoro-coreml package URL (`https://github.com/Jud/kokoro-coreml.git`) declared in
 # `Package.swift`, the `VoccaSpeech` target's dependency on the `KokoroCoreML` product of that
@@ -1581,7 +1581,7 @@ set -euo pipefail
 # `PackageManifest` dump helper decodes) and the target edges from `swift package dump-package`.
 #
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1950
+MINIMUM_EXECUTED_TESTS=1952
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
