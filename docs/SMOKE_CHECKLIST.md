@@ -2739,6 +2739,32 @@ anything.
     *Failure:* a skipped run recorded as a number, a number recorded as a gate pass, or the
     row missing the never-gated note.
 
+130. **The first Kokoro time-to-first-audio measurement (C9, recorded — never gated).**
+
+    *Gesture:* provision the Kokoro models on the founder's machine
+    (`Scripts/provision-kokoro-fixtures.sh` — the `models-2026-03-23` release asset, digests
+    pinned in `kokoro-82m.json` from the actual bytes), then run the env-gated Kokoro suite
+    (`VOCCA_RUN_REAL_SPEECH=1 VOCCA_KOKORO_MODEL_DIR="<extracted models>" swift test --filter
+    SpeechKokoroSuiteTests`) — the real `KokoroEngine` (Jud/kokoro-coreml, CoreML/ANE) over
+    the same multi-sentence fixture the system renderer measured.
+
+    *Verify the state was entered:* the env-gated rows did **not** print their skip message
+    (the skip is the tell-tale — a skipped test ran nothing) and the `KOKORO-TTFA` row shows a
+    measured number, not a placeholder. The number is **warm** — a full warm-up speak is
+    consumed first, so the CoreML first compile is a prepare fact, never part of the
+    measurement.
+
+    *Pass:* the measured row is recorded verbatim with the never-gated note. First measurement
+    (2026-09-14): **`KOKORO-TTFA 232.5ms fixture=three-sentence-reply baseline=178.8ms
+    budget=300ms recorded-never-gated`** — under the P3 budget of ≤300 ms (`ROADMAP.md:209`),
+    recorded, never gated (the P3 gate is uncleared; the budget belongs to it). The measured
+    232.5 ms sits **above** the system renderer's ~178.8 ms baseline (SMOKE 129) and below the
+    budget; the Kokoro binding owns the budget — an over-budget number is recorded verbatim,
+    never gated, with the warm-the-renderer mitigation as the recorded option.
+
+    *Failure:* a skipped run recorded as a number, a number recorded as a gate pass, or the
+    row missing the never-gated note.
+
 ---
 
 ## When this file is wrong
