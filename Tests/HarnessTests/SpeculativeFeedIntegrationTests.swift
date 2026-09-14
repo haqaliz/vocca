@@ -199,9 +199,23 @@ final class SpeculativeFeedIntegrationTests: XCTestCase {
             calls.map(\.target),
             [TargetContext(bundleID: "com.example.Notes", windowTitle: "The Draft", isSecureInput: false)],
             "the injection lands in the context resolved at key-down")
-        guard case .delivered = root.widgetStore.state.state else {
-            return XCTFail("the delivered transcript is the session's terminal display state")
+        // The store adoption follows the injector call by an async hop (the route awaits the
+        // injector's return, then adopts into the store) — so the delivered state is polled
+        // like the other legs: a loaded runner widens that window (observed flake 2026-09-14,
+        // bundle job) and the terminal-state assertion must not race the call count.
+        turns = 0
+        var delivered = false
+        while turns < 20_000 {
+            if case .delivered = root.widgetStore.state.state {
+                delivered = true
+                break
+            }
+            await Task.yield()
+            turns += 1
         }
+        XCTAssertTrue(
+            delivered,
+            "the delivered transcript is the session's terminal display state")
         XCTAssertNil(
             root.widgetStore.state.partialText,
             "no provisional text survives into DELIVERED — the final is the only text there")
