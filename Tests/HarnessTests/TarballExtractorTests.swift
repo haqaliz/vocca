@@ -61,9 +61,10 @@ final class TarballExtractorTests: XCTestCase {
     /// A copy of the fixture at a fresh temporary path, so a test can poison or mutate its copy
     /// without touching the committed bytes.
     private func makeFixtureCopy() throws -> URL {
-        let copy = FileManager.default.temporaryDirectory
+        let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vocca-tarball-extractor-tests", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString + ".tar.gz")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let copy = directory.appendingPathComponent(UUID().uuidString + ".tar.gz")
         tempPaths.append(copy)
         try FileManager.default.copyItem(at: fixtureTarball(), to: copy)
         return copy
