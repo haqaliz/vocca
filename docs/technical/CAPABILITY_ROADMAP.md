@@ -251,6 +251,19 @@ numbers are recorded, never gated, and no real session has been folded on this m
 
 **Dependencies:** none blocking (independently shippable — "Vocca can read your selection aloud" is a useful release on its own, before any conversational loop exists).
 
+*(Amended by the `kokoro-voice-output` unit, 2026-09-12: the first half shipped — the seam
+(`AudioChunk`, `VoiceIdentity`, `SpeechSynthesizer` with cancellation as a first-class
+operation, the ≤50 ms halt contract), the `SentenceChunker`, and the system renderer as the
+first real implementation; TTFA measured ~178.8 ms, recorded never gated; the parameterized
+suite runs over a stub in CI and the renderer env-gated. Amended by the `kokoro-binding`
+implementation unit, 2026-09-14: **C9 is complete** — `KokoroEngine` (Kokoro-82M on
+CoreML/ANE via Jud/kokoro-coreml, the recorded runtime decision) ships as the second real
+implementation behind the seam, provisioned through the C2 store with the path injected from
+the composition root, one voice (af_heart), zero-egress. Three vetting corrections recorded:
+the phonemizer is the port's bundled English G2P + BART fallback (not Misaki); the dependency
+tree declares swift-tools-version 6.2 (CI moved Xcode 16 → 26); the model artifact is the
+models-2026-03-23 tarball. KOKORO-TTFA measured 232.5 ms warm, recorded never gated.)*
+
 ---
 
 ## C10. Streaming turn-taking + barge-in · P3, weeks 13–15
