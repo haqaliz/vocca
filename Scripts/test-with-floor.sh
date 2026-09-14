@@ -1594,8 +1594,19 @@ set -euo pipefail
 # and pins that the permitted file imports no AVFAudio/AVFoundation (the expected-import set is
 # unchanged) and names no URLSession (the port's downloader is never reached from the seam file).
 #
+# The env-gated Kokoro suite entry adds two (1963 -> 1965; executed 1993): `SpeechKokoroSuiteTests`
+# runs the same `SpeechFixtureSuite` body over the real `KokoroEngine` on the founder's machine —
+# the two-variable gate (`VOCCA_RUN_REAL_SPEECH` + `VOCCA_KOKORO_MODEL_DIR`), the fixture duration
+# floors, cancel ≤50 ms wall-clock, the re-invoke leg, and the KOKORO-TTFA row (warm, after a full
+# warm-up speak — the CoreML compile is a prepare fact, never part of the measurement). CI has no
+# Kokoro model, so CI runs the skip path: both tests skip visibly with a message naming both
+# variables and still count as executed, which is what this line's arithmetic assumes. The ≤300 ms
+# budget is a recorded measurement, never a gate — the row prints `KOKORO-TTFA <ms>ms
+# fixture=three-sentence-reply baseline=178.8ms budget=300ms recorded-never-gated`, and an
+# over-budget number is recorded verbatim.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1963
+MINIMUM_EXECUTED_TESTS=1965
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
