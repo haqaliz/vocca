@@ -1618,8 +1618,25 @@ set -euo pipefail
 # post-check that tar exiting 0 on an empty archive (measured on macOS) is still a failure, never
 # a silent partial. All nine run headless in CI — the fixture is committed bytes, no network.
 #
+# The provisioning sequence adds four (1974 -> 1978; executed 2006): `KokoroProvisioningTests`
+# runs the sequence headless over the committed fixture — `downloadIfMissing` through the store
+# with the fixture-pinned in-test manifest and a transport double, extraction into
+# `<root>/kokoro-82m/1/kokoro`, the composition root's builder yielding the real `KokoroEngine`
+# (identity "kokoro-82m"/"af_heart"), the injected path pinned through the engine's own recorded
+# `modelsUnavailable` URL (the probe removes the extracted trio first — the fixture's trio
+# satisfies the port's availability check), and the double run downloading once on the store's
+# verified marker. The provenance test drives `prepareSpeechModels` with a recording transport
+# and the shipped manifest — whose digest is the real 103 MB asset's, so the fixture's bytes can
+# never verify: the expected `checksumMismatch` is the proof the SHIPPED manifest was loaded, the
+# recorded file name and destination pin the `kokoro-models.tar.gz` release asset under
+# `kokoro-82m/1/kokoro`, and the transport's base URL pins `kokoroModelRepository` to the
+# models-2026-03-23 release base. The digest-verification suite gains the TTS row
+# (`testTheKokoroManifestMatchesTheProvisionedBytes`), env-gated on `VOCCA_MODEL_DIR` like the
+# EngineTier loop it sits beside — it skips in CI and still counts as executed, which is what
+# this line's arithmetic assumes.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1974
+MINIMUM_EXECUTED_TESTS=1978
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
