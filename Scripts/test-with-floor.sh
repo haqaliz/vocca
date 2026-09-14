@@ -1605,8 +1605,21 @@ set -euo pipefail
 # fixture=three-sentence-reply baseline=178.8ms budget=300ms recorded-never-gated`, and an
 # over-budget number is recorded verbatim.
 #
+# The provisioning aspect's manifest machinery adds nine (1965 -> 1974): `KokoroModelManifestTests`
+# pins the TTS manifest's shipped shape (engineID "kokoro-82m", version "1", the single-component
+# sdkDirectory "kokoro", exactly the one `kokoro-models.tar.gz` entry with a 64-hex digest and a
+# positive byte count), its passing of the manifest-validation shape, and the pairwise-distinct pin
+# that the Kokoro engineID collides with none of the three ASR storage keys — the sibling loader
+# exists precisely so the EngineTier-closed `ShippedModelManifest` switch does not grow.
+# `TarballExtractorTests` runs the committed `fixture.tar.gz` through the real extractor: both
+# files land and the target directory is created, a double run skips (proven by poisoning the
+# tarball copy between runs), a partial trio re-extracts, and the three failure modes are recorded
+# errors — missing tarball, tar's own non-zero exit on corrupt bytes, and the load-bearing
+# post-check that tar exiting 0 on an empty archive (measured on macOS) is still a failure, never
+# a silent partial. All nine run headless in CI — the fixture is committed bytes, no network.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1965
+MINIMUM_EXECUTED_TESTS=1974
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -1,0 +1,12 @@
+{
+  "engineID": "kokoro-82m",
+  "version": "1",
+  "sdkDirectory": "kokoro",
+  "files": [
+    {
+      "name": "kokoro-models.tar.gz",
+      "sha256": "0d24bbf80526456bd8640f9f484cd1c333aee8a936e618ac44e619eafb79aec9",
+      "byteCount": 103394124
+    }
+  ]
+}
