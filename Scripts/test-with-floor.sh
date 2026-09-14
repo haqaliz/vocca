@@ -1565,8 +1565,78 @@ set -euo pipefail
 # rather than saving an empty one, and a failed removal is loud and leaves the window unwritten so
 # the next write still empties it. A cancelled confirmation clears nothing.
 #
+# The speech first-half raise (1930 -> 1949) is restored here — it shipped without its ledger
+# paragraph. `07357c5` raised the line to 1949 in the same commit as the parameterized suite body
+# (`SpeechFixtureSuite` + `SpeechSynthesizerSuiteTests`, the stub run in CI and the system renderer
+# env-gated), and the matrix feature's "1936 -> 1949" history was a record-drift fix: that executed
+# count had never been written into this line, so the floor understated the suite while the history
+# claimed a raise that never landed. The floor now names what the suite executes.
+#
+# The port-vetting provenance pin adds three (1949 -> 1952; executed 1980): the kokoro-binding
+# unit's first aspect, `KokoroDependencyTests`, pins the dependency decision as a manifest fact —
+# the kokoro-coreml package URL (`https://github.com/Jud/kokoro-coreml.git`) declared in
+# `Package.swift`, the `VoccaSpeech` target's dependency on the `KokoroCoreML` product of that
+# package, and the `VoccaBootstrap` composition root's dependency on `VoccaSpeech`. Headless: the
+# URL is read from the manifest's raw text (SwiftPM encodes package-level dependencies nowhere the
+# `PackageManifest` dump helper decodes) and the target edges from `swift package dump-package`.
+#
+# The engine-binding raise (1952 -> 1963; executed 1991) adds the Kokoro conformance's headless
+# pins and its family lint. `KokoroEngineTests` pins the second real `SpeechSynthesizer`
+# implementation with no model and no network — identity (`engineID` "kokoro-82m", distinct from
+# the system engine), init purity over a nonexistent model directory (the port's own init would
+# throw there — the adapter stores plain data only), empty-speak short-circuiting before any port
+# touch, the absent-models stream error mapped to `KokoroEngineError.modelsUnavailable(directory)`
+# (asserted by identity, never a crash), cancel-with-nothing-in-flight as a safe no-op, and the
+# Float32-little-endian sample->chunk conversion (4 bytes per sample, 24 kHz mono, duration =
+# count/24000, empty -> nil). `KokoroSeamBoundaryTests` confines the Kokoro-runtime family
+# (Kokoro, SpeakEvent, SynthesisResult, VoiceStore, EnglishG2P, BARTG2P, Phonemizer) to the one
+# seam file `Kokoro/KokoroEngine.swift`, with the planted-violation and comment-strip controls,
+# and pins that the permitted file imports no AVFAudio/AVFoundation (the expected-import set is
+# unchanged) and names no URLSession (the port's downloader is never reached from the seam file).
+#
+# The env-gated Kokoro suite entry adds two (1963 -> 1965; executed 1993): `SpeechKokoroSuiteTests`
+# runs the same `SpeechFixtureSuite` body over the real `KokoroEngine` on the founder's machine —
+# the two-variable gate (`VOCCA_RUN_REAL_SPEECH` + `VOCCA_KOKORO_MODEL_DIR`), the fixture duration
+# floors, cancel ≤50 ms wall-clock, the re-invoke leg, and the KOKORO-TTFA row (warm, after a full
+# warm-up speak — the CoreML compile is a prepare fact, never part of the measurement). CI has no
+# Kokoro model, so CI runs the skip path: both tests skip visibly with a message naming both
+# variables and still count as executed, which is what this line's arithmetic assumes. The ≤300 ms
+# budget is a recorded measurement, never a gate — the row prints `KOKORO-TTFA <ms>ms
+# fixture=three-sentence-reply baseline=178.8ms budget=300ms recorded-never-gated`, and an
+# over-budget number is recorded verbatim.
+#
+# The provisioning aspect's manifest machinery adds nine (1965 -> 1974): `KokoroModelManifestTests`
+# pins the TTS manifest's shipped shape (engineID "kokoro-82m", version "1", the single-component
+# sdkDirectory "kokoro", exactly the one `kokoro-models.tar.gz` entry with a 64-hex digest and a
+# positive byte count), its passing of the manifest-validation shape, and the pairwise-distinct pin
+# that the Kokoro engineID collides with none of the three ASR storage keys — the sibling loader
+# exists precisely so the EngineTier-closed `ShippedModelManifest` switch does not grow.
+# `TarballExtractorTests` runs the committed `fixture.tar.gz` through the real extractor: both
+# files land and the target directory is created, a double run skips (proven by poisoning the
+# tarball copy between runs), a partial trio re-extracts, and the three failure modes are recorded
+# errors — missing tarball, tar's own non-zero exit on corrupt bytes, and the load-bearing
+# post-check that tar exiting 0 on an empty archive (measured on macOS) is still a failure, never
+# a silent partial. All nine run headless in CI — the fixture is committed bytes, no network.
+#
+# The provisioning sequence adds four (1974 -> 1978; executed 2006): `KokoroProvisioningTests`
+# runs the sequence headless over the committed fixture — `downloadIfMissing` through the store
+# with the fixture-pinned in-test manifest and a transport double, extraction into
+# `<root>/kokoro-82m/1/kokoro`, the composition root's builder yielding the real `KokoroEngine`
+# (identity "kokoro-82m"/"af_heart"), the injected path pinned through the engine's own recorded
+# `modelsUnavailable` URL (the probe removes the extracted trio first — the fixture's trio
+# satisfies the port's availability check), and the double run downloading once on the store's
+# verified marker. The provenance test drives `prepareSpeechModels` with a recording transport
+# and the shipped manifest — whose digest is the real 103 MB asset's, so the fixture's bytes can
+# never verify: the expected `checksumMismatch` is the proof the SHIPPED manifest was loaded, the
+# recorded file name and destination pin the `kokoro-models.tar.gz` release asset under
+# `kokoro-82m/1/kokoro`, and the transport's base URL pins `kokoroModelRepository` to the
+# models-2026-03-23 release base. The digest-verification suite gains the TTS row
+# (`testTheKokoroManifestMatchesTheProvisionedBytes`), env-gated on `VOCCA_MODEL_DIR` like the
+# EngineTier loop it sits beside — it skips in CI and still counts as executed, which is what
+# this line's arithmetic assumes.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1949
+MINIMUM_EXECUTED_TESTS=1978
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -21,6 +21,7 @@ import VoccaAudio
 import VoccaCore
 import VoccaHotkey
 import VoccaInject
+import VoccaSpeech
 import VoccaText
 import VoccaUI
 import VoccaUsage
@@ -844,12 +845,73 @@ public enum AppBootstrap {
     public static let whisperModelRepository =
         URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main")!
 
+    /// The Kokoro TTS artifact's host: the `models-2026-03-23` release's asset base on the port's
+    /// repository — the newest `models-*` release, the same one the port's own downloader would
+    /// pick, and the base `kokoro-models.tar.gz` resolves against.
+    ///
+    /// Deliberately **not** inside ``repositoryURL(for:)``: that switch is closed over
+    /// ``EngineTier``, and Kokoro is a `SpeechSynthesizer` under its own storage key — a tier
+    /// added to the Core enum must be given an ASR manifest there or the switch stops compiling,
+    /// which is precisely why the TTS artifact gets this sibling constant instead.
+    public static let kokoroModelRepository =
+        URL(string: "https://github.com/Jud/kokoro-coreml/releases/download/models-2026-03-23")!
+
     /// The repository whose file tree serves `tier`'s manifest.
     public static func repositoryURL(for tier: EngineTier) -> URL {
         switch tier.engine {
         case .parakeetV3: return parakeetModelRepository
         case .whisperTurbo: return whisperModelRepository
         }
+    }
+
+    // MARK: - The speech (TTS) provisioning
+
+    /// Provisions the Kokoro TTS artifact: download-if-missing through the store, then
+    /// extract-if-needed into the SDK-shaped directory — the launch path's TTS half.
+    ///
+    /// The manifest is the **shipped**, digest-pinned one (``KokoroModelManifest/load()``), and
+    /// the transport defaults to the pinned release repository; a test may inject a double
+    /// through the ``ModelTransport`` seam to run the sequence headless. The store commits the
+    /// tarball to `<root>/kokoro-82m/1/kokoro/` and the extractor unpacks it into that same
+    /// directory — the layout ``KokoroEngine(modelDirectory:)`` resolves (the ``ParakeetEngine``
+    /// load-directory precedent). Extraction is idempotent: the marker trio skips a re-run, and
+    /// an interrupted extraction self-heals on the next launch.
+    ///
+    /// - Parameter transport: `nil` (the default) downloads from ``kokoroModelRepository`` via
+    ///   the real ``DefaultModelTransport`` — the launch call passes nothing and gets exactly
+    ///   that; tests pass a double to stay headless.
+    ///
+    /// - Throws: the manifest loader's error when the shipped manifest is missing from the
+    ///   bundle (a broken build); the store's when the download cannot verify (the pinned
+    ///   digest is the trust anchor); the extractor's when the archive cannot be unpacked. A
+    ///   failure is thrown, never silently skipped — the caller decides what it means for the run.
+    public static func prepareSpeechModels(
+        store: ModelStore,
+        transport: (any ModelTransport)? = nil
+    ) async throws {
+        let manifest = try KokoroModelManifest.load()
+        try await store.downloadIfMissing(
+            manifest: manifest,
+            transport: transport ?? DefaultModelTransport(baseURL: kokoroModelRepository))
+        let directory = await store.baseURL(for: manifest.engineID, version: manifest.version)
+            .appendingPathComponent(manifest.sdkDirectory ?? "kokoro", isDirectory: true)
+        // The TTS manifest ships exactly one file — the pinned release tarball — so the first
+        // entry is the archive to extract, by manifest contract.
+        try TarballExtractor.extractIfNeeded(
+            tarball: directory.appendingPathComponent(manifest.files[0].name), into: directory)
+    }
+
+    /// The Kokoro synthesizer recipe: the real ``KokoroEngine`` over the provisioned directory,
+    /// with the one voice this unit ships (`af_heart`) and the port's default rate.
+    ///
+    /// Construction is pure and probe-safe — `KokoroEngine` stores plain data and touches the
+    /// port only on the first non-empty `speak` — so this builder may run anywhere; only
+    /// ``prepareSpeechModels(store:)`` provisions bytes, and it is the launch path's call.
+    public static func kokoroSynthesizer(store: ModelStore) async throws -> any SpeechSynthesizer {
+        let manifest = try KokoroModelManifest.load()
+        let directory = await store.baseURL(for: manifest.engineID, version: manifest.version)
+            .appendingPathComponent(manifest.sdkDirectory ?? "kokoro", isDirectory: true)
+        return KokoroEngine(modelDirectory: directory, voice: "af_heart", rate: nil)
     }
 
     // MARK: - The engine builder
@@ -2411,6 +2473,20 @@ public final class DictationLoopRoot {
         // undone by the very next line.
         guard isCurrent(resolver, removals) else { return }
         markEnginePrepared()
+        // The TTS half of the launch provisioning, sequenced AFTER the ASR preparation has fully
+        // settled: the store's single-flight slot is one per store, not per manifest, so a TTS
+        // provision racing the ASR download would silently skip on it — sequencing is the guard.
+        // Failure is logged, never fatal: dictation is the launch's product, and this unit ships
+        // no speak surface for the TTS path to gate. Never called from `configure` — the
+        // zero-network probe's contract (a download here would fail the interposer run).
+        if let store = modelStore {
+            do {
+                try await AppBootstrap.prepareSpeechModels(store: store)
+            } catch {
+                logger.error(
+                    "the speech models could not be prepared: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// Whether the preparation that captured `candidate` and `removals` is still the one this root

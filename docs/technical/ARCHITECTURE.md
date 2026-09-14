@@ -703,7 +703,25 @@ The load-bearing tests are the failure-path ones. Any competent implementation p
 
 Flagged honestly rather than papered over. None blocks C1.
 
-1. **Kokoro in Swift.** ~~Whether we bind Kokoro through a C/C++ shim, an ONNX/CoreML conversion, or a bundled MLX path is unresolved.~~ **RESOLVED 2026-09-12 (`kokoro-binding`).** CoreML/ANE via a Swift port — Jud/kokoro-coreml (Apache-2.0, pre-converted ~99 MB model, streaming chunks at sentence boundaries), provisioned through the existing C2 store with the path injected from the composition root; Misaki (English G2P) replaces espeak-ng; one voice (af_heart) initially. The VoccaBridge C-shim reservation is overtaken by the ecosystem (no maintained Swift-Kokoro-on-onnxruntime path; the whisper precedent shows a C-ABI bridge needs no module boundary of its own). The binding's implementation is a recorded follow-on whose first step is the vetting gate (license, model provenance, phonemization, per-sentence cancel semantics — verified against the port's code, not its README).
+1. **Kokoro in Swift.** ~~Whether we bind Kokoro through a C/C++ shim, an ONNX/CoreML conversion, or a bundled MLX path is unresolved.~~ **IMPLEMENTED 2026-09-14 (`kokoro-binding`).** CoreML/ANE via a Swift port — Jud/kokoro-coreml (Apache-2.0, pre-converted ~99 MB model) — shipped as `KokoroEngine` in `VoccaSpeech`, provisioned through the existing C2 store with the path injected from the composition root; one voice (af_heart) initially. The VoccaBridge C-shim reservation is overtaken by the ecosystem (no maintained Swift-Kokoro-on-onnxruntime path; the whisper precedent shows a C-ABI bridge needs no module boundary of its own). The vetting gate passed 2026-09-14 with three recorded corrections: the phonemizer is the port's **bundled English G2P + BART fallback**, not Misaki; both dependencies declare `swift-tools-version: 6.2` (CI moved Xcode 16 → 26); the artifact is the single `models-2026-03-23` tarball with `vocab_index.json` absent (the port's bundled-tokenizer fallback covers it).
+>
+> **Amended (`kokoro-binding`, 2026-09-14) — the decision is IMPLEMENTED, not just resolved, and
+> the corrections are recorded.** Question 1 now closes with shipped code, not a ratified pick:
+> `KokoroEngine` conforms to `SpeechSynthesizer` in the one seam file
+> `VoccaSpeech/Kokoro/KokoroEngine.swift`, the second real implementation alongside
+> `SystemSynthesizer` (the two-implementation doctrine is satisfied). The port's init is
+> deferred (init pure-local; the port engine constructs lazily on first speak — file IO +
+> warmup thread are a model-load prepare fact), one `synthesize(text:voice:speed:)` per
+> `SentenceChunker` sentence, cancel finishes the stream without waiting for the in-flight
+> call (generation-tagged; the ≤50 ms contract survives the port's ~100 ms/chunk shape). The
+> DI decision is implemented exactly as recorded: `VoccaBootstrap` downloads the pinned
+> `models-2026-03-23` tarball via the store, extracts idempotently (trio marker), and injects
+> the path — `configure` never provisions (probe contract). Three record corrections stand:
+> phonemization is the port's bundled English G2P + BART fallback (not Misaki); both
+> dependencies declare `swift-tools-version: 6.2` so CI runs Xcode 26; the artifact ships
+> without `vocab_index.json` — the port's bundled tokenizer covers it. First warm TTFA
+> measured 232.5 ms (SMOKE 130, recorded never gated; P3 budget ≤300 ms, `ROADMAP.md:209`).
+> Details in `docs/STATUS.md`.
 2. **Speculative-ASR correctness under revision.** Parakeet's streaming output can revise earlier tokens. The final-on-key-up result must be identical to a batch transcription of the same buffer, or the latency win is bought with accuracy. Needs measurement in C7, not assumption.
 3. **AX allowlist bootstrap.** Whether the initial allowlist is hand-curated, community-contributed, or learned entirely from strategy memory. Leaning hand-curated for the top ~10 apps, then learned.
 4. **Echo rejection on speakers** may need more than reference cancellation on some hardware. Budget real time for this in C10; it's the kind of problem that looks solved in a quiet room and isn't.

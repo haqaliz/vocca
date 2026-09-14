@@ -10,6 +10,98 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `kokoro-binding` unit's implementation shipped 2026-09-14 — C9 is complete: the runtime
+decision is now IMPLEMENTED, not just resolved.** `feat/kokoro-binding/aliz`. The vetting gate
+passed with three recorded corrections; `KokoroEngine` is the seam's second real
+`SpeechSynthesizer` (Kokoro + SystemSynthesizer — the two-implementation doctrine is now
+satisfied), provisioned through the C2 store and injected from the composition root; the first
+Kokoro TTFA measured **232.5 ms** (SMOKE 130, recorded, never gated). Floor **1978** (executed
+2006). **No gate passes; no user-visible surface ships in this unit.**
+
+**The three vetting corrections, recorded by name** (verified against the port's code and the
+provisioned artifact, not the PRD's prior claims — `docs/planning/_card/understanding.md`):
+1. **Phonemization is NOT Misaki.** The port bundles its own English G2P (`EnglishG2P`,
+   lexicon + morphological stemming + number expansion, `us_gold.json`/`us_silver.json` in
+   package resources) with a **BART neural fallback** via `Jud/swift-bart-g2p` (Apache-2.0,
+   models bundled in resources — no runtime download). The record's "Misaki (hexgrad's G2P)
+   replaces espeak-ng" claim is corrected everywhere it was written.
+2. **Toolchain: the dependencies declare `swift-tools-version: 6.2`** — Vocca CI was pinned to
+   Xcode 16 (Swift 6.0/6.1), which cannot resolve them. CI moved `XCODE_MAJOR: "16" → "26"`
+   (`.github/workflows/ci.yml:58`; the macos-15 runner's Xcode 26.0.1–26.3 verified at plan
+   time; `XCODE_MAJOR: "26"` resolves to 26.3). Local toolchain Swift 6.3.3 / Xcode 26.6.
+3. **The artifact is the single `models-2026-03-23` tarball, `vocab_index.json` absent.** The
+   provisioned `kokoro-models.tar.gz` contains the frontend/backend `.mlmodelc` pair +
+   `voices/` (incl. af_heart `.bin`) — and **no `vocab_index.json`** (unlike the PRD's assumed
+   shape). The port's **bundled-tokenizer fallback** covers it; the manifest pins the tarball
+   (sha256 `0d24bb…aec9`, 103,394,124 bytes from the actual provisioned bytes), extracted
+   idempotently (`/usr/bin/tar xzf`, trio marker: frontend + backend + `voices/`).
+
+**What shipped, per aspect.** *port-vetting* (the unit's first commit `34725cf`): the
+`KokoroDependencyTests` provenance pin (kokoro-coreml package URL in `Package.swift`, the
+`VoccaSpeech` → `KokoroCoreML` product edge, the `VoccaBootstrap` → `VoccaSpeech` edge), the
+`KokoroCoreML` dependency landing (`from: "0.11.2"`, `.upToNextMinor`), the CI Xcode 16 → 26
+bump, and the floor's first raise (1949 → 1952, executed 1980). *engine-binding* (`65f80b6`,
+`f49e56e`, `082afb2`): `KokoroEngine: SpeechSynthesizer` in the one seam file
+`VoccaSpeech/Kokoro/KokoroEngine.swift` — `identity.engineID == "kokoro-82m"`, plain-data init
+(model directory, voice, rate; **init pure-local** — the port's init does file IO + spawns a
+warmup thread, so the port engine is constructed lazily on first speak, no download, the
+probe's contract), one port `synthesize(text:voice:speed:)` per `SentenceChunker` sentence
+(the PRD R1b guaranteed cancel path; the port's streaming `speak()` and its AVFAudio surface
+deliberately unused), Float32-little-endian sample→chunk conversion (24 kHz mono, duration =
+count/24000), cancel via the generation-tagged flag **finishing the stream without waiting for
+the in-flight synchronous call** (dropping the orphaned result by generation — the ≤50 ms
+contract doesn't depend on the port's ~100 ms/chunk calls), empty-speak short-circuit before
+any port touch, the absent-models error mapped to `KokoroEngineError.modelsUnavailable`. The
+deliberate **family lint** (`KokoroSeamBoundaryTests`): the Kokoro-runtime family (Kokoro,
+SpeakEvent, SynthesisResult, VoiceStore, EnglishG2P, BARTG2P, Phonemizer) confined to that one
+file, no AVFAudio/AVFoundation import, no URLSession (the port's downloader is never reached
+from the seam file). The **probe leg** (`SpeechDrive.swift`): the zero-network probe now drives
+the Kokoro engine's default work — construct + empty-speak + cancel — inside the interposer.
+The **env-gated suite** (`SpeechKokoroSuiteTests`): the same `SpeechFixtureSuite` body over the
+real engine, gated on `VOCCA_RUN_REAL_SPEECH` **and** `VOCCA_KOKORO_MODEL_DIR` (the
+two-variable pattern; CI runs the visible skip path) — fixture duration floors
+(three-sentence-reply ≥1.0 s, short-reply ≥0.25 s), chunk ordering + per-chunk duration > 0,
+cancel ≤50 ms wall-clock, re-invoke full render, and the KOKORO-TTFA row. *provisioning*
+(`8f9113c`, `c1da5a7`): the **manifest machinery** — `KokoroModelManifest` (the parallel
+loader beside the EngineTier-closed `ShippedModelManifest`, which does NOT grow),
+`TarballExtractor` (idempotent, trio-marker-guarded, failure-loud on empty/corrupt archives),
+the committed `kokoro-82m.json` manifest with digests from the actual provisioned bytes, the
+`fixture.tar.gz` committed test fixture, and `Scripts/provision-kokoro-fixtures.sh`; the
+**launch provisioning** — `AppBootstrap.kokoroModelRepository` (the pinned `models-2026-03-23`
+release base), `prepareSpeechModels(store:)` (load manifest → `downloadIfMissing` → extract
+into `<store>/kokoro-82m/1/kokoro`; sequenced **after** ASR preparation — the store's
+single-flight slot is not per-manifest — and **never** from `configure`, so the probe contract
+holds), and `kokoroSynthesizer(store:)` injecting the extracted path into the real
+`KokoroEngine`. The digest-verification suite gained the TTS row (env-gated on
+`VOCCA_MODEL_DIR`, sibling to the EngineTier loop).
+
+**Measured (recorded, never gated — SMOKE step 130):** warm-run time-to-first-chunk on the
+real Kokoro engine over `three-sentence-reply` = **232.5 ms** (verbatim line:
+`KOKORO-TTFA 232.5ms fixture=three-sentence-reply baseline=178.8ms budget=300ms
+recorded-never-gated`) — under the P3 ≤300 ms budget (`ROADMAP.md:209`), **above** the system
+renderer's ~178.8 ms baseline (SMOKE 129), both real implementations measured through the same
+fixtures. The env-gated real suite passed on the founder's machine (2 tests, 0 failures —
+duration floors, chunk ordering, cancel ≤50 ms wall-clock, re-invoke full render); the CoreML
+first compile (E5RT type-inference messages on first run) is a **prepare cost, never speak
+latency** — the TTFA number is warm by construction. No skip message printed (the tell-tale —
+a skipped run never records a number).
+
+**The honesty block:**
+- **No P2/P3 gate passes.** The P3 gate (`ROADMAP.md:215-219`) needs a full spoken exchange
+  with barge-in — C10 is unbuilt; the TTFA number is a recorded measurement, never a gate. P2
+  stays uncleared (the matrix feature closed by founder decision, unchanged).
+- **TTFA recorded, never gated.** 232.5 ms is a SMOKE row, not a gate pass; an over-budget
+  number would have been recorded verbatim.
+- **No user-visible surface ships in this unit.** The engine's speak cannot be user-visible —
+  playback/ducking is C10's (`VoccaAudio/Playback/`), the converse surface is C11's; the app
+  has no speak surface this unit.
+- **The seam doctrine's two-implementation state is now satisfied.** `SpeechSynthesizer` has
+  two real, shipped implementations — Kokoro (`VoccaSpeech/Kokoro/KokoroEngine.swift`) and
+  SystemSynthesizer (`VoccaSpeech/System/SystemSynthesizer.swift`) — the ROADMAP principle-4
+  interim state recorded in the C9 first-half entry is closed.
+
+---
+
 **The `kokoro-binding` unit concluded at the PRD gate 2026-09-12 — the runtime decision C9
 left open (`ARCHITECTURE.md:706`) is **made and recorded**; the binding's implementation is
 deferred by founder decision to the next implementation unit, with the decision's vetting gate

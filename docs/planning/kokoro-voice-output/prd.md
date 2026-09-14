@@ -130,6 +130,11 @@ real and explicitly unresolved; the architecture itself names the escape hatch:
   (Kokoro) is blocked on an open architecture decision the founder chose to record, not
   force; the parameterized suite is written so the Kokoro adapter joins by adding one entry,
   and the record names the doctrine's interim state.
+  *(Amended by the `kokoro-binding` implementation unit, 2026-09-14: **the doctrine is now
+  satisfied** — `KokoroEngine` (Kokoro-82M on CoreML/ANE via Jud/kokoro-coreml) ships as the
+  second real implementation behind the same seam, joins the parameterized suite by the
+  recorded single entry, and satisfies the ≤50 ms cancel contract on real audio. The interim
+  state is closed.)*
 - **The record drift fix:** STATUS/CLAUDE.md called executed counts "floors"; the script's
   constant stayed 1930. G8 ratchets it in a deliberate edit — the script's own doctrine
   (`test-with-floor.sh:35-42`) demands the raise ride in the same commit as the tests it

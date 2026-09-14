@@ -2,31 +2,32 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-12).** The skeleton exists; **the product does not.**
+> **Status (2026-09-14).** The skeleton exists; **the product does not.**
 > A Swift 6 package with ten modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaUsage`, `VoccaBootstrap`.
-> **`VoccaSpeech` is no longer a placeholder** — C9's first half shipped 2026-09-12.
+> **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
-> **`kokoro-voice-output` (C9 first half, 2026-09-12):** the `SpeechSynthesizer` seam is real
-> (`VoccaCore/Speech/`: `AudioChunk`, `VoiceIdentity`, the protocol with cancellation as a
-> first-class operation — the ≤50 ms halt contract C10's barge-in depends on — and the
-> `SentenceChunker` with its shipped shallow abbreviation rule), and the first real
-> implementation is the **system renderer** (`VoccaSpeech/System/SystemSynthesizer.swift`,
-> AVSpeechSynthesizer `write(toBufferCallback:)`, one utterance per sentence chunk, cancel via
-> a generation-tagged flag queue — `stopSpeaking` kills the re-invoke, found and fixed
-> test-first on real speech). The parameterized suite runs over a stub in CI and over the
-> system renderer env-gated; **time-to-first-audio measured ~178.8 ms on the founder's
-> machine** (SMOKE 129 — recorded, never gated; the P3 budget is ≤300 ms). The deliberate
-> lint amendments landed (VoccaSpeech leaf → adapter, AVFoundation import-set + seam family),
-> the zero-network probe drives the module, and the floor was **ratcheted 1930 → 1949**
-> (executed 1977) — fixing the record drift where executed counts had been called floors.
-> **Kokoro's runtime decision is made and recorded** (`kokoro-binding`, 2026-09-12): CoreML/ANE
-> via a Swift port — Jud/kokoro-coreml (Apache-2.0) — provisioned through the C2 store with
-> the path injected from the composition root, Misaki G2P replacing espeak-ng, one voice
-> (af_heart); the VoccaBridge C-shim reservation is recorded as overtaken by the ecosystem.
-> The binding's implementation is the recorded follow-on (its first step: the vetting gate).
-> **No gate passes; no user-visible surface ships in this unit** (playback/ducking is C10's,
-> the converse surface is C11's). Test floor: **1949**.
+> **`kokoro-voice-output` + `kokoro-binding` (C9, shipped 2026-09-12 → 2026-09-14):** the
+> `SpeechSynthesizer` seam is real (`VoccaCore/Speech/`: `AudioChunk`, `VoiceIdentity`, the
+> protocol with cancellation as a first-class operation — the ≤50 ms halt contract C10's
+> barge-in depends on — and the `SentenceChunker` with its shipped shallow abbreviation rule),
+> and **both implementations are real**. The **system renderer**
+> (`VoccaSpeech/System/SystemSynthesizer.swift`, AVSpeechSynthesizer `write(toBufferCallback:)`,
+> one utterance per sentence chunk, cancel via a generation-tagged flag queue — `stopSpeaking`
+> kills the re-invoke, found and fixed test-first on real speech) measured **~178.8 ms**
+> time-to-first-audio on the founder's machine (SMOKE 129 — recorded, never gated). The
+> **Kokoro engine** (`VoccaSpeech/Kokoro/KokoroEngine.swift`) is the runtime decision
+> **implemented** — Jud/kokoro-coreml (Apache-2.0) CoreML/ANE, provisioned through the C2
+> store with the path injected from the composition root, one voice (af_heart), with the
+> vetting gate's three corrections recorded: the phonemizer is the port's bundled English G2P
+> + BART fallback (not Misaki), both dependencies declare `swift-tools-version: 6.2` (CI moved
+> Xcode 16 → 26), and the artifact is the single `models-2026-03-23` tarball with
+> `vocab_index.json` absent (the port's bundled-tokenizer fallback covers it); the VoccaBridge
+> C-shim reservation is recorded as overtaken by the ecosystem. **Kokoro TTFA measured
+> 232.5 ms warm** (SMOKE 130 — recorded, never gated, under the P3 ≤300 ms budget). The
+> parameterized suite runs over a stub in CI and over both real renderers env-gated; the
+> zero-network probe drives both modules. **No gate passes; no user-visible surface ships in
+> this unit** (playback/ducking is C10's, the converse surface is C11's). Test floor: **1978**.
 >
 > **`daily-use-ledger` (2026-09-07):** the P0 gate's observable legs are now recorded rather than
 > remembered — and one of them was **not computable at all** until this unit. `SessionOutcomeClass`
