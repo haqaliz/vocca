@@ -1635,8 +1635,25 @@ set -euo pipefail
 # EngineTier loop it sits beside — it skips in CI and still counts as executed, which is what
 # this line's arithmetic assumes.
 #
+# The sdk-vetting provenance pin adds three (1978 -> 2009; executed 2009): the
+# turn-taking-barge-in unit's first aspect (`docs/planning/turn-taking-barge-in/
+# sdk-vetting/plan_20260915.md`) pins the FluidAudio VAD/EOU decisions as manifest facts —
+# `SileroVadProvenanceTests` pins the FluidAudio package URL (`https://github.com/
+# FluidInference/FluidAudio.git`) and its recorded range (`from: "0.12.4"`) in `Package.swift`'s
+# raw text, the `VoccaASR` target's dependency on the `FluidAudio` product through
+# `swift package dump-package`, and the shipped `silero-vad.json` manifest (engineID
+# "silero-vad", version "1", sdkDirectory "vad") pinning the five files of the
+# `silero-vad-unified-256ms-v6.2.1.mlmodelc` directory the resolved SDK names — each with a
+# 64-hex digest and a positive byte count measured from the ACTUAL provisioned bytes. Headless:
+# the URL and range are read from the manifest's raw text, the target edge from
+# `dump-package`, the artifact manifest as raw JSON from the repo (the `ModelManifest` decoder
+# is EngineTier-keyed and out of scope). The raise closes the gap the floor was already
+# carrying — the kokoro unit recorded executed 2006 against this line's 1978 — restoring the
+# invariant that the floor is the current executed count, not a stale one (the loss-observability
+# precedent, `1985da6`'s gap closure).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1978
+MINIMUM_EXECUTED_TESTS=2009
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

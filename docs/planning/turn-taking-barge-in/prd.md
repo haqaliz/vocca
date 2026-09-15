@@ -212,12 +212,12 @@ never gated.
 
 | # | Risk / Question | Tie | Mitigation |
 |---|-----------------|-----|------------|
-| O1 | **FluidAudio's actual VAD/EOU surface differs from the PRD's assumptions** (no SDK VAD/EOU names are recorded in-repo; only the batch ASR surface was spiked at C2) | R1 | The vetting gate is the first aspect; corrections recorded verbatim, the Misaki precedent |
-| O2 | **The EOU model is absent or unpinned in the SDK** — `TurnDetector`'s real implementation would be pending | R1/R3 | Interim state recorded honestly (C9 first-half precedent); `SilenceThresholdDetector` ships as the second implementation either way |
+| O1 | **FluidAudio's actual VAD/EOU surface differs from the PRD's assumptions** (no SDK VAD/EOU names are recorded in-repo; only the batch ASR surface was spiked at C2) | R1 | The vetting gate is the first aspect; corrections recorded verbatim, the Misaki precedent. **RESOLVED (sdk-vetting, 2026-09-15): no bump — the resolved 0.15.7 (revision `41540ea237350afe5117a082b5c28eda642d0612`) already carries the full VAD/EOU surface under the pinned `from: "0.12.4"`; the surface is verified from the SDK's code and recorded in `_card/understanding.md`.** |
+| O2 | **The EOU model is absent or unpinned in the SDK** — `TurnDetector`'s real implementation would be pending | R1/R3 | Interim state recorded honestly (C9 first-half precedent); `SilenceThresholdDetector` ships as the second implementation either way. **RESOLVED (sdk-vetting, 2026-09-15): EOU is PRESENT at 0.15.7 but ASR-integrated** — `StreamingEouAsrManager` runs the Parakeet streaming pipeline and EOU is a decoding byproduct (`eouDetected`/callback), not a standalone scored call; the `sdk-adapters` aspect must plan around that shape (feed audio chunks, observe the EOU signal — or record the interim state honestly if the integrated shape is unusable as a standalone seam). No "pending" state recorded now. |
 | O3 | **Echo rejection on speakers may need more than reference cancellation on some hardware** (`ARCHITECTURE.md:727`) | R7 | The deterministic gate ships; SMOKE 133 verifies on speakers and records the truth, never a claim |
 | O4 | **Realtime coexistence**: playback and capture in one process is new (the two-engine-instance caution, `ARCHITECTURE.md:344`) | R4/R5 | Separate audio paths, the SPSC warrant per ring; the realtime conversation is env-gated/SMOKE-only by the tap-adapter precedent |
 | O5 | **The 200 ms gate headroom** — the composed path must fit cancel (≤50 ms, measured 70-90 ms on a loaded CI runner for the stub) + duck + VAD frame | R6 | The headless assertions run over the injected clock at the *contract* thresholds; the real row is SMOKE 132, never a CI gate |
-| O6 | **`VadManager` hysteresis surface** may not be injectable for headless determinism | S1 | The adapter wraps it with injectable thresholds (recorded at R1); EnergyVAD stays fully deterministic either way |
+| O6 | **`VadManager` hysteresis surface** may not be injectable for headless determinism | S1 | The adapter wraps it with injectable thresholds (recorded at R1); EnergyVAD stays fully deterministic either way. **RESOLVED (sdk-vetting, 2026-09-15): hysteresis IS exposed as plain `Sendable` data** — `VadSegmentationConfig` (min/max durations, `negativeThreshold`/`negativeThresholdOffset`, `effectiveNegativeThreshold(baseThreshold:)`) injectable from the composition root; the wrap-with-injectable-thresholds fallback is not needed. The `sdk-adapters` aspect must use `VadSegmentationConfig` carried as plain data. |
 
 ## Out of Scope
 
@@ -246,3 +246,68 @@ Sequencing: `sdk-vetting` first (facts the adapters and the loop need), then
 `voice-detection` → `sdk-adapters` → `streaming-capture` + `playback-ducking`
 (independently parallel after `voice-detection`), then `barge-in-loop` (the composed
 acceptance), `record` last.
+---
+## Findings from the sdk-vetting gate (2026-09-15)
+
+> R1's record, produced by the unit's first aspect against the SDK's **code** in the
+> worktree's own checkout (`.build/checkouts/FluidAudio/`, resolved **0.15.7**, revision
+> `41540ea237350afe5117a082b5c28eda642d0612` — newer than the plan's expected 0.15.5; per the
+> plan's Edge case 2, newer + surface verifies → recorded, no STOP). Each fact with its
+> `file:line` and verbatim quote is in `docs/planning/_card/understanding.md` (the full
+> vetting record); this appendix is the PRD-facing summary.
+
+1. **`VadManager` API shape (verified).** `public actor VadManager` with
+   `chunkSize = 4096` (256 ms @ 16 kHz), `sampleRate = 16000`, `isAvailable`, `process(_:)`
+   over `URL`/`AVAudioPCMBuffer`/`[Float]`, and THREE public inits: `init(config:
+   progressHandler:)` (the ModelHub download path — the one the app must never take),
+   `init(config:vadModel:)` (pre-loaded `MLModel` — the store-compatible staging path the
+   adapter must use), `init(config:modelDirectory:progressHandler:)` (directory staging).
+   Streaming surface `makeStreamState()`/`processStreamingChunk(...)`; segmentation
+   `segmentSpeech(...)`. **Beta Status doc comment recorded** (adapter risk note, not a
+   blocker): "not been extensively tested in production environments".
+2. **Hysteresis (O6 resolved — exposed as plain data).** `VadConfig`
+   (`defaultThreshold` 0.85, `debugMode`, `computeUnits` default `.cpuAndNeuralEngine`) and
+   `VadSegmentationConfig` (`minSpeechDuration` 0.15, `minSilenceDuration` 0.75,
+   `maxSpeechDuration` 14.0, `speechPadding` 0.1, `silenceThresholdForSplit` 0.3,
+   `negativeThreshold`/`negativeThresholdOffset` 0.15, `effectiveNegativeThreshold
+   (baseThreshold:)`) are `Sendable` structs injectable from the composition root — the
+   wrap-with-injectable-thresholds fallback is NOT needed; the `sdk-adapters` aspect must use
+   `VadSegmentationConfig` carried as plain data (S1).
+3. **EOU (O2 resolved — present but ASR-integrated, the shape correction).**
+   `StreamingEouAsrManager` is PRESENT at the resolved version with `StreamingChunkSize`
+   (`ms160` default / `ms320` / `ms1280`) and model files `streaming_encoder.mlmodelc`,
+   `decoder.mlmodelc`, `joint_decision.mlmodelc`, `vocab.json` (`ModelNames.ParakeetEOU.
+   requiredModels`). **The EOU is a decoding byproduct, not a standalone scored call**: the
+   manager runs the whole Parakeet streaming pipeline and EOU fires via
+   `eouDetected`/`eouCallback` with the `eouDebounceMs` (default 1280) rule — the
+   `sdk-adapters` aspect must plan around this integrated shape (feed audio chunks, observe
+   the EOU signal — or record the interim state honestly if unusable as a standalone
+   `TurnDetector` implementation; no "pending" state recorded now).
+4. **Version pin (O1 resolved — no bump).** The pinned `from: "0.12.4"`
+   (`Package.swift:36`) resolves to **0.15.7** (revision
+   `41540ea237350afe5117a082b5c28eda642d0612`), which already carries findings 1-3 →
+   **no Package.swift edit**; `Package.resolved` stays gitignored (the revision is a
+   recorded fact, not a committed pin). `0.x` semantics: a future 0.16+ resolves silently
+   under the range — a silent update surfaces in the pin family and the sdk-adapters suite.
+5. **The VAD artifact.** `ModelNames.VAD.sileroVadFile` =
+   `silero-vad-unified-256ms-v6.2.1.mlmodelc`, repo `FluidInference/silero-vad-coreml`; the
+   artifact is a **bare `.mlmodelc` directory** (five files — no tarball), staged anywhere
+   and handed to `VadManager(config:vadModel:)`; the SDK bundles NO model (its download init
+   goes through ModelHub — the adapter must use the pre-loaded init + the C2 store, never
+   the download init); the 32 ms variant is unreferenced in the SDK (only the 256 ms unified
+   model is named at v6.2.1). The shipped manifest (`Sources/VoccaASR/Models/Manifests/
+   silero-vad.json`, `engineID "silero-vad"`, `version "1"`, `sdkDirectory "vad"`) pins
+   per-file digests + byte counts computed from the ACTUAL provisioned bytes
+   (`Scripts/provision-vad-fixtures.sh`); the env-gated digest-verification row lands in
+   `sdk-adapters`.
+6. **License.** The SDK's own `LICENSE` is **Apache-2.0** (re-verified verbatim). The
+   artifact repo's HF card metadata + README claim **MIT** (parent `snakers4/silero-vad`),
+   but the repo carries **no LICENSE file** — surfaced to the integrator (plan Edge case 4
+   partial), not silently absorbed.
+7. **Toolchain.** The SDK declares `swift-tools-version: 6.0` and `platforms:
+   [.macOS(.v14), .iOS(.v17)]` — matches our 6.0, below our `.v15`: no CI toolchain change,
+   no platform bump.
+
+**Staging layout for the `sdk-adapters` env-gated suite:** the staged bundle is
+`<root>/silero-vad/1/vad/silero-vad-unified-256ms-v6.2.1.mlmodelc/` with the verified marker
+at `<root>/silero-vad/1/verified`; `VOCCA_MODEL_DIR=<root>` gates the suite.
