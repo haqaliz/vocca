@@ -2,10 +2,33 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-14).** The skeleton exists; **the product does not.**
+> **Status (2026-09-15).** The skeleton exists; **the product does not.**
 > A Swift 6 package with ten modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaUsage`, `VoccaBootstrap`.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`turn-taking-barge-in` (C10, shipped 2026-09-15):** the P3 voice loop ships as **machinery,
+> not surface**. The seams and implementations are real: `VoiceActivityDetector` — `SileroVAD`
+> over FluidAudio's `VadManager` (C2-store-provisioned, path-injected, the offline pin recorded,
+> the "Beta Status" doc comment a recorded risk note) plus the pure `EnergyVAD` fallback;
+> `TurnDetector` — `SilenceThresholdDetector` shipped, `ParakeetEOU` **PENDING — Branch B** (the
+> EOU exists in the pinned SDK 0.15.7 only as the ASR-integrated `StreamingEouAsrManager`, never
+> a standalone scored call); `ContinuousAudioSource` + `StreamingCapture` (the loop's continuous
+> capture, one conformance, ownership refused at a second start); `PlaybackEngine` +
+> `SystemPlayback` (`VoccaAudio/Playback/`'s first file, the offline manual-rendering tests
+> green); and the `TurnTakingLoop` coordinator with the `EchoGate` and the 5×-weighted
+> `TurnCommitmentScorer` (scripted corpus in CI: passing 1.0000, planted 0.0000 — the gate that
+> cannot fail proves nothing — late-commit 0.2500). The composed **headless** halt measures
+> **70 ms** at the contract thresholds over the injected clock — labeled headless, never a real
+> claim. The real VAD's classify cost measured **0.2 ms** on the founder's machine 2026-09-15
+> (`VAD-CLASSIFY-LATENCY 0.2ms … recorded-never-gated`). SMOKE 131-133 are **written and
+> runnable** — the real conversational set (≥95%, 5× weight), the ≤200 ms real-playback halt
+> (`TURN-HALT <ms>ms recorded-never-gated`), echo rejection on speakers (0 instances,
+> `ECHO-LOOPBACK <device> recorded-never-gated`) — recorded, never gated, executed by nothing in
+> CI (the env-gated suite skips visibly). The dictation path is byte-for-byte untouched
+> (digest-pinned), and the zero-network invariant stays green over `PROBE-TURN`. **No gate
+> passes; no user-visible surface ships in this unit** (the CONVERSING surface is C11's). Test
+> floor: **2160**.
 >
 > **`kokoro-voice-output` + `kokoro-binding` (C9, shipped 2026-09-12 → 2026-09-14):** the
 > `SpeechSynthesizer` seam is real (`VoccaCore/Speech/`: `AudioChunk`, `VoiceIdentity`, the

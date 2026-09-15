@@ -10,6 +10,113 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `turn-taking-barge-in` unit's machinery shipped 2026-09-15 — C10's seams, loop and echo
+gate are real; no gate passes, no user-visible surface.** `feat/turn-taking-barge-in/aliz`.
+Seven aspects: the FluidAudio VAD/EOU vetting (six findings, the EOU-shape correction, the
+version decision — 0.15.7, no bump), the two seams with their pure fallbacks and the family
+lints, the real `SileroVAD` adapter behind the seam, `ContinuousAudioSource`/`StreamingCapture`,
+`PlaybackEngine`/`SystemPlayback` (the output path's first real execution is SMOKE 132, never
+CI), the `TurnTakingLoop` + `EchoGate` + 5×-weighted `TurnCommitmentScorer` with `PROBE-TURN`,
+and this record. The composed realtime conversation is executed by nothing in CI — the
+env-gated suite skips visibly; SMOKE 131-133 are **written and runnable** for the founder's
+machine, and the executed rows land when the founder runs them. Floor **2160** (executed 2160).
+**No gate passes; no user-visible surface ships in this unit** (the CONVERSING state is C11's).
+
+**The vetting corrections and findings, recorded by name** (verified against the SDK's **code**
+at the resolved 0.15.7, not its README — `docs/planning/_card/understanding.md`):
+1. **The EOU is ASR-integrated, not a free-standing scored call.** `StreamingEouAsrManager`
+   runs the whole Parakeet streaming pipeline; `eouDetected` is a decoding byproduct with a
+   1280 ms debounce — the seam's synchronous scored decision has no SDK conformance. **Branch B
+   recorded: `ParakeetEOU` ships PENDING; `SilenceThresholdDetector` is the shipped
+   `TurnDetector` implementation**, the H8b family amendment confines the EOU SDK names
+   (`StreamingEouAsrManager`, `StreamingChunkSize`) with **no permitted file**, and a future
+   conformance must earn a reviewed permit.
+2. **Version: no bump.** The pinned `from: "0.12.4"` range resolved **0.15.7** (revision
+   `41540ea237350afe5117a082b5c28eda642d0612`) in this worktree and already carries the full
+   VAD/EOU surface; `Package.swift` untouched. `0.x` semantics mean a future 0.16+ resolves
+   silently — surfaced in the pin family and the adapter suite, never assumed.
+3. **The license caveat, surfaced not absorbed:** the `FluidInference/silero-vad-coreml`
+   artifact repo carries **no LICENSE file** — MIT is claimed by the HF card metadata + README,
+   never verifiable from a repo LICENSE; the SDK itself re-verified Apache-2.0. Surfaced to the
+   integrator, recorded, not silently absorbed.
+4. **The VAD artifact is the bare `.mlmodelc` directory** (`silero-vad-unified-256ms-v6.2.1
+   .mlmodelc`, five files) — the manifest follows the per-file pattern of
+   `parakeet-tdt-0.6b-v3.json`, staged under `<root>/silero-vad/1/vad/`; the SDK's `VadManager`
+   "Beta Status" doc comment is recorded as an adapter risk note, not a blocker.
+
+**What shipped, per aspect.** *sdk-vetting* (93220c6, b43c0ea; 1978 → 2009): the findings above
+as provenance pins (`SileroVadProvenanceTests`), the `silero-vad.json` manifest with digests
+from the actual provisioned bytes, and `Scripts/provision-vad-fixtures.sh`. *voice-detection*
+(cf26a6c, 3683ccc, a64e33b; 2009 → 2041): the `VoiceActivityDetector`/`TurnDetector` seams in
+VoccaCore, the `EnergyVAD` + `SilenceThresholdDetector` pure fallbacks, and the seam-family
+lint with planted-violation/comment-strip controls. *streaming-capture* (9985f9d, da8dd05,
+530f504; 2041 → 2054): the `ContinuousAudioSource` seam + its first conformance
+`StreamingCapture` (the ownership contract — one consumer, a second start refused), and the
+capture-path no-touch pin (SHA-256 digests of `MicrophoneSource`, `SpeculativeFeed`,
+`AudioRingBuffer`). *playback-ducking* (f3bb679, 245736a, 09a3fb6, e324ecc; 2054 → 2080): the
+four-op `PlaybackEngine` seam + `PlaybackLevel` (duck gain 0.5, 20 ms ramp), `SystemPlayback` —
+`VoccaAudio/Playback/`'s first file — with `SystemPlaybackOutput` behind the
+`PlaybackOutputSeam`, the reviewed AVFoundation import-set amendment, the playback family lint,
+and the **offline manual-rendering tests landed green** (sample-for-sample rendering, duck/halt
+as ramps over exactly the ramp, ring-capacity drain — no environmental fallback was needed).
+*sdk-adapters* (a342883, d97300c, 146a30b; 2080 → 2095): `SileroVAD` over `VadManager` — the
+identity conversion at the 256 ms model chunk, the sync→actor bridge with its blocking cost
+measured by the env-gated suite, the offline pin (`ModelHub.offlineMode`, pre-loaded init only,
+lazy load, memoized error) — the H8b VAD/EOU family amendment, and the env-gated
+`SileroVadRealSuiteTests` (two-variable gate; visible skips count as executed). *barge-in-loop*
+(dd3fdc5 … 8e0e9e7; 2095 → 2160): the `TurnTakingLoop` coordinator (the `SessionMachine` shape —
+synchronous, owner-isolated, never an actor; the review-gate pins: stream continuity, the
+reply-end race in both orderings, one-consumer ownership), the `EchoGate` (correlation ≥0.90
+discards, the reference-cancellation residue line with its two conditions, silence during
+playback never gates), the `TurnCommitmentScorer` (5×/2×/1× weights, inclusive 0.95 bar, the
+empty-corpus throw) with the scripted corpus + harness (the planted-false-cutoff corpus
+genuinely fails), the composed headless acceptance, `PROBE-TURN` + the zero-network
+post-condition, the dictation-path digest pin (SessionMachine/DictationPipeline/AppBootstrap),
+the env-gated composed real suite (three rows, behavior not numbers), the seam-name lint
+amendment (the loop admitted to both rows — RED captured first), and the floor ratchet.
+*record* (this entry): SMOKE 131-133 written runnable; STATUS/CLAUDE.md/ARCHITECTURE.md synced;
+the floor verified, never ratcheted.
+
+**Measured (recorded, never gated):**
+- The real VAD's per-chunk classify cost, measured 2026-09-15 on the founder's machine through
+  the env-gated suite (warm — one full fixture pass consumed first): verbatim row
+  `VAD-CLASSIFY-LATENCY 0.2ms chunks=… recorded-never-gated` — the sync→actor bridge included;
+  the 200 ms budget decomposition's recorded input, never a gate.
+- The composed **headless** halt over the injected clock at the contract thresholds: **70 ms**
+  (stub cancel 50 ms + duck ramp 20 ms; the coordinator's own contribution asserted ≤50 ms,
+  `tSilence − tSpeech ≤ 200 ms`) — labeled headless, never a real claim; the real number is
+  SMOKE 132's.
+- The conversational harness in CI: passing corpus **1.0000** (11 boundaries, zero false
+  cutoffs), the planted-false-cutoff corpus **0.0000** (5/5 false cutoffs — a gate that cannot
+  fail proves nothing), the late-commit corpus **0.2500** (L=3, C=1) — CI facts with margins,
+  never gate passes.
+- SMOKE 131-133 are **written and runnable, not yet executed**: the ≥95% founder-recorded-set
+  commitment row, the ≤200 ms real-playback halt row (`TURN-HALT <ms>ms recorded-never-gated`),
+  and the 0-instances-on-speakers echo row (`ECHO-LOOPBACK <device> recorded-never-gated`) land
+  when the founder runs them — this aspect's merge does not depend on their execution.
+
+**The honesty block:**
+- **No P2/P3 gate passes.** The P3 gate (`ROADMAP.md:215-219`) needs a full spoken exchange
+  with real barge-in — the CONVERSING surface is C11's; the ≤200 ms halt, ≥95% commitment and
+  0-echo numbers are SMOKE rows, never gates. P2 unchanged.
+- **Numbers recorded never gated.** Every measured row above is recorded verbatim — an
+  over-budget number (a 340 ms halt, a 92% commitment, 1+ echo instance) would be recorded
+  verbatim too, never a pass.
+- **No user-visible surface ships.** No silent listening state can exist: continuous capture is
+  composed only in the probe drive and the env-gated suites; the loop holds no mic seam, and
+  nothing wires the loop into the app until C11.
+- **The dictation path is byte-for-byte untouched** — digest-pinned twice over (the
+  streaming-capture capture-file pin and the barge-in-loop
+  SessionMachine/DictationPipeline/AppBootstrap pin), asserted in the floor's ledger.
+- **Zero network.** The zero-network interposer stays green over `PROBE-TURN`; the VAD artifacts
+  provision through the C2 store (`Scripts/provision-vad-fixtures.sh`, digest-verified, never
+  inside `configure`); nothing in the loop names an SDK or constructs a URL.
+- **Interim states recorded, not papered over:** `ParakeetEOU` PENDING with the ASR-integrated
+  shape named (Branch B); `PlaybackEngine` has one implementation; `ContinuousAudioSource` has
+  one conformance; `VoccaAudio/VAD/` stays a paper reservation while the real adapter lives in
+  `VoccaASR/VAD/` (the H8b confinement); the license caveat above stands.
+---
+
 **The `kokoro-binding` unit's implementation shipped 2026-09-14 — C9 is complete: the runtime
 decision is now IMPLEMENTED, not just resolved.** `feat/kokoro-binding/aliz`. The vetting gate
 passed with three recorded corrections; `KokoroEngine` is the seam's second real
