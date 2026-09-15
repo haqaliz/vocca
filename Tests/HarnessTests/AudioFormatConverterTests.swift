@@ -1147,11 +1147,21 @@ final class AudioFormatConverterTests: XCTestCase {
     /// (`SpeechSeamBoundaryTests`) confines the AVFAudio *type names* to the same one file inside
     /// `VoccaSpeech`, exactly as this list confines the module name tree-wide: the file may speak
     /// both surfaces, each bounded by its own reviewed list.
+    ///
+    /// The playback-ducking aspect (C10) adds the sixth file: the playback adapter
+    /// (`VoccaAudio/Playback/SystemPlayback.swift`). The output path — `AVAudioEngine` with an
+    /// `AVAudioSourceNode` — is AVFoundation and cannot be built without it. The bounded cost is
+    /// nil in practice: the framework already loads for `VoccaAudio` (the capture graph and the
+    /// converter import it), so this row adds no new load to any process. The confinement is the
+    /// `SpeechSeamBoundaryTests` shape, scoped to the seam's home: the
+    /// `PlaybackSeamBoundaryTests` lint keeps the AVFAudio *type names* inside this one file
+    /// under `VoccaAudio/Playback/`, exactly as this list bounds the module name tree-wide.
     func testTheFilesThatImportAVFoundationAreExactlyTheExpectedSet() throws {
         let expected: Set<String> = [
             "VoccaAudio/AudioFormatConverter.swift",
             "VoccaAudio/AudioCaptureGraph.swift",
             "VoccaAudio/MicrophoneAuthorization.swift",
+            "VoccaAudio/Playback/SystemPlayback.swift",
             "VoccaASR/Parakeet/ParakeetEngine.swift",
             "VoccaSpeech/System/SystemSynthesizer.swift",
         ]
