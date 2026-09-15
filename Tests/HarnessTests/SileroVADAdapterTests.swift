@@ -93,7 +93,7 @@ final class SileroVADAdapterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let vad = SileroVAD(configuration: seamConfiguration(), modelDirectory: directory)
-        let detector: any VoiceActivityDetector = requireDetector(vad)
+        _ = requireDetector(vad)
         XCTAssertNil(vad.loadFailureDescription, "construction must not touch the model")
     }
 

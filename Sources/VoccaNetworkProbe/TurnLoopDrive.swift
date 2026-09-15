@@ -101,17 +101,6 @@ extension VoccaNetworkProbe {
         func cancel() async {}
     }
 
-    /// The probe's fake playback engine: consumes the stream, halts without a click.
-    private struct ProbeTurnPlayback: PlaybackEngine {
-        func play(_ stream: AsyncThrowingStream<AudioChunk, Error>) async throws {
-            for try await _ in stream {}
-        }
-
-        func duck() async {}
-        func cancelToSilence() async {}
-        func tearDown() {}
-    }
-
     /// The probe's hand-moved clock — a final class (reference), so the loop's view and the
     /// drive's view are the same time base.
     private final class ProbeTurnClock: MonotonicClock {
@@ -127,7 +116,6 @@ extension VoccaNetworkProbe {
                     bytes: probeChunkBytes(amplitude: 0.4, frequency: 440, samples: 4000),
                     sampleRate: 16_000, channelCount: 1, duration: 0.25)
             ])
-        let playback = ProbeTurnPlayback()
 
         var effects: [TurnEffect] = []
         var history: [TurnEffect] = []
