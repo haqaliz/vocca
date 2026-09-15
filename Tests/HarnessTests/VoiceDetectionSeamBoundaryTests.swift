@@ -87,6 +87,7 @@ final class VoiceDetectionSeamBoundaryTests: XCTestCase {
         "VoiceActivityDetector": [
             "VoiceDetection/VoiceActivityDetector.swift",
             "VoiceDetection/EnergyVAD.swift",
+            "TurnTaking/TurnTakingLoop.swift",
         ],
         "EnergyVAD": [
             "VoiceDetection/EnergyVAD.swift"
@@ -94,6 +95,7 @@ final class VoiceDetectionSeamBoundaryTests: XCTestCase {
         "TurnDetector": [
             "TurnDetection/TurnDetector.swift",
             "TurnDetection/SilenceThresholdDetector.swift",
+            "TurnTaking/TurnTakingLoop.swift",
         ],
         "SilenceThresholdDetector": [
             "TurnDetection/SilenceThresholdDetector.swift"
