@@ -1,0 +1,46 @@
+[
+  {
+    "name": "late-1",
+    "detector": { "commitAfterPause": 0.8, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.4 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.5 },
+      { "kind": "speech", "amplitude": 0.1, "seconds": 0.3 },
+      { "kind": "silence", "seconds": 1.2 }
+    ],
+    "boundaries": [ { "atSeconds": 1.9 } ]
+  },
+  {
+    "name": "late-2",
+    "detector": { "commitAfterPause": 0.8, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.3 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.6 },
+      { "kind": "speech", "amplitude": 0.1, "seconds": 0.3 },
+      { "kind": "silence", "seconds": 1.2 }
+    ],
+    "boundaries": [ { "atSeconds": 1.9 } ]
+  },
+  {
+    "name": "late-3",
+    "detector": { "commitAfterPause": 0.8, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.5 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.4 },
+      { "kind": "speech", "amplitude": 0.1, "seconds": 0.3 },
+      { "kind": "silence", "seconds": 1.2 }
+    ],
+    "boundaries": [ { "atSeconds": 1.9 } ]
+  },
+  {
+    "name": "correct-1",
+    "detector": { "commitAfterPause": 0.8, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.4 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.5 },
+      { "kind": "speech", "amplitude": 0.08, "seconds": 0.01 },
+      { "kind": "silence", "seconds": 1.2 }
+    ],
+    "boundaries": [ { "atSeconds": 1.9 } ]
+  }
+]

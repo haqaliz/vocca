@@ -1,54 +1,56 @@
-# Card: feat/kokoro-binding (implementation unit)
+# Card: feat/turn-taking-barge-in
 
 > Inline brief — no GitHub issue exists (`gh issue list` → empty; Issues are empty for
-> `haqaliz/vocca`). Source: the merged PRD-gate unit (`docs/planning/kokoro-binding/prd.md`,
-> PR #35, merged 2026-09-13) + `docs/STATUS.md:13-17` (the recorded follow-on) +
-> `ARCHITECTURE.md:706` (RESOLVED 2026-09-12).
+> `haqaliz/vocca`). Source: the `vocca-next` handoff (2026-09-15) + `CAPABILITY_ROADMAP.md`
+> C10 entry + `ARCHITECTURE.md` §12 (the P3 voice-loop design).
 
 ## Brief
 
-Implement **Kokoro-82M** behind the shipped `SpeechSynthesizer` seam — C9's second half
-(`CAPABILITY_ROADMAP.md:238-253`), the recorded follow-on to `kokoro-voice-output`. The
-runtime decision is **already made** (four founder-ratified choices, 2026-09-12): CoreML/ANE
-via a Swift port, **Jud/kokoro-coreml** (vetted at the plan gate), provisioning via **DI from
-the composition root** (C2 store reused unchanged), **one voice (af_heart)**. The unit's
-**first step is the vetting gate**: license (Apache-2.0 expected, verified against the repo's
-LICENSE file), model-byte provenance (HF repo + digests pinned from the ACTUAL bytes), the
-phonemization mechanism (Misaki G2P, verified against the actual API), and per-sentence
-cancel/chunk semantics (verified against the port's code — a port that cannot interrupt per
-sentence re-opens the pick; mweinbach's packages are the recorded alternates).
+Build **C10 — streaming turn-taking + barge-in** (`CAPABILITY_ROADMAP.md:269-285`): the P3
+"*smarter than SKI*" capability. The `SpeechSynthesizer` seam is complete (C9, shipped
+2026-09-14) — playback/ducking is this unit's concern (`VoccaAudio/Playback/`, reserved at
+`ARCHITECTURE.md:107`), as are the `VoiceActivityDetector` and `TurnDetector` seams
+(`ARCHITECTURE.md:262-263`: Silero VAD + EnergyVAD; Parakeet EOU 120M + SilenceThreshold).
 
-Acceptance (the parameterized suite from `kokoro-voice-output` — one entry joins it):
-`KokoroEngine` identity `"kokoro-82m"`, voiceName from plain data; known text → non-empty
-audio of pinned plausible duration; **cancellation halts ≤50 ms** wall-clock with zero chunks
-after + safe re-invoke (the SystemSynthesizer generation-tagged flag pattern; the contract
-must NOT depend on the port's streaming shape — baseline is one render per sentence, cancel
-between calls, PRD R1b); **time-to-first-audio measured warm and compared against the system
-renderer's recorded ~178.8 ms baseline** (the P3 ≤300 ms budget, recorded never gated;
-cold-load cost is a provisioning/prepare fact, never speak latency). The Kokoro engine joins
-the zero-network probe (construct + empty-speak + cancel; **init pure-local** — no model
-load/download in init); provisioning follows the C2 store pattern (download → verify →
-marker; TTS manifest + af_heart artifact with digests pinned in-repo from actual bytes; the
-port's own downloaders never run — no URL is ever handed to the port); the default
-configuration stays zero-egress. Lints: a new Kokoro-runtime family lint (one permitted file —
-`VoccaSpeech/Kokoro/KokoroEngine.swift` — planted-violation + comment-strip controls); no new
-URLSession file; AVFoundation expected-set row only if AVFAudio is touched. Floor 1949;
-the unit's tests ratchet it in the same commit.
+The unit's **first step is a port-vetting gate for Silero VAD** (license, provenance,
+swift-tools-version, artifact shape) in the C2-store provisioning pattern the
+`kokoro-binding` unit just established; the EOU comes from FluidAudio (already a dependency,
+the Parakeet precedent). The barge-in signal path is budgeted to the 200 ms gate
+(`ARCHITECTURE.md:571-578`): VAD fires → `SessionActor` receives interrupt →
+`synthesizer.cancel()` (≤50 ms, the shipped contract) → output ducked and stopped →
+interrupted reply discarded → capture already running, so the interrupting words are already
+in the buffer (capture is continuous, never started at interrupt time).
+
+Acceptance, written first (per the unit's spec): a recorded conversational set with
+human-labelled turn boundaries asserting **≥95% correct turn commitment**, scored with
+**false cutoffs weighted 5× worse than late commits**; a barge-in test injecting user speech
+during synthetic TTS playback asserting **halt within 200 ms** with the interrupting audio
+fully captured; an echo test playing known TTS output through a loopback asserting **zero
+transcription of it**; **hold-to-talk remains available forever** as the escape hatch — when
+endpointing misjudges, the user's finger is always the ground truth. Echo rejection is
+verified on **speakers, not headphones** (`ARCHITECTURE.md:580-586`) — a SMOKE step, never CI.
+
+Lints/seams expected: two new seams with two implementations each; no new network surface
+(zero-network default, permanent release blocker); the composition root wires the loop; the
+env-gated real suite follows the `VOCCA_*` two-variable gate pattern; floor 1978 ratchets in
+the unit's first commit.
 
 ## Aspect decomposition (from the PRD)
 
-| Aspect | Boundary |
-|--------|----------|
-| `port-vetting` | License, provenance, phonemization, cancel/chunk semantics verified against the port's code; `Package.swift` lands the dependency; the record. |
-| `engine-binding` | `KokoroEngine` (one file, the seam conformance), the family lint, the env-gated suite entry, the probe wiring — test-first. |
-| `provisioning` | The TTS manifest + af_heart artifact + digests, the bootstrap's store-provision + inject path, the port-downloader suppression pin, the record (STATUS/CLAUDE.md/ARCHITECTURE.md/SMOKE 129/floor). |
+Pending — the PRD (this unit has no prior PRD-gate unit; the card is the only brief).
 
 ## Caveats (binding)
 
 - The P2 and P3 gates stay **uncleared**; this unit builds ahead of them — the recorded
-  posture (`docs/STATUS.md:110-111`), not a drift. TTFA stays recorded, never gated; no
-  Kokoro number exists until the engine runs.
-- The port is young/single-maintainer (2026-03, ~10 stars): the vetting gate records the
-  dependency's state honestly; a port that fails the vetting re-opens the pick.
-- The port's own networking surface must never run (zero-network default); the probe + the
-  seam family lint are the enforcement.
+  posture (`docs/STATUS.md`, kokoro-binding entry), not a drift. Turn-commitment and
+  echo numbers are **recorded, never gated**; the SMOKE steps are the only real
+  executions.
+- **Silero VAD provisioning is the nearest feasibility risk** — a Swift port must be
+  vetted exactly as Jud/kokoro-coreml was (young/single-maintainer risk recorded, a port
+  that fails the vetting re-opens the pick).
+- **Full-duplex audio is the first realtime-path change since C1** — playback and capture
+  concurrently in `VoccaAudio/Playback/` (reserved, empty today); CI cannot exercise the
+  realtime conversation; every decision above the seam is tested there.
+- The zero-network invariant and the ≤50 ms cancel contract are load-bearing inputs, not
+  re-litigations: the cancel contract ships in C9 (`SpeechSynthesizer`), and nothing here
+  may hand a URL to any port.

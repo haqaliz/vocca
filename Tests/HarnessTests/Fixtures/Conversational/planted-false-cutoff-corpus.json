@@ -1,0 +1,62 @@
+[
+  {
+    "name": "hesitation-cutoff-1",
+    "detector": { "commitAfterPause": 0.15, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.4 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.5 },
+      { "kind": "silence", "seconds": 0.2 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.5 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 3.6 } ]
+  },
+  {
+    "name": "hesitation-cutoff-2",
+    "detector": { "commitAfterPause": 0.15, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.3 },
+      { "kind": "speech", "amplitude": 0.35, "seconds": 1.6 },
+      { "kind": "silence", "seconds": 0.2 },
+      { "kind": "speech", "amplitude": 0.35, "seconds": 1.3 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 3.4 } ]
+  },
+  {
+    "name": "hesitation-cutoff-3",
+    "detector": { "commitAfterPause": 0.15, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.5 },
+      { "kind": "speech", "amplitude": 0.45, "seconds": 1.4 },
+      { "kind": "silence", "seconds": 0.2 },
+      { "kind": "speech", "amplitude": 0.45, "seconds": 1.6 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 3.7 } ]
+  },
+  {
+    "name": "hesitation-cutoff-4",
+    "detector": { "commitAfterPause": 0.15, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.2 },
+      { "kind": "speech", "amplitude": 0.3, "seconds": 1.8 },
+      { "kind": "silence", "seconds": 0.2 },
+      { "kind": "speech", "amplitude": 0.3, "seconds": 1.2 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 3.4 } ]
+  },
+  {
+    "name": "hesitation-cutoff-5",
+    "detector": { "commitAfterPause": 0.15, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.4 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.2 },
+      { "kind": "silence", "seconds": 0.2 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.5 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 3.3 } ]
+  }
+]

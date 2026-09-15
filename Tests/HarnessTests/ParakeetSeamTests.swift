@@ -38,8 +38,9 @@ private enum ParakeetSeamTestError: Error, CustomStringConvertible {
     }
 }
 
-/// Acceptance H8b (this capability's seam lint, `prd.md` M6/M14): **exactly one file in
-/// `Sources/` may name the FluidAudio SDK's identifier family — the Parakeet adapter.**
+/// Acceptance H8b (this capability's seam lint, `prd.md` M6/M14): **the files in `Sources/` that
+/// may name the FluidAudio SDK's identifier family are the adapters — the Parakeet engine and
+/// the Silero VAD adapter, and nothing else.**
 ///
 /// The same shape as H7 (`HotkeySeamBoundaryTests`) and H8 (`ModelDownloaderSeamTests`): the
 /// tap adapter is the one file permitted to speak CoreGraphics, the default transport is the one
@@ -62,6 +63,16 @@ private enum ParakeetSeamTestError: Error, CustomStringConvertible {
 /// escaped the lint entirely. A prefix on the *leading* word (`SlidingWindow`) is what catches
 /// every member of the SDK's sliding-window surface.
 ///
+/// The **VAD/EOU family** joined with the `sdk-adapters` aspect: `VadManager`, `VadConfig`,
+/// `VadSegmentationConfig`, `VadResult`, `VadState`, `VadStreamState`, `VadStreamEvent`,
+/// `VadStreamResult`, `VadSegment`, `VadError` (the Silero VAD surface, permitted in the one
+/// `VoccaASR/VAD/SileroVAD.swift` adapter), `StreamingEouAsrManager` and `StreamingChunkSize`
+/// (the EOU surface — **no permitted file**: the EOU is ASR-integrated and no standalone scored
+/// `TurnDetector` conformance exists, so any code naming these is an offender by construction
+/// and a future `ParakeetEOU` must earn a reviewed permit), `ModelNames` (the SDK's name
+/// registry the VAD adapter reads) and `MLModel`/`MLModelConfiguration` (the CoreML names the
+/// adapter loads the staged bundle with — the import is confined to the same file).
+///
 /// ## What this lint does and does not see
 ///
 /// It reads text with comments stripped, so a doc comment may name the SDK to explain what is
@@ -72,9 +83,12 @@ final class ParakeetSeamTests: XCTestCase {
 
     /// Files allowed to name the FluidAudio family, relative to `Sources/`.
     ///
-    /// **One entry, and nothing else ever joins it.**
+    /// **Two entries, and nothing else ever joins them without a reviewed edit here.** The
+    /// Parakeet engine (batch + streaming ASR) and the Silero VAD adapter — each the one file
+    /// that holds its seam's SDK translation.
     private static let filesPermittedToNameTheSDK: Set<String> = [
-        "VoccaASR/Parakeet/ParakeetEngine.swift"
+        "VoccaASR/Parakeet/ParakeetEngine.swift",
+        "VoccaASR/VAD/SileroVAD.swift",
     ]
 
     /// The identifier prefixes that constitute the seam.
@@ -82,10 +96,17 @@ final class ParakeetSeamTests: XCTestCase {
     /// `SlidingWindow` joined the family with the streaming adapter — and it must be a prefix on
     /// the *leading* word: the scanner matches a prefix at a word boundary, so a prefix on
     /// `AsrManager` cannot see `SlidingWindowAsrManager` (no boundary between `w` and `A`), and
-    /// the planted-violation test pins that the leading prefix is what catches it.
+    /// the planted-violation test pins that the leading prefix is what catches it. The VAD/EOU
+    /// prefixes joined with the `sdk-adapters` aspect; `StreamingEouAsrManager` and
+    /// `StreamingChunkSize` are caught by their own leading prefixes, and have no permitted
+    /// file.
     private static let forbiddenIdentifierPrefixes = [
         "AsrManager", "AsrModels", "ModelHub", "TdtDecoderState", "ASRResult", "FluidAudio",
         "SlidingWindow",
+        "VadManager", "VadConfig", "VadSegmentationConfig", "VadResult", "VadState",
+        "VadStreamState", "VadStreamEvent", "VadStreamResult", "VadSegment", "VadError",
+        "StreamingEouAsrManager", "StreamingChunkSize",
+        "ModelNames", "MLModel", "MLModelConfiguration",
     ]
 
     /// Every occurrence of a forbidden identifier in `source`, comments removed first.
@@ -167,6 +188,12 @@ final class ParakeetSeamTests: XCTestCase {
     /// word-boundary rule almost missed (a planted token that today's regex cannot see would make
     /// the guard a placebo — it must be here, in the planted proof, or the extension proves
     /// nothing).
+    ///
+    /// The planted set grows with the family: the VAD adapter's names (`VadManager`,
+    /// `VadConfig`, `VadSegmentationConfig`), the EOU family (`StreamingEouAsrManager`,
+    /// `StreamingChunkSize` — which have **no** permitted file, so any code naming them is an
+    /// offender by construction), the SDK's name registry (`ModelNames`) and the CoreML names
+    /// (`MLModel`) — the shapes a leaked adapter would actually use.
     func testTheLintDetectsAPlantedSDKIdentifier() {
         let source = """
             import Foundation
@@ -175,13 +202,26 @@ final class ParakeetSeamTests: XCTestCase {
                 public let models: AsrModels
                 public var hub: ModelHub { .shared }
                 public let window: SlidingWindowAsrManager
+                public let vad: VadManager
+                public let vadConfig: VadConfig
+                public let segmentation: VadSegmentationConfig
+                public let eou: StreamingEouAsrManager
+                public let chunkSize: StreamingChunkSize
+                public let registry: ModelNames
+                public let model: MLModel
             }
             """
         let identifiers = Self.sdkIdentifiers(inSource: source)
         XCTAssertEqual(
-            identifiers, ["AsrModels", "ModelHub", "SlidingWindowAsrManager"],
-            "the detector must find the planted types, ModelHub and the sliding-window family "
-                + "included")
+            identifiers,
+            [
+                "AsrModels", "ModelHub", "SlidingWindowAsrManager", "VadManager", "VadConfig",
+                "VadSegmentationConfig", "StreamingEouAsrManager", "StreamingChunkSize",
+                "ModelNames", "MLModel",
+            ],
+            "the detector must find the planted types — the ASR family, ModelHub, the "
+                + "sliding-window family, the VAD/EOU family, the name registry and the CoreML "
+                + "names")
     }
 
     /// A doc comment may name the SDK — the scanner strips comments, which is what lets the
@@ -189,10 +229,50 @@ final class ParakeetSeamTests: XCTestCase {
     func testADocCommentNamingTheSDKDoesNotTripTheLint() {
         let source = """
             /// The one file in `Sources/` permitted to name FluidAudio — the adapter holds the
-            /// AsrManager, and everything decided about it lives above it.
+            /// AsrManager, and everything decided about it lives above it. The VAD family
+            /// (VadManager, VadSegmentationConfig) and the EOU family (StreamingEouAsrManager)
+            /// are confined the same way.
             import Foundation
             """
         let identifiers = Self.sdkIdentifiers(inSource: source)
         XCTAssertTrue(identifiers.isEmpty, "comments must be stripped before the scan")
+    }
+
+    /// Every occurrence of `URLSession` in `source`, comments removed first — the offline
+    /// promise's structural half, checked on the VAD adapter below.
+    private static func urlSessionOccurrences(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        guard let regex = try? NSRegularExpression(pattern: "\\bURLSession\\b") else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// The VAD adapter's offline promise, structural: the new permitted file imports no
+    /// `AVFAudio`/`AVFoundation` (it carries `[Float]` samples, never PCM buffers — the
+    /// tree-wide expected-import set is unchanged, no row amendment) and names no `URLSession`
+    /// (the SDK's ModelHub downloaders are never reached from the adapter file).
+    ///
+    /// A missing permitted file fails this test loudly rather than passing it: a lint that
+    /// cannot read its own permitted file is a lint that enforces nothing.
+    func testTheVADAdapterDoesNotImportAVFoundationAndDoesNotNameURLSession() throws {
+        let root = try sourcesRoot()
+        let file = root.appendingPathComponent("VoccaASR/VAD/SileroVAD.swift")
+        guard FileManager.default.fileExists(atPath: file.path) else {
+            throw ParakeetSeamTestError.sourcesDirectoryMissing(expectedAt: file.path)
+        }
+
+        let imports = try SwiftSourceScanner.importedModuleNames(in: file)
+        XCTAssertFalse(
+            imports.contains("AVFAudio") || imports.contains("AVFoundation"),
+            "the VAD adapter must stay AVFAudio-free — it carries [Float] samples, never PCM "
+                + "buffers: \(imports)")
+
+        let source = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(
+            Self.urlSessionOccurrences(inSource: source).isEmpty,
+            "the VAD adapter must not name URLSession — the SDK's downloaders are never reached "
+                + "from the adapter file")
     }
 }

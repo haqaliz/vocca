@@ -1635,8 +1635,132 @@ set -euo pipefail
 # EngineTier loop it sits beside — it skips in CI and still counts as executed, which is what
 # this line's arithmetic assumes.
 #
+# The sdk-vetting provenance pin adds three (1978 -> 2009; executed 2009): the
+# turn-taking-barge-in unit's first aspect (`docs/planning/turn-taking-barge-in/
+# sdk-vetting/plan_20260915.md`) pins the FluidAudio VAD/EOU decisions as manifest facts —
+# `SileroVadProvenanceTests` pins the FluidAudio package URL (`https://github.com/
+# FluidInference/FluidAudio.git`) and its recorded range (`from: "0.12.4"`) in `Package.swift`'s
+# raw text, the `VoccaASR` target's dependency on the `FluidAudio` product through
+# `swift package dump-package`, and the shipped `silero-vad.json` manifest (engineID
+# "silero-vad", version "1", sdkDirectory "vad") pinning the five files of the
+# `silero-vad-unified-256ms-v6.2.1.mlmodelc` directory the resolved SDK names — each with a
+# 64-hex digest and a positive byte count measured from the ACTUAL provisioned bytes. Headless:
+# the URL and range are read from the manifest's raw text, the target edge from
+# `dump-package`, the artifact manifest as raw JSON from the repo (the `ModelManifest` decoder
+# is EngineTier-keyed and out of scope). The raise closes the gap the floor was already
+# carrying — the kokoro unit recorded executed 2006 against this line's 1978 — restoring the
+# invariant that the floor is the current executed count, not a stale one (the loss-observability
+# precedent, `1985da6`'s gap closure).
+#
+# The voice-detection raise (2009 -> 2041; executed 2041) adds the C10 turn-taking-barge-in
+# unit's seam aspect: `VoiceActivitySeamTests` (14) pins the `VoiceActivityDetector` seam —
+# the `requireDetector` existential compile pin, the exhaustive `SpeechActivity` switch, the
+# plain-data `VADConfiguration`, the five committed fixture rows (all-silence, tone-burst,
+# onset-offset-hysteresis, amplitude-ramp, constant-at-margin — every row carrying >=10%
+# amplitude margin), the dead-zone freeze, the missing-samples and chunk-shape-invariance
+# pins (merged 1600 vs split 4x400 flip at the same cumulative sample count), the empty-frame
+# and non-finite retention pins, and the no-branch stub-double pin.
+# `TurnDetectorSeamTests` (12) pins the `TurnDetector` seam — the `requireDetector` compile
+# pin, the exhaustive `TurnCommitment` switch, the plain-data `TurnScore`, the seven
+# committed fixture rows (pause-below/at/above-threshold with the inclusive Float-exact 0.5 s
+# boundary, long-pause-short-utterance — the not-a-bare-silence-timer guard, empty-pause,
+# empty-utterance, duration-guard-only), the strict score monotonicity pin, and the
+# no-branch stub-double pin. `VoiceActivitySuiteTests` (1) and `TurnDetectorSuiteTests` (1)
+# run the two parameterized suite bodies (the `SpeechFixtureSuite` shape the `sdk-adapters`
+# aspect reuses env-gated) over `EnergyVAD` and `SilenceThresholdDetector` — the VAD suite
+# applies its cases in order to one stateful detector, so its onset-offset-hysteresis row is
+# written against the state tone-burst leaves. `VoiceDetectionSeamBoundaryTests` (4) confines
+# each of the four seam names to its permitted files with the planted-violation and
+# comment-strip controls and the non-vacuous guards. All headless: synthetic frames, no
+# model, no network, no dictation-path change.
+#
+# The streaming-capture raise (2041 -> 2054; executed 2054) adds the C10
+# turn-taking-barge-in unit's capture aspect (`docs/planning/turn-taking-barge-in/
+# streaming-capture/plan_20260915.md`): `StreamingCaptureTests` (13) pins the
+# `ContinuousAudioSource` seam and its first conformance over a fake graph with a real ring
+# and a real converter — the start/stop ownership contract (the graph opens exactly once,
+# a refused open maps to `.unavailable` with nothing scheduled and no stream, a second start
+# while running is refused as `.alreadyStarted` with the first stream untouched, stop-before-
+# start and double-stop are no-ops, start-after-stop begins a fresh stream with a fresh
+# `beginSession()` reset and a fresh refusal baseline), the stream contract (chunks converted
+# to the 16 kHz mono interchange format in order and contiguous with one whole conversion,
+# one chunk per populated tick and none from an empty one, no empty chunk ever, the stop
+# remainder with the converter-finish flush as the final chunk, the loss counted on the
+# conformance's `refusedSampleCount` while every chunk carries `missingSampleCount == 0`,
+# two instances on two rings not interfering, and the consumer-drop edge ending exactly once
+# with the device released) — plus the no-touch pin, one test
+# (`testTheDictationCaptureFilesAreUnchanged`) pinning SHA-256 digests of the three dictation
+# files (`MicrophoneSource.swift`, `SpeculativeFeed.swift`, `AudioRingBuffer.swift`) so the
+# voice loop's capture can never silently meet the dictation path. All headless: the graph is
+# faked (the real one is executed by nothing in CI), the ring and converter are real.
+#
+# The playback-ducking raise (2054 -> 2080; executed 2080) adds the same unit's output aspect
+# (`docs/planning/turn-taking-barge-in/playback-ducking/plan_20260915.md`): the new
+# `PlaybackEngine` seam in VoccaCore and `SystemPlayback` in `Sources/VoccaAudio/Playback/`.
+# `PlaybackEngineSeamTests` (20) pins the seam shape (the requireEngine existential + annotated
+# binding), the N2 duck knob as numbers (0.5 = -6.02 dB, the 20 ms ramp fitting the recorded
+# barge-in decomposition 30 + 50 + ramp + margin <= 200), the pure `LevelRamp` schedule over the
+# injected clock, the Float32 arithmetic-mean downmix (the silent-channel-0 killer included),
+# and the duck/halt state machine over the injected clock and a ledger fake: drain-return,
+# empty stream, idempotent duck, the halt at exactly the ramp end and not before, the
+# frozen-clock bounded poll, idle no-ops, cancel-then-replay, the duck/halt/play hammer, the
+# stream-error and format-change halts, teardown/reopen, and the refused-start propagation.
+# `PlaybackOfflineRenderTests` (3) executes the real adapter headlessly through
+# manual-rendering mode: sample-for-sample rendering with the recovered frequency, a duck and
+# a halt as ramps not cuts (the reconstructed envelope monotone to zero over exactly
+# rampDuration x rate frames, no leaked tail), and a clip larger than the ring's capacity
+# rendering whole (the wait-for-room backpressure never drops). The realtime device path is
+# executed by nothing in CI (the AudioCaptureGraph/tap-adapter precedent); SMOKE 132
+# (`barge-in-loop`) is its first real execution. `PlaybackSeamBoundaryTests` (3) confines the
+# AVFAudio family to `SystemPlayback.swift` within `VoccaAudio/Playback/`, with the planted-
+# violation and comment-strip controls and the non-vacuous guards.
+#
+# The sdk-adapters raise (2080 -> 2095; executed 2095) adds the turn-taking unit's adapter
+# aspect (`docs/planning/turn-taking-barge-in/sdk-adapters/plan_20260915.md`): the headless
+# `SileroVADAdapterTests` (11) pins the FluidAudio VAD adapter's contract — the seam compile
+# pin, the pure-init construct pin, the empty-frame and sub-chunk short-circuits (observable
+# because the model is absent), the memoized clear error, the missingSampleCount pin, and the
+# two pure functions (`derivedConfig`'s seam->SDK field mapping with the SDK-defaults row,
+# `chunked`'s identity conversion at the SDK's 4096-sample boundary). The env-gated
+# `SileroVadRealSuiteTests` (2) gates on `VOCCA_RUN_REAL_VAD` + `VOCCA_VAD_MODEL_DIR` and
+# skips visibly in CI — skips count as executed, which is what this line's arithmetic assumes —
+# with Row 1 asserting only the direction of travel (speech as speech, silence as silence) and
+# Row 2 printing `VAD-CLASSIFY-LATENCY` recorded-never-gated. The H8b amendment grows
+# `ParakeetSeamTests` (3 -> 4) with the VAD/EOU/ModelNames/MLModel family prefixes, the
+# planted-violation and comment-strip controls, the new permitted file
+# (`VoccaASR/VAD/SileroVAD.swift`) and the AVFoundation/URLSession structural row for it. The
+# digest suite gains the silero row (1, env-gated on `VOCCA_MODEL_DIR`, skipping when
+# unprovisioned — the comparison `sdk-vetting` promised). The PROBE-VAD assertion extends the
+# existing zero-network default-configuration test (count-neutral) with the drive's construct
+# report. The founder's env-gated runs verified Row 1 and the digest row against the
+# provisioned bytes (recorded, never gated).
+#
+# The barge-in-loop raise (2095 -> 2160; executed 2160) adds the C10 turn-taking-barge-in
+# unit's composed acceptance aspect (`docs/planning/turn-taking-barge-in/
+# barge-in-loop/plan_20260915.md`): `TurnTakingLoopSeamTests` (32) pins the coordinator's
+# contract — the transition table T1-T24, the gate-behavior legs through the loop, the
+# review-gate pins (contiguous fed-frame counts, the reply-end race in both orderings,
+# one-consumer ownership), the budget's coordinator half (tCancel - tSpeech <= 50 ms over the
+# injected clock) and the chunk-decode pin. `EchoGateTests` (13) pins the gate's synthetic
+# overlapped rows over unit-RMS sines (pure-echo and the gain-invariant scaled copy discard;
+# mixed-ducked-overlap accepts the residue; overwhelming-echo and the noise-floor row
+# discard; silence with a hot reference never gates; the residue formula, tail alignment and
+# identity; the vacuous empty paths). `TurnCommitmentHarnessTests` (8) pins the 5x-weighted
+# scorer (the three hand-computed demonstrations, the tolerance rows, the empty-corpus
+# throw) and the corpus runs — passing clears at 1.0000 with zero false cutoffs, the planted
+# false-cutoff corpus genuinely fails at 0.0000 (every boundary a false cutoff), the
+# late-commit corpus fails at exactly 0.2500 (L=3, C=1). `TurnTakingComposedAcceptanceTests`
+# (8) pins the composed headless acceptance — the <=200 ms halt over the injected clock at
+# the contract thresholds, stream continuity, echo zero, silence never gating, the reply-end
+# race, the 3-cycle cancel hammer, the no-trap capture failure, and the G5 digest pin
+# (SessionMachine, DictationPipeline, AppBootstrap — byte-for-byte). `ZeroNetworkTests`
+# (9) gains the PROBE-TURN verbatim post-condition, its assertion block and the
+# guard-the-guard. `TurnTakingLoopRealSuiteTests` (3) gates on VOCCA_RUN_REAL_TURN_LOOP +
+# VOCCA_MODEL_DIR and skips visibly in CI — skips count as executed, which is what this
+# line's arithmetic assumes.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=1978
+MINIMUM_EXECUTED_TESTS=2160
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
