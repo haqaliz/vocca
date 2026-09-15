@@ -20,10 +20,11 @@ import XCTest
 /// **The composed acceptance** (`barge-in-loop/plan_20260915.md` Phase 5): the whole headless
 /// scenario over doubles and the injected clock — the ≤200 ms halt at the contract
 /// thresholds, stream continuity across the interrupt, echo zero on synthetic overlap,
-/// silence during playback never gating, the reply-end race, the cancel hammer, and the
-/// no-trap capture failure. The injected clock is the **only** time source; every timing
-/// assertion runs at the contract thresholds (30 + ≤50 + ≤20 + margin ≤ 200), never at CI
-/// wall time — O5's loaded-runner measurement is why.
+/// silence during playback never gating, the reply-end race, the cancel hammer, the
+/// no-trap capture failure, and the dictation-path no-touch pin (G5). The injected clock is
+/// the **only** time source; every timing assertion runs at the contract thresholds
+/// (30 + ≤50 + ≤20 + margin ≤ 200), never at CI wall time — O5's loaded-runner measurement
+/// is why.
 final class TurnTakingComposedAcceptanceTests: XCTestCase {
 
     /// The committed VAD configuration, shared with the seam and harness suites.
@@ -305,6 +306,44 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
         driver.start()
         try await driver.feed(TurnLoopFixtures.tone(frequency: 880))
         XCTAssertEqual(driver.loop.state, .uttering, "a later start runs a fresh loop")
+    }
+
+    /// **The G5 pin (extension)**: the dictation path is byte-for-byte untouched by the
+    /// voice loop's work. SHA-256 (CryptoKit, the house pattern — nine prior pins) of the
+    /// three files, asserted against the digests computed 2026-09-15 in this worktree (the
+    /// three files were clean in `git status`; a deliberate edit fails CI until the digest
+    /// is recomputed and edited in review — the pin must never be edited to match a moved
+    /// tree).
+    func testTheDictationPathIsByteForByteUntouched() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let pinned: [(file: String, digest: String)] = [
+            (
+                "Sources/VoccaCore/SessionMachine.swift",
+                "1baeb2de2c45149746468bfef49862a08279008d3d2f305be892122d5727537e"
+            ),
+            (
+                "Sources/VoccaCore/DictationPipeline.swift",
+                "ce70ca10c15914d6960f07e53da8571a5fa9ec1fb58b8f0051ef051f16c07a84"
+            ),
+            (
+                "Sources/VoccaBootstrap/AppBootstrap.swift",
+                "03b624df624af005f4e550afff372b1afb82cf340794aa96750de4910044a225"
+            ),
+        ]
+
+        XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
+        for (file, expected) in pinned {
+            let data = try Data(contentsOf: root.appendingPathComponent(file))
+            let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(
+                actual, expected,
+                """
+                \(file) changed byte-for-byte since the barge-in-loop aspect pinned it. The \
+                dictation path must be untouched by the voice loop — if the change is a \
+                deliberate edit, recompute the digest and edit the pin in review; it must never \
+                be edited to match a moved tree.
+                """)
+        }
     }
 }
 
