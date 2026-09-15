@@ -21,8 +21,12 @@ import XCTest
 ///
 /// One detector instance, cases applied in order — a case's expected sequence is written
 /// against the state the previous cases left (VAD hysteresis is stateful; the loop is one
-/// continuous run). The expected classifications are the plan's committed table, written by
-/// hand: every row carries ≥10% amplitude margin against every boundary it crosses.
+/// continuous run). That is why `onset-offset-hysteresis` — which a fresh detector enters in
+/// silence — enters here **in the speech state `tone-burst` leaves behind**: its first eight
+/// frames classify speech and the silence hold completes at frame 9, where the fresh-detector
+/// row in ``VoiceActivitySeamTests`` flips during frame 11. Every other row enters in the
+/// silence state and matches its fresh expectations; the flip rules reset both accumulators,
+/// so no earlier row's evidence leaks past a state that ends in silence.
 final class VoiceActivitySuiteTests: XCTestCase {
 
     func testTheCommittedVoiceActivityFixtureCasesClassifyAsLabelled() throws {
@@ -47,8 +51,8 @@ final class VoiceActivitySuiteTests: XCTestCase {
                     + (0..<2).map { _ in VoiceActivityFixtures.makeTone(amplitude: 0.4, samples: 1000) }
                     + (0..<3).map { _ in VoiceActivityFixtures.makeTone(amplitude: 0.035, samples: 1000) }
                     + (0..<4).map { _ in VoiceActivityFixtures.makeTone(amplitude: 0.01, samples: 1000) },
-                expected: [.silence, .silence, .silence, .speech, .speech, .speech, .speech,
-                    .speech, .speech, .speech, .silence]),
+                expected: [.speech, .speech, .speech, .speech, .speech, .speech, .speech,
+                    .speech, .silence, .silence, .silence]),
             VoiceActivityFixtureCase(
                 name: "amplitude-ramp",
                 frames: VoiceActivityFixtures.makeRamp(

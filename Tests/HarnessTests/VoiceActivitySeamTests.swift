@@ -325,10 +325,10 @@ final class VoiceActivitySeamTests: XCTestCase {
     func testCallersDriveTheSeamThroughTheProtocolOnly() {
         struct FixedActivityVAD: VoiceActivityDetector {
             let configuration: VADConfiguration
-            private var heardSpeech = false
+            var heardSpeech = false
 
             mutating func classify(_ frame: AudioBuffer) -> SpeechActivity {
-                if !frame.samples.isEmpty { heardSpeech = true }
+                if frame.samples.contains(where: { $0 != 0 }) { heardSpeech = true }
                 return heardSpeech ? .speech : .silence
             }
         }
