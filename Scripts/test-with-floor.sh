@@ -1735,8 +1735,32 @@ set -euo pipefail
 # report. The founder's env-gated runs verified Row 1 and the digest row against the
 # provisioned bytes (recorded, never gated).
 #
+# The barge-in-loop raise (2095 -> 2160; executed 2160) adds the C10 turn-taking-barge-in
+# unit's composed acceptance aspect (`docs/planning/turn-taking-barge-in/
+# barge-in-loop/plan_20260915.md`): `TurnTakingLoopSeamTests` (32) pins the coordinator's
+# contract — the transition table T1-T24, the gate-behavior legs through the loop, the
+# review-gate pins (contiguous fed-frame counts, the reply-end race in both orderings,
+# one-consumer ownership), the budget's coordinator half (tCancel - tSpeech <= 50 ms over the
+# injected clock) and the chunk-decode pin. `EchoGateTests` (13) pins the gate's synthetic
+# overlapped rows over unit-RMS sines (pure-echo and the gain-invariant scaled copy discard;
+# mixed-ducked-overlap accepts the residue; overwhelming-echo and the noise-floor row
+# discard; silence with a hot reference never gates; the residue formula, tail alignment and
+# identity; the vacuous empty paths). `TurnCommitmentHarnessTests` (8) pins the 5x-weighted
+# scorer (the three hand-computed demonstrations, the tolerance rows, the empty-corpus
+# throw) and the corpus runs — passing clears at 1.0000 with zero false cutoffs, the planted
+# false-cutoff corpus genuinely fails at 0.0000 (every boundary a false cutoff), the
+# late-commit corpus fails at exactly 0.2500 (L=3, C=1). `TurnTakingComposedAcceptanceTests`
+# (8) pins the composed headless acceptance — the <=200 ms halt over the injected clock at
+# the contract thresholds, stream continuity, echo zero, silence never gating, the reply-end
+# race, the 3-cycle cancel hammer, the no-trap capture failure, and the G5 digest pin
+# (SessionMachine, DictationPipeline, AppBootstrap — byte-for-byte). `ZeroNetworkTests`
+# (9) gains the PROBE-TURN verbatim post-condition, its assertion block and the
+# guard-the-guard. `TurnTakingLoopRealSuiteTests` (3) gates on VOCCA_RUN_REAL_TURN_LOOP +
+# VOCCA_MODEL_DIR and skips visibly in CI — skips count as executed, which is what this
+# line's arithmetic assumes.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2095
+MINIMUM_EXECUTED_TESTS=2160
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
