@@ -116,7 +116,11 @@ final class PlaybackEngineSeamTests: XCTestCase {
                 "a level with duckGain \(gain) and ramp \(ramp) must be refused")
         }
 
-        for (gain, ramp) in [(0.0, .milliseconds(20)), (1.0, .milliseconds(1))] {
+        let boundaries: [(duckGain: Double, rampDuration: Duration)] = [
+            (0.0, .milliseconds(20)),
+            (1.0, .milliseconds(1)),
+        ]
+        for (gain, ramp) in boundaries {
             XCTAssertTrue(
                 PlaybackLevel(duckGain: gain, rampDuration: ramp).isValid,
                 "the boundary values \(gain)/\(ramp) describe a real duck and must be accepted")
@@ -204,17 +208,17 @@ final class PlaybackEngineSeamTests: XCTestCase {
     /// killers: first-channel selection and the silent-channel-0 microphone. Plus a Float32
     /// round-trip pin: bytes → frames → the same values.
     func testMonoFramesAreTheArithmeticMeanOfTheChunkChannels() {
-        let stereo = chunk(frames: [1, 3, 5, 7], sampleRate: 22_050, channelCount: 2)
+        let stereo = Self.chunk(frames: [1, 3, 5, 7], sampleRate: 22_050, channelCount: 2)
         XCTAssertEqual(
             SystemPlayback.monoFrames(from: stereo), [2, 6],
             "stereo frames (1,3) and (5,7) must average to 2 and 6 — [1,5] is first-channel selection")
 
-        let quad = chunk(frames: [1, 2, 3, 4], sampleRate: 22_050, channelCount: 4)
+        let quad = Self.chunk(frames: [1, 2, 3, 4], sampleRate: 22_050, channelCount: 4)
         XCTAssertEqual(
             SystemPlayback.monoFrames(from: quad), [2.5],
             "a four-channel frame must divide by four, not by a hardcoded two")
 
-        let offsetMicrophone = chunk(frames: [0, 1, 0, -1], sampleRate: 22_050, channelCount: 2)
+        let offsetMicrophone = Self.chunk(frames: [0, 1, 0, -1], sampleRate: 22_050, channelCount: 2)
         XCTAssertEqual(
             SystemPlayback.monoFrames(from: offsetMicrophone), [0.5, -0.5],
             """
@@ -225,7 +229,7 @@ final class PlaybackEngineSeamTests: XCTestCase {
             SystemPlayback.monoFrames(from: offsetMicrophone), [0, 0],
             "the downmix discarded every channel but the first")
 
-        let roundTrip = chunk(frames: [0.1, -0.25, 0.5], sampleRate: 22_050, channelCount: 1)
+        let roundTrip = Self.chunk(frames: [0.1, -0.25, 0.5], sampleRate: 22_050, channelCount: 1)
         XCTAssertEqual(
             SystemPlayback.monoFrames(from: roundTrip), [0.1, -0.25, 0.5],
             "a Float32 round-trip must recover the exact values — bytes → frames → same bits")
@@ -239,13 +243,13 @@ final class PlaybackEngineSeamTests: XCTestCase {
     func testPlayDeliversChunksInOrderAndReturnsWhenDrained() async throws {
         let (engine, fake, clock) = Self.makeEngine()
         let script = [
-            chunk(frames: [0.1, 0.2, 0.3]),
-            chunk(frames: [0.4, 0.5]),
-            chunk(frames: [0.6]),
+            Self.chunk(frames: [0.1, 0.2, 0.3]),
+            Self.chunk(frames: [0.4, 0.5]),
+            Self.chunk(frames: [0.6]),
         ]
         let t0 = clock.now
 
-        let playTask = Task { try await engine.play(Self.stream(script)) }
+        let playTask = Self.playTask(engine, Self.stream(script))
         try await Self.waitUntil { fake.enqueuedFrames.count == 3 }
 
         XCTAssertEqual(
@@ -293,7 +297,7 @@ final class PlaybackEngineSeamTests: XCTestCase {
     /// still active — and the session still drains normally afterwards.
     func testDuckRampsTheLevelToTheDuckTargetAndKeepsPlaying() async throws {
         let (engine, fake, clock) = Self.makeEngine()
-        let playTask = Task { try await engine.play(Self.stream(threeChunks())) }
+        let playTask = Self.playTask(engine, Self.stream(Self.threeChunks()))
         try await Self.waitUntil { fake.enqueuedFrames.count >= 1 }
         let t0 = clock.now
 
@@ -318,7 +322,7 @@ final class PlaybackEngineSeamTests: XCTestCase {
     /// discontinuity.
     func testDuckIsIdempotentAndDoesNotRestartTheRamp() async throws {
         let (engine, fake, clock) = Self.makeEngine()
-        let playTask = Task { try await engine.play(Self.stream(threeChunks())) }
+        let playTask = Self.playTask(engine, Self.stream(Self.threeChunks()))
         try await Self.waitUntil { fake.enqueuedFrames.count >= 1 }
         let t0 = clock.now
 
@@ -344,7 +348,7 @@ final class PlaybackEngineSeamTests: XCTestCase {
     /// there, exactly once — and `play` returned after it.
     func testCancelToSilenceHaltsAtTheRampEndAndNotBefore() async throws {
         let (engine, fake, clock) = Self.makeEngine()
-        let playTask = Task { try await engine.play(Self.stream(threeChunks())) }
+        let playTask = Self.playTask(engine, Self.stream(Self.threeChunks()))
         try await Self.waitUntil { fake.enqueuedFrames.count >= 1 }
         let t0 = clock.now
 
@@ -379,7 +383,7 @@ final class PlaybackEngineSeamTests: XCTestCase {
     /// poll ceiling and the stop is recorded — the `SessionWatchdogTests` discipline.
     func testAClockThatNeverAdvancesStillHalts() async throws {
         let (engine, fake, _) = Self.makeEngine()
-        let playTask = Task { try await engine.play(Self.stream(threeChunks())) }
+        let playTask = Self.playTask(engine, Self.stream(Self.threeChunks()))
         try await Self.waitUntil { fake.enqueuedFrames.count >= 1 }
 
         let cancelTask = Task { await engine.cancelToSilence() }
@@ -414,7 +418,7 @@ final class PlaybackEngineSeamTests: XCTestCase {
             fake.gainEvents.count, 0,
             "a duck on an idle engine must record nothing — it never pre-arms the next session")
 
-        let playTask = Task { try await engine.play(Self.stream(threeChunks())) }
+        let playTask = Self.playTask(engine, Self.stream(Self.threeChunks()))
         try await Self.waitUntil { fake.enqueuedFrames.count >= 1 }
         XCTAssertEqual(
             fake.gainEvents.count, 0,
@@ -430,11 +434,11 @@ final class PlaybackEngineSeamTests: XCTestCase {
     func testCancelThenReplayRendersFully() async throws {
         let (engine, fake, clock) = Self.makeEngine()
         let scriptA = [
-            chunk(frames: [0.1, 0.2]),
-            chunk(frames: [0.3]),
-            chunk(frames: [0.4]),
+            Self.chunk(frames: [0.1, 0.2]),
+            Self.chunk(frames: [0.3]),
+            Self.chunk(frames: [0.4]),
         ]
-        let playTaskA = Task { try await engine.play(Self.stream(scriptA)) }
+        let playTaskA = Self.playTask(engine, Self.stream(scriptA))
         try await Self.waitUntil { fake.enqueuedFrames.count >= 1 }
 
         let cancelTask = Task { await engine.cancelToSilence() }
@@ -451,11 +455,11 @@ final class PlaybackEngineSeamTests: XCTestCase {
             "the cancelled session enqueued at most its script — check-and-enqueue stops it at the cancel")
 
         let scriptB = [
-            chunk(frames: [0.7, 0.8]),
-            chunk(frames: [0.9]),
-            chunk(frames: [1.0]),
+            Self.chunk(frames: [0.7, 0.8]),
+            Self.chunk(frames: [0.9]),
+            Self.chunk(frames: [1.0]),
         ]
-        let playTaskB = Task { try await engine.play(Self.stream(scriptB)) }
+        let playTaskB = Self.playTask(engine, Self.stream(scriptB))
         try await Self.waitUntil { fake.enqueuedFrames.count == cancelledCount + 3 }
 
         XCTAssertEqual(
@@ -477,15 +481,15 @@ final class PlaybackEngineSeamTests: XCTestCase {
     func testARapidDuckHaltPlayHammerLeavesAStableEngine() async throws {
         let (engine, fake, clock) = Self.makeEngine()
         let roundScripts = [
-            [chunk(frames: [0.1, 0.2]), chunk(frames: [0.3])],
-            [chunk(frames: [0.4, 0.5]), chunk(frames: [0.6])],
-            [chunk(frames: [0.7, 0.8]), chunk(frames: [0.9])],
+            [Self.chunk(frames: [0.1, 0.2]), Self.chunk(frames: [0.3])],
+            [Self.chunk(frames: [0.4, 0.5]), Self.chunk(frames: [0.6])],
+            [Self.chunk(frames: [0.7, 0.8]), Self.chunk(frames: [0.9])],
         ]
         var playTasks: [Task<Void, Error>] = []
         var base = 0
 
         for script in roundScripts {
-            let playTask = Task { try await engine.play(Self.stream(script)) }
+            let playTask = Self.playTask(engine, Self.stream(script))
             playTasks.append(playTask)
             try await Self.waitUntil { fake.enqueuedFrames.count >= base + 1 }
             await engine.duck()
@@ -502,11 +506,11 @@ final class PlaybackEngineSeamTests: XCTestCase {
             "one stop per halt, across the three hammer rounds")
 
         let finalScript = [
-            chunk(frames: [0.11]),
-            chunk(frames: [0.22]),
-            chunk(frames: [0.33]),
+            Self.chunk(frames: [0.11]),
+            Self.chunk(frames: [0.22]),
+            Self.chunk(frames: [0.33]),
         ]
-        let finalTask = Task { try await engine.play(Self.stream(finalScript)) }
+        let finalTask = Self.playTask(engine, Self.stream(finalScript))
         try await Self.waitUntil { fake.enqueuedFrames.count == base + 3 }
         XCTAssertEqual(
             Array(fake.enqueuedFrames.suffix(3)), [[0.11], [0.22], [0.33]],
@@ -523,11 +527,11 @@ final class PlaybackEngineSeamTests: XCTestCase {
     func testAStreamErrorMidPlayHaltsAndThrows() async throws {
         let (engine, fake, clock) = Self.makeEngine()
         let throwingStream = AsyncThrowingStream<AudioChunk, Error> { continuation in
-            continuation.yield(chunk(frames: [0.1]))
-            continuation.yield(chunk(frames: [0.2]))
+            continuation.yield(Self.chunk(frames: [0.1]))
+            continuation.yield(Self.chunk(frames: [0.2]))
             continuation.finish(throwing: StreamFailure())
         }
-        let playTask = Task { try await engine.play(throwingStream) }
+        let playTask = Self.playTask(engine, throwingStream)
 
         try await Self.waitUntil { fake.gainEvents.contains { $0.gain == 0 } }
         let haltStart = fake.gainEvents.last?.at
@@ -553,11 +557,11 @@ final class PlaybackEngineSeamTests: XCTestCase {
     func testAChunkInADifferentFormatIsAStreamFailure() async throws {
         let (engine, fake, clock) = Self.makeEngine()
         let changingStream = AsyncThrowingStream<AudioChunk, Error> { continuation in
-            continuation.yield(chunk(frames: [0.1], sampleRate: 22_050, channelCount: 1))
-            continuation.yield(chunk(frames: [0.2], sampleRate: 44_100, channelCount: 1))
+            continuation.yield(Self.chunk(frames: [0.1], sampleRate: 22_050, channelCount: 1))
+            continuation.yield(Self.chunk(frames: [0.2], sampleRate: 44_100, channelCount: 1))
             continuation.finish()
         }
-        let playTask = Task { try await engine.play(changingStream) }
+        let playTask = Self.playTask(engine, changingStream)
 
         try await Self.waitUntil { fake.gainEvents.contains { $0.gain == 0 } }
         let haltStart = fake.gainEvents.last?.at
@@ -580,7 +584,8 @@ final class PlaybackEngineSeamTests: XCTestCase {
     /// fresh session — the `CaptureGraphSeam.stop()` release contract.
     func testTearDownReleasesTheOutputAndPlayReopens() async throws {
         let (engine, fake, _) = Self.makeEngine()
-        let playTaskA = Task { try await engine.play(Self.stream(threeChunks())) }
+        let streamA = Self.stream(Self.threeChunks())
+        let playTaskA = Self.playTask(engine, streamA)
         try await Self.waitUntil { fake.enqueuedFrames.count >= 1 }
 
         engine.tearDown()
@@ -593,7 +598,8 @@ final class PlaybackEngineSeamTests: XCTestCase {
         try await playTaskA.value
         XCTAssertEqual(fake.stopEvents.count, 1, "the torn-down session adds no stop of its own")
 
-        let playTaskB = Task { try await engine.play(Self.stream(threeChunks())) }
+        let streamB = Self.stream(Self.threeChunks())
+        let playTaskB = Self.playTask(engine, streamB)
         try await Self.waitUntil { fake.enqueuedFrames.count == 3 + 3 }
         fake.consumeAll()
         try await playTaskB.value
@@ -608,7 +614,8 @@ final class PlaybackEngineSeamTests: XCTestCase {
         let (engine, fake, _) = Self.makeEngine()
         fake.nextStart = .failure(StartRefused())
 
-        let playTask = Task { try await engine.play(Self.stream(threeChunks())) }
+        let stream = Self.stream(Self.threeChunks())
+        let playTask = Self.playTask(engine, stream)
         do {
             try await playTask.value
             XCTFail("play must throw when the output refuses to start")
@@ -632,6 +639,15 @@ final class PlaybackEngineSeamTests: XCTestCase {
         return (engine, fake, clock)
     }
 
+    /// The play task, routed through one helper: the `Task` closure lives here exactly once, so
+    /// the region-based isolation checker's analysis budget is not spread across the suite's
+    /// many task sites (a compiler quirk — the same pattern inlines fine in small files).
+    private static func playTask(
+        _ engine: SystemPlayback, _ stream: AsyncThrowingStream<AudioChunk, Error>
+    ) -> Task<Void, Error> {
+        Task { try await engine.play(stream) }
+    }
+
     /// A scripted stream that yields the chunks in order and finishes.
     private static func stream(_ chunks: [AudioChunk]) -> AsyncThrowingStream<AudioChunk, Error> {
         AsyncThrowingStream { continuation in
@@ -644,9 +660,9 @@ final class PlaybackEngineSeamTests: XCTestCase {
 
     private static func threeChunks() -> [AudioChunk] {
         [
-            chunk(frames: [0.1, 0.2]),
-            chunk(frames: [0.3, 0.4]),
-            chunk(frames: [0.5, 0.6]),
+            Self.chunk(frames: [0.1, 0.2]),
+            Self.chunk(frames: [0.3, 0.4]),
+            Self.chunk(frames: [0.5, 0.6]),
         ]
     }
 
@@ -751,8 +767,10 @@ final class PlaybackEngineSeamTests: XCTestCase {
 
         func start(sampleRate: Double, channelCount: Int) throws {
             try lock.withLock { ledger in
-                try ledger.nextStart.get()
+                // The attempt is recorded even when refused — the ledger is assertions against
+                // what happened, and a refusal is a thing that happened.
                 ledger.startCalls.append(StartCall(sampleRate: sampleRate, channelCount: channelCount))
+                try ledger.nextStart.get()
                 ledger.isRunning = true
             }
         }
