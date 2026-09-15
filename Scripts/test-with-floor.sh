@@ -1694,8 +1694,29 @@ set -euo pipefail
 # voice loop's capture can never silently meet the dictation path. All headless: the graph is
 # faked (the real one is executed by nothing in CI), the ring and converter are real.
 #
+# The playback-ducking raise (2054 -> 2080; executed 2080) adds the same unit's output aspect
+# (`docs/planning/turn-taking-barge-in/playback-ducking/plan_20260915.md`): the new
+# `PlaybackEngine` seam in VoccaCore and `SystemPlayback` in `Sources/VoccaAudio/Playback/`.
+# `PlaybackEngineSeamTests` (20) pins the seam shape (the requireEngine existential + annotated
+# binding), the N2 duck knob as numbers (0.5 = -6.02 dB, the 20 ms ramp fitting the recorded
+# barge-in decomposition 30 + 50 + ramp + margin <= 200), the pure `LevelRamp` schedule over the
+# injected clock, the Float32 arithmetic-mean downmix (the silent-channel-0 killer included),
+# and the duck/halt state machine over the injected clock and a ledger fake: drain-return,
+# empty stream, idempotent duck, the halt at exactly the ramp end and not before, the
+# frozen-clock bounded poll, idle no-ops, cancel-then-replay, the duck/halt/play hammer, the
+# stream-error and format-change halts, teardown/reopen, and the refused-start propagation.
+# `PlaybackOfflineRenderTests` (3) executes the real adapter headlessly through
+# manual-rendering mode: sample-for-sample rendering with the recovered frequency, a duck and
+# a halt as ramps not cuts (the reconstructed envelope monotone to zero over exactly
+# rampDuration x rate frames, no leaked tail), and a clip larger than the ring's capacity
+# rendering whole (the wait-for-room backpressure never drops). The realtime device path is
+# executed by nothing in CI (the AudioCaptureGraph/tap-adapter precedent); SMOKE 132
+# (`barge-in-loop`) is its first real execution. `PlaybackSeamBoundaryTests` (3) confines the
+# AVFAudio family to `SystemPlayback.swift` within `VoccaAudio/Playback/`, with the planted-
+# violation and comment-strip controls and the non-vacuous guards.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2054
+MINIMUM_EXECUTED_TESTS=2080
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
