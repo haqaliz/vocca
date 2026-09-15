@@ -1652,8 +1652,30 @@ set -euo pipefail
 # invariant that the floor is the current executed count, not a stale one (the loss-observability
 # precedent, `1985da6`'s gap closure).
 #
+# The voice-detection raise (2009 -> 2041; executed 2041) adds the C10 turn-taking-barge-in
+# unit's seam aspect: `VoiceActivitySeamTests` (14) pins the `VoiceActivityDetector` seam —
+# the `requireDetector` existential compile pin, the exhaustive `SpeechActivity` switch, the
+# plain-data `VADConfiguration`, the five committed fixture rows (all-silence, tone-burst,
+# onset-offset-hysteresis, amplitude-ramp, constant-at-margin — every row carrying >=10%
+# amplitude margin), the dead-zone freeze, the missing-samples and chunk-shape-invariance
+# pins (merged 1600 vs split 4x400 flip at the same cumulative sample count), the empty-frame
+# and non-finite retention pins, and the no-branch stub-double pin.
+# `TurnDetectorSeamTests` (12) pins the `TurnDetector` seam — the `requireDetector` compile
+# pin, the exhaustive `TurnCommitment` switch, the plain-data `TurnScore`, the seven
+# committed fixture rows (pause-below/at/above-threshold with the inclusive Float-exact 0.5 s
+# boundary, long-pause-short-utterance — the not-a-bare-silence-timer guard, empty-pause,
+# empty-utterance, duration-guard-only), the strict score monotonicity pin, and the
+# no-branch stub-double pin. `VoiceActivitySuiteTests` (1) and `TurnDetectorSuiteTests` (1)
+# run the two parameterized suite bodies (the `SpeechFixtureSuite` shape the `sdk-adapters`
+# aspect reuses env-gated) over `EnergyVAD` and `SilenceThresholdDetector` — the VAD suite
+# applies its cases in order to one stateful detector, so its onset-offset-hysteresis row is
+# written against the state tone-burst leaves. `VoiceDetectionSeamBoundaryTests` (4) confines
+# each of the four seam names to its permitted files with the planted-violation and
+# comment-strip controls and the non-vacuous guards. All headless: synthetic frames, no
+# model, no network, no dictation-path change.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2009
+MINIMUM_EXECUTED_TESTS=2041
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
