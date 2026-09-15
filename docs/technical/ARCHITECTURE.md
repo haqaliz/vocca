@@ -104,8 +104,16 @@ Sources/
     Config/                  # Configuration, persistence, defaults
   VoccaAudio/
     Capture/                 # AudioCapture impls
-    Playback/                # duckable output for barge-in
-    VAD/                     # VoiceActivityDetector, TurnDetector
+    Playback/                # duckable output for barge-in — REAL since C10
+                             #   (`turn-taking-barge-in`, 2026-09-15):
+                             #   `SystemPlayback.swift`, the directory's first file
+                             #   (the `PlaybackEngine` conformance, `SystemPlaybackOutput`
+                             #   behind the `PlaybackOutputSeam`)
+    VAD/                     # RESERVED — the seam types live in VoccaCore; the real
+                             #   FluidAudio-backed adapter lives in `VoccaASR/VAD/`
+                             #   (`SileroVAD.swift`) because FluidAudio is confined to
+                             #   VoccaASR by the H8b lint, so this directory stays a
+                             #   paper reservation (recorded, `sdk-adapters`, 2026-09-15)
   VoccaHotkey/               # The CGEvent tap, and the flag translation above it.
                              #   The HotkeyEventSource seam it implements is declared
                              #   in VoccaCore with every other seam (§2) — a module
@@ -253,14 +261,15 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 
 | Seam | Protocol | Implementations at ship | Hosted tier slots in? |
 |------|----------|------------------------|----------------------|
-| Capture | `AudioCapture` | `PushToTalkCapture`, `StreamingCapture` (C10) | No — always local |
+| Capture (dictation) | `SessionAudioSource` | `MicrophoneSource` | No — always local |
+| Capture (voice loop, C10) | `ContinuousAudioSource` | `StreamingCapture` | No — always local |
 | ASR | `ASREngine` | `ParakeetEngine`, `WhisperCppEngine` | **Yes** |
 | Cleanup | `CleanupProvider` | `RulesCleanup`, `OllamaCleanup`, `BYOKCleanup` | **Yes** |
 | Injection | `TextInjector` | `LadderInjector` + per-rung strategies | No — always local |
 | Strategy memory | `InjectionStrategyStore` | `PersistentInjectionStrategyStore`, `EphemeralInjectionStrategyStore` (tests) | No |
-| TTS | `SpeechSynthesizer` | `KokoroSynthesizer`, `SystemSynthesizer` | **Yes** |
-| VAD | `VoiceActivityDetector` | `SileroVAD`, `EnergyVAD` (fallback/tests) | No |
-| Turn detection | `TurnDetector` | `ParakeetEOU`, `SilenceThresholdDetector` | No |
+| TTS | `SpeechSynthesizer` | `KokoroEngine`, `SystemSynthesizer` | **Yes** |
+| VAD | `VoiceActivityDetector` | `SileroVAD` (FluidAudio `VadManager`, in `VoccaASR/VAD/` — H8b), `EnergyVAD` (fallback/tests) | No |
+| Turn detection | `TurnDetector` | `SilenceThresholdDetector` (shipped); `ParakeetEOU` **PENDING** — Branch B, the EOU is ASR-integrated in the pinned SDK, not a standalone scored call (`sdk-adapters`, 2026-09-15) | No |
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` | **No — by design** |
 | Actions | `ActionProvider` | `MCPProvider`, `ShellProvider` | No |
 
@@ -342,6 +351,8 @@ Three mitigations make the on-demand start cheap without running the engine:
 3. **Measure the start cost; do not assume it.** This span is inside the pre-key-up window and so outside the p50 clock, but it delays the waveform — the "it heard me" signal — and `PRODUCT_SPEC.md` promises that within one frame. Treat it as a first-class number with its own acceptance threshold rather than a rounding error.
 
 The same header notes that an app switching between output-only and input-output configurations may want **two engine instances**, one per configuration. Worth remembering at C9, when TTS playback arrives and the naive move is to reuse the capture engine.
+
+**Resolved at C10 (`turn-taking-barge-in`, 2026-09-15).** The playback path ships a **separate `AVAudioEngine`** — `SystemPlaybackOutput`, the real output behind the `PlaybackOutputSeam` in `VoccaAudio/Playback/SystemPlayback.swift` — exactly the two-instances shape the header warns about; the naive reuse of the capture engine was not taken. The voice loop's capture is a third graph instance (`ContinuousAudioSource`/`StreamingCapture` over its own `AudioCaptureGraph`), which keeps one realtime producer per ring and the SPSC warrant intact.
 
 Note that this is separate from, and does not contradict, the **model** warm-start in C7 (`ASREngine.prepare()`, `ROADMAP.md`'s warm-start metric). A resident CoreML model holds no audio device and lights nothing; keeping the ASR engine warm is free of this problem entirely. It is specifically the *audio* engine that must go cold.
 
@@ -568,7 +579,7 @@ The user dictionary is plain JSON in Application Support — hand-editable and v
                      └── cancel() must halt ≤50 ms
 ```
 
-**Barge-in signal path**, budgeted to the 200 ms gate: VAD fires (~30 ms frame) → `SessionActor` receives interrupt → `synthesizer.cancel()` (≤50 ms) → output ducked and stopped → interrupted reply discarded → capture already running, so the interrupting words are **already in the buffer**. That last point is why capture is continuous rather than started on interrupt: starting capture at interrupt time loses the first syllables, which is precisely what makes barge-in feel broken.
+**Barge-in signal path**, budgeted to the 200 ms gate: VAD fires (~30 ms frame) → `TurnTakingLoop` receives interrupt → `synthesizer.cancel()` (≤50 ms) → output ducked and stopped → interrupted reply discarded → capture already running, so the interrupting words are **already in the buffer**. That last point is why capture is continuous rather than started on interrupt: starting capture at interrupt time loses the first syllables, which is precisely what makes barge-in feel broken. *Annotated (`turn-taking-barge-in`, 2026-09-15): the machine in that sentence is the shipped `TurnTakingLoop` — synchronous and owner-isolated in the `SessionMachine` shape (§7), never an actor; the diagram's older "`SessionActor` receives interrupt" sketch was rejected with it.*
 
 **Echo rejection** is not optional and must be verified on speakers, not headphones — headphones make the problem vanish and speakers are how people actually use it. Approach: known-output reference cancellation, plus a hard gate that discards capture whose energy correlates with the synthesizer's own output within the playback window.
 
@@ -682,7 +693,7 @@ Every seam has a fake; every capability's acceptance from `CAPABILITY_ROADMAP.md
 | **App matrix driver** | `Scripts/injection-matrix.sh` — 22 rows across 20+ real apps, semi-automated per release; its `--self-check` is the only CI-runnable half | C4, C8 |
 | **Network interposer** | Asserts **zero outbound connections** on the default path | C6 — **permanent release blocker** |
 | **Benchmark harness** | Replays fixtures, asserts p50/p95, fails CI on regression | C7 |
-| **Conversational set** | Labelled turn boundaries; scores endpointing with 5× false-cutoff weight | C10 |
+| **Conversational set** | Labelled turn boundaries; scores endpointing with 5× false-cutoff weight. **Shipped (`turn-taking-barge-in`, 2026-09-15):** the `TurnCommitmentScorer` + scripted corpus + harness run in CI (passing corpus 1.0000 with zero false cutoffs; the planted-false-cutoff corpus genuinely fails at 0.0000; the late-commit corpus 0.2500); the founder-recorded set is SMOKE 131, recorded never gated | C10 |
 | **Custody audit** | Asserts no `CustodyToken` is ever deinit'd unresolved | I1, all phases |
 
 The load-bearing tests are the failure-path ones. Any competent implementation passes the happy path; what distinguishes this product is that the ladder's fourth rung always catches, and only fault injection proves it.
