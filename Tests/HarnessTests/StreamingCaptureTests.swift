@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import CryptoKit
 import VoccaCore
 import XCTest
 
@@ -445,6 +446,52 @@ final class StreamingCaptureTests: XCTestCase {
         XCTAssertEqual(graph.stopCalls, 1, "stop() releases the device exactly once, after the drop")
         XCTAssertEqual(timer.stopCount, 1, "the tick is unscheduled exactly once")
         XCTAssertFalse(graph.isRunning, "a stream that ends is never a microphone that stayed open")
+    }
+
+    // MARK: - The no-touch pin (G5)
+
+    /// **The dictation path, proven byte-for-byte untouched** (plan fact G5): the three files the
+    /// continuous conformance must never have met — `MicrophoneSource.swift`, `SpeculativeFeed.swift`,
+    /// `AudioRingBuffer.swift` — pinned by SHA-256, the house digest-pin pattern (CryptoKit, nine
+    /// existing test files). The digests were computed on 2026-09-15 from the clean worktree and
+    /// match the plan's pinned values verbatim (`docs/planning/turn-taking-barge-in/
+    /// streaming-capture/plan_20260915.md`).
+    ///
+    /// **This is a deliberate-edit pin** (the floor's philosophy: a guard that cannot fail proves
+    /// nothing) — changing any of the three files fails CI until the digest is deliberately
+    /// recomputed and edited in review. `SessionAudioSource.swift` is not in the pin because the
+    /// seam-shape decision (a) already proves it untouched structurally: this conformance does not
+    /// conform to it.
+    func testTheDictationCaptureFilesAreUnchanged() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let pinned: [(file: String, digest: String)] = [
+            (
+                "Sources/VoccaAudio/MicrophoneSource.swift",
+                "646c566132e2c207c10451ee36559cfb904ee2f27d7ba429cc043e06a6b4584f"
+            ),
+            (
+                "Sources/VoccaAudio/SpeculativeFeed.swift",
+                "11a4209c11cf75ab507bbaf34a82e7e521d43c267e95994b7d428265f1b690f4"
+            ),
+            (
+                "Sources/VoccaAudio/AudioRingBuffer.swift",
+                "0989ba55ad214cfc7e3822071ed7a4946b6728cfeb19d7bd6b26de8e86511578"
+            ),
+        ]
+
+        XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
+        for (file, expected) in pinned {
+            let data = try Data(contentsOf: root.appendingPathComponent(file))
+            let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(
+                actual, expected,
+                """
+                \(file) changed byte-for-byte since the streaming-capture aspect pinned it. The \
+                dictation path must be untouched by the voice loop's capture — if the change is a \
+                deliberate edit, recompute the digest and edit the pin in review; it must never be \
+                edited to match a moved tree.
+                """)
+        }
     }
 
     // MARK: - Helpers

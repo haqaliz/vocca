@@ -1674,8 +1674,28 @@ set -euo pipefail
 # comment-strip controls and the non-vacuous guards. All headless: synthetic frames, no
 # model, no network, no dictation-path change.
 #
+# The streaming-capture raise (2041 -> 2054; executed 2054) adds the C10
+# turn-taking-barge-in unit's capture aspect (`docs/planning/turn-taking-barge-in/
+# streaming-capture/plan_20260915.md`): `StreamingCaptureTests` (13) pins the
+# `ContinuousAudioSource` seam and its first conformance over a fake graph with a real ring
+# and a real converter — the start/stop ownership contract (the graph opens exactly once,
+# a refused open maps to `.unavailable` with nothing scheduled and no stream, a second start
+# while running is refused as `.alreadyStarted` with the first stream untouched, stop-before-
+# start and double-stop are no-ops, start-after-stop begins a fresh stream with a fresh
+# `beginSession()` reset and a fresh refusal baseline), the stream contract (chunks converted
+# to the 16 kHz mono interchange format in order and contiguous with one whole conversion,
+# one chunk per populated tick and none from an empty one, no empty chunk ever, the stop
+# remainder with the converter-finish flush as the final chunk, the loss counted on the
+# conformance's `refusedSampleCount` while every chunk carries `missingSampleCount == 0`,
+# two instances on two rings not interfering, and the consumer-drop edge ending exactly once
+# with the device released) — plus the no-touch pin, one test
+# (`testTheDictationCaptureFilesAreUnchanged`) pinning SHA-256 digests of the three dictation
+# files (`MicrophoneSource.swift`, `SpeculativeFeed.swift`, `AudioRingBuffer.swift`) so the
+# voice loop's capture can never silently meet the dictation path. All headless: the graph is
+# faked (the real one is executed by nothing in CI), the ring and converter are real.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2041
+MINIMUM_EXECUTED_TESTS=2054
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
