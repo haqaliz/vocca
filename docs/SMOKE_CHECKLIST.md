@@ -2767,6 +2767,102 @@ anything.
 
 ---
 
+## 19. The turn-taking loop — `turn-taking-barge-in`
+
+Nothing in this section runs in CI. The loop, the echo gate and the 5×-weighted turn scorer
+are all proven headlessly (the composed acceptance drives the ≤200 ms halt over the injected
+clock at the contract thresholds, the gate's synthetic-overlap rows, the scorer's hand-computed
+demonstrations); the realtime conversation is executed by nothing in CI (the tap-adapter
+precedent — the env-gated composed suite skips visibly and still counts as executed). These
+three rows are the founder's machine producing the first real observations of the loop's output
+path and its endpointing — recorded, never gated, each under **rule 1**: the state must
+actually have been entered before a row means anything. The loop ships as machinery: no
+user-visible surface exists — the CONVERSING widget state is C11's.
+
+131. **The first real conversational set — turn commitment on the founder-recorded set (C10, recorded — never gated).**
+
+    *Gesture:* provision the VAD on the founder's machine (`Scripts/provision-vad-fixtures.sh`
+    — the `silero-vad-unified-256ms-v6.2.1.mlmodelc` directory from
+    `FluidInference/silero-vad-coreml`, digests pinned in `silero-vad.json` from the actual
+    bytes), then score the **founder-recorded conversational set** through the shipped harness
+    over the real loop — the loop over the real `SileroVAD` (FluidAudio, staged under the
+    store-shaped root) and the shipped `SilenceThresholdDetector` (the EOU conformance is
+    recorded PENDING — Branch B — so the real leg rides the shipped fallback detector), the
+    founder's recording in the JSON corpus format of
+    `Tests/HarnessTests/Fixtures/Conversational/` with human-labelled turn boundaries scored by
+    the shipped `TurnCommitmentScorer` (false cutoffs weighted 5× worse than late commits) —
+    `VOCCA_RUN_REAL_TURN_LOOP=1 VOCCA_MODEL_DIR="<store-shaped version directory>" swift test
+    --filter TurnTakingLoopRealSuiteTests` (bare — never through the floor script). The real
+    VAD's per-chunk classify cost was first measured 2026-09-15 through the env-gated VAD suite
+    (`VOCCA_RUN_REAL_VAD=1 VOCCA_VAD_MODEL_DIR="<directory containing the model>" swift test
+    --filter SileroVadRealSuiteTests`): `VAD-CLASSIFY-LATENCY 0.2ms chunks=… recorded-never-gated`.
+
+    *Verify the state was entered:* the env-gated rows did **not** print their skip message
+    (the skip is the tell-tale — a skipped test ran nothing), the scored commitments came from
+    the **founder-recorded set**, not the scripted CI corpus (the row names the set), and the
+    weight is the 5× false-cutoff weight (a score computed with any other weight measures
+    nothing).
+
+    *Pass:* the harness's row is recorded verbatim with the never-gated note — ≥95% correct
+    turn commitment, false cutoffs weighted **5× worse** than late commits (`ROADMAP.md:211`,
+    `ARCHITECTURE.md:575`). Below 95% is **recorded verbatim, never a pass** (the 130 wording
+    precedent: the number is the record, not the gate).
+
+    *Failure:* a skipped run recorded as a number, a number recorded as a gate pass, the row
+    missing the never-gated note, or a score computed over the wrong set (the scripted CI
+    corpus, an unlabelled recording).
+
+132. **The first real barge-in halt on real playback (C10, recorded — never gated).**
+
+    *Gesture:* provision the VAD as in step 131, then run the env-gated composed suite —
+    `VOCCA_RUN_REAL_TURN_LOOP=1 VOCCA_MODEL_DIR="<store-shaped version directory>" swift test
+    --filter TurnTakingLoopRealSuiteTests` (bare — never through the floor script). The
+    `testInjectedSpeechDuringRealPlaybackHaltsWithinBudgetRecordedNeverGated` row drives the
+    loop over the **real** `SileroVAD` + the shipped `SilenceThresholdDetector` (Branch B
+    recorded) with **real playback** (`SystemPlayback` — the first real execution of the
+    output path) and a stub synthesizer's reply chunk; rendered speech is injected mid-playback
+    and the wall-clock halt prints `TURN-HALT <ms>ms recorded-never-gated`. The VAD model
+    comes from `Scripts/provision-vad-fixtures.sh`; nothing here runs in CI.
+
+    *Verify the state was entered:* no skip message (a skipped test ran nothing), the halt row
+    shows a measured number, not a placeholder, the playback actually sounded (the halt could
+    not exist without a rendered reply), and capture ran continuously — the interrupting words
+    are preserved, never dropped at the interrupt boundary.
+
+    *Pass:* the measured row is recorded verbatim with the never-gated note — halt **≤200 ms**
+    (`ROADMAP.md:210`) over the composed path (VAD frame ~30 ms → `cancel()` ≤50 ms → duck
+    ≤20 ms → stop, `ARCHITECTURE.md:571`). An over-budget number is **recorded verbatim, never
+    a pass**.
+
+    *Failure:* a skipped run recorded as a number, a number recorded as a gate pass, the row
+    missing the never-gated note, or a halt measured without real playback (an injected-clock
+    number recorded as a real one).
+
+133. **The first echo rejection on speakers (C10, recorded — never gated).**
+
+    *Gesture:* run the loop (the env-gated composed route of step 132) with playback to the
+    machine's **speakers** and the mic live — never headphones, never muted — and verify **0
+    instances of Vocca transcribing its own output** (`ROADMAP.md:212`): the deterministic
+    gate (`EchoGate`, correlation ≥0.90 discards; silence during playback never gates) discards
+    capture correlating with the played reference, and the loopback row prints
+    `ECHO-LOOPBACK <device> recorded-never-gated` when a loopback input is the default. The
+    caveat is recorded beside the row: **some hardware may need more than reference
+    cancellation** (`ARCHITECTURE.md:727`) — a nonzero count on such hardware is a finding,
+    never a silent pass.
+
+    *Verify the state was entered:* the playback actually sounded through the **speakers** (not
+    headphones, not muted), the capture was live, and the count covers a real run.
+
+    *Pass:* the row is recorded verbatim with the never-gated note: **0 instances on
+    speakers**, the `:727` caveat attached.
+
+    *Void — not fail — if:* the run was headphone-only, muted, or the state was otherwise not
+    entered (rule 1 — a voided run is never recorded as a number).
+
+    *Failure:* ≥1 instance of Vocca transcribing its own output (the zero-tolerance metric).
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here
