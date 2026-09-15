@@ -241,3 +241,76 @@ provisioned bytes (`Scripts/provision-vad-fixtures.sh`, run 2026-09-15, each fil
 cross-checked against the repo's declared content identity). Staging layout for the next
 aspect's env-gated suite: `<root>/silero-vad/1/vad/silero-vad-unified-256ms-v6.2.1.mlmodelc/`,
 verified marker at `<root>/silero-vad/1/verified`, `VOCCA_MODEL_DIR=<root>`.
+
+## sdk-adapters record (2026-09-15)
+
+> The `SileroVAD` adapter's verdicts and recorded nuances (`sdk-adapters/plan_20260915.md`
+> Phase 2). Branch verdict first, then the adapter's facts. Evidence re-read in the worktree's
+> own checkout (`.build/checkouts/FluidAudio/`, 0.15.7, revision
+> `41540ea237350afe5117a082b5c28eda642d0612`) at the checkpoint — the plan's STOP rule found no
+> contradiction with the vetting record.
+
+**The EOU branch verdict — BRANCH B (the prescribed, expected branch; recorded verbatim from
+the plan's Agent notes, with the version corrected to the worktree's own resolved value — the
+plan's draft wording said 0.15.5; the vetting record's 0.15.7 is authoritative):**
+
+> The Parakeet EOU exists in the pinned SDK (0.15.7) only as `StreamingEouAsrManager` — an
+> ASR-integrated streaming pipeline
+> (`Sources/FluidAudio/ASR/Parakeet/Streaming/EOU/StreamingEouAsrManager.swift`, `:163`): EOU
+> is a byproduct of RNNT decoding over a continuous audio stream (`:660`,
+> `eouSignal: decodeResult.eouDetected`), with a 1280 ms silence debounce (`:213`) and a
+> transcript-bearing callback — not a standalone scored pause decision. The `TurnDetector` seam
+> asks "is this candidate pause a turn boundary?" as a synchronous scored decision over two
+> buffers; the SDK's EOU cannot answer that call without either feeding the pause as silence
+> into a full streaming decode — a bare silence timer with a model debounce, which the seam's
+> doctrine rejects — or ignoring the pause and reporting the model's own in-utterance EOU — a
+> boolean (the SDK exposes no probability), not a score-with-threshold, with artifacts this unit
+> does not provision and a per-call full-decode cost the 200 ms budget cannot host.
+> `ParakeetEOU` therefore ships as a PENDING conformance, recorded (the C9 first-half
+> precedent): `SilenceThresholdDetector` is the shipped `TurnDetector` implementation, the seam
+> doctrine's interim state is recorded here, and a future aspect records the amendment when the
+> SDK exposes a standalone EOU surface (or a future unit provisions the EOU artifacts and
+> accepts the semantic correction).
+
+Consequences, as shipped: **no `EOU/ParakeetEOU.swift` exists**; the env-gated real suite tests
+the VAD only; the H8b family amendment confines the EOU SDK names (`StreamingEouAsrManager`,
+`StreamingChunkSize`) with **no permitted file** — any code naming them is an offender by
+construction, and a future conformance must earn a reviewed permit.
+
+**The adapter's recorded nuances** (`Sources/VoccaASR/VAD/SileroVAD.swift`):
+
+- **The conversion is identity — there is none.** The seam's carrier `AudioBuffer.samples` is
+  already `[Float]` 16 kHz mono, asserted at init (`AudioBuffer.swift:36-88`), and the SDK's
+  `processStreamingChunk(_:state:config:)` takes `[Float]` at `VadManager.sampleRate` = 16000
+  (`VadManager.swift:22-26`). `chunked` hands the samples through sample-for-sample; no
+  resampler exists on the production path (the env-gated suite's fixture resampler is a test
+  artifact — the TTS renders at ~22050 Hz).
+- **The decision granularity is the model's 256 ms chunk.** `VadManager.chunkSize` = 4096
+  samples (`VadManager.swift:22`). The adapter accumulates frames; sub-chunk frames return the
+  current state with no model touch; the loop's barge-in path runs on the continuous capture
+  stream where chunks complete every 256 ms.
+- **The sync→actor bridge blocks its caller.** `classify` is synchronous by seam contract; the
+  SDK is an actor; the bridge is a `DispatchSemaphore` + `Mutex` result box (written once by
+  the Task, read once after the signal — the `SpeechDriveBox` discipline). The blocking cost is
+  recorded in the file's doc comment and measured by the env-gated suite as
+  `VAD-CLASSIFY-LATENCY` (recorded, never gated — the 200 ms budget decomposition is
+  `barge-in-loop`'s).
+- **The onset is SDK-timed; the seam's hold is not re-implemented.** `onsetRMS`/`offsetRMS` are
+  energy-domain evidence levels with no Silero analogue; the model's probability thresholds
+  (`speechThreshold` / `negativeThresholdOffset`) are the real hysteresis pair. The SDK's
+  streaming state machine flips onset on the first above-threshold chunk (no min-speech hold in
+  that path), so the adapter does not re-implement the seam's hold on top of it — double state
+  machines would drift, and a hold would delay the barge-in-critical onset. `minimumSpeech`
+  rides into the SDK's `minSpeechDuration`; `minimumSilence` into `minSilenceDuration`.
+- **The offline pin.** `ModelHub.offlineMode = true` is set at construction (the
+  `ParakeetEngine` precedent) and re-asserted before any load; the only `VadManager` init
+  reachable is the pre-loaded `init(config:vadModel:)` with a local
+  `MLModel.load(contentsOf:)` of the injected directory — the ModelHub download inits are never
+  reachable. The load is lazy (init stores plain data and touches nothing — the probe contract)
+  and a failure is memoized as a clear error naming the expected model path.
+- **`VoccaAudio/VAD/` stays a paper reservation** (`ARCHITECTURE.md:108`) while the real
+  machinery lives in `VoccaASR/VAD/` — FluidAudio is confined to `VoccaASR` by the H8b lint,
+  so a VAD adapter cannot live in `VoccaAudio`; the ARCHITECTURE.md sync is the record
+  aspect's.
+- **Recorded risk note (F1):** the SDK's own "Beta Status" doc comment (`VadManager.swift:9-12`)
+  is recorded as an adapter risk note, not a blocker.
