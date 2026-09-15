@@ -1,0 +1,72 @@
+[
+  {
+    "name": "greeting-exchange",
+    "detector": { "commitAfterPause": 0.5, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.4 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.2 },
+      { "kind": "silence", "seconds": 0.55 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 0.9 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 1.6 }, { "atSeconds": 3.05 } ]
+  },
+  {
+    "name": "question-answer",
+    "detector": { "commitAfterPause": 0.5, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.3 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.5 },
+      { "kind": "silence", "seconds": 0.55 },
+      { "kind": "speech", "amplitude": 0.35, "seconds": 1.1 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 1.8 }, { "atSeconds": 3.45 } ]
+  },
+  {
+    "name": "short-command",
+    "detector": { "commitAfterPause": 0.5, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.2 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.3 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 1.5 } ]
+  },
+  {
+    "name": "dictation-turn",
+    "detector": { "commitAfterPause": 0.5, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.5 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 2.0 },
+      { "kind": "silence", "seconds": 0.55 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.4 },
+      { "kind": "silence", "seconds": 0.55 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.2 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 2.5 }, { "atSeconds": 4.45 }, { "atSeconds": 6.2 } ]
+  },
+  {
+    "name": "confirmation-exchange",
+    "detector": { "commitAfterPause": 0.5, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.4 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.2 },
+      { "kind": "silence", "seconds": 0.55 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 1.2 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 1.6 }, { "atSeconds": 3.35 } ]
+  },
+  {
+    "name": "narrative-turn",
+    "detector": { "commitAfterPause": 0.5, "minimumUtteranceDuration": 0.2 },
+    "segments": [
+      { "kind": "silence", "seconds": 0.6 },
+      { "kind": "speech", "amplitude": 0.4, "seconds": 2.5 },
+      { "kind": "silence", "seconds": 0.55 }
+    ],
+    "boundaries": [ { "atSeconds": 3.1 } ]
+  }
+]
