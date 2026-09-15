@@ -1715,8 +1715,28 @@ set -euo pipefail
 # AVFAudio family to `SystemPlayback.swift` within `VoccaAudio/Playback/`, with the planted-
 # violation and comment-strip controls and the non-vacuous guards.
 #
+# The sdk-adapters raise (2080 -> 2095; executed 2095) adds the turn-taking unit's adapter
+# aspect (`docs/planning/turn-taking-barge-in/sdk-adapters/plan_20260915.md`): the headless
+# `SileroVADAdapterTests` (11) pins the FluidAudio VAD adapter's contract — the seam compile
+# pin, the pure-init construct pin, the empty-frame and sub-chunk short-circuits (observable
+# because the model is absent), the memoized clear error, the missingSampleCount pin, and the
+# two pure functions (`derivedConfig`'s seam->SDK field mapping with the SDK-defaults row,
+# `chunked`'s identity conversion at the SDK's 4096-sample boundary). The env-gated
+# `SileroVadRealSuiteTests` (2) gates on `VOCCA_RUN_REAL_VAD` + `VOCCA_VAD_MODEL_DIR` and
+# skips visibly in CI — skips count as executed, which is what this line's arithmetic assumes —
+# with Row 1 asserting only the direction of travel (speech as speech, silence as silence) and
+# Row 2 printing `VAD-CLASSIFY-LATENCY` recorded-never-gated. The H8b amendment grows
+# `ParakeetSeamTests` (3 -> 4) with the VAD/EOU/ModelNames/MLModel family prefixes, the
+# planted-violation and comment-strip controls, the new permitted file
+# (`VoccaASR/VAD/SileroVAD.swift`) and the AVFoundation/URLSession structural row for it. The
+# digest suite gains the silero row (1, env-gated on `VOCCA_MODEL_DIR`, skipping when
+# unprovisioned — the comparison `sdk-vetting` promised). The PROBE-VAD assertion extends the
+# existing zero-network default-configuration test (count-neutral) with the drive's construct
+# report. The founder's env-gated runs verified Row 1 and the digest row against the
+# provisioned bytes (recorded, never gated).
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2080
+MINIMUM_EXECUTED_TESTS=2095
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -306,6 +306,16 @@ struct VoccaNetworkProbe {
         let speech = exerciseSpeech()
         print("PROBE-SPEECH\t\(speech.report)")
 
+        // `VoccaASR`'s VAD half, run rather than referenced — the same shape as the drives
+        // above, for the adapter the module coverage list already covers by the cycle's witness.
+        // The Silero VAD adapter's default-configuration surface is *constructing it over a
+        // fresh, empty temporary directory and classifying an empty frame* — the pure init and
+        // the seam's empty-frame short-circuit, with the report's `modelTouched` reading the
+        // adapter's own recorded failure surface. No model bytes, no download path, no network
+        // name reachable; `VadManager` is not even constructed. See `VoiceDetectionDrive.swift`.
+        let voiceDetection = exerciseVoiceDetection()
+        print("PROBE-VAD\t\(voiceDetection.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,

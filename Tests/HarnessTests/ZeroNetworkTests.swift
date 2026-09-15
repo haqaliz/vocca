@@ -717,6 +717,47 @@ final class ZeroNetworkTests: XCTestCase {
             \(observation.diagnosticSummary)
             """)
 
+        // The voice-detection construct post-condition. The eighth effect-not-reference check:
+        // the Silero VAD adapter's default-configuration surface is *constructing it over a
+        // fresh, empty temporary directory and classifying an empty frame* — the pure init and
+        // the empty-frame short-circuit, neither of which touches a model byte or a network
+        // name. `VoccaASR` is already covered by the cycle's witness, so the module coverage
+        // list alone would not notice a deleted drive; this line is the leg's survival
+        // guarantee.
+        //
+        // Deleting the drive removes the line from the probe's output entirely, so the unwrap
+        // below fails against nil rather than quietly covering less.
+        let vadFields = try Self.parseFields(
+            of: try XCTUnwrap(
+                vadConstructPayload(of: observation),
+                """
+                The probe did not report constructing the Silero VAD adapter over an empty \
+                directory and classifying an empty frame.
+                Either VoccaNetworkProbe.exerciseVoiceDetection() was not called on the \
+                default-configuration path — in which case the adapter's construct-only surface \
+                (the pure init the probe contract pins) is outside this invariant — or the \
+                adapter no longer behaves as written. Both matter: the report covers the \
+                construction, the empty-frame short-circuit and the model-untouched pin.
+                \(observation.diagnosticSummary)
+                """))
+        XCTAssertEqual(
+            vadFields["identity"], "silero-vad",
+            "the VAD drive must report the adapter's engine identity: \(vadFields)")
+        XCTAssertEqual(
+            vadFields["construct"], "true",
+            "the adapter must construct over a fresh, empty directory without touching anything: "
+                + "\(vadFields)")
+        XCTAssertEqual(
+            vadFields["emptyFrame"], "silence",
+            "an empty frame carries no evidence and must classify .silence: \(vadFields)")
+        XCTAssertEqual(
+            vadFields["modelTouched"], "false",
+            "an empty frame must not reach the model — the model dir is empty, so a touch would "
+                + "record a load failure: \(vadFields)")
+        XCTAssertEqual(
+            vadFields["eou"], "pending",
+            "the EOU conformance is recorded pending (Branch B, sdk-adapters): \(vadFields)")
+
         // The coverage cross-check. Without it the assertions above stay green while covering an
         // ever-smaller fraction of the product, which is the most likely way this gate rots.
         let manifest = try PackageManifest.load(
@@ -1361,6 +1402,22 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-LATENCY\t") {
             return String(line.dropFirst("PROBE-LATENCY\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-VAD` line's payload — the voice-detection drive's construct report — or `nil`
+    /// when the probe never reported one.
+    ///
+    /// The `PROBE-LATENCY` parser shape: the line exists only when `exerciseVoiceDetection()`
+    /// ran on the default-configuration path, so its absence is a missing drive rather than an
+    /// empty report. `VoccaASR` is already covered by the cycle's witness, so the module
+    /// coverage list alone would not notice a deleted drive — this accessor and its assertion
+    /// are the leg's survival guarantee.
+    private func vadConstructPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-VAD\t") {
+            return String(line.dropFirst("PROBE-VAD\t".count))
         }
         return nil
     }
