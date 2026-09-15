@@ -414,6 +414,15 @@ final class ZeroNetworkTests: XCTestCase {
         "reload.dayMatchesProvider=true",
     ].joined(separator: " ")
 
+    /// **The turn-loop post-condition** (PROBE-TURN): the verbatim report of the loop's
+    /// fallback default work — two commits, two replies, one barge-in, one gated echo frame,
+    /// 61 fed frames, ending idle. Asserted whole, as one line — the `expectedSessionLifecycle`
+    /// shape. This is deliberately **not** a golden string to be regenerated when it fails:
+    /// ``testTheAssertedTurnPostConditionStillDescribesATurnAndABargeIn`` reads it back and
+    /// refuses a version that no longer describes a turn with a barge-in.
+    private static let expectedTurnLoopLifecycle =
+        "started=1 turnCommits=2 replies=2 bargeIns=1 gated=1 fed=61 state=idle"
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -757,6 +766,35 @@ final class ZeroNetworkTests: XCTestCase {
         XCTAssertEqual(
             vadFields["eou"], "pending",
             "the EOU conformance is recorded pending (Branch B, sdk-adapters): \(vadFields)")
+
+        // The turn-loop post-condition. The ninth effect-not-reference check, and the one
+        // that pins the loop's **default work** (G6): `VoccaCore`'s turn-taking loop driven
+        // over the fallback implementations only — `EnergyVAD` + `SilenceThresholdDetector`,
+        // a probe stub synthesizer and a probe fake playback. No model artifact, no SDK, no
+        // network name is reachable; the report's `fed`/`gated` counts are derived from the
+        // loop's own counters and the commit/reply/barge-in tallies from the effect history —
+        // an effect-not-reference check the verbatim comparison below cannot be weakened to
+        // a constant without the guard-the-guard noticing.
+        //
+        // Deleting the drive removes the line from the probe's output entirely, so the
+        // comparison fails against nil rather than quietly covering less.
+        XCTAssertEqual(
+            try XCTUnwrap(turnLoopPayload(of: observation)),
+            Self.expectedTurnLoopLifecycle,
+            """
+            The probe did not report driving the turn-taking loop's fallback default work.
+              expected: \(Self.expectedTurnLoopLifecycle)
+              observed: \(turnLoopPayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseTurnLoop() was not called on the \
+            default-configuration path — in which case the loop's default work is outside this \
+            invariant — or the loop no longer behaves as written. Both matter: the report \
+            covers the two commits, the two replies, the single barge-in, the gated echo \
+            frame, the 61 fed frames and the idle end state — the shape of a complete turn \
+            with a barge-in. Do not fix this by deleting the call, and do not fix it by \
+            pasting in whatever the probe now prints — see \
+            testTheAssertedTurnPostConditionStillDescribesATurnAndABargeIn.
+            \(observation.diagnosticSummary)
+            """)
 
         // The coverage cross-check. Without it the assertions above stay green while covering an
         // ever-smaller fraction of the product, which is the most likely way this gate rots.
@@ -1392,6 +1430,46 @@ final class ZeroNetworkTests: XCTestCase {
                 + "provider did not name.")
     }
 
+    /// **Guards the guard.** ``expectedTurnLoopLifecycle`` must keep describing a turn with a
+    /// barge-in: ≥1 commit, ≥1 barge-in, ≥1 gated echo frame, and an idle end state. A
+    /// weakened constant (say, `turnCommits=0 bargeIns=0 gated=0`) that still satisfies the
+    /// verbatim comparison above would read green while the loop's default work says nothing
+    /// — the same protection the other guard-the-guard tests give their constants.
+    func testTheAssertedTurnPostConditionStillDescribesATurnAndABargeIn() throws {
+        let fields = try Self.parseFields(of: Self.expectedTurnLoopLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("turnCommits")) ?? 0, 1,
+            "The asserted turn post-condition no longer requires a committed turn — the loop "
+                + "could be reporting a session that never committed.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("bargeIns")) ?? 0, 1,
+            "The asserted turn post-condition no longer requires a barge-in — the loop could be "
+                + "reporting a session with no interruption, which is not the default work the "
+                + "probe exists to pin.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("gated")) ?? 0, 1,
+            "The asserted turn post-condition no longer requires the echo gate to discard a "
+                + "frame — the loop could be reporting a session where the reply never fed the "
+                + "reference back.")
+        XCTAssertEqual(
+            try value("state"), "idle",
+            "The asserted turn post-condition does not end idle — the loop's default work must "
+                + "leave the machine stopped.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("fed")) ?? 0, 1,
+            "The asserted turn post-condition fed nothing — a session with no frames proves "
+                + "nothing about the loop.")
+    }
+
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
     /// probe never reported one.
     ///
@@ -1418,6 +1496,22 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-VAD\t") {
             return String(line.dropFirst("PROBE-VAD\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-TURN` line's payload — the turn loop drive's fallback-work report — or
+    /// `nil` when the probe never reported one.
+    ///
+    /// The `PROBE-VAD` parser shape: the line exists only when `exerciseTurnLoop()` ran on
+    /// the default-configuration path, so its absence is a missing drive rather than an
+    /// empty report. `VoccaCore` is already covered by the session's witness, so the module
+    /// coverage list alone would not notice a deleted drive — this accessor and its
+    /// assertion are the leg's survival guarantee.
+    private func turnLoopPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-TURN\t") {
+            return String(line.dropFirst("PROBE-TURN\t".count))
         }
         return nil
     }

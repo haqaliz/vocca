@@ -316,6 +316,17 @@ struct VoccaNetworkProbe {
         let voiceDetection = exerciseVoiceDetection()
         print("PROBE-VAD\t\(voiceDetection.report)")
 
+        // `VoccaCore`'s turn-taking half, run rather than referenced — the same shape as the
+        // drives above, for the loop the module's session witness already covers. The loop's
+        // default work is **the fallback implementations only** (G6): `EnergyVAD` +
+        // `SilenceThresholdDetector`, a probe stub synthesizer and a probe fake playback —
+        // no model artifact, no SDK, no network name reachable. The drive mints a second
+        // VoccaCore-derived witness (`type(of: loop)`), so the module set is unchanged while
+        // the loop's coverage can no longer be satisfied by a metatype reference. See
+        // `TurnLoopDrive.swift`.
+        let turnLoop = exerciseTurnLoop()
+        print("PROBE-TURN\t\(turnLoop.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -325,6 +336,7 @@ struct VoccaNetworkProbe {
             injection.moduleWitness,
             usage.moduleWitness,
             speech.moduleWitness,
+            turnLoop.moduleWitness,
             VoccaUIPlaceholder.self,
             AppBootstrap.self,
         ]
