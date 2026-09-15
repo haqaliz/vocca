@@ -31,11 +31,18 @@
 ///    is O3/SMOKE-133 territory, recorded, never guessed here.
 /// 3. `ρ ≥ 0.90` → `.discard` (a scaled copy of the reference correlates at 1.0 whatever
 ///    the gain — the pure-echo case).
-/// 4. `ρ < 0.90` → `.accept(nil)` — **the hard gate's Phase-2 shape, recorded**: the
-///    reference-cancellation line (the residue path) is Phase 3's RED→GREEN addition
-///    (`barge-in-loop/plan_20260915.md` Phase 3), pinned by `EchoGateTests`' synthetic
-///    overlapped rows. The loop's feed path composes against `.discard`/`.accept(samples:)`
-///    from Phase 2's shape, so the residue path needs no loop edit.
+/// 4. `ρ < 0.90` → the **reference-cancellation line** (Phase 3): compute the residue
+///    ``EchoGate/residue(capture:reference:gain:)`` and accept it as the classification
+///    signal **iff both** `rms(residue) ≥ 0.02` (the EnergyVAD offset twin — a
+///    silence-floor residue is not speech) **and** `rms(residue) ≥ 0.15 · rms(capture)`
+///    (the residue is a meaningful fraction of what arrived — recovered user speech, not
+///    cancellation leftovers) → `.accept(samples: residue)`; otherwise `.discard`. One
+///    condition alone is not enough: a gain-mismatched echo (echo at 0.30 against α = 0.90)
+///    leaves a residue of −0.60·r, which passes the absolute floor but is not user speech;
+///    only a residue that is both loud enough and a real fraction of what arrived is
+///    classified. The `.accept(nil)` case survives only for the silence-floor and
+///    no-reference paths — that is what "silence during playback never gates" means
+///    mechanically.
 ///
 /// ## The pinned numbers, and the margin doctrine
 ///
@@ -91,10 +98,33 @@ public struct EchoGate: Sendable, Equatable {
             return .discard
         }
 
-        // The hard gate's Phase-2 shape: below the correlation threshold the frame is
-        // classified raw — the reference-cancellation line lands in Phase 3 (the residue
-        // path), where the 0.30/0.40 mixed row flips this branch to `.accept(samples:)`.
-        return .accept(samples: nil)
+        // The reference-cancellation line: recover user speech under a ducked echo.
+        let cancelled = residue(capture: capture, reference: reference, gain: gain)
+        let residueRMS = rms(cancelled)
+        if residueRMS >= 0.02 && residueRMS >= 0.15 * captureRMS {
+            return .accept(samples: cancelled)
+        }
+        return .discard
+    }
+
+    /// The known-output reference cancellation: `capture − gain·reference`, elementwise over
+    /// the **trailing** `min(count)` pairing (the freshest reference; a reference longer than
+    /// the capture pairs its own tail). Samples with no reference to pair against are
+    /// unchanged — with `gain = 0` the capture comes back untouched (the identity).
+    public static func residue(
+        capture: [Float], reference: [Float], gain: Double = EchoGate.defaultGain
+    ) -> [Float] {
+        guard !capture.isEmpty, !reference.isEmpty else { return capture }
+        let paired = min(capture.count, reference.count)
+        guard paired > 0 else { return capture }
+
+        var result = capture
+        let captureOffset = capture.count - paired
+        let referenceOffset = reference.count - paired
+        for index in 0..<paired {
+            result[captureOffset + index] -= Float(gain) * reference[referenceOffset + index]
+        }
+        return result
     }
 
     /// `sqrt(mean(samples²))` — stdlib only.
