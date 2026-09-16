@@ -97,7 +97,7 @@ final class WidgetPanelBindingTests: XCTestCase {
         let store = WidgetStateStore(clock: TestClock())
         let panel = WidgetPanel(store: store, levelSource: FakeLevelSource(level: 0.5))
 
-        store.fold(.state(.conversing(.listening)))
+        store.fold(.state(.conversing(phase: .listening)))
         await drainMainActor()
 
         XCTAssertTrue(panel.isVisible, "a converse session is a state the user must see")
@@ -109,9 +109,9 @@ final class WidgetPanelBindingTests: XCTestCase {
         let store = WidgetStateStore(clock: TestClock())
         let panel = WidgetPanel(store: store, levelSource: FakeLevelSource(level: 0.5))
 
-        store.fold(.state(.conversing(.listening)))
+        store.fold(.state(.conversing(phase: .listening)))
         await drainMainActor()
-        store.fold(.state(.conversing(.speaking)))
+        store.fold(.state(.conversing(phase: .speaking)))
         await drainMainActor()
 
         XCTAssertTrue(panel.isVisible, "the phase change must not hide the pill")
@@ -131,13 +131,13 @@ final class WidgetPanelBindingTests: XCTestCase {
             levelSource: FakeLevelSource(level: 0.5),
             soundPlayer: player)
 
-        store.fold(.state(.conversing(.listening)))
+        store.fold(.state(.conversing(phase: .listening)))
         await drainMainActor()
         XCTAssertEqual(
             player.played, [.converseStarted],
             "the first entry to converse plays exactly one tick")
 
-        store.fold(.state(.conversing(.speaking)))
+        store.fold(.state(.conversing(phase: .speaking)))
         await drainMainActor()
         XCTAssertEqual(
             player.played, [.converseStarted],
@@ -147,7 +147,7 @@ final class WidgetPanelBindingTests: XCTestCase {
         await drainMainActor()
         XCTAssertFalse(panel.isVisible, "the session ended — the panel hides")
 
-        store.fold(.state(.conversing(.listening)))
+        store.fold(.state(.conversing(phase: .listening)))
         await drainMainActor()
         XCTAssertEqual(
             player.played, [.converseStarted, .converseStarted],

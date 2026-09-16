@@ -381,8 +381,8 @@ final class WidgetStateReducerTests: XCTestCase {
             (.partial("provisional"), .zero),
         ])
         let listening = fold(
-            [(.projection(.state(.conversing(.listening))), .seconds(6))], from: busy)
-        XCTAssertEqual(listening.state, .conversing(.listening))
+            [(.projection(.state(.conversing(phase: .listening))), .seconds(6))], from: busy)
+        XCTAssertEqual(listening.state, .conversing(phase: .listening))
         XCTAssertNil(listening.recordingStartedAt)
         XCTAssertNil(listening.deliveredAt)
         XCTAssertNil(listening.elapsed)
@@ -395,18 +395,18 @@ final class WidgetStateReducerTests: XCTestCase {
     /// The listening ↔ speaking phase change keeps the session continuous and empty: no anchors,
     /// no surfaces, no partial — the phase is the state's only content (D1's continuity rule).
     func testThePhaseChangeKeepsTheSessionAndItsEmptiness() {
-        let listening = fold([(.projection(.state(.conversing(.listening))), .zero)])
+        let listening = fold([(.projection(.state(.conversing(phase: .listening))), .zero)])
         let speaking = fold(
-            [(.projection(.state(.conversing(.speaking))), .seconds(1))], from: listening)
-        XCTAssertEqual(speaking.state, .conversing(.speaking))
+            [(.projection(.state(.conversing(phase: .speaking))), .seconds(1))], from: listening)
+        XCTAssertEqual(speaking.state, .conversing(phase: .speaking))
         XCTAssertNil(speaking.recordingStartedAt)
         XCTAssertNil(speaking.deliveredAt)
         XCTAssertNil(speaking.elapsed)
         XCTAssertNil(speaking.partialText)
 
         let back = fold(
-            [(.projection(.state(.conversing(.listening))), .seconds(2))], from: speaking)
-        XCTAssertEqual(back.state, .conversing(.listening))
+            [(.projection(.state(.conversing(phase: .listening))), .seconds(2))], from: speaking)
+        XCTAssertEqual(back.state, .conversing(phase: .listening))
         XCTAssertNil(back.recordingStartedAt)
         XCTAssertNil(back.deliveredAt)
         XCTAssertNil(back.elapsed)
@@ -416,7 +416,7 @@ final class WidgetStateReducerTests: XCTestCase {
     /// Converse → IDLE (the session ended) clears everything and leaves the dictation path
     /// untouched — the panel hides on the IDLE fold, exactly as it would after any session.
     func testConversingToIdleClearsEverything() {
-        let conversing = fold([(.projection(.state(.conversing(.listening))), .zero)])
+        let conversing = fold([(.projection(.state(.conversing(phase: .listening))), .zero)])
         let idle = fold([(.projection(.state(.idle)), .seconds(1))], from: conversing)
         XCTAssertEqual(idle.state, .idle)
         XCTAssertNil(idle.recordingStartedAt)
@@ -432,20 +432,20 @@ final class WidgetStateReducerTests: XCTestCase {
     /// answer only their own states, and the dictation surfaces must never appear over a
     /// conversation (`D6`'s note — converse is timer-free; there is no `WidgetTimer` case for it).
     func testTimerFiresAreNoOpsOverConversing() {
-        let conversing = fold([(.projection(.state(.conversing(.listening))), .zero)])
+        let conversing = fold([(.projection(.state(.conversing(phase: .listening))), .zero)])
         let after = fold([
             (.timerFired(.recording), .seconds(30)),
             (.timerFired(.deliveredCollapse), .seconds(30)),
         ], from: conversing)
         XCTAssertEqual(after, conversing, "the dictation timers must not move a converse session")
-        XCTAssertEqual(after.state, .conversing(.listening))
+        XCTAssertEqual(after.state, .conversing(phase: .listening))
     }
 
     /// A stray `partial` over converse is dropped: provisional text rides only over RECORDING/
     /// TRANSCRIBING (the S3 contract), and a conversation's reply surface is state-only — the
     /// guard at `WidgetStateReducer.swift:243` excludes `.conversing` by construction.
     func testAPartialIsDroppedOverConversing() {
-        let conversing = fold([(.projection(.state(.conversing(.listening))), .zero)])
+        let conversing = fold([(.projection(.state(.conversing(phase: .listening))), .zero)])
         let after = fold([(.partial("provisional"), .zero)], from: conversing)
         XCTAssertEqual(after, conversing, "a partial must not disturb a converse session")
         XCTAssertNil(after.partialText)
@@ -469,8 +469,8 @@ final class WidgetStateReducerTests: XCTestCase {
                 (.projection(.state(.transcribing)), .zero),
             ]), "transcribing"),
             (fold([(.projection(.state(.delivered(targetAppName: "Slack"))), .zero)]), "delivered"),
-            (fold([(.projection(.state(.conversing(.listening))), .zero)]), "conversing listening"),
-            (fold([(.projection(.state(.conversing(.speaking))), .zero)]), "conversing speaking"),
+            (fold([(.projection(.state(.conversing(phase: .listening))), .zero)]), "conversing listening"),
+            (fold([(.projection(.state(.conversing(phase: .speaking))), .zero)]), "conversing speaking"),
             (fold([(.projection(.notice(.captureUnavailable)), .zero)]), "notice"),
         ]
         let actions: [(WidgetAction, String)] = [
@@ -480,8 +480,8 @@ final class WidgetStateReducerTests: XCTestCase {
             (.projection(.state(.recording)), "project recording"),
             (.projection(.state(.transcribing)), "project transcribing"),
             (.projection(.state(.delivered(targetAppName: "Slack"))), "project delivered"),
-            (.projection(.state(.conversing(.listening))), "project conversing listening"),
-            (.projection(.state(.conversing(.speaking))), "project conversing speaking"),
+            (.projection(.state(.conversing(phase: .listening))), "project conversing listening"),
+            (.projection(.state(.conversing(phase: .speaking))), "project conversing speaking"),
             (.projection(.notice(.captureUnavailable)), "project notice"),
             (.timerFired(.recording), "recording timer"),
             (.timerFired(.deliveredCollapse), "collapse timer"),

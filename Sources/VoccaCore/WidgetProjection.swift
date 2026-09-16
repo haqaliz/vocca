@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// The live widget's five states, as a pure projection of the session machine's effects.
+/// The live widget's six states, as a pure projection of the session machine's effects and the
+/// turn-taking loop's states.
 ///
 /// `VoccaUI` renders exactly this vocabulary; the FAILSAFE surface is a separate state machine
 /// (``FailsafeState``) and is deliberately absent here. The mapping that produces these states is
-/// ``WidgetProjection``, and the only source of machine facts is ``SessionEffect`` — see
+/// ``WidgetProjection``, and the only sources of machine facts are ``SessionEffect`` — see
 /// ``WidgetProjection/project(effect:targetAppName:)`` for which effect means what, and the two
-/// invariants the mapping is written under.
+/// invariants the mapping is written under — and, for the converse mode's one state, the loop's
+/// ``TurnState`` (``WidgetProjection/project(turnState:)``).
 ///
 /// The two payload cases name the application the user is dictating into (`PRODUCT_SPEC.md:38`).
 /// The name is resolved by the composition root and handed to the projection at the `.opening`
@@ -26,6 +28,11 @@
 /// pipeline's delivery re-names it at ``WidgetState/delivered(targetAppName:)``. The two names may
 /// legitimately differ: focus can move between the press and the injection, and the delivered name
 /// is the one the ladder actually typed into.
+///
+/// ``WidgetState/conversing(phase:)`` is the converse session's one state and carries **no
+/// target payload** — the type itself cannot express a target app name, which is the strongest
+/// form of `PRODUCT_SPEC.md:200`'s "the widget never shows a target app name" (the absence of
+/// `→ AppName` is itself the mode signal).
 public enum WidgetState: Equatable, Sendable {
     /// The dormant pill: no session, no microphone, nothing in flight.
     case idle
@@ -42,6 +49,29 @@ public enum WidgetState: Equatable, Sendable {
     /// The pipeline typed the text into `targetAppName`: the brief ✓ confirmation that precedes
     /// the collapse to IDLE (`PRODUCT_SPEC.md:50,98`).
     case delivered(targetAppName: String)
+    /// The converse session, one continuous loop: the mic is open, the loop is listening or the
+    /// reply is being spoken (``ConversePhase``). **The only source is the turn-state
+    /// projection** (``WidgetProjection/project(turnState:)``) — no ``SessionEffect`` maps here —
+    /// and the phase is the case's only payload: converse never carries a target app name
+    /// (`PRODUCT_SPEC.md:200`).
+    case conversing(phase: ConversePhase)
+}
+
+/// The two widget-visible phases of a converse session (`dual-mode` C11, D1).
+///
+/// The loop's five ``TurnState``s collapse into these two (``WidgetProjection/project(turnState:)``):
+/// **listening** — continuous capture + VAD, the user mid-sentence, or the committed turn awaiting
+/// its reply — and **speaking** — the reply is being rendered. One `WidgetState` case with a phase
+/// keeps the session's continuity in the type: the pill must not collapse or re-cue between
+/// utterances, and the phase change is a phase of the same session, never a mode change.
+///
+/// Exactly two cases, by design — a caller's switch over the phase is exhaustive today and breaks
+/// at compile time if the vocabulary ever grows.
+public enum ConversePhase: Equatable, Sendable {
+    /// The loop is listening: nothing is being spoken.
+    case listening
+    /// A reply is being rendered — Vocca is speaking.
+    case speaking
 }
 
 /// A terminal notice the widget can surface: a machine effect that ends a gesture with a cause to
@@ -103,6 +133,10 @@ public enum WidgetProjectionResult: Equatable, Sendable {
 /// | ``SessionEffect/ended(_:)`` — `.cancelled` | ``WidgetState/idle`` | the user pressed Escape (`SessionOutcome.swift:100-101`) — nothing was retained, nothing to show |
 /// | ``SessionEffect/ended(_:)`` — `.completed` | ``WidgetState/transcribing`` | `SessionMachine.swift:656-662`, the single funnel every stop route lands in |
 ///
+/// The converse state is **not in this table**: its input is the turn-taking loop's own state, not
+/// an effect — ``WidgetProjection/project(turnState:)`` is the converse leg (the `onStateChange`
+/// hook's composition is `converse-wiring`'s).
+///
 /// ## The two invariants
 ///
 /// 1. **`.recording` comes only from ``SessionEffect/started``.** The mapping never claims the
@@ -112,6 +146,14 @@ public enum WidgetProjectionResult: Equatable, Sendable {
 ///    pins this over the closed effect set.
 /// 2. **OPENING shows no waveform** (`PRODUCT_SPEC.md:33-38`) — a consequence of the first
 ///    invariant, stated separately because the widget's honesty is the whole point of the state.
+///
+/// ## The converse leg's invariants
+///
+/// 1. **`.conversing` comes only from ``WidgetProjection/project(turnState:)``** — never from a
+///    `SessionEffect` fold (`WidgetConverseProjectionTests.testConversingNeverComesFromASessionEffectFold`
+///    pins this over the closed effect set).
+/// 2. **Converse never carries a target** (`PRODUCT_SPEC.md:200`) — the case's only payload is
+///    the phase; the type cannot express a target app name.
 ///
 /// ## Why TRANSCRIBING is derived from `.ended` rather than announced
 ///
@@ -170,6 +212,37 @@ public enum WidgetProjection {
             return .state(.delivered(targetAppName: targetAppName))
         case .finishedWithoutDelivery:
             return .state(.idle)
+        }
+    }
+
+    /// Fold the turn-taking loop's state into the widget — the converse leg (`dual-mode` C11, D2).
+    ///
+    /// The loop's `onStateChange` hook delivers ``TurnState`` (the loop's own vocabulary); this
+    /// is the total mapping the widget renders, and `converse-wiring` folds its verdict through
+    /// the store. The projection doctrine applied to the loop: the widget renders what the loop
+    /// says, phase-collapsed into the two states it can honestly show, and never invents a state
+    /// the machine did not emit (`widget-live-states/spec.md:46`).
+    ///
+    /// The table, final after Phase 2:
+    ///
+    /// | `TurnState` | Projected | Why |
+    /// |---|---|---|
+    /// | `.idle` | ``WidgetState/idle`` | The loop stopped — the converse session ended (the stop affordance or a system trigger), the panel hides. |
+    /// | `.listening` | ``WidgetState/conversing(phase: .listening)`` | Continuous capture + VAD, nothing spoken. |
+    /// | `.uttering` | ``WidgetState/conversing(phase: .listening)`` | The user is mid-sentence; the widget still listens (`◈ listening…`). |
+    /// | `.committed` | ``WidgetState/conversing(phase: .listening)`` | The turn was handed over, the reply is pending, nothing is being spoken — the honest statement is still "listening". |
+    /// | `.playing` | ``WidgetState/conversing(phase: .speaking)`` | The reply is being rendered; Vocca is speaking. |
+    ///
+    /// The session's *end* is `.idle` from `TurnState.idle` — the loop is stopped, the widget
+    /// returns to IDLE, the panel hides.
+    public static func project(turnState: TurnState) -> WidgetProjectionResult {
+        switch turnState {
+        case .idle:
+            return .state(.idle)
+        case .listening, .uttering, .committed:
+            return .state(.conversing(phase: .listening))
+        case .playing:
+            return .state(.conversing(phase: .speaking))
         }
     }
 }

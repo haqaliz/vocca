@@ -44,11 +44,11 @@ final class WidgetSoundSelectionTests: XCTestCase {
         ]
         for (from, name) in nonConverse {
             XCTAssertEqual(
-                WidgetSoundSelection.sound(from: from, to: .conversing(.listening)),
+                WidgetSoundSelection.sound(from: from, to: .conversing(phase: .listening)),
                 .converseStarted,
                 "entering converse from \(name) must play the start tick")
             XCTAssertEqual(
-                WidgetSoundSelection.sound(from: from, to: .conversing(.speaking)),
+                WidgetSoundSelection.sound(from: from, to: .conversing(phase: .speaking)),
                 .converseStarted,
                 "entering converse from \(name) must play the start tick")
         }
@@ -59,9 +59,9 @@ final class WidgetSoundSelectionTests: XCTestCase {
     /// a new session, and the pill must not re-cue mid-conversation.
     func testThePhaseChangePlaysNothing() {
         XCTAssertNil(
-            WidgetSoundSelection.sound(from: .conversing(.listening), to: .conversing(.speaking)))
+            WidgetSoundSelection.sound(from: .conversing(phase: .listening), to: .conversing(phase: .speaking)))
         XCTAssertNil(
-            WidgetSoundSelection.sound(from: .conversing(.speaking), to: .conversing(.listening)))
+            WidgetSoundSelection.sound(from: .conversing(phase: .speaking), to: .conversing(phase: .listening)))
     }
 
     /// The whole table: every `(from, to)` pair answers, and the only pair family that plays is
@@ -74,8 +74,8 @@ final class WidgetSoundSelectionTests: XCTestCase {
             (.recording, "recording"),
             (.transcribing, "transcribing"),
             (.delivered(targetAppName: "Slack"), "delivered"),
-            (.conversing(.listening), "conversing listening"),
-            (.conversing(.speaking), "conversing speaking"),
+            (.conversing(phase: .listening), "conversing listening"),
+            (.conversing(phase: .speaking), "conversing speaking"),
         ]
         for (from, fromName) in states {
             for (to, toName) in states {

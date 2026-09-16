@@ -41,16 +41,16 @@ final class WidgetConverseProjectionTests: XCTestCase {
     func testTheFiveTurnStatesProjectToTheirRows() {
         let rows: [(TurnState, WidgetProjectionResult, String)] = [
             (.idle, .state(.idle), "idle — the loop stopped, the converse session ended"),
-            (.listening, .state(.conversing(.listening)), "listening — continuous capture + VAD"),
+            (.listening, .state(.conversing(phase: .listening)), "listening — continuous capture + VAD"),
             (
-                .uttering, .state(.conversing(.listening)),
+                .uttering, .state(.conversing(phase: .listening)),
                 "uttering — the user is mid-sentence, the widget still listens"
             ),
             (
-                .committed, .state(.conversing(.listening)),
+                .committed, .state(.conversing(phase: .listening)),
                 "committed — handed over, reply pending, nothing being spoken: still listening"
             ),
-            (.playing, .state(.conversing(.speaking)), "playing — the reply is being rendered"),
+            (.playing, .state(.conversing(phase: .speaking)), "playing — the reply is being rendered"),
         ]
         for (turnState, expected, name) in rows {
             XCTAssertEqual(

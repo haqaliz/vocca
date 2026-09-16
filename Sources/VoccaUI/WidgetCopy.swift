@@ -80,4 +80,31 @@ public enum WidgetCopy {
             return "The microphone didn't open — try again."
         }
     }
+
+    // MARK: - The converse labels (dual-mode widget-converse D5)
+
+    /// The converse mode's persistent identity (`PRODUCT_SPEC.md:195`): `◈ Vocca` — no target,
+    /// nothing will be typed. The glyph is `◈` U+25C8, verbatim from the §5 label row.
+    public static let conversePersistentLabel = "◈ Vocca"
+
+    /// The in-state listening label (`PRODUCT_SPEC.md:83`, the §2 CONVERSING art, verbatim):
+    /// `◈ listening…`, rendered while ``WidgetState/conversing(phase: .listening)``.
+    public static let converseListeningLabel = "◈ listening…"
+
+    /// The in-state speaking label: **new copy the spec does not write** (the §2 art renders only
+    /// the listening line; the task's "`◈ listening…`/speaking in-state" and the §5 pattern are
+    /// the source). Decided here as `◈ speaking…` — the art's glyph + gerund + ellipsis mirrored
+    /// exactly — and pinned by exact equality with this decision recorded (the `FailsafeCopy`
+    /// custody-line precedent), so a reword is a recorded decision, never a drift. Rendered while
+    /// ``WidgetState/conversing(phase: .speaking)``.
+    public static let converseSpeakingLabel = "◈ speaking…"
+
+    /// The phase → label mapper: the one place the phase's words live, so the view and the tests
+    /// read one function. An exhaustive switch — a third phase stops compiling here.
+    public static func converseLabel(_ phase: ConversePhase) -> String {
+        switch phase {
+        case .listening: return converseListeningLabel
+        case .speaking: return converseSpeakingLabel
+        }
+    }
 }

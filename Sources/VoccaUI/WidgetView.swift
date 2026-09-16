@@ -65,22 +65,49 @@ public struct WidgetView: View {
     public var body: some View {
         content
             .font(VoccaTheme.Text.panel)
-            .foregroundStyle(isRecording ? Color.white : Color.primary)
+            .foregroundStyle(isFilled ? Color.white : Color.primary)
             .lineLimit(1)
             .padding(.horizontal, VoccaTheme.Panel.horizontalPadding)
             .frame(height: VoccaTheme.Panel.height)
-            .background(background, in: Capsule())
+            .background(pillBackground)
             // A hairline over the fill. The pill floats over arbitrary wallpaper, so it cannot
             // borrow a window's edge — without this it dissolves into a light desktop exactly
             // where it is most needed.
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            .overlay(pillOutline)
             .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
             .opacity(panelOpacity)
     }
 
-    /// The pill's fill: the recording accent, or a neutral vibrancy for every other state.
+    /// The pill's fill, drawn in the state's shape: the capsule for the dictation states, the
+    /// notched pill for converse (`WidgetShape.for(_:)` is the tested half —
+    /// `ConverseWidgetTokensTests`; the switch below is the glue that renders it, and the
+    /// capsule's fill is byte-for-byte the shipped one).
+    @ViewBuilder
+    private var pillBackground: some View {
+        switch WidgetShape.for(store.state.state) {
+        case .capsule: Capsule().fill(background)
+        case .notchedPill: NotchedPill().fill(background)
+        }
+    }
+
+    /// The hairline outline, drawn per shape — `strokeBorder` lives on `InsettableShape`, so the
+    /// switch is the glue that applies it to the notched pill and the capsule alike (the
+    /// capsule's hairline is byte-for-byte the shipped one).
+    @ViewBuilder
+    private var pillOutline: some View {
+        switch WidgetShape.for(store.state.state) {
+        case .capsule:
+            Capsule().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+        case .notchedPill:
+            NotchedPill().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+        }
+    }
+
+    /// The pill's fill: the recording accent, the converse purple, or a neutral vibrancy for
+    /// every other state.
     private var background: AnyShapeStyle {
-        isRecording
+        if isConversing { return AnyShapeStyle(VoccaTheme.State.conversing) }
+        return isRecording
             ? AnyShapeStyle(VoccaTheme.State.recording)
             : AnyShapeStyle(.regularMaterial)
     }
@@ -147,6 +174,16 @@ public struct WidgetView: View {
                         .foregroundStyle(VoccaTheme.State.delivered)
                     Text(WidgetCopy.deliveredLabel(targetAppName: targetAppName))
                 }
+            case .conversing(let phase):
+                // The five-cue branch (`PRODUCT_SPEC.md:190-196`): the label alone — §2's
+                // CONVERSING art shows exactly this (`:83`). No target, no waveform, no timer:
+                // converse never names a target app (`:200`), the loop's audio is not drawn as a
+                // dictation waveform, and the state is timer-free (D6). The notch (shape) and the
+                // fill are the other two cues, applied on the pill's chrome above.
+                HStack(spacing: 5) {
+                    Text(WidgetCopy.converseLabel(phase))
+                    egressMarker
+                }
             }
         }
     }
@@ -181,5 +218,13 @@ public struct WidgetView: View {
     }
 
     private var isRecording: Bool { store.state.state == .recording }
+    private var isConversing: Bool {
+        if case .conversing = store.state.state { return true }
+        return false
+    }
     private var isIdle: Bool { store.state.state == .idle }
+
+    /// The two filled-pill states: RECORDING and CONVERSING draw white foreground over their
+    /// opaque fills; every other state sits on the material.
+    private var isFilled: Bool { isRecording || isConversing }
 }

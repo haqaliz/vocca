@@ -685,6 +685,12 @@ public enum AppBootstrap {
                     case .opening, .recording:
                         conditions.isCapturing = true
                         conditions.isTranscribing = false
+                    case .conversing:
+                        // The converse mic is open for the whole session (`dual-mode` D8): the
+                        // icon shows the listening activity for both modes — the honest readout
+                        // of a live microphone, whatever mode is using it.
+                        conditions.isCapturing = true
+                        conditions.isTranscribing = false
                     case .transcribing:
                         conditions.isCapturing = false
                         conditions.isTranscribing = true
@@ -3000,7 +3006,7 @@ private final class EffectRouter {
             widgetClock.start(every: DictationLoopRoot.widgetClockCadence) { [weak self] in
                 self?.widgetClockFire()
             }
-        case .idle, .opening, .transcribing:
+        case .idle, .opening, .transcribing, .conversing:
             widgetClock.stop()
         }
     }
@@ -3014,7 +3020,7 @@ private final class EffectRouter {
         switch widgetStore.state.state {
         case .recording, .delivered:
             break
-        case .idle, .opening, .transcribing:
+        case .idle, .opening, .transcribing, .conversing:
             widgetClock.stop()
         }
     }

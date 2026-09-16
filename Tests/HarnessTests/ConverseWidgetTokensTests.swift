@@ -42,8 +42,8 @@ final class ConverseWidgetTokensTests: XCTestCase {
             (.recording, .capsule, "recording"),
             (.transcribing, .capsule, "transcribing"),
             (.delivered(targetAppName: "Slack"), .capsule, "delivered"),
-            (.conversing(.listening), .notchedPill, "conversing listening"),
-            (.conversing(.speaking), .notchedPill, "conversing speaking"),
+            (.conversing(phase: .listening), .notchedPill, "conversing listening"),
+            (.conversing(phase: .speaking), .notchedPill, "conversing speaking"),
         ]
         for (state, expected, name) in rows {
             XCTAssertEqual(
