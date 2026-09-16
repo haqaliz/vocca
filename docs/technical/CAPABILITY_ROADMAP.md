@@ -283,6 +283,27 @@ models-2026-03-23 tarball. KOKORO-TTFA measured 232.5 ms warm, recorded never ga
 
 **Dependencies:** C1, C2, C9.
 
+*(Amended by the `turn-taking-barge-in` implementation unit, 2026-09-15: **the capability's
+machinery shipped, seam-only** — `VoiceActivityDetector` (`SileroVAD` in `VoccaASR/VAD/` via
+FluidAudio's `VadManager`, staged CoreML bundle provisioned through the C2 store;
+`EnergyVAD` fallback), `TurnDetector` (`SilenceThresholdDetector` shipped; **`ParakeetEOU`
+PENDING — recorded Branch B**, FluidAudio 0.15.7's EOU is a byproduct of the
+ASR-integrated `StreamingEouAsrManager`, no standalone scored surface), `ContinuousAudioSource`
++ `StreamingCapture` (the voice loop's continuous capture, a third graph instance — the
+dictation rings byte-for-byte untouched, digest-pinned), `PlaybackEngine` + `SystemPlayback`
+(`VoccaAudio/Playback/`'s first file, duck + halt-to-silence over the injected clock,
+AVFoundation expected-set reviewed amendment), the `TurnTakingLoop` coordinator (synchronous,
+owner-isolated, the `SessionMachine` shape) with the hard `EchoGate` (energy-correlation +
+reference-cancellation residue line), and the `TurnCommitmentScorer` (5·F+2·M+1·L, inclusive
+0.95 bar) over the scripted conversational corpora (passing 1.0000 / planted false-cutoff
+0.0000 / late-commit 0.2500 — the planted corpus genuinely fails). The composed headless
+acceptance halts at the contract thresholds (70 ms = 0 + 50 cancel + 20 duck, over the
+injected clock), PROBE-TURN drives the loop's fallback default work inside the zero-network
+interposer, and SMOKE steps 131-133 are written and runnable. **No gate passes; no
+user-visible surface ships in this unit** — playback/ducking and the loop are wired into
+nothing until C11's CONVERSING surface; turn-commitment, halt and echo numbers are recorded,
+never gated.)*
+
 ---
 
 ## C11. Dual mode — dictate vs converse · P3, week 16

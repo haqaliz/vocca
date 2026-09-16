@@ -369,4 +369,42 @@ final class ManifestDigestVerificationTests: XCTestCase {
                 + failures.map { "\(manifest.engineID)/\(manifest.version): \($0)" }
                 .joined(separator: "\n"))
     }
+
+    /// The Silero VAD manifest's row: the shipped VAD manifest's digests against the provisioned
+    /// bytes — the comparison the `sdk-vetting` aspect promised but could not make (the bytes
+    /// were provisioned at its Phase 2, and the loader is this aspect's).
+    ///
+    /// Env-gated on the same `VOCCA_MODEL_DIR` store-shaped version directory as the Kokoro row
+    /// (`<root>/silero-vad/1`), and skipping visibly without it. **Skips, not fails**, when the
+    /// env var names a root where the Silero VAD version directory is absent: this row exists to
+    /// check the VAD bytes the founder provisioned, and a machine without them has nothing this
+    /// row can verify. It downloads nothing; it reads bytes that are already on disk.
+    func testTheSileroManifestMatchesTheProvisionedBytes() throws {
+        guard let modelDir = ProcessInfo.processInfo.environment["VOCCA_MODEL_DIR"] else {
+            throw XCTSkip(
+                "set VOCCA_MODEL_DIR to a store-shaped version directory to verify the shipped "
+                    + "Silero VAD manifest against real bytes — see Scripts/provision-vad-fixtures.sh")
+        }
+        let modelRoot = URL(fileURLWithPath: modelDir)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let manifest = try SileroVadModelManifest.load()
+        let versionDirectory = modelRoot
+            .appendingPathComponent(manifest.engineID, isDirectory: true)
+            .appendingPathComponent(manifest.version, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: versionDirectory.path) else {
+            throw XCTSkip(
+                "the Silero VAD models are not provisioned under \(versionDirectory.path) — "
+                    + "this row skips, it does not pass a clean sheet it never earned")
+        }
+
+        let failures = ManifestByteVerifier.failures(
+            in: ManifestByteVerifier.verify(
+                manifest: manifest, versionDirectory: versionDirectory))
+        XCTAssertTrue(
+            failures.isEmpty,
+            "the shipped Silero VAD manifest disagrees with the provisioned bytes:\n"
+                + failures.map { "\(manifest.engineID)/\(manifest.version): \($0)" }
+                .joined(separator: "\n"))
+    }
 }

@@ -306,6 +306,27 @@ struct VoccaNetworkProbe {
         let speech = exerciseSpeech()
         print("PROBE-SPEECH\t\(speech.report)")
 
+        // `VoccaASR`'s VAD half, run rather than referenced — the same shape as the drives
+        // above, for the adapter the module coverage list already covers by the cycle's witness.
+        // The Silero VAD adapter's default-configuration surface is *constructing it over a
+        // fresh, empty temporary directory and classifying an empty frame* — the pure init and
+        // the seam's empty-frame short-circuit, with the report's `modelTouched` reading the
+        // adapter's own recorded failure surface. No model bytes, no download path, no network
+        // name reachable; `VadManager` is not even constructed. See `VoiceDetectionDrive.swift`.
+        let voiceDetection = exerciseVoiceDetection()
+        print("PROBE-VAD\t\(voiceDetection.report)")
+
+        // `VoccaCore`'s turn-taking half, run rather than referenced — the same shape as the
+        // drives above, for the loop the module's session witness already covers. The loop's
+        // default work is **the fallback implementations only** (G6): `EnergyVAD` +
+        // `SilenceThresholdDetector`, a probe stub synthesizer and a probe fake playback —
+        // no model artifact, no SDK, no network name reachable. The drive mints a second
+        // VoccaCore-derived witness (`type(of: loop)`), so the module set is unchanged while
+        // the loop's coverage can no longer be satisfied by a metatype reference. See
+        // `TurnLoopDrive.swift`.
+        let turnLoop = exerciseTurnLoop()
+        print("PROBE-TURN\t\(turnLoop.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -315,6 +336,7 @@ struct VoccaNetworkProbe {
             injection.moduleWitness,
             usage.moduleWitness,
             speech.moduleWitness,
+            turnLoop.moduleWitness,
             VoccaUIPlaceholder.self,
             AppBootstrap.self,
         ]

@@ -1,177 +1,316 @@
-# Understanding: kokoro-binding (implementation unit)
+# Understanding: feat/turn-taking-barge-in
 
-> Phase 2 dig note. Source: `docs/planning/_card/issue.md` (the merged PRD-gate card) +
-> three read-only mapping agents (seam surface, provisioning/composition, test/lint harness)
-> + direct verification of the port's actual code (`Jud/kokoro-coreml` @ main, 2026-09-14).
+> Deep-dig note for C10 (`CAPABILITY_ROADMAP.md:269-285`), produced 2026-09-15 from the
+> card (`docs/planning/_card/issue.md`), four parallel research passes (code map, PRD
+> house style, VAD/EOU recorded facts, harness conventions) and one web pass on the
+> Silero VAD ecosystem. This is the unit's working understanding; the PRD is the
+> binding artifact.
 
-## What this work really is
+## What the work really is
 
-Land **Kokoro-82M** as the second real `SpeechSynthesizer` implementation (C9's second
-half). The runtime decision is already made and ratified (CoreML/ANE via a Swift port,
-DI from the composition root, one voice af_heart). The unit's first step is the **vetting
-gate** — and the dig has largely executed it against the port's real code. Everything below
-that contradicts the merged PRD is a **recorded correction**, not a drift.
+C10 is the **first P3 capability** — the "smarter than SKI" half of the wedge
+(`ROADMAP.md:184-188`). Everything before it earned the right to be here; the
+`SpeechSynthesizer` seam with its ≤50 ms cancel contract (`VoccaCore/Speech/`) is the
+shipped precondition, and its record explicitly hands off "playback/ducking is C10's
+(`VoccaAudio/Playback/`)" (`docs/STATUS.md:96`).
 
-## The seam surface (what the binding must conform to)
+The unit builds **machinery, not surface**: the VAD/TurnDetector/Playback seams with two
+implementations each, the barge-in coordinator, the echo gate, the streaming capture
+conformance — proven headlessly in CI, env-gated on real audio, and wired into nothing
+user-visible. The CONVERSING widget state, dual-mode hotkeys and the injection
+prohibition are C11's (`PRODUCT_SPEC.md` §5; ratified in the interview 2026-09-15).
 
-- `SpeechSynthesizer` (`Sources/VoccaCore/Speech/SpeechSynthesizer.swift:42-59`):
-  `identity: VoiceIdentity`, `speak(_:) -> AsyncThrowingStream<AudioChunk, Error>`,
-  `cancel() async`; contract: chunks in sentence order, empty text → empty stream,
-  cancel halts ≤50 ms with no chunk after, cancel-then-reinvoke safe. Engine key
-  `"kokoro-82m"` is already the seam's vocabulary (`:43`).
-- `AudioChunk` (`AudioChunk.swift:29-47`): `bytes: [UInt8]`, `sampleRate: Double`,
-  `channelCount: Int`, `duration: Double` — PCM format is the producer's contract.
-- `VoiceIdentity` (`VoiceIdentity.swift:24-34`): `engineID` + `voiceName: String?`
-  (`"af_heart"`).
-- `SentenceChunker` (`SentenceChunker.swift:40`): the chunker the binding must use
-  (or the port's own — see below).
-- `SystemSynthesizer` (`Sources/VoccaSpeech/System/SystemSynthesizer.swift`): the
-  template — one render per sentence chunk, generation-tagged flag cancel (never call
-  the renderer's stop API — stale output is dropped by generation, `:57-61`),
-  `onTermination` cancels the producer task (`:109-111`), init pure (`:94-99`).
+## Affected areas (code map, from the research pass)
 
-## The suite (how the binding proves itself)
+| Area | Today | C10 |
+|------|-------|-----|
+| `VoccaCore/Speech/` | `SpeechSynthesizer`, `AudioChunk`, `VoiceIdentity`, `SentenceChunker` | Untouched (load-bearing inputs) |
+| `VoccaCore/SessionMachine.swift` | Synchronous, main-actor-confined dictation machine (no `SessionActor` — the §12 diagram's sketch was rejected) | Pattern precedent for the new turn-taking loop |
+| `VoccaAudio/` | Capture only: `MicrophoneSource`, `AudioCaptureGraph`, `AudioRingBuffer` (SPSC), `SpeculativeFeed` | Gains `Playback/` (reserved at `ARCHITECTURE.md:107`), `VAD/` (reserved at `:108`), and a `StreamingCapture` conformance of the existing capture seam |
+| `VoccaASR/` | The only module that may import FluidAudio (H8b lint) | Home of the `SileroVAD`/`ParakeetEOU` adapters + the family-lint amendment |
+| `VoccaBootstrap/AppBootstrap.swift` | Composition root (3286 lines); probe contract: models never prepared inside `configure` | May gain a recipe (like `kokoroSynthesizer(store:)`), never a user wiring |
+| `VoccaNetworkProbe/` | `PROBE-SPEECH` (SpeechDrive) precedent | `PROBE-TURN` drive; the loop's default work over the fallback implementations (zero model bytes, zero network) |
+| `Tests/HarnessTests/` | Floor **1978** (`test-with-floor.sh:1639`); family lints; two-variable env gates; parameterized suites | New seam lints, the conversational-set harness, the env-gated real suite |
 
-- Shared body `SpeechFixtureSuite.evaluate(_:fixtures:)`
-  (`Tests/HarnessTests/SpeechFixtureSuite.swift:62`): three legs per instance — full
-  render, cancel after one chunk of a second speak (≤50 ms wall-clock measured from
-  before `cancel()` to `next()` returning nil), full re-invoke.
-- Real-engine suite shape: `SpeechSystemSuiteTests` (`Tests/HarnessTests/`), env-gated
-  on `VOCCA_RUN_REAL_SPEECH` presence (`:57-61`), fixtures `three-sentence-reply`
-  (≥1.0 s) + `short-reply` (≥0.25 s), per-chunk duration > 0, TTFA row printed
-  `SPEECH-TTFA ... recorded-never-gated` (`:116-118`). Kokoro mirrors this in its own
-  class (`SpeechKokoroSuiteTests` shape); CI runs the skip path (skips still count in
-  the executed tally).
-- Headless pins in the `SystemSynthesizerTests` shape + the seam pins in
-  `SpeechSynthesizerSeamTests` (identity, empty, order, cancel, re-invoke).
-- Probe: `Sources/VoccaNetworkProbe/SpeechDrive.swift:86-114` drives
-  construct → empty-speak → cancel; `ZeroNetworkTests` module-coverage cross-check
-  (`:1449-1476`) requires every `Sources/` module to be driven. **Kokoro stays inside
-  `VoccaSpeech`** — a new module would fail the suite until driven.
+## Key decisions already made (recorded, not re-litigated)
 
-## The vetting gate — executed against the port's code (2026-09-14)
+- **Barge-in signal path** budgeted to the 200 ms gate (`ARCHITECTURE.md:571-578`): VAD
+  fires → coordinator receives interrupt → `synthesizer.cancel()` (≤50 ms, shipped
+  contract) → ducked and stopped → interrupted reply discarded → capture already running
+  so the interrupting words are in the buffer. Capture is continuous, never started at
+  interrupt time.
+- **Echo rejection** (`ARCHITECTURE.md:573`): known-output reference cancellation, plus a
+  hard gate discarding capture whose energy correlates with the synthesizer's output
+  within the playback window. Verified on speakers, not headphones (`ROADMAP.md:306`).
+  Open question 4 (`ARCHITECTURE.md:727`): may need more than reference cancellation on
+  some hardware — budget real time for it. Interview: the deterministic gate + SMOKE
+  verification, not full AEC.
+- **Turn scoring**: false cutoffs weighted **5× worse** than late commits
+  (`ROADMAP.md:211`); hold-to-talk remains available forever as the escape hatch
+  (`ARCHITECTURE.md:577-579`) — the dictation machines (hold/toggle) are byte-for-byte
+  untouched, and the P0 dictation path never runs VAD in either mode.
+- **Seam doctrine** (principle 4): `VoiceActivityDetector` = `SileroVAD` + `EnergyVAD`;
+  `TurnDetector` = `ParakeetEOU` + `SilenceThresholdDetector` (`ARCHITECTURE.md:262-263`).
+  Seams deliberately separate (the EOU model replaces faster than the VAD).
+- **Two-engine instances caution** (`ARCHITECTURE.md:344`): an app switching between
+  output-only and input-output configurations may want two engine instances — flagged at
+  C9; the playback-time decision is C10's. The voice loop is a separate audio path from
+  the dictation rings (one realtime producer per ring; the SPSC warrant holds).
 
-**The port exists and is structurally viable.** `Jud/kokoro-coreml` (10 stars, 66
-commits, Apache-2.0 — LICENSE verified verbatim; product `KokoroCoreML`; latest
-v0.11.2; `platforms: [.macOS(.v15)]`; **`swift-tools-version: 6.2`**).
+## Research finding that reshaped the card's biggest caveat
 
-1. **Init accepts a model directory** — `public init(modelDirectory: URL, phonemizer: any Phonemizer? = nil, forceCPU: Bool = false) throws`
-   (`KokoroEngine.swift:168-201`): guards `ModelManager.modelsAvailable` (file check —
-   **no network**), **throws** `modelsNotAvailable` when absent (it does NOT
-   auto-download), loads tokenizer + `VoiceStore`, then spawns a background warmup
-   thread. The downloader (`ModelDownloader.swift`) is only reachable through the
-   explicit public static `KokoroEngine.download(to:)` — **never called by the
-   library's init/speak paths**; `isUpToDate`/`latestModelTag` are dead code in the
-   library. **Zero-network library by construction.**
-2. **Per-sentence synchronous synthesis** — `synthesize(text:voice:speed:) ->
-   SynthesisResult` (`samples: [Float]` 24 kHz mono, `duration`, `realTimeFactor`)
-   (`KokoroEngine.swift:206-216`, `:1224-1263`). This is the PRD's R1b guaranteed
-   cancel path, verbatim: one call per `SentenceChunker` sentence, cancel between
-   calls, stale results discarded by generation. ~100 ms per chunk (README) — so the
-   **≤50 ms halt contract requires cancel to terminate the stream without waiting for
-   the in-flight call** (finish the continuation from `cancel()`, drop the orphaned
-   result by generation; the SystemSynthesizer shape). The port's streaming
-   `speak() -> AsyncStream<SpeakEvent>` (`:1070-1186`, `.audio(AVAudioPCMBuffer)`)
-   is NOT needed and its AVFAudio surface is deliberately avoided (see lints).
-3. **Phonemization is NOT Misaki — a recorded correction.** The port bundles its own
-   English G2P (`Sources/KokoroCoreML/G2P/`: `EnglishG2P.swift`, `Lexicon.swift`,
-   `EnglishNum2Word.swift`, `PennTagUtil.swift`; resources `us_gold.json` /
-   `us_silver.json`, ~3 MB each, `.process("Resources")`) with a neural fallback via
-   `Jud/swift-bart-g2p` (`BARTG2P`, Apache-2.0 — same LICENSE blob; models bundled in
-   package resources: `bart_g2p.safetensors` 3 MB + reranker; **no runtime download**).
-   The PRD/understanding's "Misaki (hexgrad's G2P) replaces espeak-ng" claim is
-   wrong for this port; the record must say what the port actually does.
-4. **Model artifact** — `kokoro-models.tar.gz` on GitHub Releases, `models-2026-03-23`
-   (three `models-*` releases exist; the port picks the first, newest). Contains
-   `kokoro_frontend.mlmodelc`, `kokoro_backend.mlmodelc`, `voices/` (binary .bin
-   voices incl. af_heart), and `vocab_index.json` (verified shape at provisioning
-   time). **One tarball** — unlike the ASR manifests' per-file entries: the manifest
-   pins the tarball (digests from the ACTUAL provisioned bytes) and the bootstrap
-   extracts idempotently (`/usr/bin/tar xzf`), then points the engine at the
-   extracted directory. The store's `sdkDirectory` field does not extract; the
-   extraction is bootstrap-side.
-5. **Toolchain blocker — CI cannot build the dependency today.** Both the port and
-   its BART dependency declare `swift-tools-version: 6.2`; Vocca CI is pinned to
-   `XCODE_MAJOR: 16` (`.github/workflows/ci.yml:58`, Swift 6.0/6.1) → resolution
-   fails. Local toolchain: Swift 6.3.3 (Xcode 26.6) — fine. **CI must move to
-   Xcode 26.x** (verify availability on the macos-15 runner at plan time) or the
-   dependency cannot land. This is a deliberate, reviewable CI edit.
+The card's nearest feasibility risk — "a Swift port must be vetted as Jud/kokoro-coreml
+was" — **largely dissolves**: the Silero VAD ecosystem on Apple Silicon is mature, and
+FluidAudio — already a pinned dependency (`from: 0.12.4`, the Parakeet precedent) —
+ships Silero VAD itself: `VadManager(config:vadModel:)` with a manually staged CoreML
+bundle (`silero-vad-unified-256ms-v6.2.1.mlmodelc` from `FluidInference/silero-vad-coreml`,
+offline, no download attempts when the bundle is present — its docs show the exact
+staging shape the C2 store already implements). `ROADMAP.md:15` said as much in 2026:
+FluidAudio ships "an EOU (end-of-utterance) model, VAD, and diarization behind a Swift
+SDK."
 
-## The integration points (from the mapping agents, file:line)
+What remains **genuinely unverified** and is the vetting gate's job:
+1. The SDK's **actual** `VadManager` API surface (recorded at C2 for the batch ASR
+   surface only; no EOU/VAD names are recorded in-repo) — verified against the SDK's
+   code, not its README (the Misaki-correction precedent).
+2. **EOU availability and shape** — if FluidAudio's EOU surface differs from the PRD's
+   assumption, the record corrects it; if it is absent, the seam's real implementation is
+   pending and the interim state is recorded honestly (the C9 first-half precedent).
+3. The **model artifact**: exact release/version, digests pinned from actual bytes,
+   manifest in the kokoro-82m.json pattern.
+4. The **version pin**: whether `from: 0.12.4` already carries VAD/EOU or needs a bump
+   (a CI/dependency decision, reviewable like the Xcode 26 bump).
 
-- **Package.swift**: add `.package(url: "https://github.com/Jud/kokoro-coreml.git",
-  from: "0.8.0")` (port README; pin decision at plan time) after `:36`; add
-  `.product(name: "KokoroCoreML", package: "kokoro-coreml")` to the `VoccaSpeech`
-  target's dependencies (`:114-118`); add `"VoccaSpeech"` to the `VoccaBootstrap`
-  target's dependencies (`:139-152`). Tools-version of OUR package stays 6.0.
-- **`VoccaSpeech/Kokoro/KokoroEngine.swift`** (the one file): `identity.engineID ==
-  "kokoro-82m"`, `voiceName` from plain data; **init pure-local** (no port-engine
-  construction — that is a model load; the port's init does file IO + spawns a
-  warmup thread); lazily construct the port engine on first `speak` (a prepare step
-  at launch is the ASR warm-start parallel); empty-speak short-circuits before any
-  port touch; per-sentence `synthesize` loop; generation-tagged flag cancel that
-  finishes the stream without waiting for the in-flight call; safe re-invoke.
-- **Provisioning (VoccaBootstrap, NOT VoccaSpeech — adapter rule)**: the EngineTier-
-  closed `ShippedModelManifest.load(for:)` switch must NOT grow
-  (`Sources/VoccaASR/Models/ShippedModelManifest.swift:48-50`, `:62-69`); a parallel
-  string-keyed loader + `Sources/VoccaASR/Models/Manifests/kokoro-82m.json` rides the
-  existing `.copy("Models/Manifests")` resource (`Package.swift:78`); `VoccaBootstrap`
-  provisions via `ModelStore.downloadIfMissing(manifest:transport:)` (string-keyed
-  surface, `ModelStore.swift:236-262`) + extracts + computes the directory
-  (the `ParakeetEngine.loadDirectory()` pattern, `ParakeetEngine.swift:175-178`) +
-  constructs `KokoroEngine(modelDirectory:voice:rate:)`. **Launch-only** — never in
-  `AppBootstrap.configure`'s body (probe contract, `AppBootstrap.swift:2296-2304`).
-  Repository constant beside `AppBootstrap.swift:838-845`, NOT the closed
-  `repositoryURL(for:)` switch. **Store single-flight slot is not per-manifest**
-  (`ModelStore.swift:244-247`): a TTS provision racing the ASR download silently
-  skips — sequence TTS after ASR preparation.
-- **Zero-network**: the port's `download()` static is never called — the family lint
-  + the probe pin it; `DefaultModelTransport` is the only URLSession file (reused,
-  no new one); BART G2P models are bundled (verified — no download surface).
-- **Lints**: new Kokoro-runtime family lint in the `SpeechSeamBoundaryTests` shape
-  (one permitted file `Kokoro/KokoroEngine.swift`, planted-violation + comment-strip
-  controls, port identifier prefixes); **no AVFoundation row needed** — the binding
-  uses `SynthesisResult.samples: [Float]`, never `SpeakEvent.audio(AVAudioPCMBuffer)`,
-  so no AVFAudio import and no expected-import-set amendment; the AVSpeech/AVAudio
-  family stays confined to `System/SystemSynthesizer.swift`
-  (`SpeechSeamBoundaryTests.swift:75-83`).
-- **Digest verification gap**: `testEveryShippedManifestMatchesTheProvisionedBytes`
-  loops `EngineTier.allCases` (`ManifestDigestVerificationTests.swift:296`) — the TTS
-  manifest needs its own verification row for "digests pinned in-repo" to hold.
-- **Floor**: `Scripts/test-with-floor.sh:1569` — `MINIMUM_EXECUTED_TESTS=1949`; every
-  new test ratchets it in the same commit (and the ledger paragraph pattern should be
-  restored — the last raise's ledger entry is missing).
-- **SMOKE_CHECKLIST.md:2722-2740** (step 129): the Kokoro TTFA row becomes step 130,
-  same 4-part format, `KOKORO-TTFA` line, recorded-never-gated; the system renderer's
-  ~178.8 ms baseline is the comparison.
+> **All four closed by the vetting record below (2026-09-15):** the `VadManager` surface is
+> verified from the SDK's code, the EOU is present but ASR-integrated (shape correction
+> recorded), the artifact's manifest pins digests from actual bytes, and the version pin needs
+> no bump (0.15.7 carries the surface).
 
-## Ambiguities / open questions
+## Ambiguities resolved in the interview (2026-09-15, founder-ratified)
 
-- **CI Xcode bump**: `XCODE_MAJOR 16 → 26` — verify Xcode 26.x exists on the
-  macos-15 runner image at plan time; the bump is in scope for this unit (the
-  dependency cannot build otherwise). Alternatives (vendoring/forking with a lowered
-  tools-version) are worse and not recommended — they fork the trust boundary the
-  vetting gate is meant to pin.
-- **Version pin**: `from: "0.8.0"` (README) vs exact/upToNextMinor — the port is
-  young; pin policy decided at plan time (a moved dependency under us is a silent
-  behavior change; the digests pin the model, not the code).
-- **Extraction idempotency**: the tarball downloads once (store marker); extraction
-  must be idempotent and marker-guarded (temp dir + rename, or extract-if-absent) —
-  plan detail, test-first.
-- **First-speak warm cost**: CoreML model compile is a prepare fact, never speak
-  latency (PRD G4); the bootstrap should prepare the Kokoro engine at launch like
-  ASR (`prepareAndAssemble`, `AppBootstrap.swift:2372-2414`).
-- **Cancel semantics**: finish-the-stream-from-cancel vs wait-for-in-flight — the
-  ≤50 ms contract forces the former; pinned in the plan, asserted by the suite.
-- **TTFA comparison**: SMOKE 129's ~178.8 ms is the system renderer's; Kokoro's row
-  is measured warm, recorded, never gated.
+1. **VAD implementation**: FluidAudio `VadManager` (Parakeet precedent), not a separate
+   port. EnergyVAD stays the fallback/test implementation.
+2. **Posture**: seam-only, the C9 posture — no activation, no widget state.
+3. **Echo depth**: energy-correlation gate + playback-window gating (headless-testable),
+   reference cancellation as the second line, speakers verification as a SMOKE step.
+4. **Conversational set**: scripted/synthetic corpus + scoring harness (5× false-cutoff
+   weight) runs in CI; the founder-recorded human-labelled set is SMOKE 131.
+
+## Open questions carried into the PRD
+
+- FluidAudio's exact VAD/EOU API surface and version coverage (vetting gate, first
+  aspect).
+- Whether `VadManager`'s hysteresis config (onset/offset/min-speech/min-silence) is
+  exposed for headless determinism, or the adapter must wrap it with injectable
+  thresholds.
+- The loop coordinator's module placement follows the `SessionMachine` precedent
+  (VoccaCore, synchronous, owner-isolated, double-injected) — no new architecture is
+  invented, but the concrete shape is the plan's.
+- The AVFoundation expected-import set gains a reviewed amendment for the playback file
+  (the ParakeetEngine precedent).
+- SMOKE step numbering: 131+ (129/130 are the TTFA rows).
 
 ## Honesty obligations (binding)
 
-- The P2 and P3 gates stay uncleared; the unit builds ahead of them (the recorded
-  posture, `docs/STATUS.md:110-111`). TTFA stays recorded, never gated.
-- The record must name the **Misaki correction** and the **tools-version/CI bump**
-  as findings of the vetting gate, cited against the port's code — not as vibes.
-- The dependency's license + the model bytes' digests are pinned before merge (C2
-  provenance discipline); digests are generated from the ACTUAL provisioned bytes,
-  never copied from the port's README.
+- **No P2/P3 gate passes**; the unit builds ahead of uncleared gates with the posture
+  named (the kokoro-binding record, not a drift). Turn-commitment, barge-in-halt and echo
+  numbers are **recorded, never gated**; SMOKE steps are their only real executions.
+- **No user-visible surface ships**; PRODUCT_SPEC's mic-truthfulness principle
+  (`PRODUCT_SPEC.md:11`) is preserved by construction — continuous capture is composed
+  only in probe/suites until C11 gives it a visible state.
+- **The dictation path is untouched**: the hold/toggle machines, ring ownership, the
+  ledger and the injection ladder are byte-for-byte inputs, not re-litigations.
+- **Zero network**: the VAD/EOU artifacts provision through the C2 store (user-triggered,
+  digest-verified, never inside `configure`); nothing hands a URL to any SDK surface; the
+  probe drives the fallback implementations.
+- **A seam with one implementation is not a seam**: if the EOU is unavailable in the
+  pinned SDK, the interim state is recorded and amended later — never papered over.
+
+## Vetting record (sdk-vetting, 2026-09-15)
+
+> The six verification facts, read from the SDK's **code** (not its README — the
+> Misaki-correction precedent) in the worktree's own checkout (`.build/checkouts/FluidAudio/`,
+> resolved **0.15.7**, revision `41540ea237350afe5117a082b5c28eda642d0612` — NEWER than the
+> plan's expected 0.15.5/`19600a485baa4998812e4654b70d2bab8f2c9949`; per the plan's Edge case 2,
+> newer + surface verifies → recorded, no bump, no STOP). Each finding: fact → `file:line` →
+> verbatim quote.
+
+1. **`VadManager` API shape** — `Sources/FluidAudio/VAD/VadManager.swift`:
+   `public actor VadManager` (`:14`); `public static let chunkSize = 4096` (`:22`, "Model expects
+   4096 new samples (256ms at 16kHz) plus 64-sample context (total 4160)"), `public static let
+   sampleRate = 16000` (`:26`), `public var isAvailable: Bool { return vadModel != nil }`
+   (`:30-32`); `process(_:)` overloads over `URL` (`:44`), `AVAudioPCMBuffer` (`:58`), `[Float]`
+   (`:74`); THREE public inits — `init(config:progressHandler:)` (`:79-92`, the ModelHub
+   download path the app must never take), `init(config:vadModel:)` (`:103-107`, "Initialize
+   with pre-loaded model" — the store-compatible staging path), `init(config:modelDirectory:
+   progressHandler:)` (`:110-122`, directory staging). **Beta Status doc comment, verbatim
+   (`:9-12`):** "**Beta Status**: This VAD implementation is currently in beta. While it performs
+   well in testing environments, it has not been extensively tested in production environments.
+   Use with caution in production applications." — a finding (adapter risk note), not a blocker.
+   Streaming surface: `VadManager+Streaming.swift` — `makeStreamState()` (`:6`),
+   `processStreamingChunk(_:state:config:returnSeconds:timeResolution:)` (`:11-17`).
+   Segmentation: `VadManager+SpeechSegmentation.swift` — `segmentSpeech(_:config:)` (`:12`),
+   `segmentSpeech(from:totalSamples:config:)` (`:22`), `segmentSpeechAudio(_:config:)` (`:55`).
+2. **Hysteresis exposure (O6/S1)** — `Sources/FluidAudio/VAD/VadTypes.swift`: `VadConfig`
+   (`:4-21`; `defaultThreshold: Float = 0.85`, `debugMode: Bool = false`,
+   `computeUnits: MLComputeUnits = .cpuAndNeuralEngine` — all `public var` on a `Sendable`
+   struct) and `VadSegmentationConfig` (`:24-91`; `minSpeechDuration 0.15`,
+   `minSilenceDuration 0.75`, `maxSpeechDuration 14.0`, `speechPadding 0.1`,
+   `silenceThresholdForSplit 0.3`, `negativeThreshold: Float? = nil`,
+   `negativeThresholdOffset 0.15`, `minSilenceAtMaxSpeech 0.098`,
+   `useMaxPossibleSilenceAtMaxSpeech true`), with
+   `effectiveNegativeThreshold(baseThreshold:)` (`:85-90`). **Verdict: hysteresis IS exposed as
+   plain `Sendable` data, injectable from the composition root — the
+   wrap-with-injectable-thresholds fallback is not needed.** The streaming path consumes it
+   per call: `processStreamingChunk` takes `config: VadSegmentationConfig = .default`, and
+   `streamingStateMachine` derives the entry/exit pair from it
+   (`VadManager+Streaming.swift:44-51`). The `sdk-adapters` aspect must use
+   `VadSegmentationConfig` carried as plain data (S1 satisfied by injection, no wrapper).
+3. **EOU availability and shape (O2)** — `Sources/FluidAudio/ASR/Parakeet/Streaming/EOU/
+   StreamingEouAsrManager.swift`: **PRESENT** at the resolved version.
+   `StreamingChunkSize` (`:16-151`; `ms160` default — "Default configuration, well-tested with
+   ~8-9% WER on LibriSpeech test-clean", `ms320` `:36`, `ms1280` `:47`; `chunkSamples` 2560/
+   10080/20480 `:53-63`). Model files via `ModelNames.ParakeetEOU.requiredModels`
+   (`Sources/FluidAudio/ModelNames.swift:643-648` — the plan's `:501-514` line ref was the
+   older checkout's; observed here): `streaming_encoder.mlmodelc`, `decoder.mlmodelc`,
+   `joint_decision.mlmodelc`, `vocab.json`. **The shape correction, recorded verbatim: the EOU
+   is ASR-integrated, not a standalone scored call** — `StreamingEouAsrManager` runs the whole
+   Parakeet streaming pipeline (native Swift mel spectrogram → loopback streaming encoder →
+   `RnntDecoder.decodeWithEOU`), and EOU is a decoding byproduct: `eouDetected`/`eouCallback`
+   (`:201-207`), confirmed via `eouDebounceMs` (default 1280, `:213`) and the pure
+   `evaluateEouDebounce` rule (`:300-326`); `eouSignal: decodeResult.eouDetected` (`:660`).
+   This differs from the PRD's assumption of a `ParakeetEOU` adapter as a free-standing
+   `TurnDetector` implementation — the `sdk-adapters` aspect must plan around
+   `StreamingEouAsrManager`'s integrated shape (feed it audio chunks, observe
+   `eouDetected`/callback — or record the interim state honestly if the integrated shape is
+   unusable as a standalone seam; the C9 first-half precedent). EOU present → no "pending"
+   state is recorded now. The conformance decision is `sdk-adapters`', not this gate's.
+4. **Version coverage (O1)** — the WORKTREE's own `Package.resolved` after the setup resolve:
+   `fluidaudio` → **0.15.7**, revision `41540ea237350afe5117a082b5c28eda642d0612` (the plan's
+   fallback record of 0.15.5/`19600a48...` is the primary checkout's value from earlier in the
+   day; 0.15.7 resolved from the same `from: "0.12.4"` range). The resolved sources carry
+   findings 1-3 → the pinned range ALREADY carries the VAD/EOU surface → **no bump**;
+   `Package.swift:36` untouched. `0.x` semantics: a future 0.16+ resolves silently under
+   `from: "0.12.4"` (minor is breaking) — a silent update surfaces in the pin family and the
+   sdk-adapters suite (the kokoro precedent, Edge case 7).
+5. **The VAD model artifact** — `Sources/FluidAudio/ModelNames.swift:622-630`:
+   `public enum VAD { public static let sileroVad = "silero-vad-unified-256ms-v6.2.1"`,
+   `sileroVadFile = sileroVad + ".mlmodelc"`, `requiredModels: Set<String> = [sileroVadFile]`;
+   repo `case vad = "FluidInference/silero-vad-coreml"` (`:5`). Staging shape from
+   `Documentation/VAD/GettingStarted.md:37-78`: the `.mlmodelc` **DIRECTORY** staged anywhere,
+   handed to `VadManager(config:vadModel:)`; **verbatim `:78`:** "Use `FileManager` to confirm
+   the `.mlmodelc` directory exists before constructing the manager. When the bundle is
+   present, no fallback download attempts occur." Two sub-checks: (a) **bundled? NO** — no
+   `.mlmodelc` anywhere in the SDK checkout; the download init goes through ModelHub
+   (`VadManager.swift:124-147`, default base `~/Library/Application Support/FluidAudio/Models`
+   `:149-154`) → the adapter must use the pre-loaded init + the C2 store, never the download
+   init. (b) **32 ms variant? UNREFERENCED** in `Sources/` (grep empty); the only `32ms`
+   mention is `Documentation/Benchmarks.md:314` prose ("8 chunks of 32ms" describing the batch
+   processing of the 256 ms model) — not a model name. Only the 256 ms unified model is named
+   at v6.2.1. **Observation:** the resolved SDK also ships an FSMN-VAD
+   (`Sources/FluidAudio/VAD/Fsmn/FsmnVadManager.swift`, `ModelNames.swift:513`, repo
+   `FluidInference/fsmn-vad-coreml`) — a second VAD family outside this unit's ratified pick;
+   recorded for the adapter aspect's awareness, not a re-pick. The HF repo
+   `FluidInference/silero-vad-coreml` ships the artifact as a **bare `.mlmodelc` directory**
+   (five files: `analytics/coremldata.bin`, `coremldata.bin`, `metadata.json`, `model.mil`,
+   `weights/weight.bin` — no tarball), so the manifest follows the SDK-shaped per-file pattern
+   of `parakeet-tdt-0.6b-v3.json`, not the kokoro tarball shape.
+6. **License** — the SDK's own `LICENSE` re-verified **Apache-2.0** in the worktree checkout
+   (first lines verbatim: "Apache License / Version 2.0, January 2004 /
+   http://www.apache.org/licenses/"). The artifact repo `FluidInference/silero-vad-coreml`:
+   HF card metadata `license:mit` (`cardData.license` via the HF model API, 2026-09-15),
+   README "**License:** MIT", parent model `snakers4/silero-vad` (MIT). **However, the repo
+   carries NO LICENSE file** (the HF tree lists only `.gitattributes`, `README.md`,
+   `config.json`, `graphs/`, model directories) — the plan's Edge case 4 partial: MIT is
+   claimed by card metadata + README but is not verifiable from a repo LICENSE. **Surfaced to
+   the integrator, not silently absorbed** (STOP-condition-class item; see the aspect report).
+7. **Toolchain** — the SDK's `Package.swift` declares `// swift-tools-version: 6.0` and
+   `platforms: [.macOS(.v14), .iOS(.v17)]` (also carries `Package@swift-6.2.swift` for newer
+   toolchains): matches our 6.0, below our `.v15` — **no CI toolchain change, no platform
+   bump**, as planned.
+
+**The version-pin decision:** no bump. The resolved **0.15.7** (revision
+`41540ea237350afe5117a082b5c28eda642d0612`) carries the full VAD/EOU surface under the
+existing `from: "0.12.4"` range (`Package.swift:36`); `Package.resolved` stays gitignored (the
+revision is a RECORDED fact, not a committed pin).
+
+**The manifest** (`Sources/VoccaASR/Models/Manifests/silero-vad.json`): `engineID
+"silero-vad"`, `version "1"`, `sdkDirectory "vad"`, five per-file entries under
+`silero-vad-unified-256ms-v6.2.1.mlmodelc/`, digests + byte counts computed from the ACTUAL
+provisioned bytes (`Scripts/provision-vad-fixtures.sh`, run 2026-09-15, each file also
+cross-checked against the repo's declared content identity). Staging layout for the next
+aspect's env-gated suite: `<root>/silero-vad/1/vad/silero-vad-unified-256ms-v6.2.1.mlmodelc/`,
+verified marker at `<root>/silero-vad/1/verified`, `VOCCA_MODEL_DIR=<root>`.
+
+## sdk-adapters record (2026-09-15)
+
+> The `SileroVAD` adapter's verdicts and recorded nuances (`sdk-adapters/plan_20260915.md`
+> Phase 2). Branch verdict first, then the adapter's facts. Evidence re-read in the worktree's
+> own checkout (`.build/checkouts/FluidAudio/`, 0.15.7, revision
+> `41540ea237350afe5117a082b5c28eda642d0612`) at the checkpoint — the plan's STOP rule found no
+> contradiction with the vetting record.
+
+**The EOU branch verdict — BRANCH B (the prescribed, expected branch; recorded verbatim from
+the plan's Agent notes, with the version corrected to the worktree's own resolved value — the
+plan's draft wording said 0.15.5; the vetting record's 0.15.7 is authoritative):**
+
+> The Parakeet EOU exists in the pinned SDK (0.15.7) only as `StreamingEouAsrManager` — an
+> ASR-integrated streaming pipeline
+> (`Sources/FluidAudio/ASR/Parakeet/Streaming/EOU/StreamingEouAsrManager.swift`, `:163`): EOU
+> is a byproduct of RNNT decoding over a continuous audio stream (`:660`,
+> `eouSignal: decodeResult.eouDetected`), with a 1280 ms silence debounce (`:213`) and a
+> transcript-bearing callback — not a standalone scored pause decision. The `TurnDetector` seam
+> asks "is this candidate pause a turn boundary?" as a synchronous scored decision over two
+> buffers; the SDK's EOU cannot answer that call without either feeding the pause as silence
+> into a full streaming decode — a bare silence timer with a model debounce, which the seam's
+> doctrine rejects — or ignoring the pause and reporting the model's own in-utterance EOU — a
+> boolean (the SDK exposes no probability), not a score-with-threshold, with artifacts this unit
+> does not provision and a per-call full-decode cost the 200 ms budget cannot host.
+> `ParakeetEOU` therefore ships as a PENDING conformance, recorded (the C9 first-half
+> precedent): `SilenceThresholdDetector` is the shipped `TurnDetector` implementation, the seam
+> doctrine's interim state is recorded here, and a future aspect records the amendment when the
+> SDK exposes a standalone EOU surface (or a future unit provisions the EOU artifacts and
+> accepts the semantic correction).
+
+Consequences, as shipped: **no `EOU/ParakeetEOU.swift` exists**; the env-gated real suite tests
+the VAD only; the H8b family amendment confines the EOU SDK names (`StreamingEouAsrManager`,
+`StreamingChunkSize`) with **no permitted file** — any code naming them is an offender by
+construction, and a future conformance must earn a reviewed permit.
+
+**The adapter's recorded nuances** (`Sources/VoccaASR/VAD/SileroVAD.swift`):
+
+- **The conversion is identity — there is none.** The seam's carrier `AudioBuffer.samples` is
+  already `[Float]` 16 kHz mono, asserted at init (`AudioBuffer.swift:36-88`), and the SDK's
+  `processStreamingChunk(_:state:config:)` takes `[Float]` at `VadManager.sampleRate` = 16000
+  (`VadManager.swift:22-26`). `chunked` hands the samples through sample-for-sample; no
+  resampler exists on the production path (the env-gated suite's fixture resampler is a test
+  artifact — the TTS renders at ~22050 Hz).
+- **The decision granularity is the model's 256 ms chunk.** `VadManager.chunkSize` = 4096
+  samples (`VadManager.swift:22`). The adapter accumulates frames; sub-chunk frames return the
+  current state with no model touch; the loop's barge-in path runs on the continuous capture
+  stream where chunks complete every 256 ms.
+- **The sync→actor bridge blocks its caller.** `classify` is synchronous by seam contract; the
+  SDK is an actor; the bridge is a `DispatchSemaphore` + `Mutex` result box (written once by
+  the Task, read once after the signal — the `SpeechDriveBox` discipline). The blocking cost is
+  recorded in the file's doc comment and measured by the env-gated suite as
+  `VAD-CLASSIFY-LATENCY` (recorded, never gated — the 200 ms budget decomposition is
+  `barge-in-loop`'s).
+- **The onset is SDK-timed; the seam's hold is not re-implemented.** `onsetRMS`/`offsetRMS` are
+  energy-domain evidence levels with no Silero analogue; the model's probability thresholds
+  (`speechThreshold` / `negativeThresholdOffset`) are the real hysteresis pair. The SDK's
+  streaming state machine flips onset on the first above-threshold chunk (no min-speech hold in
+  that path), so the adapter does not re-implement the seam's hold on top of it — double state
+  machines would drift, and a hold would delay the barge-in-critical onset. `minimumSpeech`
+  rides into the SDK's `minSpeechDuration`; `minimumSilence` into `minSilenceDuration`.
+- **The offline pin.** `ModelHub.offlineMode = true` is set at construction (the
+  `ParakeetEngine` precedent) and re-asserted before any load; the only `VadManager` init
+  reachable is the pre-loaded `init(config:vadModel:)` with a local
+  `MLModel.load(contentsOf:)` of the injected directory — the ModelHub download inits are never
+  reachable. The load is lazy (init stores plain data and touches nothing — the probe contract)
+  and a failure is memoized as a clear error naming the expected model path.
+- **`VoccaAudio/VAD/` stays a paper reservation** (`ARCHITECTURE.md:108`) while the real
+  machinery lives in `VoccaASR/VAD/` — FluidAudio is confined to `VoccaASR` by the H8b lint,
+  so a VAD adapter cannot live in `VoccaAudio`; the ARCHITECTURE.md sync is the record
+  aspect's.
+- **Recorded risk note (F1):** the SDK's own "Beta Status" doc comment (`VadManager.swift:9-12`)
+  is recorded as an adapter risk note, not a blocker.
