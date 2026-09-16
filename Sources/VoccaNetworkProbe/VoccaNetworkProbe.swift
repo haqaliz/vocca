@@ -327,6 +327,18 @@ struct VoccaNetworkProbe {
         let turnLoop = exerciseTurnLoop()
         print("PROBE-TURN\t\(turnLoop.report)")
 
+        // `VoccaBootstrap`'s converse half, run rather than referenced — the same shape as the
+        // drives above, for the composition the dictation path's witness (below) used to cover
+        // by metatype alone. The converse loop's default work is **the fallback implementations
+        // only** (G7): `EnergyVAD` + `SilenceThresholdDetector`, the probe's ASR double, a
+        // recording probe cleanup provider, the shipped minimal reply generator, a probe stub
+        // synthesizer and a probe fake playback — no model artifact, no SDK, no network name
+        // reachable. The drive mints the module's witness (`type(of: driver)`), so the
+        // `VoccaBootstrap` coverage entry cannot outlive the call it stands for. See
+        // `ConverseLoopDrive.swift`.
+        let converse = exerciseConverseLoop()
+        print("PROBE-CONVERSE\t\(converse.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -338,7 +350,7 @@ struct VoccaNetworkProbe {
             speech.moduleWitness,
             turnLoop.moduleWitness,
             VoccaUIPlaceholder.self,
-            AppBootstrap.self,
+            converse.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be

@@ -423,6 +423,16 @@ final class ZeroNetworkTests: XCTestCase {
     private static let expectedTurnLoopLifecycle =
         "started=1 turnCommits=2 replies=2 bargeIns=1 gated=1 fed=61 state=idle"
 
+    /// **The converse-loop post-condition** (PROBE-CONVERSE): the verbatim report of the
+    /// converse driver's fallback default work — two commits, two replies, one barge-in, one
+    /// gated echo frame, two ASR transcriptions under `.conversing`, ending idle. Asserted
+    /// whole, as one line — the `expectedTurnLoopLifecycle` shape. This is deliberately **not**
+    /// a golden string to be regenerated when it fails:
+    /// ``testTheAssertedConversePostConditionStillDescribesATurnWithAConversingCleanup`` reads
+    /// it back and refuses a version that no longer describes a converse turn.
+    private static let expectedConverseLifecycle =
+        "started=1 turnCommits=2 replies=2 bargeIns=1 gated=1 asrTranscribes=2 cleanupMode=conversing state=idle"
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -793,6 +803,38 @@ final class ZeroNetworkTests: XCTestCase {
             with a barge-in. Do not fix this by deleting the call, and do not fix it by \
             pasting in whatever the probe now prints — see \
             testTheAssertedTurnPostConditionStillDescribesATurnAndABargeIn.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The converse-loop post-condition. The tenth effect-not-reference check, and the one
+        // that pins the converse loop's **default work** (G7): the `ConverseLoopDriver` driven
+        // over the fallback implementations only — `EnergyVAD` + `SilenceThresholdDetector`,
+        // the probe's ASR double, a recording probe cleanup provider, the shipped minimal
+        // reply generator, a probe stub synthesizer and a probe fake playback. No model
+        // artifact, no SDK, no network name is reachable; the report's `gated` count is
+        // derived from the loop's own counter, the `asrTranscribes` count from the probe
+        // engine's ledger and the `cleanupMode` from the recorded context — an effect-not-
+        // reference check the verbatim comparison below cannot be weakened to a constant
+        // without the guard-the-guard noticing.
+        //
+        // Deleting the drive removes the line from the probe's output entirely, so the
+        // comparison fails against nil rather than quietly covering less.
+        XCTAssertEqual(
+            try XCTUnwrap(conversePayload(of: observation)),
+            Self.expectedConverseLifecycle,
+            """
+            The probe did not report driving the converse loop's fallback default work.
+              expected: \(Self.expectedConverseLifecycle)
+              observed: \(conversePayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseConverseLoop() was not called on the \
+            default-configuration path — in which case the converse loop's default work is \
+            outside this invariant — or the converse driver no longer behaves as written. Both \
+            matter: the report covers the two commits, the two replies, the single barge-in, \
+            the gated echo frame, the two ASR transcriptions under `.conversing` and the idle \
+            end state — the shape of a complete converse turn with a barge-in and the \
+            conversing cleanup mode. Do not fix this by deleting the call, and do not fix it \
+            by pasting in whatever the probe now prints — see \
+            testTheAssertedConversePostConditionStillDescribesATurnWithAConversingCleanup.
             \(observation.diagnosticSummary)
             """)
 
@@ -1470,6 +1512,56 @@ final class ZeroNetworkTests: XCTestCase {
                 + "nothing about the loop.")
     }
 
+    /// **Guards the guard.** ``expectedConverseLifecycle`` must keep describing a converse turn
+    /// with a barge-in and the conversing cleanup mode: ≥1 commit, ≥1 barge-in, ≥1 gated echo
+    /// frame, `cleanupMode == conversing`, ≥1 ASR transcription, and an idle end state. A
+    /// weakened constant (say, `turnCommits=0 bargeIns=0 cleanupMode=dictation`) that still
+    /// satisfies the verbatim comparison above would read green while the converse loop's
+    /// default work says nothing — the same protection the other guard-the-guard tests give
+    /// their constants.
+    func testTheAssertedConversePostConditionStillDescribesATurnWithAConversingCleanup() throws {
+        let fields = try Self.parseFields(of: Self.expectedConverseLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("turnCommits")) ?? 0, 1,
+            "The asserted converse post-condition no longer requires a committed turn — the "
+                + "converse loop could be reporting a session that never committed.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("bargeIns")) ?? 0, 1,
+            "The asserted converse post-condition no longer requires a barge-in — the converse "
+                + "loop could be reporting a session with no interruption, which is not the "
+                + "default work the probe exists to pin.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("gated")) ?? 0, 1,
+            "The asserted converse post-condition no longer requires the echo gate to discard "
+                + "a frame — the converse loop could be reporting a session where the reply "
+                + "never fed the reference back.")
+        XCTAssertEqual(
+            try value("cleanupMode"), "conversing",
+            "The asserted converse post-condition no longer cleans under `.conversing` — the "
+                + "converse path could be reaching the dictation cleanup.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("asrTranscribes")) ?? 0, 1,
+            "The asserted converse post-condition transcribed nothing — a conversation with no "
+                + "ASR proves nothing about the converse loop.")
+        XCTAssertEqual(
+            try value("state"), "idle",
+            "The asserted converse post-condition does not end idle — the converse loop's "
+                + "default work must leave the machine stopped.")
+        XCTAssertEqual(
+            try value("started"), "1",
+            "The asserted converse post-condition no longer reports exactly one start — the "
+                + "converse loop must begin its session once.")
+    }
+
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
     /// probe never reported one.
     ///
@@ -1512,6 +1604,22 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-TURN\t") {
             return String(line.dropFirst("PROBE-TURN\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-CONVERSE` line's payload — the converse drive's fallback-work report — or
+    /// `nil` when the probe never reported one.
+    ///
+    /// The `PROBE-TURN` parser shape: the line exists only when `exerciseConverseLoop()` ran on
+    /// the default-configuration path, so its absence is a missing drive rather than an empty
+    /// report. `VoccaBootstrap` is already covered by the driver's witness, so the module
+    /// coverage list alone would not notice a deleted drive — this accessor and its assertion
+    /// are the leg's survival guarantee.
+    private func conversePayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-CONVERSE\t") {
+            return String(line.dropFirst("PROBE-CONVERSE\t".count))
         }
         return nil
     }
