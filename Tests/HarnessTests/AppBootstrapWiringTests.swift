@@ -13,7 +13,8 @@
 // limitations under the License.
 
 import Foundation
-import VoccaBootstrap
+import VoccaASR
+@testable import VoccaBootstrap
 import VoccaCore
 @testable import VoccaInject
 import VoccaText
@@ -165,6 +166,93 @@ final class AppBootstrapWiringTests: XCTestCase {
             "The launch load created the strategies file. A load must never write.")
     }
 
+    // MARK: - The converse composition (C11, R6)
+
+    /// **The converse wiring is probe-safe and attached** (`converse-wiring` Phase 3): the recipe
+    /// constructs the driver over the real adapters, attaches nothing that starts, and never
+    /// provisions a model. Whether the machine's graph opens or refuses, the test stays honest:
+    /// it never calls the driver's `start()` (on a machine with audio hardware that would open
+    /// the real microphone), and the refusal path — the composition's answer when the graph
+    /// refuses, which is the CI runner's shape — is asserted on the type itself. The
+    /// headless-executable half is the delivery: driving the driver's own loop delivers every
+    /// state transition into the root's state sink.
+    @MainActor
+    func testTheConverseCompositionIsProbeSafeAndAttached() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let engine = StubEngine.parakeet()
+        let holdToTalkSource = RecordingAudioSource()
+        let toggleSource = RecordingAudioSource()
+        let root = DictationLoopRoot(
+            configuration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .holdToTalk),
+            ceiling: SessionCeiling.default,
+            clock: TestClock(),
+            audioSource: holdToTalkSource,
+            keyState: TruthfulKeyState(Keyboard()),
+            watchdogTimer: FakeTimer(),
+            healthTimer: FakeTimer(),
+            deferOpening: { $0() },
+            tap: FakeHotkeyEventSource(),
+            secureInput: FakeSecureInputState(),
+            resolver: DictationEngineResolver(selection: .defaultSelection) { _ in engine },
+            targetResolution: TargetResolution(
+                focusedApp: FakeFocusedApp(
+                    identity: FocusedAppIdentity(
+                        bundleID: "com.apple.Notes", windowTitle: "The Draft")),
+                secureInput: FakeSecureInput(),
+                frontmost: FakeFrontmostApp()),
+            panel: RecordingPanel(holder: LedgerHolder()),
+            toggleConfiguration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .toggle),
+            toggleSource: toggleSource,
+            toggleTimer: FakeTimer(),
+            runningAppName: FakeRunningAppName(),
+            widgetClock: FakeTimer(),
+            liveLevel: QuietLevelSource(),
+            sessionKind: .dictation)
+
+        let store = ModelStore(rootURL: directory)
+        let cleanupResolver = Self.makeResolver(over: directory, configJSON: nil)
+
+        let driver = await AppBootstrap.composeConverseWiring(
+            clock: ContinuousMonotonicClock(), store: store, resolver: root.resolver,
+            cleanupResolver: cleanupResolver, root: root)
+
+        // Constructed, not started: the recipe opens nothing — the driver's loop is idle and
+        // the dictation microphones stayed closed.
+        XCTAssertEqual(driver.loop.state, .idle, "the recipe constructs; nothing starts")
+        XCTAssertEqual(holdToTalkSource.beginCount, 0, "the dictation mic stayed closed")
+        XCTAssertEqual(toggleSource.beginCount, 0, "the toggle mic stayed closed")
+
+        // The refusal path answers honestly: a machine whose graph refuses (every hosted CI
+        // runner) gets the honest `.unavailable` from the composition's capture.
+        let refusing = AppBootstrap.RefusingContinuousCapture()
+        XCTAssertThrowsError(try refusing.start()) { error in
+            XCTAssertEqual(error as? ContinuousAudioSourceError, .unavailable)
+        }
+        refusing.stop()
+
+        // Attach the slots the way configure does, then drive the driver's own loop: the N1
+        // hook's states reach the root's state sink — the delivery is headless-executable.
+        root.converseDriver = driver
+        let states = ConverseStateBox()
+        root.converseStateSink = { state in states.values.append(state) }
+        driver.loop.start()
+        for _ in 0..<2_000 {
+            if states.values == [.listening] { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(states.values, [.listening], "the loop's state reaches the root's sink")
+        driver.loop.stop()
+
+        // Never provisioned: the recipe reads presence, never downloads — the store stayed empty.
+        let manifest = try SileroVadModelManifest.load()
+        let present = await store.isPresent(engineID: manifest.engineID, version: manifest.version)
+        XCTAssertFalse(present, "the recipe must not provision a model")
+    }
+
     // MARK: - Fixtures
 
     /// Builds a resolver over a temp directory, writing `configJSON` when non-nil, with stub
@@ -200,4 +288,16 @@ private struct StubWiringKeyProvider: KeyProvider {
     func key() throws -> String? {
         "stub-key"
     }
+}
+
+/// The state-sink recording box — `@unchecked Sendable` because the `@Sendable` sink closure
+/// captures it; single-writer (the main actor, via the recipe's hop).
+private final class ConverseStateBox: @unchecked Sendable {
+    var values: [TurnState] = []
+}
+
+/// A level source that never moves — the wiring test's `SilentLevelSource` (the shared double
+/// is file-private to its own suites).
+private struct QuietLevelSource: LiveLevelSource {
+    func latestLevel() -> Float { 0 }
 }

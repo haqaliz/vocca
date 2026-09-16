@@ -88,8 +88,11 @@ public final class ConverseLoopDriver {
     /// The continuous microphone this driver owns.
     private let capture: any ContinuousAudioSource
 
-    /// The ASR recipe — resolved **once per committed utterance** (D3).
-    private let asrProvider: @Sendable () -> (any ASREngine)?
+    /// The ASR recipe — resolved **once per committed utterance** (D3). `async` because the
+    /// composition reads the current resolver's readiness (`DictationEngineResolver` is an
+    /// actor — a synchronous provider cannot read it); a provider that never suspends is a
+    /// synchronous closure, which satisfies the async parameter unchanged.
+    private let asrProvider: @Sendable () async -> (any ASREngine)?
 
     /// The cleanup recipe — resolved at most once per session.
     private let cleanupProvider: @Sendable () async throws -> (any CleanupProvider)?
@@ -155,7 +158,8 @@ public final class ConverseLoopDriver {
     ///     task closure; the shipped `ContinuousMonotonicClock` conforms.
     ///   - gate: the echo gate — passed through to the loop.
     ///   - capture: the continuous microphone — one instance, one microphone.
-    ///   - asrProvider: the engine recipe, read at the moment an utterance commits.
+    ///   - asrProvider: the engine recipe, read at the moment an utterance commits (`async` —
+    ///     the current resolver is an actor; a synchronous closure satisfies it unchanged).
     ///   - cleanupProvider: the cleanup recipe, resolved at most once per session.
     ///   - replyGenerator: the R7 seam's deterministic stand-in.
     ///   - synthesizer: the speech recipe, resolved at the first `.speakReply`.
@@ -168,7 +172,7 @@ public final class ConverseLoopDriver {
         clock: any MonotonicClock & Sendable,
         gate: EchoGate,
         capture: any ContinuousAudioSource,
-        asrProvider: @escaping @Sendable () -> (any ASREngine)?,
+        asrProvider: @escaping @Sendable () async -> (any ASREngine)?,
         cleanupProvider: @escaping @Sendable () async throws -> (any CleanupProvider)?,
         replyGenerator: any ReplyGenerator,
         synthesizer: @escaping @Sendable () async throws -> any SpeechSynthesizer,
@@ -283,7 +287,7 @@ public final class ConverseLoopDriver {
             samples: utterance.flatMap(\.samples),
             sampleRate: AudioBuffer.interchangeSampleRate)
 
-        guard let engine = asrProvider() else {
+        guard let engine = await asrProvider() else {
             failureSink(.asrFailed)
             return
         }

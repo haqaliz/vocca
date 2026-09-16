@@ -559,6 +559,25 @@ public enum AppBootstrap {
                 endpoint: await cleanupResolver.egressEndpoint())
             root.widgetStore.setEgress(egress)
         }
+
+        // The converse composition (C11, R6 — the only `AppBootstrap` change the aspect makes
+        // besides the three root slots above): the third capture graph + the driver, via the
+        // probe-safe recipe (`composeConverseWiring` — construction only; nothing starts and
+        // nothing provisions). The recipe is async for the VAD's store read, so it runs in a
+        // launch task — the egress fold's precedent. The state/failure sinks default to
+        // recording closures — the honest headless default, replaced by the widget-converse
+        // aspect — and the mode machine's converse start/stop slot (shipped by the
+        // mode-machine aspect) receives the driver's `start()`/`stop()` once its owner is
+        // composed.
+        Task { @MainActor in
+            let converseDriver = await AppBootstrap.composeConverseWiring(
+                clock: clock, store: store, resolver: resolver,
+                cleanupResolver: cleanupResolver, root: root)
+            root.converseDriver = converseDriver
+            root.converseStateSink = { state in converseStateRecorder.values.append(state) }
+            root.converseFailureSink = { failure in converseFailureRecorder.values.append(failure) }
+        }
+
         return root
     }
 
@@ -1115,6 +1134,25 @@ public final class Wiring {
 
 // MARK: - The composition root
 
+/// The converse sinks' honest headless default: the state/failure events are recorded here —
+/// never silently dropped — until the widget-converse aspect replaces the defaults with the
+/// widget projection's folds. Written by the sink closures on the main actor (the driver's one
+/// isolation domain, delivered through the main-actor hop), read by nothing in this aspect —
+/// the recorder is the retention guarantee, not a surface.
+private let converseStateRecorder = ConverseStateRecorderBox()
+private let converseFailureRecorder = ConverseFailureRecorderBox()
+
+/// The state recorder's box — `@unchecked Sendable` because the `@Sendable` sink closures
+/// capture it; single-writer (the main actor), the `TurnLoopDriveBox` shape.
+private final class ConverseStateRecorderBox: @unchecked Sendable {
+    var values: [TurnState] = []
+}
+
+/// The failure recorder's box — the same single-writer box shape.
+private final class ConverseFailureRecorderBox: @unchecked Sendable {
+    var values: [ConverseTurnFailure] = []
+}
+
 /// **A Speech-tab action asked of a composition that has no model store.**
 ///
 /// Never reachable in the shipped graph — `configure` assigns the store the moment the root
@@ -1279,6 +1317,20 @@ public final class DictationLoopRoot {
     /// asks it what actually resolved, which is what makes the page and the widget's egress badge
     /// two renderings of one fact instead of two guesses (F3).
     public var cleanupResolver: CleanupResolver?
+
+    /// The converse loop's driver, composed at launch — the wiring the mode machine's converse
+    /// start/stop slot receives (`composeConverseWiring`). `nil` only in a composition that
+    /// built no converse wiring — every headless harness in the suite.
+    public var converseDriver: ConverseLoopDriver?
+
+    /// The loop's N1 hook's destination — the widget-converse aspect's slot. Defaults to a
+    /// recording closure (this aspect's honest headless default — the states are recorded,
+    /// never silently dropped); widget-converse replaces it with the widget projection's fold.
+    public var converseStateSink: (@Sendable (TurnState) -> Void)?
+
+    /// The honest-drop notice's destination — the widget-converse aspect's slot. Defaults to a
+    /// recording closure; widget-converse replaces it with the notice surface's fold.
+    public var converseFailureSink: (@Sendable (ConverseTurnFailure) -> Void)?
 
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
