@@ -315,7 +315,7 @@ final class TurnTakingLoopRealSuiteTests: XCTestCase {
     /// recorded-never-gated` — **the on-speakers truth is SMOKE 133, never CI**
     /// (`ARCHITECTURE.md:580-586`).
     func testTheEchoGateDiscardsTheLoopbackWithZeroTranscription() async throws {
-        let modelDirectory = try Self.gatedVADModelDirectory()
+        _ = try Self.gatedVADModelDirectory()
         let reference = (0..<1000).map { index in
             Float(2.0.squareRoot() * sin(2 * Double.pi * 440 * Double(index) / 16_000))
         }
@@ -427,11 +427,11 @@ final class TurnTakingLoopRealSuiteTests: XCTestCase {
             mSelector: kAudioDevicePropertyDeviceNameCFString,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain)
-        var name: CFString?
-        var size = UInt32(MemoryLayout<CFString?>.size)
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &name)
         guard status == noErr else { return nil }
-        return name as String?
+        return name?.takeRetainedValue() as String?
     }
 }
 

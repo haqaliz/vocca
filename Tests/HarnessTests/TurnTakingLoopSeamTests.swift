@@ -52,7 +52,6 @@ enum TurnLoopFixtures {
         bytes.reserveCapacity(samples * channelCount * 4)
         let totalFrames = samples * channelCount
         for index in 0..<totalFrames {
-            let channel = index % channelCount
             let frame = index / channelCount
             let sample = amplitude
                 * Float(sin(2 * Double.pi * frequency * Double(frame) / sampleRate))
