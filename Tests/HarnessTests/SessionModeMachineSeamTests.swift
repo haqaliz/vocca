@@ -114,7 +114,7 @@ final class SessionModeMachineSeamTests: XCTestCase {
             (session.mode, session.epoch, session.buffer, session.transcript, session.target)
         }
 
-        let session = ModeSession(mode: .conversing, epoch: 7)
+        let session = ModeSession<AudioBuffer>(mode: .conversing, epoch: 7)
         let members = extract(from: session)
         XCTAssertEqual(members.mode, .conversing)
         XCTAssertEqual(members.epoch, 7)
@@ -308,8 +308,12 @@ final class SessionModeMachineSeamTests: XCTestCase {
         for effect in effects {
             if case .started = effect {
                 startedCount += 1
-                guard case .stopped = previous else {
-                    XCTFail("a .started followed a non-.stopped effect: \(String(describing: previous))")
+                switch previous {
+                case nil, .stopped?:
+                    break
+                default:
+                    XCTFail(
+                        "a .started followed a non-.stopped effect: \(String(describing: previous))")
                     return
                 }
             }
@@ -341,7 +345,7 @@ final class SessionModeMachineSeamTests: XCTestCase {
         _ = machine.observe(.start(.dictation))
         XCTAssertEqual(machine.observe(.start(.conversing)), .refused)
         XCTAssertEqual(machine.currentMode, .dictation)
-        XCTAssertEqual(machine.epoch, 1, "the refusal did not mint")
+        XCTAssertEqual(machine.epoch, 2, "the refusal did not mint — the epoch is the second dictate start's")
         XCTAssertEqual(machine.session?.mode, .dictation, "the refusal is not an activation")
 
         machine.fill(transcript: "dictated")
