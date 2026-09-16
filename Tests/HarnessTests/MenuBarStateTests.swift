@@ -226,4 +226,59 @@ final class MenuBarStateTests: XCTestCase {
             XCTAssertTrue(label.contains(MenuBarCopy.statusDetail(for: state, hotkey: hotkey)))
         }
     }
+
+    // MARK: - The mode toggle (dual-mode widget-converse D8)
+
+    /// The mode rows' words (`PRODUCT_SPEC.md:361`'s "mode toggle"): the product's own
+    /// vocabulary (`prd.md:47-52`), each row naming the mode it selects. Exact-equality pinned —
+    /// the menu's rows are copy, and copy is a decision.
+    func testTheModeTitlesAreDistinctAndNameTheModes() {
+        XCTAssertEqual(MenuBarCopy.modeTitle(.dictation), "Dictation")
+        XCTAssertEqual(MenuBarCopy.modeTitle(.conversing), "Conversation")
+        XCTAssertNotEqual(
+            MenuBarCopy.modeTitle(.dictation), MenuBarCopy.modeTitle(.conversing))
+        XCTAssertFalse(MenuBarCopy.modeTitle(.dictation).isEmpty)
+        XCTAssertFalse(MenuBarCopy.modeTitle(.conversing).isEmpty)
+    }
+
+    /// The toggle rows' words: **new copy the spec does not write** (§11 names the toggle's
+    /// existence, not its words) — decided here as the action each row performs, pinned by exact
+    /// equality with the decision recorded in `MenuBarCopy`'s doc comment.
+    func testTheModeToggleTitlesNameTheActionTheyPerform() {
+        XCTAssertEqual(MenuBarCopy.modeToggleTitle(.dictation), "Switch to Dictation")
+        XCTAssertEqual(MenuBarCopy.modeToggleTitle(.conversing), "Switch to Conversation")
+        XCTAssertNotEqual(
+            MenuBarCopy.modeToggleTitle(.dictation), MenuBarCopy.modeToggleTitle(.conversing))
+    }
+
+    /// The mode titles never read as a verdict or a percentage (the Usage-tab honesty shape,
+    /// `UsageTabCopyTests.swift:213-228`): the menu names the modes — it never grades them.
+    func testTheModeTitlesNeverReadAsAVerdictOrPercentage() {
+        let titles = [
+            MenuBarCopy.modeTitle(.dictation),
+            MenuBarCopy.modeTitle(.conversing),
+            MenuBarCopy.modeToggleTitle(.dictation),
+            MenuBarCopy.modeToggleTitle(.conversing),
+        ]
+        for title in titles {
+            XCTAssertFalse(
+                title.contains("%"),
+                "\(title) must not read as a measurement")
+            let lowered = title.lowercased()
+            XCTAssertFalse(
+                lowered.contains("success") || lowered.contains("failed")
+                    || lowered.contains("improved"),
+                "\(title) must not read as a verdict")
+        }
+    }
+
+    /// The current mode rides in the conditions: `dictation` is the shipped default (the
+    /// defaulted field keeps every existing construction site compiling), and a `.conversing`
+    /// carry is what the menu's checkmark reads — the mode is never inferred anywhere.
+    func testTheCurrentModeRidesInTheConditions() {
+        XCTAssertEqual(MenuBarConditions().mode, .dictation, "dictation is the shipped default")
+        XCTAssertEqual(MenuBarConditions(mode: .conversing).mode, .conversing)
+        XCTAssertNotEqual(
+            MenuBarConditions().mode, MenuBarConditions(mode: .conversing).mode)
+    }
 }

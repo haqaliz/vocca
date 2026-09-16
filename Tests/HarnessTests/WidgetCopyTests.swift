@@ -98,4 +98,95 @@ final class WidgetCopyTests: XCTestCase {
         XCTAssertEqual(
             WidgetCopy.noticeText(.captureUnavailable), "The microphone didn't open — try again.")
     }
+
+    // MARK: - The converse labels (dual-mode widget-converse D5)
+
+    /// The mode's persistent identity (`PRODUCT_SPEC.md:195`): `◈ Vocca` — no target, nothing
+    /// will be typed. The glyph is `◈` U+25C8 verbatim.
+    func testTheConversePersistentLabelIsTheSpecsIdentity() {
+        XCTAssertEqual(WidgetCopy.conversePersistentLabel, "◈ Vocca")
+    }
+
+    /// The listening label is the §2 CONVERSING art verbatim (`PRODUCT_SPEC.md:83`): `◈ listening…`.
+    func testTheConverseListeningLabelIsTheSpecsArt() {
+        XCTAssertEqual(WidgetCopy.converseListeningLabel, "◈ listening…")
+    }
+
+    /// The speaking label is **new copy the spec does not write** (the §2 art renders only the
+    /// listening line): `◈ speaking…`, mirroring the art's glyph + gerund + ellipsis exactly.
+    /// Decided here and pinned by exact equality — the `FailsafeCopy` custody-line precedent
+    /// (`UsageTabCopyTests`'s decided-new-copy pattern) — so the wording is a recorded decision,
+    /// not a drift.
+    func testTheConverseSpeakingLabelIsTheDecidedNewVariant() {
+        XCTAssertEqual(WidgetCopy.converseSpeakingLabel, "◈ speaking…")
+    }
+
+    /// The phase → label mapper names both phases (the exhaustive switch stops compiling if a
+    /// third phase appears): the one place the phase's words live, so the view and the tests
+    /// read one function.
+    func testTheConverseLabelMapperNamesBothPhases() {
+        XCTAssertEqual(WidgetCopy.converseLabel(.listening), "◈ listening…")
+        XCTAssertEqual(WidgetCopy.converseLabel(.speaking), "◈ speaking…")
+        XCTAssertNotEqual(
+            WidgetCopy.converseLabel(.listening), WidgetCopy.converseLabel(.speaking))
+    }
+
+    /// **The never-a-target render pin** (`PRODUCT_SPEC.md:200`): no converse renderer in
+    /// `WidgetCopy` accepts a `targetAppName` — the absence of `→ AppName` is itself the mode
+    /// signal, and a function that took a name would be a renderer that could draw one. Scanned
+    /// over the file's own source (the `SettingsCopyTests` shape), comments stripped.
+    func testNoConverseRendererAcceptsATargetAppName() throws {
+        let source = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaUI/WidgetCopy.swift"),
+            encoding: .utf8)
+        let stripped = SwiftSourceScanner.stripComments(from: source)
+        let converseRenderers = stripped.split(separator: "\n").map(String.init).filter {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("public static func converse")
+        }
+        XCTAssertFalse(
+            converseRenderers.isEmpty,
+            "the scan must find the converse renderers — a rename of the prefix would make this vacuous")
+        for line in converseRenderers {
+            XCTAssertFalse(
+                line.contains("targetAppName"),
+                "\(line.trimmingCharacters(in: .whitespaces)) — a converse renderer must never "
+                    + "accept a target app name (PRODUCT_SPEC.md:200)")
+        }
+    }
+
+    // MARK: - E9: the spec is the source
+
+    /// **Every converse string this file pins is read back out of `PRODUCT_SPEC.md`** — the
+    /// `UsageTabCopyTests` convention: the spec section is parsed and each string looked up in
+    /// it, so the two cannot drift in either direction — a reworded label fails, and so does a
+    /// reworded spec.
+    ///
+    /// The listening pin uses the spec's own bytes: the §2 art (`:83`) pads the glyph with two
+    /// spaces (`◈  listening…`), while the shipped label's single space is the render form. The
+    /// read-back asserts the spec's art form; the exact-equality pins above assert the label's.
+    func testTheConverseLabelsAppearInTheProductSpec() throws {
+        let spec = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("docs/product/PRODUCT_SPEC.md"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            spec.contains("◈ Vocca"),
+            "PRODUCT_SPEC.md's §5 label row no longer contains \"◈ Vocca\" — change the spec, "
+                + "then the copy")
+        XCTAssertTrue(
+            spec.contains("◈  listening…"),
+            "PRODUCT_SPEC.md's §2 CONVERSING art no longer contains the listening line — change "
+                + "the spec, then the copy")
+    }
+
+    /// The read-back is not vacuous: the spec actually parsed to something (a silent parse
+    /// failure would make the pin above assert over an empty string and pass on everything).
+    func testTheConverseSpecReadBackIsNotVacuous() throws {
+        let spec = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("docs/product/PRODUCT_SPEC.md"),
+            encoding: .utf8)
+        XCTAssertGreaterThan(spec.count, 5_000, "the spec parsed to almost nothing")
+    }
 }
