@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import VoccaBootstrap
 import VoccaCore
 import XCTest
 
@@ -91,10 +92,10 @@ actor ScriptedASR: ASREngine {
     private var transcripts: [String]
 
     /// Whether the next transcription throws — the honest ASR-failure injection.
-    var throwNext = false
+    private var throwNext = false
 
     /// Whether transcription suspends on the hold gate until released.
-    var holdEnabled = false
+    private var holdEnabled = false
     private var holdContinuation: AsyncStream<Void>.Continuation?
     private var holdStream: AsyncStream<Void>?
 
@@ -136,6 +137,21 @@ actor ScriptedASR: ASREngine {
         holdContinuation = nil
         holdStream = nil
     }
+
+    /// Arms the next transcription to throw.
+    func armThrowNext() {
+        throwNext = true
+    }
+
+    /// Enables the hold gate for the next transcriptions.
+    func enableHold() {
+        holdEnabled = true
+    }
+
+    /// Disables the hold gate.
+    func disableHold() {
+        holdEnabled = false
+    }
 }
 
 /// The scripted `CleanupProvider` — an actor, for the same honesty reason as ``ScriptedASR``.
@@ -160,6 +176,11 @@ actor RecordingCleanupProvider: CleanupProvider {
         }
         return outputs.isEmpty ? transcript.text : outputs.removeFirst()
     }
+
+    /// Arms the next cleanup to throw.
+    func armThrowNext() {
+        throwNext = true
+    }
 }
 
 /// The scripted synthesizer provider — an actor: the driver's recipe closure is `@Sendable`
@@ -181,6 +202,11 @@ actor ScriptedSynthesizerProvider {
             throw ScriptedSynthesizerError.failure
         }
         return stub
+    }
+
+    /// Arms the provider to fail its next `failures` resolutions.
+    func armFailures(_ failures: Int) {
+        failuresBeforeSuccess = failures
     }
 }
 
@@ -216,6 +242,18 @@ private final class ResolveCounter: @unchecked Sendable {
     }
 }
 
+/// The hand-moved clock, as a **struct**: the driver's init requires `MonotonicClock & Sendable`
+/// (the pipeline's documented shape — the cleanup race's watcher reads it from a task closure),
+/// and the driver's tests never advance it — the loop's own copy freezing at `.zero` changes
+/// nothing the assertions read (the playback window's timestamps are never asserted).
+private struct ScriptedClock: MonotonicClock {
+    var now: Duration = .zero
+
+    mutating func advance(by duration: Duration) {
+        now += duration
+    }
+}
+
 // MARK: - The suite
 
 /// **The converse loop driver's contract** (`converse-wiring` Phase 1): C10's recipe executed —
@@ -245,7 +283,7 @@ final class ConverseLoopDriverTests: XCTestCase {
         cleanupProvider: @escaping @Sendable () async throws -> (any CleanupProvider)?,
         synthesizerProvider: @escaping @Sendable () async throws -> any SpeechSynthesizer,
         playback: any PlaybackEngine = FakePlaybackEngine(),
-        clock: TurnLoopTestClock = TurnLoopTestClock(),
+        clock: ScriptedClock = ScriptedClock(),
         replyGenerator: any ReplyGenerator = EchoReplyGenerator(),
         stateSink: RecordingStateSink = RecordingStateSink(),
         failureSink: RecordingFailureSink = RecordingFailureSink()
@@ -267,13 +305,29 @@ final class ConverseLoopDriverTests: XCTestCase {
 
     /// The stub the reply renders: one 440 Hz chunk — the known-output reference the echo rows
     /// play back.
-    private static let replyChunk = TurnLoopFixtures.chunk(
+    nonisolated private static let replyChunk = TurnLoopFixtures.chunk(
         amplitude: 0.4, frequency: 440, samples: 4000)
 
-    private static func makeStubSynthesizer() -> StubSynthesizer {
+    nonisolated private static func makeStubSynthesizer() -> StubSynthesizer {
         StubSynthesizer(
             identity: VoiceIdentity(engineID: "converse-stub-synth", voiceName: nil),
             chunks: [replyChunk])
+    }
+
+    /// The shared stub instance the `@Sendable` provider closures capture — an actor, so the
+    /// capture is honest (a fresh stub per closure would trip the main-actor rule).
+    nonisolated private static let stubSynthesizer = makeStubSynthesizer()
+
+    /// Whether the effect ledger contains a `.speakReply` — the associated-value-aware shape.
+    nonisolated private static func effectsContainSpeakReply(_ effects: [TurnEffect]) -> Bool {
+        effects.contains { effect in
+            if case .speakReply = effect { return true } else { return false }
+        }
+    }
+
+    /// Whether the effect ledger contains `.captureFailed`.
+    nonisolated private static func effectsContainCaptureFailed(_ effects: [TurnEffect]) -> Bool {
+        effects.contains { $0 == .captureFailed }
     }
 
     /// The shared full-arc VAD script: listening silence, the 4-frame first utterance, the
@@ -312,13 +366,13 @@ final class ConverseLoopDriverTests: XCTestCase {
             ConverseLoopDriver(
                 vad: ScriptedVAD(configuration: Self.configuration, script: [.silence]),
                 turnDetector: ScriptedTurnDetector(script: [.keepListening]),
-                clock: TurnLoopTestClock(),
+                clock: ScriptedClock(),
                 gate: EchoGate(),
                 capture: ScriptedContinuousCapture(),
                 asrProvider: { ScriptedASR(transcripts: []) },
                 cleanupProvider: { nil },
                 replyGenerator: EchoReplyGenerator(),
-                synthesizer: { Self.makeStubSynthesizer() },
+                synthesizer: { Self.stubSynthesizer },
                 playback: FakePlaybackEngine(),
                 onStateChange: { _ in },
                 failureSink: { _ in }
@@ -418,8 +472,10 @@ final class ConverseLoopDriverTests: XCTestCase {
 
         let played = await playback.playCount
         XCTAssertEqual(played, 2, "both replies reached the playback engine")
-        XCTAssertEqual(await playback.haltCount, 1, "the barge-in ducked exactly once")
-        XCTAssertEqual(await synth.cancelCount, 1, "the barge-in cancelled the render once")
+        let halted = await playback.haltCount
+        XCTAssertEqual(halted, 1, "the barge-in ducked exactly once")
+        let cancelled = await synth.cancelCount
+        XCTAssertEqual(cancelled, 1, "the barge-in cancelled the render once")
         XCTAssertEqual(cleanupResolves.count, 1, "the cleanup provider resolves once per session")
 
         XCTAssertEqual(states.values, [.listening, .uttering, .committed, .playing, .uttering, .committed, .playing, .idle])
@@ -434,7 +490,7 @@ final class ConverseLoopDriverTests: XCTestCase {
     func testASRFailureDropsTheTurnHonestly() async throws {
         // The throw leg: the engine throws on its next transcription, then recovers.
         let throwingASR = ScriptedASR(transcripts: ["later"])
-        throwingASR.throwNext = true
+        await throwingASR.armThrowNext()
         let throwFailures = RecordingFailureSink()
         let throwCapture = ScriptedContinuousCapture()
         let throwSynth = Self.makeStubSynthesizer()
@@ -461,8 +517,9 @@ final class ConverseLoopDriverTests: XCTestCase {
         XCTAssertEqual(
             throwDriver.loop.state, .committed,
             "an ASR failure leaves the loop committed — no reply scheduled, no state moved")
-        XCTAssertFalse(throwDriver.effects.contains(.speakReply), "nothing was scheduled")
-        XCTAssertEqual(await throwPlayback.playCount, 0, "nothing reached the playback")
+        XCTAssertFalse(Self.effectsContainSpeakReply(throwDriver.effects), "nothing was scheduled")
+        let threwPlays = await throwPlayback.playCount
+        XCTAssertEqual(threwPlays, 0, "nothing reached the playback")
 
         // The fresh commit proceeds: no hang after the drop.
         throwCapture.push([Self.userSpeech, Self.userSpeech, Self.userSpeech, Self.userSpeech])
@@ -499,7 +556,7 @@ final class ConverseLoopDriverTests: XCTestCase {
         for _ in 0..<8 { nilCapture.push([TurnLoopFixtures.silence()]) }
         await waitUntil { nilFailures.values == [.asrFailed] }
         XCTAssertEqual(nilDriver.loop.state, .committed)
-        XCTAssertFalse(nilDriver.effects.contains(.speakReply))
+        XCTAssertFalse(Self.effectsContainSpeakReply(nilDriver.effects))
 
         engineBox.engine = nilASR
         nilCapture.push([Self.userSpeech, Self.userSpeech, Self.userSpeech, Self.userSpeech])
@@ -522,7 +579,7 @@ final class ConverseLoopDriverTests: XCTestCase {
         let asr = ScriptedASR(transcripts: ["first", "second"])
         let synth = Self.makeStubSynthesizer()
         let synthProvider = ScriptedSynthesizerProvider(stub: synth)
-        synthProvider.failuresBeforeSuccess = 1
+        await synthProvider.armFailures(1)
         let playback = FakePlaybackEngine()
         let failures = RecordingFailureSink()
         let states = RecordingStateSink()
@@ -549,7 +606,8 @@ final class ConverseLoopDriverTests: XCTestCase {
         XCTAssertEqual(
             states.values.last, .listening,
             "the render failure closes the window honestly — the loop returns to listening")
-        XCTAssertEqual(await playback.playCount, 0, "the failed render never reached playback")
+        let beforeRecovery = await playback.playCount
+        XCTAssertEqual(beforeRecovery, 0, "the failed render never reached playback")
         XCTAssertEqual(
             driver.effects.filter { effect in
                 if case .speakReply = effect { return true } else { return false }
@@ -573,7 +631,7 @@ final class ConverseLoopDriverTests: XCTestCase {
         let capture = ScriptedContinuousCapture()
         let asr = ScriptedASR(transcripts: ["raw words"])
         let cleanup = RecordingCleanupProvider()
-        cleanup.throwNext = true
+        await cleanup.armThrowNext()
         let playback = FakePlaybackEngine()
         let failures = RecordingFailureSink()
 
@@ -583,7 +641,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { asr },
             cleanupProvider: { cleanup },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: failures)
 
@@ -618,7 +676,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { asr },
             cleanupProvider: { cleanup },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             playback: playback)
 
         try driver.start()
@@ -628,7 +686,8 @@ final class ConverseLoopDriverTests: XCTestCase {
         await waitUntil { await playback.playCount == 1 }
         await driver.stop()
 
-        let context = try XCTUnwrap(await cleanup.contexts.first)
+        let contexts = await cleanup.contexts
+        let context = try XCTUnwrap(contexts.first)
         XCTAssertEqual(context.mode, .conversing, "the converse driver cleans as .conversing")
         XCTAssertEqual(
             context.target,
@@ -652,7 +711,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { nil },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             stateSink: states,
             failureSink: failures)
 
@@ -666,7 +725,7 @@ final class ConverseLoopDriverTests: XCTestCase {
         XCTAssertEqual(failures.values, [.captureFailed], "exactly one capture-failure notice")
         XCTAssertEqual(states.values.last, .idle, "the state sink ends idle")
         XCTAssertEqual(capture.stopCount, 0, "nobody stopped the capture — it died")
-        XCTAssertTrue(driver.effects.contains(.captureFailed))
+        XCTAssertTrue(Self.effectsContainCaptureFailed(driver.effects))
     }
 
     /// A second `start()` while the capture is already open is refused — the ownership pin,
@@ -680,7 +739,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { nil },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             failureSink: failures)
 
         // The capture is opened from outside the driver — the stream stays live.
@@ -705,7 +764,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { nil },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             failureSink: failures)
 
         XCTAssertThrowsError(try driver.start()) { error in
@@ -741,7 +800,7 @@ final class ConverseLoopDriverTests: XCTestCase {
                 return engineBox.engine
             },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             playback: playback)
 
         try driver.start()
@@ -759,10 +818,11 @@ final class ConverseLoopDriverTests: XCTestCase {
         await driver.stop()
 
         XCTAssertEqual(resolveCount.count, 2, "one resolve per committed utterance")
+        let firstTranscribes = await first.transcribedBuffers.count
+        XCTAssertEqual(firstTranscribes, 1, "the first turn went to the first engine")
+        let secondTranscribes = await second.transcribedBuffers.count
         XCTAssertEqual(
-            await first.transcribedBuffers.count, 1, "the first turn went to the first engine")
-        XCTAssertEqual(
-            await second.transcribedBuffers.count, 1,
+            secondTranscribes, 1,
             "the swap happened between turns — the second turn went to the new engine")
     }
 
@@ -774,7 +834,7 @@ final class ConverseLoopDriverTests: XCTestCase {
     func testSpeechBeforeThePipelineCompletesSupersedesThePendingReply() async throws {
         let capture = ScriptedContinuousCapture()
         let asr = ScriptedASR(transcripts: ["late", "second"])
-        asr.holdEnabled = true
+        await asr.enableHold()
         let playback = FakePlaybackEngine()
         let failures = RecordingFailureSink()
 
@@ -786,7 +846,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { asr },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: failures)
 
@@ -797,23 +857,24 @@ final class ConverseLoopDriverTests: XCTestCase {
 
         // The first utterance commits and the pipeline suspends in the ASR; the user speaks
         // again before the reply could be scheduled — the loop supersedes the pending turn.
-        await waitUntil { await asr.transcribeStarted }
+await waitUntil { await asr.transcribeStarted }
         capture.push([Self.userSpeech, Self.userSpeech, Self.userSpeech, Self.userSpeech])
-        XCTAssertEqual(driver.loop.state, .uttering, "the fresh utterance is accumulating")
+        await waitUntil { driver.loop.state == .uttering }
         XCTAssertFalse(
-            driver.effects.contains(.speakReply),
+            Self.effectsContainSpeakReply(driver.effects),
             "the superseded turn has not been scheduled yet")
 
-        asr.holdEnabled = false
-        asr.releaseHold()
+await asr.disableHold()
+        await asr.releaseHold()
         await Task.yield()
         await Task.yield()
 
         XCTAssertEqual(driver.loop.state, .uttering, "the user is still talking")
         XCTAssertFalse(
-            driver.effects.contains(.speakReply),
+            Self.effectsContainSpeakReply(driver.effects),
             "the late scheduleReply was refused — never speak over the user")
-        XCTAssertEqual(await playback.playCount, 0, "nothing played over the user")
+        let playedBeforeRecovery = await playback.playCount
+        XCTAssertEqual(playedBeforeRecovery, 0, "nothing played over the user")
         XCTAssertTrue(failures.values.isEmpty, "a superseded turn is not a failure")
 
         for _ in 0..<8 { capture.push([TurnLoopFixtures.silence()]) }
@@ -843,7 +904,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { ScriptedASR(transcripts: ["a", "b"]) },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             stateSink: states)
 
@@ -853,7 +914,6 @@ final class ConverseLoopDriverTests: XCTestCase {
         for _ in 0..<8 { capture.push([TurnLoopFixtures.silence()]) }
         await waitUntil { await playback.playCount == 1 }
 
-        let synth = Self.makeStubSynthesizer()
         capture.push([TurnLoopFixtures.echo(of: Self.replyChunk, gain: 0.85)])
         capture.push([Self.userSpeech])
         capture.push([Self.userSpeech])
@@ -885,7 +945,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { asr },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: failures)
 
@@ -896,7 +956,7 @@ final class ConverseLoopDriverTests: XCTestCase {
         await waitUntil { await asr.transcribedBuffers.count == 1 }
 
         XCTAssertEqual(driver.loop.state, .committed, "the empty turn is not a state change")
-        XCTAssertFalse(driver.effects.contains(.speakReply), "nothing was scheduled")
+        XCTAssertFalse(Self.effectsContainSpeakReply(driver.effects), "nothing was scheduled")
         XCTAssertTrue(failures.values.isEmpty, "empty is an answer, never a notice")
 
         capture.push([Self.userSpeech, Self.userSpeech, Self.userSpeech, Self.userSpeech])
@@ -911,7 +971,7 @@ final class ConverseLoopDriverTests: XCTestCase {
     func testStopCancelsAnInFlightPipelineWithoutANotice() async throws {
         let capture = ScriptedContinuousCapture()
         let asr = ScriptedASR(transcripts: ["never"])
-        asr.holdEnabled = true
+        await asr.enableHold()
         let playback = FakePlaybackEngine()
         let failures = RecordingFailureSink()
 
@@ -921,7 +981,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { asr },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: failures)
 
@@ -934,9 +994,10 @@ final class ConverseLoopDriverTests: XCTestCase {
         await driver.stop()
 
         XCTAssertEqual(driver.loop.state, .idle)
-        XCTAssertFalse(driver.effects.contains(.speakReply), "nothing was scheduled")
+        XCTAssertFalse(Self.effectsContainSpeakReply(driver.effects), "nothing was scheduled")
         XCTAssertTrue(failures.values.isEmpty, "a user stop is not a failure")
-        XCTAssertEqual(await playback.playCount, 0)
+        let played = await playback.playCount
+        XCTAssertEqual(played, 0)
     }
 
     /// `stop()` is idempotent: the capture stops once, `.stopped` fires once, the loop ends
@@ -950,7 +1011,7 @@ final class ConverseLoopDriverTests: XCTestCase {
             capture: capture,
             asrProvider: { nil },
             cleanupProvider: { nil },
-            synthesizerProvider: { Self.makeStubSynthesizer() },
+            synthesizerProvider: { Self.stubSynthesizer },
             failureSink: failures)
 
         try driver.start()
