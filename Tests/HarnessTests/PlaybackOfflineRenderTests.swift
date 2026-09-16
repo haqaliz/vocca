@@ -57,7 +57,7 @@ final class PlaybackOfflineRenderTests: XCTestCase {
     /// block's zero-fill, never a leaked or invented tail).
     func testOfflinePlaybackRendersKnownChunksSampleForSample() async throws {
         let sine = Self.sine(frequency: 1000, sampleRate: 22_050, frames: 22_050)
-        let (rendered, output) = try await Self.render(
+        let (rendered, _) = try await Self.render(
             stream: Self.stream([Self.chunk(frames: sine)]))
 
         XCTAssertGreaterThanOrEqual(
@@ -334,7 +334,7 @@ final class PlaybackOfflineRenderTests: XCTestCase {
             @unknown default:
                 break
             }
-            try await Task.yield()
+            await Task.yield()
         }
         return rendered
     }

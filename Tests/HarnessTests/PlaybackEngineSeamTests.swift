@@ -159,7 +159,7 @@ final class PlaybackEngineSeamTests: XCTestCase {
     /// a negative elapsed as complete.
     func testTheRampScheduleIsAPureFunctionOfTheClock() {
         let t0 = Duration.seconds(100)
-        var ramp = LevelRamp(fromGain: 1, toGain: 0.5, duration: .milliseconds(20), startedAt: t0)
+        let ramp = LevelRamp(fromGain: 1, toGain: 0.5, duration: .milliseconds(20), startedAt: t0)
 
         XCTAssertEqual(ramp.gain(at: t0), 1, "the ramp starts at fromGain")
         XCTAssertEqual(
