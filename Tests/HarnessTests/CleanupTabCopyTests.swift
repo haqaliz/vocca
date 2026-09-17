@@ -142,7 +142,8 @@ final class CleanupTabCopyTests: XCTestCase {
             "The cleanup that runs on what you say to Vocca — nothing from a conversation is "
                 + "ever typed into an app.")
         XCTAssertTrue(
-            CleanupTabCopy.converseSectionDetail.contains("never typed into an app"),
+            CleanupTabCopy.converseSectionDetail.contains(
+                "nothing from a conversation is ever typed into an app"),
             "the never-injects prohibition (R2) must be on the surface that could read as if "
                 + "conversation text is typed somewhere")
     }

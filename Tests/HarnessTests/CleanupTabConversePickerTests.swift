@@ -151,12 +151,18 @@ final class CleanupTabConversePickerTests: XCTestCase {
     // MARK: - The rows
 
     /// **`converseRows` derive from the converse selection** via the shared rows function — the
-    /// same rows, the same order, the same configured answers.
+    /// same rows, the same order, the same configured answers, each list selected by its own
+    /// selection.
     func testConverseRowsReflectTheConverseSelection() {
         var state = Self.loaded(converse: .rules)
         state = CleanupTabReducer.reduce(state, .converseSaveSucceeded(.ollama))
 
-        XCTAssertEqual(state.converseRows, state.rows)
+        XCTAssertEqual(
+            state.converseRows.map(\.kind), state.rows.map(\.kind),
+            "both pickers enumerate the same rungs, in the same order")
+        XCTAssertEqual(
+            state.converseRows.map(\.isConfigured), state.rows.map(\.isConfigured),
+            "both pickers share the one draft's configured answers")
         XCTAssertEqual(
             state.converseRows.first { $0.kind == .ollama }?.isSelected, true,
             "the converse rows point at the converse selection")

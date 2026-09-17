@@ -44,7 +44,7 @@ struct CleanupSettingsPage: View {
         Form {
             Section(SettingsTab.cleanup.title) {
                 ForEach(state.rows) { row in
-                    rungRow(row)
+                    rungRow(row, mode: .dictation)
                 }
             }
 
@@ -77,6 +77,33 @@ struct CleanupSettingsPage: View {
                 }
             }
 
+            Section(CleanupTabCopy.converseSectionTitle) {
+                Text(CleanupTabCopy.converseSectionDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(state.converseRows) { row in
+                    rungRow(row, mode: .conversing)
+                }
+                if let summary = state.converseSummary {
+                    LabeledContent(CleanupTabCopy.usingLabel, value: summary.name)
+                    if summary.sendsTextOffTheMac {
+                        Label {
+                            Text(
+                                summary.endpoint.map(CleanupTabCopy.textIsSentTo)
+                                    ?? CleanupTabCopy.textLeavesThisMac)
+                        } icon: {
+                            Image(systemName: "cloud")
+                        }
+                        .foregroundStyle(VoccaTheme.egress)
+                        .font(.caption)
+                    } else {
+                        Label(CleanupTabCopy.runsOnThisMac, systemImage: "checkmark.shield")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             Section {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button(CleanupTabCopy.customDictionaryButton, action: openDictionary)
@@ -95,6 +122,8 @@ struct CleanupSettingsPage: View {
                 state, .configLoaded(await bindings.loadCleanupConfig()))
             state = CleanupTabReducer.reduce(
                 state, .summaryLoaded(await bindings.cleanupSummary()))
+            state = CleanupTabReducer.reduce(
+                state, .converseSummaryLoaded(await bindings.cleanupConversingSummary()))
         }
         .confirmationDialog(
             CleanupTabCopy.cloudConfirmationTitle,
@@ -117,12 +146,12 @@ struct CleanupSettingsPage: View {
     }
 
     /// One rung: the radio, the spec's two sentences, and the fields the rung needs to be
-    /// choosable at all.
+    /// choosable at all. The mode names which picker the row belongs to.
     @ViewBuilder
-    private func rungRow(_ row: CleanupTabRow) -> some View {
+    private func rungRow(_ row: CleanupTabRow, mode: SessionMode) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
-                pick(row.kind)
+                pick(row.kind, mode: mode)
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(
@@ -201,36 +230,43 @@ struct CleanupSettingsPage: View {
             })
     }
 
-    /// Picking a rung: ask the reducer, then do exactly what it said.
-    private func pick(_ kind: CleanupProviderKind) {
-        switch CleanupTabReducer.plan(state, picking: kind) {
+    /// Picking a rung for a picker: ask the reducer, then do exactly what it said.
+    private func pick(_ kind: CleanupProviderKind, mode: SessionMode) {
+        switch CleanupTabReducer.plan(state, picking: kind, mode: mode) {
         case .refuse(let message):
             state = CleanupTabReducer.reduce(state, .selectionRefused(message))
         case .confirm(let kind):
-            state = CleanupTabReducer.reduce(state, .confirmationRequested(kind))
+            state = CleanupTabReducer.reduce(state, .confirmationRequested(kind, for: mode))
         case .write(let draft):
-            persist(draft)
+            persist(draft, mode: mode)
         }
     }
 
     /// The dialog's accepting button: acknowledge, remember it across launches, then ask again for
-    /// the plan — which is now a write, because the acknowledgement is what was missing.
+    /// the plan — which is now a write, because the acknowledgement is what was missing. Re-plans
+    /// the same picker the dialog was asked for, so the write moves the right half of the draft.
     private func accept() {
-        guard let kind = state.pendingConfirmation else { return }
+        guard let pending = state.pendingConfirmation else { return }
         state = CleanupTabReducer.reduce(state, .confirmationAccepted)
         bindings.setCloudCleanupAcknowledged(true)
-        pick(kind)
+        pick(pending.kind, mode: pending.mode)
     }
 
-    /// Writes the draft and folds the outcome. A failure is surfaced, never swallowed: a cleanup
-    /// choice that silently fails to save is one the user makes again next launch having been told
-    /// it worked — and on the cloud rung, that is the difference between believing text stays on
-    /// the Mac and it not.
-    private func persist(_ draft: CleanupConfigDraft) {
+    /// Writes the draft and folds the outcome into the picker that asked. A failure is surfaced,
+    /// never swallowed: a cleanup choice that silently fails to save is one the user makes again
+    /// next launch having been told it worked — and on the cloud rung, that is the difference
+    /// between believing text stays on the Mac and it not.
+    private func persist(_ draft: CleanupConfigDraft, mode: SessionMode) {
         Task {
             do {
                 try await bindings.saveCleanupConfig(draft)
-                state = CleanupTabReducer.reduce(state, .saveSucceeded(draft.provider))
+                switch mode {
+                case .dictation:
+                    state = CleanupTabReducer.reduce(state, .saveSucceeded(draft.provider))
+                case .conversing:
+                    state = CleanupTabReducer.reduce(
+                        state, .converseSaveSucceeded(draft.converseProvider))
+                }
             } catch {
                 state = CleanupTabReducer.reduce(
                     state, .saveFailed(error.localizedDescription))

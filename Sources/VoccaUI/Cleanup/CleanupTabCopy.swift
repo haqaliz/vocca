@@ -83,6 +83,18 @@ public enum CleanupTabCopy {
     /// The hint beside it, `PRODUCT_SPEC.md:270` verbatim.
     public static let customDictionaryHint = "names, jargon, replacements"
 
+    // MARK: - The converse section (D3)
+
+    /// The second picker's title — the "While conversing" section's heading.
+    public static let converseSectionTitle = "While conversing"
+
+    /// What the converse picker is for, and the prohibition that makes it safe: nothing from a
+    /// conversation is ever typed into an app (R2), stated on the surface that would otherwise
+    /// read as "cleanup for the other thing".
+    public static let converseSectionDetail =
+        "The cleanup that runs on what you say to Vocca — nothing from a conversation is ever "
+        + "typed into an app."
+
     // MARK: - What Vocca is using now
 
     /// The heading of the line reporting the resolved provider.

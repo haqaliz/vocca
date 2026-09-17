@@ -72,6 +72,14 @@ public struct SettingsBindings {
     /// resolver is an actor and the answer is a fact about the process, not a captured copy — the
     /// `engineDisplayName` argument, applied to the one tab whose wrong answer is a privacy claim.
     public var cleanupSummary: () async -> CleanupSummary?
+    /// **What Vocca is actually cleaning conversations with** — the converse half of
+    /// ``cleanupSummary``, for the Cleanup tab's "While conversing" section.
+    ///
+    /// Defaulted to claim **nothing**: the `converse-wiring` aspect fills this slot in its
+    /// AppBootstrap re-anchor commit (one additive line, recorded handoff); until then the
+    /// converse section renders no "Using" line, which is the safe direction — a surface claims
+    /// no provider it cannot name.
+    public var cleanupConversingSummary: () async -> CleanupSummary?
     /// The cleanup config as the tab edits it — the same `cleanup-config.json` the resolver
     /// reads, never a second copy that drifts from it.
     public var loadCleanupConfig: () async -> CleanupConfigDraft
@@ -169,6 +177,10 @@ public struct SettingsBindings {
         rebind: @escaping (HotkeyChord) -> RebindOutcome,
         engineDisplayName: @escaping () -> String,
         cleanupSummary: @escaping () async -> CleanupSummary?,
+        // The converse summary defaults claim **nothing**, for the reason the dictate defaults
+        // do — and it is the `converse-wiring` handoff's slot: until the wiring fills it, no
+        // surface reports a converse provider it cannot name.
+        cleanupConversingSummary: @escaping () async -> CleanupSummary? = { nil },
         // The cleanup defaults claim **nothing** and change **nothing**, for the reason the Speech
         // defaults do: a default that pretended to work would let a page report a provider and
         // save a choice that nothing is behind. Unacknowledged is the safe direction too — the
@@ -215,6 +227,7 @@ public struct SettingsBindings {
         self.rebind = rebind
         self.engineDisplayName = engineDisplayName
         self.cleanupSummary = cleanupSummary
+        self.cleanupConversingSummary = cleanupConversingSummary
         self.loadCleanupConfig = loadCleanupConfig
         self.saveCleanupConfig = saveCleanupConfig
         self.isCloudCleanupAcknowledged = isCloudCleanupAcknowledged
