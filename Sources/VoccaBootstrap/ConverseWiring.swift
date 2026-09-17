@@ -49,7 +49,9 @@ extension AppBootstrap {
     /// `StreamingCapture` constructs over it, `SileroVAD`/`KokoroEngine` construct pure
     /// (`KokoroEngine` touches the port only on the first non-empty `speak`), and the driver's
     /// recipes are lazy — the ASR resolver is read at the moment an utterance commits, the
-    /// cleanup resolver at most once per session, the synthesizer at the first reply. `async`
+    /// cleanup resolver at most once per session (the **converse** half — `resolve(mode:
+    /// .conversing)`, per-mode selection landed by `per-mode-cleanup`), the synthesizer at the
+    /// first reply. `async`
     /// only for the VAD's store read (`ModelStore` is an actor — presence is an `await`); the
     /// zero-network probe's `configure` call runs this whole recipe and stays green.
     ///
@@ -131,7 +133,7 @@ extension AppBootstrap {
             gate: EchoGate(),
             capture: capture,
             asrProvider: { await resolver.engineIfReady() },
-            cleanupProvider: { try await cleanupResolver.resolve() },
+            cleanupProvider: { try await cleanupResolver.resolve(mode: .conversing) },
             replyGenerator: EchoReplyGenerator(),
             synthesizer: { try await AppBootstrap.kokoroSynthesizer(store: store) },
             playback: SystemPlayback(level: .default, clock: clock),

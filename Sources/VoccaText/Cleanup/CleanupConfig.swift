@@ -64,10 +64,30 @@ public struct ByokCleanupConfig: Sendable, Equatable {
 /// scheme/host — and an unknown `provider` kind each degrade the whole config to `.rules` with
 /// exactly one loud log: a user who hand-edits badly must be told, never silently reset
 /// (`spec.md:51-55`).
+///
+/// ## Two selections, one file (C11)
+///
+/// ``provider`` is the **dictate** half's selection — spelling and meaning unchanged, an absent
+/// key still rules. ``converseProvider`` is the **converse** half's, carrying the same three raw
+/// strings; an absent key is converse `.rules` **silently** (old files need no migration, and
+/// the converse default is the zero-network rung), and an unknown string degrades converse to
+/// rules with exactly one loud log.
+///
+/// **The one deliberate per-mode degrade:** an invalid **selected converse** block degrades only
+/// the converse selection to rules, loudly, while the dictate selection stands — two independent
+/// selections cannot keep a shared "one invalid block kills both" rule without a byok dictate
+/// user losing their choice to a typo in a converse block they never edited. The dictate half
+/// keeps today's whole-config rule: an invalid selected dictate block still degrades both halves
+/// (the pipeline's provider must stay rules, and the safest converse answer is the same).
 public struct CleanupConfig: Sendable, Equatable {
 
-    /// The selected provider — the resolver's decision input.
+    /// The selected provider — the dictate half's decision input.
     public let provider: CleanupProviderKind
+
+    /// The selected provider for conversations — the converse half's decision input. An absent
+    /// key decodes to ``CleanupProviderKind/rules`` silently; the converse default is the
+    /// zero-network rung.
+    public let converseProvider: CleanupProviderKind
 
     /// The Ollama block, when the file carries a valid one.
     public let ollama: OllamaCleanupConfig?
@@ -79,7 +99,7 @@ public struct CleanupConfig: Sendable, Equatable {
     /// Model).
     public static let defaultOllamaEndpoint = "http://localhost:11434"
 
-    /// The default configuration: rules, zero network.
+    /// The default configuration: rules, zero network — for both halves.
     public static let defaultConfig = CleanupConfig(provider: .rules, ollama: nil, byok: nil)
 
     /// Whether `string` is a dialable HTTP(S) endpoint — the check both providers' transports
@@ -95,10 +115,12 @@ public struct CleanupConfig: Sendable, Equatable {
 
     public init(
         provider: CleanupProviderKind,
+        converseProvider: CleanupProviderKind = .rules,
         ollama: OllamaCleanupConfig?,
         byok: ByokCleanupConfig?
     ) {
         self.provider = provider
+        self.converseProvider = converseProvider
         self.ollama = ollama
         self.byok = byok
     }
@@ -119,6 +141,7 @@ public struct CleanupConfig: Sendable, Equatable {
     public var draft: CleanupConfigDraft {
         CleanupConfigDraft(
             provider: provider,
+            converseProvider: converseProvider,
             ollamaEndpoint: ollama?.endpoint ?? Self.defaultOllamaEndpoint,
             ollamaModel: ollama?.model ?? "",
             byokEndpoint: byok?.endpoint ?? "",
@@ -148,7 +171,11 @@ public struct CleanupConfig: Sendable, Equatable {
                 endpoint: draft.byokEndpoint,
                 model: draft.byokModel.isEmpty ? nil : draft.byokModel)
             : nil
-        self.init(provider: draft.provider, ollama: ollama, byok: byok)
+        self.init(
+            provider: draft.provider,
+            converseProvider: draft.converseProvider,
+            ollama: ollama,
+            byok: byok)
     }
 
     /// The file's bytes for this config — the encode half of ``tolerantDecode(_:log:)``, and the
@@ -177,7 +204,10 @@ public struct CleanupConfig: Sendable, Equatable {
     /// `KeyProvider` seam; ``ByokCleanupConfig`` has no field for one, and
     /// `CleanupConfigStoreTests` asserts the written document carries none.
     public func encoded() throws -> Data {
-        var object: [String: Any] = ["provider": provider.rawValue]
+        var object: [String: Any] = [
+            "provider": provider.rawValue,
+            "converseProvider": converseProvider.rawValue,
+        ]
         if let ollama {
             object["ollama"] = ["endpoint": ollama.endpoint, "model": ollama.model]
         }
@@ -232,6 +262,28 @@ public struct CleanupConfig: Sendable, Equatable {
             kindIssue = "provider is not a string"
         }
 
+        let converseKind: CleanupProviderKind
+        var converseKindIssue: String?
+        switch object["converseProvider"] {
+        case nil:
+            converseKind = .rules
+        case let raw as String:
+            switch raw {
+            case CleanupProviderKind.rules.rawValue:
+                converseKind = .rules
+            case CleanupProviderKind.ollama.rawValue:
+                converseKind = .ollama
+            case CleanupProviderKind.byok.rawValue:
+                converseKind = .byok
+            default:
+                converseKind = .rules
+                converseKindIssue = "unknown converseProvider kind '\(raw)'"
+            }
+        default:
+            converseKind = .rules
+            converseKindIssue = "converseProvider is not a string"
+        }
+
         let ollama = Self.decodeOllamaBlock(object["ollama"])
         let byok = Self.decodeByokBlock(object["byok"])
 
@@ -240,19 +292,67 @@ public struct CleanupConfig: Sendable, Equatable {
             if let kindIssue {
                 log("cleanup-config: \(kindIssue); using the rules provider")
             }
-            return CleanupConfig(provider: .rules, ollama: ollama, byok: byok)
+            return CleanupConfig(
+                provider: .rules,
+                converseProvider: Self.degradeConverse(
+                    converseKind, issue: converseKindIssue, ollama: ollama, byok: byok, log: log),
+                ollama: ollama, byok: byok)
         case .ollama:
             guard let ollama else {
                 log("cleanup-config: the ollama block is invalid (a model is required); using the rules provider")
                 return .defaultConfig
             }
-            return CleanupConfig(provider: .ollama, ollama: ollama, byok: byok)
+            return CleanupConfig(
+                provider: .ollama,
+                converseProvider: Self.degradeConverse(
+                    converseKind, issue: converseKindIssue, ollama: ollama, byok: byok, log: log),
+                ollama: ollama, byok: byok)
         case .byok:
             guard let byok else {
                 log("cleanup-config: the byok block is invalid (a dialable endpoint is required); using the rules provider")
                 return .defaultConfig
             }
-            return CleanupConfig(provider: .byok, ollama: ollama, byok: byok)
+            return CleanupConfig(
+                provider: .byok,
+                converseProvider: Self.degradeConverse(
+                    converseKind, issue: converseKindIssue, ollama: ollama, byok: byok, log: log),
+                ollama: ollama, byok: byok)
+        }
+    }
+
+    /// **The converse half's degrade (D1)** — the one deliberate semantic change to the degrade
+    /// policy: an unknown converse string, or a converse selection whose block is missing or
+    /// invalid, degrades **only the converse selection** to rules with exactly one loud log,
+    /// while the dictate selection stands. The absent-key default (`.rules`) is silent.
+    ///
+    /// The dictate half keeps today's whole-config rule in ``tolerantDecode(_:log:)`` — an
+    /// invalid selected dictate block still degrades both halves to rules.
+    private static func degradeConverse(
+        _ kind: CleanupProviderKind,
+        issue: String?,
+        ollama: OllamaCleanupConfig?,
+        byok: ByokCleanupConfig?,
+        log: @escaping @Sendable (String) -> Void
+    ) -> CleanupProviderKind {
+        if let issue {
+            log("cleanup-config: \(issue); using the rules provider for conversations")
+            return .rules
+        }
+        switch kind {
+        case .rules:
+            return .rules
+        case .ollama:
+            guard let ollama else {
+                log("cleanup-config: the converse ollama selection has no block (a model is required); using the rules provider for conversations")
+                return .rules
+            }
+            return .ollama
+        case .byok:
+            guard let byok else {
+                log("cleanup-config: the converse byok selection has no block (a dialable endpoint is required); using the rules provider for conversations")
+                return .rules
+            }
+            return .byok
         }
     }
 

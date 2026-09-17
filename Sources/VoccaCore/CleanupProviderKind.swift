@@ -70,9 +70,19 @@ public enum CleanupProviderKind: String, Codable, Sendable, Equatable, CaseItera
 /// Keychain behind the `KeyProvider` seam; `CleanupTabReducerTests` asserts the absence
 /// structurally, because a `key` field here would be one edit away from a plain-text file in
 /// Application Support.
+///
+/// **Two selections, one draft (C11).** ``provider`` is the dictate half — the rung the file
+/// names for dictation, with its meaning and spelling unchanged. ``converseProvider`` is the
+/// converse half, defaulting to the zero-network rung: a draft that says nothing about
+/// conversations cleans them with rules, and an old file (no `converseProvider`) decodes to the
+/// same. Both halves share the one draft's blocks — there is exactly one `cleanup-config.json`
+/// underneath, and the tab writes what the resolver reads.
 public struct CleanupConfigDraft: Sendable, Equatable {
-    /// The rung the file names.
+    /// The rung the file names — the dictate half.
     public var provider: CleanupProviderKind
+    /// The rung the file names for conversations — the converse half (C11). Defaults to the
+    /// zero-network rung.
+    public var converseProvider: CleanupProviderKind
     /// The Ollama endpoint, as the user is editing it.
     public var ollamaEndpoint: String
     /// The Ollama model, as the user is editing it.
@@ -89,12 +99,14 @@ public struct CleanupConfigDraft: Sendable, Equatable {
 
     public init(
         provider: CleanupProviderKind,
+        converseProvider: CleanupProviderKind = .rules,
         ollamaEndpoint: String = "",
         ollamaModel: String = "",
         byokEndpoint: String = "",
         byokModel: String = ""
     ) {
         self.provider = provider
+        self.converseProvider = converseProvider
         self.ollamaEndpoint = ollamaEndpoint
         self.ollamaModel = ollamaModel
         self.byokEndpoint = byokEndpoint
