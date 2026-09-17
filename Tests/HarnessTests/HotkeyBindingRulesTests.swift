@@ -29,13 +29,16 @@ final class HotkeyBindingRulesTests: XCTestCase {
 
     // MARK: - The vocabulary
 
-    /// The refusal set is closed at three reasons, and `CaseIterable` is the mechanism the
-    /// exhaustiveness test below rides on rather than decoration: a fourth reason added without a
+    /// The refusal set is closed at four reasons, and `CaseIterable` is the mechanism the
+    /// exhaustiveness test below rides on rather than decoration: a fifth reason added without a
     /// candidate that produces it fails there, not in review.
+    ///
+    /// The fourth is `dual-mode`'s cross-chord collision (`converse-hotkey` D4) — produced only
+    /// by the three-argument overload, which is why that row's reachability leg is separate.
     func testTheRefusalVocabularyIsClosed() {
         XCTAssertEqual(
             Set(HotkeyBindingRefusal.allCases),
-            [.modifierOnly, .reservedByVocca, .unmodifiedTextEntryKey],
+            [.modifierOnly, .reservedByVocca, .unmodifiedTextEntryKey, .collidesWithOtherMode],
             """
             The refusal vocabulary changed. A new reason is a product decision — spec.md names \
             the closed set — and it needs a candidate that produces it before it exists.
@@ -322,6 +325,113 @@ final class HotkeyBindingRulesTests: XCTestCase {
         }
     }
 
+    // MARK: - The cross-chord collision (`dual-mode` R3, `converse-hotkey` D4)
+
+    /// **A candidate equal to the other mode's chord is refused as a collision, in both
+    /// directions** — dictate's chord as the other-mode input for a converse candidate, and
+    /// converse's for a dictate candidate.
+    ///
+    /// Start matching is equality (`SessionRules.swift:187,342`), so equality is the only
+    /// configuration in which one press matches both bindings and chord-keyed routing is
+    /// ambiguous. The refusal is a **refusal, not a warning**: both chords are Vocca-owned facts,
+    /// and house doctrine reserves warnings for facts Vocca cannot verify (the user's machine is
+    /// the authority on their own shortcuts).
+    func testACandidateEqualToTheOtherModesChordIsRefusedAsACollision() {
+        let dictateChord = HotkeyChord(keyCode: 0x31, modifiers: [.option])
+        let converseChord = HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift])
+
+        // The converse row is open and the user presses the dictate chord — the candidate is
+        // exactly the other mode's wired chord.
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(dictateChord, against: [], otherChord: dictateChord),
+            .refused(.collidesWithOtherMode))
+        // The dictate row is open and the user presses the converse chord.
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(converseChord, against: [], otherChord: converseChord),
+            .refused(.collidesWithOtherMode))
+    }
+
+    /// **The load-bearing row: the shipped pair must never collide.** `⌥Space`/`⌥⇧Space` share a
+    /// key code with a strict-superset modifier set — accepted in both directions, so a future
+    /// "safety" tightening cannot refuse the product's own defaults (`PRODUCT_SPEC.md:127,192`).
+    ///
+    /// The superset press during a dictate hold-to-talk session is swallowed-ignored, which is
+    /// the designed R1 no-op (`SessionRules.swift:122-128`), and the start equality is
+    /// unambiguous — the collision check detects equality and nothing else (D4).
+    func testTheShippedPairIsNotACollision() {
+        let dictate = HotkeyChord(keyCode: 0x31, modifiers: [.option])
+        let converse = HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift])
+
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(converse, against: [], otherChord: dictate), .accepted)
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(dictate, against: [], otherChord: converse), .accepted)
+    }
+
+    /// Same key code with **disjoint** modifiers, and a different key code with the same
+    /// modifiers — both unambiguous at start, so neither is a collision.
+    func testADisjointChordIsNotACollision() {
+        let other = HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift])
+
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(
+                HotkeyChord(keyCode: 0x31, modifiers: [.control]), against: [], otherChord: other),
+            .accepted,
+            "same key, disjoint modifiers — nothing shared at start")
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(
+                HotkeyChord(keyCode: 0x69, modifiers: [.option, .shift]),
+                against: [], otherChord: other),
+            .accepted,
+            "different key, same modifiers — nothing shared at start")
+    }
+
+    /// **Caps Lock is not part of the collision comparison.** `HotkeyChord`'s init masks
+    /// `ModifierSet.locking` on both sides (`HotkeyChord.swift:39-42`), so a candidate recorded
+    /// with Caps Lock on collides with (and only with) the same masked chord.
+    func testCapsLockIsNotPartOfTheCollisionComparison() {
+        let masked = HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift])
+
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(
+                HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift, .capsLock]),
+                against: [], otherChord: masked),
+            .refused(.collidesWithOtherMode),
+            "the same chord with Caps Lock on is still the same chord")
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(
+                HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift, .capsLock]),
+                against: [], otherChord: HotkeyChord(keyCode: 0x31, modifiers: [.option])),
+            .accepted,
+            "Caps Lock must not make an unrelated chord look like the other mode's")
+    }
+
+    /// **A refusal outranks a warning** — the `:71-74` doctrine, extended: an equal-to-other-mode
+    /// candidate that macOS also claims answers `.refused`, never `.warned`.
+    func testTheCollisionRefusalOutranksASystemShortcutWarning() {
+        let otherModesChord = HotkeyChord(keyCode: 0x31, modifiers: [.option])
+        let occupied = [SystemShortcut(chord: otherModesChord, name: "Something of Apple's")]
+
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(otherModesChord, against: occupied, otherChord: otherModesChord),
+            .refused(.collidesWithOtherMode),
+            "the collision is the stronger answer — Vocca owns both chords")
+    }
+
+    /// The occupied warning survives the new parameter — a non-colliding candidate that macOS
+    /// claims is warned exactly as before, on both rows (`PRODUCT_SPEC.md:252`).
+    func testANonCollidingCandidateStillWarnsAgainstTheSystem() {
+        let other = HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift])
+        let occupied = [SystemShortcut(chord: HotkeyChord(keyCode: 0x31, modifiers: [.option]), name: "Spotlight")]
+
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(
+                HotkeyChord(keyCode: 0x31, modifiers: [.option]),
+                against: occupied, otherChord: other),
+            .warned(.usedBySystemShortcut(name: "Spotlight")),
+            "the converse row warns exactly like the dictate row — the `PRODUCT_SPEC.md:252` promise, free")
+    }
+
     // MARK: - Helpers
 
     /// Every combination of the five **bindable** modifiers — 32 of them, the empty set included.
@@ -402,23 +512,36 @@ final class HotkeyBindingRulesTests: XCTestCase {
     /// produced by some candidate, driven over `allCases` rather than a hand-written list. A new
     /// reason added to the enum without a candidate that reaches it fails here, so a refusal
     /// nothing can produce cannot be shipped — and neither can one no test knows how to trigger.
-    func testEveryRefusalReasonIsReachable() {
+func testEveryRefusalReasonIsReachable() {
         let candidates: [(UInt16, ModifierSet)] = [
             (0x37, [.command]),  // kVK_Command alone       -> modifierOnly
             (0x35, []),  // kVK_Escape              -> reservedByVocca
             (0x02, []),  // kVK_ANSI_D bare         -> unmodifiedTextEntryKey
         ]
-        let produced = Set(
+        var produced = Set(
             candidates.compactMap { code, chord -> HotkeyBindingRefusal? in
                 guard case .refused(let reason) =
                     HotkeyBindingRules.validate(keyCode: code, modifiers: chord)
                 else { return nil }
                 return reason
             })
+
+        // The fourth reason lives on the three-argument overload — the cross-chord collision
+        // (`converse-hotkey` D4) needs the other mode's chord as input, which the two-argument
+        // form has no parameter for.
+        let collision = HotkeyChord(keyCode: 0x31, modifiers: [.option])
+        if case .refused(let reason) =
+            HotkeyBindingRules.validate(collision, against: [], otherChord: collision)
+        {
+            produced.insert(reason)
+        }
+
         XCTAssertEqual(
             produced, Set(HotkeyBindingRefusal.allCases),
             """
-            A refusal reason exists that no candidate above produces. Either the rules cannot             reach it — a reason a user can never be given — or a new reason was added without             the candidate that shows it happening. Add the candidate, not an exception.
+            A refusal reason exists that no candidate above produces. Either the rules cannot \
+            reach it — a reason a user can never be given — or a new reason was added without \
+            the candidate that shows it happening. Add the candidate, not an exception.
             """)
     }
     // MARK: - Single-source scans (criterion 9)

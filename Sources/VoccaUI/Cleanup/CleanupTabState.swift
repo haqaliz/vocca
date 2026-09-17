@@ -38,26 +38,39 @@ public struct CleanupTabRow: Sendable, Equatable, Identifiable {
 ///
 /// ## Two facts, kept apart
 ///
-/// ``selection`` is what `cleanup-config.json` says — the rung the **next** launch will use.
-/// ``summary`` is the provider that resolved at this launch — what is cleaning text **now**. They
-/// disagree whenever the user has just changed the rung, and also when a hand-edited block
-/// degraded, and collapsing them into one field is exactly how a tab ends up reporting a provider
-/// Vocca is not using (F3).
+/// ``selection`` is what `cleanup-config.json` says for dictation — the rung the **next** launch
+/// will use. ``summary`` is the provider that resolved at this launch — what is cleaning text
+/// **now**. They disagree whenever the user has just changed the rung, and also when a
+/// hand-edited block degraded, and collapsing them into one field is exactly how a tab ends up
+/// reporting a provider Vocca is not using (F3).
+///
+/// ## Two selections, one file (C11)
+///
+/// ``converseSelection`` is what the file says for conversations — the same two-facts split,
+/// applied to the converse half. Both selections live in the one ``CleanupConfigDraft`` the tab
+/// edits: there is exactly one `cleanup-config.json` underneath, and the resolver reads the
+/// provider the file names per mode (`CleanupResolver/resolve(mode:)`).
 ///
 /// ## The selection is always what is on disk
 ///
-/// It moves on ``CleanupTabAction/saveSucceeded(_:)`` and on nothing else — not on the click, not
-/// optimistically, not on a failure. That is what makes "declining leaves the previous choice
-/// intact" true by construction rather than by a rollback somebody has to remember to write; on
-/// this tab the previous choice is a privacy setting, and the rollback nobody wrote is how a user
-/// ends up believing they are on the local rung when the file says otherwise.
+/// It moves on ``CleanupTabAction/saveSucceeded(_:)`` (dictation) and
+/// ``CleanupTabAction/converseSaveSucceeded(_:)`` (converse) and on nothing else — not on the
+/// click, not optimistically, not on a failure. That is what makes "declining leaves the
+/// previous choice intact" true by construction rather than by a rollback somebody has to
+/// remember to write; on this tab the previous choice is a privacy setting, and the rollback
+/// nobody wrote is how a user ends up believing they are on the local rung when the file says
+/// otherwise.
 public struct CleanupTabState: Sendable, Equatable {
-    /// The rung the file names.
+    /// The rung the file names for dictation.
     public var selection: CleanupProviderKind
+    /// The rung the file names for conversations.
+    public var converseSelection: CleanupProviderKind
     /// The blocks as the user is editing them, both of them, always.
     public var draft: CleanupConfigDraft
     /// What resolved at launch, or `nil` when nothing has been asked yet.
     public var summary: CleanupSummary?
+    /// What resolved for conversations, or `nil` when nothing has been asked yet.
+    public var converseSummary: CleanupSummary?
     /// Whether the config has been read. `false` with the default selection is "we have not
     /// looked yet"; `true` is the file's own answer, and the two must not render the same (the
     /// ``SettingsCopy/dictionaryEmpty`` guard).
@@ -66,9 +79,11 @@ public struct CleanupTabState: Sendable, Equatable {
     public var message: String?
     /// The rows, derived from everything above, in the spec's order.
     public var rows: [CleanupTabRow]
-    /// The rung whose confirmation dialog is open, or `nil`. Only the cloud rung ever appears
-    /// here — and while it does, nothing else has moved.
-    public var pendingConfirmation: CleanupProviderKind?
+    /// The converse picker's rows, derived the same way over the converse selection.
+    public var converseRows: [CleanupTabRow]
+    /// The rung and mode whose confirmation dialog is open, or `nil`. Only the cloud rung ever
+    /// appears here — and while it does, nothing else has moved.
+    public var pendingConfirmation: CleanupPendingConfirmation?
     /// Whether the user has read and accepted the cloud-cleanup dialog, as the settings store
     /// remembers it across launches. `false` until ``CleanupTabAction/acknowledgementLoaded(_:)``
     /// says otherwise, which is the safe direction: the worst case is a dialog shown twice.
@@ -79,13 +94,32 @@ public struct CleanupTabState: Sendable, Equatable {
 
     public init() {
         self.selection = .rules
+        self.converseSelection = .rules
         self.draft = .empty
         self.summary = nil
+        self.converseSummary = nil
         self.isLoaded = false
         self.message = nil
         self.pendingConfirmation = nil
         self.hasAcknowledgedCloud = false
         self.rows = CleanupTabReducer.rows(selection: .rules, draft: .empty)
+        self.converseRows = CleanupTabReducer.rows(selection: .rules, draft: .empty)
+    }
+}
+
+/// **What the confirmation dialog is for** — the cloud rung and the picker that asked for it.
+///
+/// The accept re-plans the same picker (`plan(_:picking:mode:)`), which is what makes the dialog
+/// one surface for two sections: the mode names the half of the draft the write moves.
+public struct CleanupPendingConfirmation: Sendable, Equatable {
+    /// The cloud rung being confirmed.
+    public let kind: CleanupProviderKind
+    /// Which picker asked — dictate or converse.
+    public let mode: SessionMode
+
+    public init(kind: CleanupProviderKind, mode: SessionMode) {
+        self.kind = kind
+        self.mode = mode
     }
 }
 
@@ -101,16 +135,21 @@ public enum CleanupTabAction: Sendable, Equatable {
     case endpointEdited(CleanupProviderKind, String)
     /// The user typed in a rung's model field.
     case modelEdited(CleanupProviderKind, String)
-    /// The write landed. **The only action that moves the selection.**
+    /// The write landed. **The only action that moves the dictation selection.**
     case saveSucceeded(CleanupProviderKind)
+    /// The converse write landed. **The only action that moves the converse selection.**
+    case converseSaveSucceeded(CleanupProviderKind)
     /// The write did not land, in the store's own words.
     case saveFailed(String)
     /// A rung could not be chosen yet, with the sentence saying why.
     case selectionRefused(String)
     /// The settings store was asked whether the cloud dialog has already been accepted.
     case acknowledgementLoaded(Bool)
-    /// The cloud confirmation was put in front of the user. Nothing else moves while it is up.
-    case confirmationRequested(CleanupProviderKind)
+    /// What resolved for conversations, or `nil` when nothing has been asked yet.
+    case converseSummaryLoaded(CleanupSummary?)
+    /// The cloud confirmation was put in front of the user, for one picker. Nothing else moves
+    /// while it is up.
+    case confirmationRequested(CleanupProviderKind, for: SessionMode)
     /// The user read it and agreed. **Acknowledges; does not write** — the write is the plan's,
     /// and the selection still waits for it to land.
     case confirmationAccepted
@@ -146,10 +185,14 @@ public enum CleanupTabReducer {
         case .configLoaded(let draft):
             next.draft = draft
             next.selection = draft.provider
+            next.converseSelection = draft.converseProvider
             next.isLoaded = true
 
         case .summaryLoaded(let summary):
             next.summary = summary
+
+        case .converseSummaryLoaded(let summary):
+            next.converseSummary = summary
 
         case .endpointEdited(let kind, let value):
             switch kind {
@@ -166,10 +209,17 @@ public enum CleanupTabReducer {
             }
 
         case .saveSucceeded(let kind):
-            // The one place the selection moves: the file now says this, so the next launch will
-            // use it, and the radio may finally point at it.
+            // The one place the dictation selection moves: the file now says this, so the next
+            // launch will use it, and the radio may finally point at it.
             next.selection = kind
             next.draft.provider = kind
+            next.message = nil
+
+        case .converseSaveSucceeded(let kind):
+            // The one place the converse selection moves — the dictation doctrine, applied to
+            // the converse half (`CleanupTabState.swift:47-53`).
+            next.converseSelection = kind
+            next.draft.converseProvider = kind
             next.message = nil
 
         case .saveFailed(let message):
@@ -181,10 +231,10 @@ public enum CleanupTabReducer {
         case .acknowledgementLoaded(let acknowledged):
             next.hasAcknowledgedCloud = acknowledged
 
-        case .confirmationRequested(let kind):
-            // Only the dialog moves. The selection, the draft's provider and the file are all
-            // exactly what they were while the user is reading.
-            next.pendingConfirmation = kind
+        case .confirmationRequested(let kind, let mode):
+            // Only the dialog moves. The selections, the draft and the file are all exactly what
+            // they were while the user is reading.
+            next.pendingConfirmation = CleanupPendingConfirmation(kind: kind, mode: mode)
 
         case .confirmationAccepted:
             next.hasAcknowledgedCloud = true
@@ -198,16 +248,21 @@ public enum CleanupTabReducer {
             next.pendingConfirmation = nil
         }
         next.rows = rows(selection: next.selection, draft: next.draft)
+        next.converseRows = rows(selection: next.converseSelection, draft: next.draft)
         return next
     }
 
-    /// **What picking `kind` must do**, given what the user has typed.
+    /// **What picking `kind` for `mode` must do**, given what the user has typed.
     ///
     /// Lives here rather than in the page so a caller that skipped the radio button is refused
-    /// too: the rule is about choosing a rung, not about one control.
-    public static func plan(_ state: CleanupTabState, picking kind: CleanupProviderKind)
-        -> CleanupTabPlan
-    {
+    /// too: the rule is about choosing a rung, not about one control. The defaulted `mode`
+    /// keeps every existing call site a dictate pick — the mode names the half of the draft the
+    /// write moves (`provider` or `converseProvider`).
+    public static func plan(
+        _ state: CleanupTabState,
+        picking kind: CleanupProviderKind,
+        mode: SessionMode = .dictation
+    ) -> CleanupTabPlan {
         guard state.draft.isConfigured(kind) else {
             return .refuse(CleanupTabCopy.missingFields(kind))
         }
@@ -217,7 +272,10 @@ public enum CleanupTabReducer {
             return .confirm(kind)
         }
         var draft = state.draft
-        draft.provider = kind
+        switch mode {
+        case .dictation: draft.provider = kind
+        case .conversing: draft.converseProvider = kind
+        }
         return .write(draft)
     }
 

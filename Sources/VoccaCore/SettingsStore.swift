@@ -55,6 +55,15 @@ public protocol SettingsStore {
     /// Persist the bound chord. Best-effort, never throws: a failed write means the binding
     /// reverts to ⌥Space at the next launch, which is a working hotkey rather than none.
     func setHotkeyChord(_ chord: HotkeyChord)
+    /// The bound **converse** chord, or the shipped default (⌥⇧Space, `PRODUCT_SPEC.md:192`).
+    /// The same three-answer contract as ``hotkeyChord()``: absent or unreadable degrades to the
+    /// shipped default, and the loudness decisions live in ``PersistedSettings`` — this seam
+    /// only carries the answer.
+    func converseChord() -> HotkeyChord
+    /// Persist the bound converse chord. Best-effort, never throws: a failed write means the
+    /// converse binding reverts to ⌥⇧Space at the next launch, which is a working hotkey rather
+    /// than none.
+    func setConverseChord(_ chord: HotkeyChord)
     /// Whether the user has read and accepted the cloud-cleanup confirmation
     /// (`PRODUCT_SPEC.md:273`). `false` on a fresh install, and `false` for anything unreadable —
     /// the dialog is shown again rather than an agreement being assumed.

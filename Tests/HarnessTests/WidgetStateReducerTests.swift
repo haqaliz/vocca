@@ -369,6 +369,88 @@ final class WidgetStateReducerTests: XCTestCase {
         }
     }
 
+    // MARK: - The converse adoptions (dual-mode widget-converse D1/D2)
+
+    /// Adopting `.conversing` clears every dictation bookkeeping field and anchors **nothing**:
+    /// a conversation has no recording clock, no delivery clock, no elapsed reading, no hints, no
+    /// ceiling warning and no provisional text — the widget's whole statement is the phase.
+    func testConversingAdoptsVerbatimWithNoBookkeeping() {
+        let busy = fold([
+            (.projection(.state(.recording)), .zero),
+            (.timerFired(.recording), .seconds(5)),
+            (.partial("provisional"), .zero),
+        ])
+        let listening = fold(
+            [(.projection(.state(.conversing(phase: .listening))), .seconds(6))], from: busy)
+        XCTAssertEqual(listening.state, .conversing(phase: .listening))
+        XCTAssertNil(listening.recordingStartedAt)
+        XCTAssertNil(listening.deliveredAt)
+        XCTAssertNil(listening.elapsed)
+        XCTAssertFalse(listening.showsEscapeHint)
+        XCTAssertFalse(listening.showsCeilingWarning)
+        XCTAssertNil(listening.partialText)
+        XCTAssertNil(listening.notice)
+    }
+
+    /// The listening ↔ speaking phase change keeps the session continuous and empty: no anchors,
+    /// no surfaces, no partial — the phase is the state's only content (D1's continuity rule).
+    func testThePhaseChangeKeepsTheSessionAndItsEmptiness() {
+        let listening = fold([(.projection(.state(.conversing(phase: .listening))), .zero)])
+        let speaking = fold(
+            [(.projection(.state(.conversing(phase: .speaking))), .seconds(1))], from: listening)
+        XCTAssertEqual(speaking.state, .conversing(phase: .speaking))
+        XCTAssertNil(speaking.recordingStartedAt)
+        XCTAssertNil(speaking.deliveredAt)
+        XCTAssertNil(speaking.elapsed)
+        XCTAssertNil(speaking.partialText)
+
+        let back = fold(
+            [(.projection(.state(.conversing(phase: .listening))), .seconds(2))], from: speaking)
+        XCTAssertEqual(back.state, .conversing(phase: .listening))
+        XCTAssertNil(back.recordingStartedAt)
+        XCTAssertNil(back.deliveredAt)
+        XCTAssertNil(back.elapsed)
+        XCTAssertNil(back.partialText)
+    }
+
+    /// Converse → IDLE (the session ended) clears everything and leaves the dictation path
+    /// untouched — the panel hides on the IDLE fold, exactly as it would after any session.
+    func testConversingToIdleClearsEverything() {
+        let conversing = fold([(.projection(.state(.conversing(phase: .listening))), .zero)])
+        let idle = fold([(.projection(.state(.idle)), .seconds(1))], from: conversing)
+        XCTAssertEqual(idle.state, .idle)
+        XCTAssertNil(idle.recordingStartedAt)
+        XCTAssertNil(idle.deliveredAt)
+        XCTAssertNil(idle.elapsed)
+        XCTAssertFalse(idle.showsEscapeHint)
+        XCTAssertFalse(idle.showsCeilingWarning)
+        XCTAssertNil(idle.partialText)
+        XCTAssertNil(idle.notice)
+    }
+
+    /// A stray dictation timer fire over converse is a no-op: the recording and collapse timers
+    /// answer only their own states, and the dictation surfaces must never appear over a
+    /// conversation (`D6`'s note — converse is timer-free; there is no `WidgetTimer` case for it).
+    func testTimerFiresAreNoOpsOverConversing() {
+        let conversing = fold([(.projection(.state(.conversing(phase: .listening))), .zero)])
+        let after = fold([
+            (.timerFired(.recording), .seconds(30)),
+            (.timerFired(.deliveredCollapse), .seconds(30)),
+        ], from: conversing)
+        XCTAssertEqual(after, conversing, "the dictation timers must not move a converse session")
+        XCTAssertEqual(after.state, .conversing(phase: .listening))
+    }
+
+    /// A stray `partial` over converse is dropped: provisional text rides only over RECORDING/
+    /// TRANSCRIBING (the S3 contract), and a conversation's reply surface is state-only — the
+    /// guard at `WidgetStateReducer.swift:243` excludes `.conversing` by construction.
+    func testAPartialIsDroppedOverConversing() {
+        let conversing = fold([(.projection(.state(.conversing(phase: .listening))), .zero)])
+        let after = fold([(.partial("provisional"), .zero)], from: conversing)
+        XCTAssertEqual(after, conversing, "a partial must not disturb a converse session")
+        XCTAssertNil(after.partialText)
+    }
+
     // MARK: - The closed set
 
     /// The closed event set folds from every state: totality (every action × state × clock reading
@@ -387,6 +469,8 @@ final class WidgetStateReducerTests: XCTestCase {
                 (.projection(.state(.transcribing)), .zero),
             ]), "transcribing"),
             (fold([(.projection(.state(.delivered(targetAppName: "Slack"))), .zero)]), "delivered"),
+            (fold([(.projection(.state(.conversing(phase: .listening))), .zero)]), "conversing listening"),
+            (fold([(.projection(.state(.conversing(phase: .speaking))), .zero)]), "conversing speaking"),
             (fold([(.projection(.notice(.captureUnavailable)), .zero)]), "notice"),
         ]
         let actions: [(WidgetAction, String)] = [
@@ -396,6 +480,8 @@ final class WidgetStateReducerTests: XCTestCase {
             (.projection(.state(.recording)), "project recording"),
             (.projection(.state(.transcribing)), "project transcribing"),
             (.projection(.state(.delivered(targetAppName: "Slack"))), "project delivered"),
+            (.projection(.state(.conversing(phase: .listening))), "project conversing listening"),
+            (.projection(.state(.conversing(phase: .speaking))), "project conversing speaking"),
             (.projection(.notice(.captureUnavailable)), "project notice"),
             (.timerFired(.recording), "recording timer"),
             (.timerFired(.deliveredCollapse), "collapse timer"),
@@ -479,6 +565,16 @@ final class WidgetStateReducerTests: XCTestCase {
             if state.deliveredAt != nil { return "a delivery anchor over \(state.state)" }
             if state.elapsed != nil { return "an elapsed reading over \(state.state)" }
             if state.showsEscapeHint || state.showsCeilingWarning { return "recording surfaces over \(state.state)" }
+        case .conversing:
+            // The converse invariant: the phase is the state's only content (D1). No dictation
+            // bookkeeping, no timer surfaces, no provisional text, and no notice may ride over a
+            // live converse session.
+            if state.recordingStartedAt != nil { return "a recording anchor over \(state.state)" }
+            if state.deliveredAt != nil { return "a delivery anchor over \(state.state)" }
+            if state.elapsed != nil { return "an elapsed reading over \(state.state)" }
+            if state.showsEscapeHint || state.showsCeilingWarning { return "recording surfaces over \(state.state)" }
+            if state.partialText != nil { return "a provisional partial over \(state.state)" }
+            if state.notice != nil { return "a notice riding over \(state.state)" }
         case .idle, .opening:
             if state.recordingStartedAt != nil { return "a recording anchor over \(state.state)" }
             if state.deliveredAt != nil { return "a delivery anchor over \(state.state)" }

@@ -59,4 +59,14 @@ public enum RebindRefusal: Sendable, Equatable, CaseIterable {
     /// Overwhelmingly a bare text-entry key: binding one makes that key untypeable on the whole
     /// machine, and the way out is a Settings window the user now needs that keyboard to reach.
     case notBindable
+
+    /// **The chord is the other mode's wired chord** (`dual-mode` R3, `converse-hotkey` D4).
+    ///
+    /// The gate's defensive twin of ``HotkeyBindingRefusal/collidesWithOtherMode`` — the recorder
+    /// refuses the chord at capture time through the rules, so a user should never read this; the
+    /// `.notBindable` precedent (`SettingsTab.swift:159-163`), given the same sentence. Equality
+    /// only: superset/subset/disjoint pairs are unambiguous at start by the equality rule
+    /// (`SessionRules.swift:66-72`) and are not collisions. Payload-free, so ``CaseIterable``
+    /// keeps synthesizing and the closed-set walk stays alive.
+    case collidesWithOtherMode
 }

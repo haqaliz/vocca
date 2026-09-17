@@ -52,6 +52,10 @@ public final class LiveWidget {
     /// (`MicrophoneLevelSource`) at ship, a fake in the headless tests.
     public let level: any LiveLevelSource
 
+    /// The sound seam passed through to the panel (`dual-mode` D6) — defaulted, so
+    /// `AppBootstrap`'s construction compiles unchanged; the panel's `apply` diff drives it.
+    private let soundPlayer: any WidgetSoundPlaying
+
     /// The window, once it exists. `nil` until the first non-IDLE state or terminal notice —
     /// the laziness that keeps `configure` window-free.
     public private(set) var presentedPanel: WidgetPanel?
@@ -66,9 +70,17 @@ public final class LiveWidget {
     ///     (`DictationLoopRoot/widgetStore`).
     ///   - level: The level source the waveform draws; the composition root injects the real
     ///     `MicrophoneLevelSource` over the capture graph.
-    public init(store: WidgetStateStore, level: any LiveLevelSource) {
+    ///   - soundPlayer: The sound seam the panel's `apply` diff drives — defaulted to the
+    ///     system player, which is headless-safe to construct (audio is created lazily on the
+    ///     first play).
+    public init(
+        store: WidgetStateStore,
+        level: any LiveLevelSource,
+        soundPlayer: any WidgetSoundPlaying = SystemWidgetSoundPlayer()
+    ) {
         self.store = store
         self.level = level
+        self.soundPlayer = soundPlayer
         observation = store.$state.sink { [weak self] state in
             Task { @MainActor in
                 self?.presentIfNeeded(state)
@@ -85,6 +97,7 @@ public final class LiveWidget {
     private func presentIfNeeded(_ state: WidgetReducerState) {
         guard state.state != .idle || state.notice != nil else { return }
         guard presentedPanel == nil else { return }
-        presentedPanel = WidgetPanel(store: store, levelSource: level)
+        presentedPanel = WidgetPanel(
+            store: store, levelSource: level, soundPlayer: soundPlayer)
     }
 }

@@ -14,14 +14,19 @@
 
 /// The product's dual mode, as the cleanup seam must see it (`ARCHITECTURE.md:222`).
 ///
-/// **Declared, never read at C5.** The field exists in ``CleanupContext`` because
-/// `ARCHITECTURE.md:220-225` defines the context with it now; per-mode cleanup selection — a
-/// different dictionary, a different provider, a different budget for CONVERSING than for
-/// dictation — is C6/C11 work (`prd.md:219-220`), and nothing in the deterministic-cleanup unit
-/// consumes ``conversing``. A conformer may read it; no code in this unit will.
+/// **Read at the cleanup resolver since C11 (`per-mode-cleanup`).** ``CleanupContext.mode``
+/// selects the cleanup provider: the resolver answers ``CleanupResolver/resolve(mode:)`` with
+/// the selection the file names for that mode — the pinned dictation pipeline constructs
+/// `.dictation` contexts (`DictationPipeline.swift:441-443,468-470`), and `converse-wiring`
+/// constructs `.conversing`. A conformer may read it; no provider branches on it
+/// (`CleanupProviderSeamTests`). The mode field's transport is unchanged since C5 — only its
+/// consumption is new.
 ///
 /// This is *not* the machine's toggle: that is a start configuration of the same session
 /// (`SessionRules.swift:51-53`), not the dictate-vs-converse dual mode this enum names.
+///
+/// - SeeAlso: ``SessionModeMachine`` — the state machine that owns dictate-vs-converse as
+///   behaviour, under `Sources/VoccaCore/Mode/`.
 public enum SessionMode: Sendable, Equatable {
     /// Dictating into a field: the P0 loop's mode, and the only mode C5 serves.
     case dictation

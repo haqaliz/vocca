@@ -88,6 +88,101 @@ final class WidgetPanelBindingTests: XCTestCase {
         XCTAssertTrue(panel.isVisible, "a terminal notice is something to show over an idle pill")
     }
 
+    // MARK: - The converse binding (dual-mode widget-converse)
+
+    /// A converse session orders the window front — the pill is the mode's visible state for the
+    /// whole session (`PRODUCT_SPEC.md:102-103`), so the listening phase is something to show,
+    /// exactly as RECORDING is.
+    ///
+    /// The recording fake is injected (not the default player): the entry into converse would
+    /// otherwise play the real tick in CI — the player is glue executed by nothing in CI, and
+    /// the fake keeps the window-server-adjacent test audio-free.
+    func testAConversingStateOrdersTheWindowFront() async {
+        let store = WidgetStateStore(clock: TestClock())
+        let panel = WidgetPanel(
+            store: store,
+            levelSource: FakeLevelSource(level: 0.5),
+            soundPlayer: RecordingWidgetSoundPlayer())
+
+        store.fold(.state(.conversing(phase: .listening)))
+        await drainMainActor()
+
+        XCTAssertTrue(panel.isVisible, "a converse session is a state the user must see")
+    }
+
+    /// The speaking phase keeps the window front: the listening → speaking transition is one
+    /// continuous session (D1), and the pill must not collapse between utterances.
+    func testASpeakingPhaseKeepsTheWindowFront() async {
+        let store = WidgetStateStore(clock: TestClock())
+        let panel = WidgetPanel(
+            store: store,
+            levelSource: FakeLevelSource(level: 0.5),
+            soundPlayer: RecordingWidgetSoundPlayer())
+
+        store.fold(.state(.conversing(phase: .listening)))
+        await drainMainActor()
+        store.fold(.state(.conversing(phase: .speaking)))
+        await drainMainActor()
+
+        XCTAssertTrue(panel.isVisible, "the phase change must not hide the pill")
+    }
+
+    /// The lazy-creation path (`LiveWidget` creates the window on the first non-IDLE fold):
+    /// the store is already `.conversing` when the panel exists, so the initial `apply` diff is
+    /// against the pre-session IDLE — the entry tick plays on the very `apply` that shows the
+    /// window, which is the only one that can (D6's edge case).
+    func testThePanelCreatedMidConversationPlaysTheTickOnItsInitialApply() async {
+        let store = WidgetStateStore(clock: TestClock())
+        store.fold(.state(.conversing(phase: .listening)))
+        let player = RecordingWidgetSoundPlayer()
+        let panel = WidgetPanel(
+            store: store,
+            levelSource: FakeLevelSource(level: 0.5),
+            soundPlayer: player)
+
+        XCTAssertEqual(
+            player.played, [.converseStarted],
+            "the initial apply is the entry tick — the panel is born on the fold that enters converse")
+        XCTAssertTrue(panel.isVisible)
+    }
+
+    // MARK: - The sound hook (dual-mode widget-converse D6)
+
+    /// The panel's `apply` drives the sound selection through the seam: the fake player records
+    /// exactly one `.converseStarted` on the first entry to converse (the panel's initial `apply`
+    /// is IDLE → IDLE, which plays nothing), nothing on the listening → speaking phase change,
+    /// and the tick again on a re-entry after the session ended at IDLE.
+    func testThePanelPlaysTheConverseTickOnEntryAndReentryOnly() async {
+        let store = WidgetStateStore(clock: TestClock())
+        let player = RecordingWidgetSoundPlayer()
+        let panel = WidgetPanel(
+            store: store,
+            levelSource: FakeLevelSource(level: 0.5),
+            soundPlayer: player)
+
+        store.fold(.state(.conversing(phase: .listening)))
+        await drainMainActor()
+        XCTAssertEqual(
+            player.played, [.converseStarted],
+            "the first entry to converse plays exactly one tick")
+
+        store.fold(.state(.conversing(phase: .speaking)))
+        await drainMainActor()
+        XCTAssertEqual(
+            player.played, [.converseStarted],
+            "the listening → speaking phase change plays nothing")
+
+        store.fold(.state(.idle))
+        await drainMainActor()
+        XCTAssertFalse(panel.isVisible, "the session ended — the panel hides")
+
+        store.fold(.state(.conversing(phase: .listening)))
+        await drainMainActor()
+        XCTAssertEqual(
+            player.played, [.converseStarted, .converseStarted],
+            "a re-entry after IDLE is a new session and plays the tick again")
+    }
+
     // MARK: - Never takes focus (PRODUCT_SPEC.md:22)
 
     /// The panel is non-activating and **cannot become key** — the live pill's defining absence,
@@ -113,5 +208,21 @@ final class WidgetPanelBindingTests: XCTestCase {
         for _ in 0..<50 {
             await Task.yield()
         }
+    }
+}
+
+/// The panel-hook fake: records every sound the seam's selection chose, so the binding test
+/// asserts the *decision* the hook drove rather than a believed call.
+///
+/// `@MainActor` (the blessed main-actor-friendly form, never `@unchecked`): the panel's `apply`
+/// is main-actor-isolated, so the conformance — the `@preconcurrency` on it is the toolchain's
+/// accepted way for a `Sendable`-inheriting protocol to be witnessed from a `@MainActor` class
+/// under strict concurrency — is confined to exactly the isolation every call happens on.
+@MainActor
+final class RecordingWidgetSoundPlayer: @preconcurrency WidgetSoundPlaying {
+    private(set) var played: [WidgetSound] = []
+
+    func play(_ sound: WidgetSound) {
+        played.append(sound)
     }
 }

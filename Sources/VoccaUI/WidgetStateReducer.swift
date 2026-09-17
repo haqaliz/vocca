@@ -40,7 +40,7 @@ import VoccaCore
 /// ``WidgetProjectionResult/notice(_:)``, no timer dismisses it, and only the next machine or
 /// pipeline signal (another ``WidgetProjectionResult`` fold) replaces it.
 public struct WidgetReducerState: Equatable, Sendable {
-    /// The projection's verdict on the machine — the five live states.
+    /// The projection's verdict on the machine — the six live states.
     public var state: WidgetState
 
     /// A terminal notice, `nil` except between ``WidgetProjectionResult/notice(_:)`` and the next
@@ -116,6 +116,10 @@ public struct WidgetReducerState: Equatable, Sendable {
 /// recording timer, a delivered one arms the collapse timer — and sends
 /// ``WidgetAction/timerFired(_:)`` with the injected clock's reading on each fire. Each timer is
 /// a no-op outside its own state.
+///
+/// **Converse is timer-free** (`dual-mode` D6's note): the conversation has no elapsed, hint or
+/// ceiling surface, so no `WidgetTimer` case exists for it — a stray dictation timer fire over a
+/// converse session is a no-op, and the `AppBootstrap` clock stops for the state.
 public enum WidgetTimer: Equatable, Sendable, CaseIterable {
     /// Drives the RECORDING time-derived surfaces: the escape hint at
     /// ``WidgetTiming/escapeHintDelay``, the elapsed surface at ``WidgetTiming/elapsedSurfaceDelay``,
@@ -278,6 +282,18 @@ public enum WidgetStateReducer {
         case .delivered:
             next.deliveredAt = now
             next.recordingStartedAt = nil
+            next.elapsed = nil
+            next.showsEscapeHint = false
+            next.showsCeilingWarning = false
+            next.partialText = nil
+        case .conversing:
+            // The converse invariant (`dual-mode` D1): the phase is the state's only content.
+            // Adopting clears every dictation bookkeeping field and anchors nothing — no
+            // recording clock, no delivery clock, no elapsed, no hints, no partial — and the
+            // listening ↔ speaking phase change flows through here too, keeping the session's
+            // emptiness on both phases. Timer-free: no `WidgetTimer` case exists for it.
+            next.recordingStartedAt = nil
+            next.deliveredAt = nil
             next.elapsed = nil
             next.showsEscapeHint = false
             next.showsCeilingWarning = false

@@ -159,6 +159,13 @@ public struct MenuBarConditions: Sendable, Hashable {
     /// Whether another application holds the keyboard, so no tap receives key events.
     public var isBlockedBySecureInput: Bool
 
+    /// The current mode (`dual-mode` D8): dictation by default, `.conversing` while the mode
+    /// machine is in a converse session. The menu's mode section reads it for the active-row
+    /// checkmark (`PRODUCT_SPEC.md:361`'s "mode toggle"); feeding it is `converse-wiring`'s
+    /// AppBootstrap work (recorded hand-off). The defaulted field keeps every existing
+    /// construction site compiling.
+    public var mode: SessionMode
+
     public init(
         isCapturing: Bool = false,
         isTranscribing: Bool = false,
@@ -168,7 +175,8 @@ public struct MenuBarConditions: Sendable, Hashable {
         isModelMissing: Bool = false,
         isPreparingEngine: Bool = false,
         isMicrophoneAvailable: Bool = true,
-        isBlockedBySecureInput: Bool = false
+        isBlockedBySecureInput: Bool = false,
+        mode: SessionMode = .dictation
     ) {
         self.isCapturing = isCapturing
         self.isTranscribing = isTranscribing
@@ -179,6 +187,7 @@ public struct MenuBarConditions: Sendable, Hashable {
         self.isPreparingEngine = isPreparingEngine
         self.isMicrophoneAvailable = isMicrophoneAvailable
         self.isBlockedBySecureInput = isBlockedBySecureInput
+        self.mode = mode
     }
 }
 

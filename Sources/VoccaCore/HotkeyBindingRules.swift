@@ -90,4 +90,47 @@ public enum HotkeyBindingRules {
         }
         return .warned(warning)
     }
+
+    /// The validity of a candidate binding, **against what the system has already claimed and
+    /// what the other mode is wired to** — the recorder's whole question for the `dual-mode`
+    /// two-row General surface (`converse-hotkey` D4).
+    ///
+    /// The order is the same as the two-argument overload's, with the cross-chord check between
+    /// the rules answer and the occupied warning: **a refusal outranks a collision**, and the
+    /// collision outranks the warning — both chords are Vocca-owned facts, and the refusal is the
+    /// stronger answer.
+    ///
+    /// ## The collision detects equality, and nothing else
+    ///
+    /// Start matching is equality (`SessionRules.swift:187,342`), so equality is the only
+    /// configuration in which one press matches both bindings and chord-keyed routing is
+    /// ambiguous. Same key code with superset/subset/disjoint modifiers — the shipped
+    /// `⌥Space`/`⌥⇧Space` pair included — are all unambiguous at start by the equality rule, so
+    /// none of them is a collision. Caps Lock is masked on both sides by ``HotkeyChord``'s init,
+    /// so the comparison inherits it.
+    ///
+    /// - Parameters:
+    ///   - chord: the candidate.
+    ///   - occupied: what ``SystemShortcutReader`` reported. Empty means *nothing known*, which is
+    ///     indistinguishable from nothing being claimed — deliberately, because the two lead to the
+    ///     same answer, and because the reader can see only Apple's own remappable shortcuts and
+    ///     only the ones the user has changed.
+    ///   - otherChord: the other mode's currently wired chord — the fact the gate compares against
+    ///     (never a remembered copy, so a rebind cannot leave the collision check describing a
+    ///     binding nothing is bound to).
+    public static func validate(
+        _ chord: HotkeyChord,
+        against occupied: [SystemShortcut],
+        otherChord: HotkeyChord
+    ) -> HotkeyBindingValidity {
+        let validity = validate(keyCode: chord.keyCode, modifiers: chord.modifiers)
+        guard case .accepted = validity else { return validity }
+
+        guard chord != otherChord else { return .refused(.collidesWithOtherMode) }
+
+        guard let warning = SystemShortcutRules.warning(for: chord, against: occupied) else {
+            return .accepted
+        }
+        return .warned(warning)
+    }
 }

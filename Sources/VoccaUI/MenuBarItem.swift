@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import AppKit
+import VoccaCore
 
 /// **The status item, and nothing else.** Translation from a ``MenuBarState`` to an `NSStatusItem`
 /// and an `NSMenu`, with no decisions in it.
@@ -42,6 +43,11 @@ public final class MenuBarItem {
 
     /// What to run when the user picks the blocked state's button.
     private let onAction: (MenuBarState) -> Void
+    /// What to run when the user picks a mode row — the mode machine's explicit start/stop
+    /// (`dual-mode` D8). The menu offers; the machine routes: while a session of the other mode
+    /// is active, the machine refuses (R1). The routing is `converse-wiring`'s +
+    /// `mode-machine`'s work — this aspect ships the surface.
+    private let onSelectMode: (SessionMode) -> Void
     /// What to run for Settings.
     private let onOpenSettings: () -> Void
     /// What to run for Quit.
@@ -50,6 +56,10 @@ public final class MenuBarItem {
     /// The state currently drawn. Kept so a fold that changes nothing does not rebuild the menu
     /// under a user who has it open.
     private var state: MenuBarState?
+
+    /// The mode the menu was last drawn with — the third input to the idempotence guard, so a
+    /// mode change rebuilds the menu's checkmark exactly when it must.
+    private var renderedMode: SessionMode?
 
     /// The hotkey string the label was last drawn with. Part of the idempotence guard rather than
     /// a separate refresh call, so a rebind heals the label on the next condition tick — the ~1 s
@@ -61,16 +71,20 @@ public final class MenuBarItem {
     ///   - onAction: invoked for a blocked state's call to action.
     ///   - onOpenSettings: invoked for the Settings item.
     ///   - onQuit: invoked for the Quit item.
+    ///   - onSelectMode: invoked for a mode row — defaulted so `AppBootstrap`'s construction
+    ///     compiles unchanged; `converse-wiring` wires it to the mode machine.
     public init(
         hotkey: @escaping () -> String,
         onAction: @escaping (MenuBarState) -> Void,
         onOpenSettings: @escaping () -> Void,
-        onQuit: @escaping () -> Void
+        onQuit: @escaping () -> Void,
+        onSelectMode: @escaping (SessionMode) -> Void = { _ in }
     ) {
         self.hotkey = hotkey
         self.onAction = onAction
         self.onOpenSettings = onOpenSettings
         self.onQuit = onQuit
+        self.onSelectMode = onSelectMode
         // `.variableLength` because the item is an icon whose symbol changes width between states.
         self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         apply(.ready)
@@ -78,12 +92,13 @@ public final class MenuBarItem {
 
     /// Draws a state: the icon, its accessibility label, and the menu behind it.
     ///
-    /// Idempotent by state, so the ~1 s health poll that feeds this can call it every tick without
-    /// rebuilding an open menu out from under the user's cursor.
-    public func apply(_ next: MenuBarState) {
+    /// Idempotent by state (and by mode), so the ~1 s health poll that feeds this can call it
+    /// every tick without rebuilding an open menu out from under the user's cursor.
+    public func apply(_ next: MenuBarState, mode: SessionMode = .dictation) {
         let hotkeyNow = hotkey()
-        guard next != state || hotkeyNow != renderedHotkey else { return }
+        guard next != state || mode != renderedMode || hotkeyNow != renderedHotkey else { return }
         state = next
+        renderedMode = mode
         renderedHotkey = hotkeyNow
 
         if let button = item.button {
@@ -99,10 +114,10 @@ public final class MenuBarItem {
                 MenuBarCopy.accessibilityLabel(for: next, hotkey: hotkeyNow))
         }
 
-        item.menu = menu(for: next)
+        item.menu = menu(for: next, mode: mode)
     }
 
-    /// Builds the menu for a state.
+    /// Builds the menu for a state and mode.
     ///
     /// Rebuilt per state rather than mutated, because the shape differs: a blocked state carries a
     /// call to action that a working one has no row for at all.
@@ -110,7 +125,11 @@ public final class MenuBarItem {
     /// Minimal by design (`PRODUCT_SPEC.md:328-330`): the state lives in the icon and the
     /// VoiceOver label, the menu carries commands. A readout row ("Vocca is ready", "Press
     /// ⌥Space…") was removed on the founder's call — the menu is for doing, not telling.
-    private func menu(for state: MenuBarState) -> NSMenu {
+    ///
+    /// The mode section (`PRODUCT_SPEC.md:361`, D8) is the one addition beyond that minimal set:
+    /// the two mode rows, the active one checked (from the current mode), each row selecting its
+    /// mode explicitly — the menu offers, the machine routes.
+    private func menu(for state: MenuBarState, mode: SessionMode) -> NSMenu {
         let menu = NSMenu()
 
         if let actionTitle = MenuBarCopy.actionTitle(for: state) {
@@ -120,6 +139,19 @@ public final class MenuBarItem {
             menu.addItem(action)
             menu.addItem(.separator())
         }
+
+        for rowMode in [SessionMode.dictation, SessionMode.conversing] {
+            let row = NSMenuItem(
+                title: MenuBarCopy.modeTitle(rowMode),
+                action: #selector(selectMode(_:)),
+                keyEquivalent: "")
+            row.target = self
+            row.representedObject = rowMode
+            row.state = rowMode == mode ? .on : .off
+            row.setAccessibilityLabel(MenuBarCopy.modeToggleTitle(rowMode))
+            menu.addItem(row)
+        }
+        menu.addItem(.separator())
 
         let settings = NSMenuItem(
             title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
@@ -136,6 +168,11 @@ public final class MenuBarItem {
     @objc private func runAction() {
         guard let state else { return }
         onAction(state)
+    }
+
+    @objc private func selectMode(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? SessionMode else { return }
+        onSelectMode(mode)
     }
 
     @objc private func openSettings() { onOpenSettings() }

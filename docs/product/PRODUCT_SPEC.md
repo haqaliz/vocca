@@ -185,7 +185,7 @@ Everything else is convenience. This is the promise.
 
 ## 5. Dual mode (P3) — dictate vs converse
 
-The failure this prevents: saying something to Vocca that lands in a Slack message to your boss. The defense is redundancy — **four** simultaneous differences, so no single missed cue causes confusion.
+The failure this prevents: saying something to Vocca that lands in a Slack message to your boss. The defense is redundancy — **five** simultaneous cues, so no single missed cue causes confusion.
 
 | | Dictate | Converse |
 |---|---|---|

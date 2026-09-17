@@ -2,10 +2,35 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-15).** The skeleton exists; **the product does not.**
+> **Status (2026-09-16).** The skeleton exists; **the product does not.**
 > A Swift 6 package with ten modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaUsage`, `VoccaBootstrap`.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`dual-mode` (C11, shipped 2026-09-16):** the CONVERSING surface is real — the mode
+> machine, the wired loop, the honest reply stand-in. The `SessionModeMachine` with the closed
+> 7-row transition table and the epoch-minted `ModeSession` reset carrier (the acceptance
+> asserts **no `TextInjector` call is ever made from the converse path** — type/assertion, not
+> discipline — and the mode-transition test asserts full state reset with no carryover of
+> buffer, transcript, or target); the `ReplyGenerator` seam with `EchoReplyGenerator` (the
+> shipped default — your words back byte-for-byte) and `AcknowledgmentReplyGenerator` ("Vocca
+> is listening."); the additive converse composition in `VoccaBootstrap` (`ConverseWiring.swift`,
+> `ConverseLoopDriver` + `ConverseTurnFailure`) driven by `PROBE-CONVERSE` inside the
+> zero-network interposer; the CONVERSING widget state with its five cues (notched pill,
+> distinct hue, `◈` labels, lower tick, never a target name); the per-mode cleanup selection
+> consumed at last (`resolve(mode: .conversing)`); the persisted converse chord `⌥⇧Space` with
+> the two-chord rebind surface, the collision refusal and the in-flight refusal; and the
+> routing close that made the machine the chords' owner (chord press → `machine.observe` →
+> driver start/stop, the stop chord leg, system-trigger stops, the menu toggle, the projection
+> feed). SMOKE 134-138 are **written and runnable** — the full spoken exchange (≥5 turns, ≥1
+> barge-in, keyboard untouched), mode clarity (0 mis-injections), the chord rebind, the
+> menu-bar toggle, the never-injects check — recorded, never gated, executed by nothing in CI.
+> The G5 pin was deliberately re-anchored four times (additive converse wiring in
+> `AppBootstrap` each time — final digest `6d98acf4…0448`, never an edit-to-match); the
+> dictation files' digests are unchanged and the PRODUCT_SPEC five-cue prose drift was
+> corrected (O7). **No gate passes; the P3 gate's conversational leg stays formally unmet until
+> C13's real agent** (the shipped reply generator is an honest stand-in); the dictation path is
+> byte-for-byte untouched (the pin proves it); zero network. Test floor: **2350**.
 >
 > **`turn-taking-barge-in` (C10, shipped 2026-09-15):** the P3 voice loop ships as **machinery,
 > not surface**. The seams and implementations are real: `VoiceActivityDetector` — `SileroVAD`

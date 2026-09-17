@@ -56,6 +56,22 @@ public final class WidgetPanel: NSPanel {
     /// The store the pill renders and the window follows.
     private let store: WidgetStateStore
 
+    /// The sound seam the `apply` diff drives — defaulted so every existing construction site
+    /// (`LiveWidget`, the binding tests) compiles unchanged (`dual-mode` D6).
+    private let soundPlayer: any WidgetSoundPlaying
+
+    /// The state the previous `apply` saw — the diff the sound selection reads. A converse entry
+    /// plays the tick; a phase change or any dictation transition plays nothing.
+    ///
+    /// Initialised to `.idle`, the pre-session state, not to the store's current state: the
+    /// window is created **lazily on the first non-IDLE fold** (`LiveWidget`), so by the time
+    /// this initializer runs the store already holds the state that fold produced — the diff
+    /// against the store's current state would be converse→converse and the entry tick would
+    /// never play on the one apply that can. Diffing against the pre-session IDLE makes the
+    /// initial `apply` the tick's play (the `widget-converse` D6 edge case, pinned by
+    /// `WidgetPanelBindingTests`).
+    private var lastState: WidgetState = .idle
+
     /// The store observation, cancelled with the window.
     private var observation: AnyCancellable?
 
@@ -64,8 +80,13 @@ public final class WidgetPanel: NSPanel {
     /// to the composition root.
     private let box = WidgetPanelBox()
 
-    public init(store: WidgetStateStore, levelSource: any LiveLevelSource) {
+    public init(
+        store: WidgetStateStore,
+        levelSource: any LiveLevelSource,
+        soundPlayer: any WidgetSoundPlaying = SystemWidgetSoundPlayer()
+    ) {
         self.store = store
+        self.soundPlayer = soundPlayer
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 30),
             styleMask: [.nonactivatingPanel, .titled],
@@ -103,8 +124,18 @@ public final class WidgetPanel: NSPanel {
     /// The single funnel the store's every publication flows through: show a non-IDLE widget (or a
     /// notice), hide a returned-to-IDLE one. Read, not remembered: `isVisible` is the window's own
     /// answer, so a stale belief about visibility is impossible.
+    ///
+    /// The sound hook rides the same funnel (`dual-mode` D6): the selection's verdict on the
+    /// `lastState → state.state` diff plays — the converse entry tick exactly once per entry, and
+    /// nothing else (the phase change is silent; the dictation transitions are silent because
+    /// the dictate tick is not built). The first entry to converse creates the panel on the
+    /// same fold, so the initial `apply` here is the one that plays.
     @MainActor
     private func apply(_ state: WidgetReducerState) {
+        if let sound = WidgetSoundSelection.sound(from: lastState, to: state.state) {
+            soundPlayer.play(sound)
+        }
+        lastState = state.state
         let shouldShow = state.state != .idle || state.notice != nil
         if shouldShow {
             if !isVisible {

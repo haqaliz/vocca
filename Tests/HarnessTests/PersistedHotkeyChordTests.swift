@@ -252,4 +252,149 @@ final class PersistedHotkeyChordTests: XCTestCase {
         XCTAssertEqual(chord.keyCode, 0x69)
         XCTAssertEqual(reports, [], "nothing was lost — the chord the user meant is the chord stored")
     }
+
+    // MARK: - The converse chord (`dual-mode` R3, `converse-hotkey`)
+
+    /// The converse defaults are the shipped chord — `⌥⇧Space` (`PRODUCT_SPEC.md:192`).
+    ///
+    /// Written as literals, the same way the dictate defaults are pinned: a test that derives the
+    /// expectation from the code under test cannot detect the code changing it. The shipped pair
+    /// shares a key code with the dictate chord on purpose — the superset press is the designed
+    /// R1 no-op (`SessionRules.swift:122-128`) — so the two defaults are held together here,
+    /// where the collision row below pins the pair accepted.
+    func testTheConverseDefaultsAreTheShippedChord() {
+        XCTAssertEqual(PersistedSettings.defaultConverseHotkeyKeyCode, 49, "kVK_Space")
+        XCTAssertEqual(PersistedSettings.defaultConverseHotkeyModifiers, [.option, .shift])
+        XCTAssertEqual(
+            PersistedSettings.defaultConverseHotkeyChord,
+            HotkeyChord(keyCode: 49, modifiers: [.option, .shift]))
+    }
+
+    /// The converse decode's generalized form, driven with the converse pair's shipped default —
+    /// exactly what the adapter's `converseChord()` read will call.
+    private func decodeConverseChord(
+        keyCodeRaw: String?, modifiersRaw: String?, reports: inout [String]
+    ) -> HotkeyChord {
+        PersistedSettings.decodeHotkeyChord(
+            keyCodeRaw: keyCodeRaw, modifiersRaw: modifiersRaw,
+            defaultChord: PersistedSettings.defaultConverseHotkeyChord,
+            onInvalidValue: { reports.append($0) })
+    }
+
+    /// An install that has never rebound converse reads `⌥⇧Space`, and **nothing is logged** —
+    /// the dictate row's normal path, for the second pair.
+    func testAnAbsentConverseChordIsTheShippedDefaultAndReportsNothing() {
+        var reports: [String] = []
+        let chord = decodeConverseChord(
+            keyCodeRaw: nil, modifiersRaw: nil, reports: &reports)
+
+        XCTAssertEqual(chord.keyCode, PersistedSettings.defaultConverseHotkeyKeyCode)
+        XCTAssertEqual(chord.modifiers, PersistedSettings.defaultConverseHotkeyModifiers)
+        XCTAssertEqual(
+            reports, [],
+            "a fresh install has bound nothing in converse either — that is not an error")
+    }
+
+    /// One half of the converse pair present, the other missing — malformed, not absent: the
+    /// shipped chord plus exactly one report **naming the missing half**.
+    ///
+    /// This is the case the two-key shape exists to make visible, per pair: a key code with no
+    /// modifiers beside it would otherwise synthesise a chord nobody chose.
+    func testAHalfStoredConversePairIsTheShippedDefaultAndIsReportedLoudly() {
+        var reports: [String] = []
+        let chord = decodeConverseChord(
+            keyCodeRaw: "105", modifiersRaw: nil, reports: &reports)
+
+        XCTAssertEqual(chord, PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(reports.count, 1, "exactly one report per unreadable binding; got \(reports)")
+        XCTAssertTrue(
+            reports.first?.contains("modifiers") == true,
+            "the report must name the missing half; got \(reports)")
+
+        var mirror: [String] = []
+        let mirrored = decodeConverseChord(
+            keyCodeRaw: nil, modifiersRaw: "9", reports: &mirror)
+        XCTAssertEqual(mirrored, PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(mirror.count, 1, "exactly one report per unreadable binding; got \(mirror)")
+        XCTAssertTrue(
+            mirror.first?.contains("keyCode") == true,
+            "the report must name the missing half; got \(mirror)")
+    }
+
+    /// A converse key code that is not a number at all — the shipped chord plus one report
+    /// **naming the rejected value**.
+    func testAnUnreadableConverseKeyCodeIsTheShippedDefaultAndIsReportedLoudly() {
+        var reports: [String] = []
+        let chord = decodeConverseChord(
+            keyCodeRaw: "space", modifiersRaw: "6", reports: &reports)
+
+        XCTAssertEqual(chord, PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(reports.count, 1, "exactly one report per unreadable binding; got \(reports)")
+        XCTAssertTrue(
+            reports.first?.contains("space") == true,
+            "the report must name the value it rejected; got \(reports)")
+    }
+
+    /// A converse modifiers word that is not a number — the mirror of the row above.
+    func testAnUnreadableConverseModifiersWordIsTheShippedDefaultAndIsReportedLoudly() {
+        var reports: [String] = []
+        let chord = decodeConverseChord(
+            keyCodeRaw: "105", modifiersRaw: "two", reports: &reports)
+
+        XCTAssertEqual(chord, PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(reports.count, 1, "exactly one report per unreadable binding; got \(reports)")
+        XCTAssertTrue(
+            reports.first?.contains("two") == true,
+            "the report must name the value it rejected; got \(reports)")
+    }
+
+    /// A converse modifiers word carrying a bit `ModifierSet` does not define — the shipped chord
+    /// plus one report: a stored word with an unknown bit can never match a real key press, so it
+    /// would be a converse hotkey that is displayed correctly and completely dead.
+    func testConverseModifiersCarryingAnUnknownBitAreTheShippedDefaultAndAreReportedLoudly() {
+        var reports: [String] = []
+        let chord = decodeConverseChord(
+            keyCodeRaw: "105", modifiersRaw: "64", reports: &reports)
+
+        XCTAssertEqual(chord, PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(reports.count, 1, "exactly one report per unreadable binding; got \(reports)")
+    }
+
+    /// A stored converse chord the binding rules **refuse** is malformed — the shipped chord plus
+    /// one report — even though both strings parsed perfectly.
+    ///
+    /// Bare `e` (`kVK_ANSI_E`, `0x0E`, no modifiers) is the worked example, exactly as on the
+    /// dictate side: a hand-edited plist must not reach a converse binding the recorder would
+    /// have refused.
+    func testAStoredConverseChordThatIsNotBindableIsTheShippedDefaultAndIsReportedLoudly() {
+        var reports: [String] = []
+        let chord = decodeConverseChord(
+            keyCodeRaw: "14", modifiersRaw: "0", reports: &reports)
+
+        XCTAssertEqual(
+            HotkeyBindingRules.validate(keyCode: 0x0E, modifiers: []),
+            .refused(.unmodifiedTextEntryKey),
+            "the premise: bare e is a chord the rules refuse")
+        XCTAssertEqual(chord, PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(reports.count, 1, "exactly one report per unreadable binding; got \(reports)")
+    }
+
+    /// Every chord in the table round-trips through the converse decode — the shipped `⌥⇧Space`,
+    /// a modified chord, and a **safe single key** — all silent.
+    func testEveryChordInTheTableRoundTripsThroughTheConverseDecode() {
+        for chord in [
+            PersistedSettings.defaultConverseHotkeyChord,
+            HotkeyChord(keyCode: 0x69, modifiers: [.control, .command]),
+            HotkeyChord(keyCode: 0x7A, modifiers: []),
+        ] {
+            var reports: [String] = []
+            let encoded = PersistedSettings.encodeHotkeyChord(chord)
+            let decoded = decodeConverseChord(
+                keyCodeRaw: encoded.keyCode, modifiersRaw: encoded.modifiers, reports: &reports)
+            XCTAssertEqual(decoded, chord)
+            XCTAssertEqual(
+                reports, [],
+                "a chord the store can write must read back silently; got \(reports)")
+        }
+    }
 }

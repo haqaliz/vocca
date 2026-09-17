@@ -1156,6 +1156,15 @@ final class AudioFormatConverterTests: XCTestCase {
     /// `SpeechSeamBoundaryTests` shape, scoped to the seam's home: the
     /// `PlaybackSeamBoundaryTests` lint keeps the AVFAudio *type names* inside this one file
     /// under `VoccaAudio/Playback/`, exactly as this list bounds the module name tree-wide.
+    ///
+    /// The dual-mode aspect's widget-converse (C11, D6) adds the seventh file: the converse tick
+    /// player (`VoccaUI/WidgetSound.swift`). The "lower tick" (`PRODUCT_SPEC.md:339`) is
+    /// synthesized locally — `AVAudioEngine` + `AVAudioPCMBuffer` — and `VoccaUI`'s external
+    /// framework use is free by `ModuleBoundaryTests` (`:326-333`: AppKit/AVFoundation are not
+    /// Vocca modules), so the framework was never confined for this module; the row records the
+    /// new member. The seam stays honest: the *selection* (`WidgetSoundSelection`) is the tested
+    /// decision and the player is glue executed by nothing in CI — audio is created lazily on
+    /// the first play, so constructing the default player is headless-safe.
     func testTheFilesThatImportAVFoundationAreExactlyTheExpectedSet() throws {
         let expected: Set<String> = [
             "VoccaAudio/AudioFormatConverter.swift",
@@ -1164,6 +1173,7 @@ final class AudioFormatConverterTests: XCTestCase {
             "VoccaAudio/Playback/SystemPlayback.swift",
             "VoccaASR/Parakeet/ParakeetEngine.swift",
             "VoccaSpeech/System/SystemSynthesizer.swift",
+            "VoccaUI/WidgetSound.swift",
         ]
 
         let sources = try PackageRootLocator.find(from: #filePath)

@@ -21,7 +21,8 @@
 /// reinterpret it.
 ///
 /// - ``target`` — what the user was typing into, for provider choices that depend on the app;
-/// - ``mode`` — dictate vs converse (``SessionMode``; declared, never read at C5);
+/// - ``mode`` — dictate vs converse (``SessionMode``; read since C11 at the cleanup resolver —
+///   it selects the per-mode provider, `per-mode-cleanup`);
 /// - ``dictionary`` — the user's replacement rules, **in declared order** (`ReplacementRule` —
 ///   order is the contract);
 /// - ``budget`` — the time the caller is prepared to wait; exceeding it is the caller's decision
@@ -35,7 +36,9 @@ public struct CleanupContext: Sendable {
     /// The focused application and window at capture time.
     public let target: TargetContext
 
-    /// The session's mode: dictation or conversing. Both constructible; C5 reads neither.
+    /// The session's mode: dictation or conversing. Both constructible; read since C11 at the
+    /// cleanup resolver seam, which selects the per-mode provider by it. A conformer may read
+    /// it; no provider branches on it.
     public let mode: SessionMode
 
     /// The replacement rules in application order — a conformer must not sort or deduplicate.

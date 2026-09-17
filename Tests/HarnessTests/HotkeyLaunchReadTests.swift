@@ -149,15 +149,54 @@ final class HotkeyLaunchReadTests: XCTestCase {
             "⌥Space")
     }
 
+    // MARK: - The converse chord (`dual-mode` R3)
+
+    /// **With nothing stored, the converse chord is the shipped ⌥⇧Space, silently** — driven
+    /// through the real adapter over an empty scoped suite, so the whole launch path is
+    /// exercised: the absent read, the tolerant decode's silent default, and the derivation.
+    func testAFreshInstallGetsTheConverseChordItIsDocumentedToShip() {
+        let name = "dev.vocca.tests.hotkey-launch.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { UserDefaults.standard.removePersistentDomain(forName: name) }
+
+        let logged = LogCollector()
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logged.append($0) })
+
+        XCTAssertEqual(
+            store.converseChord(),
+            HotkeyChord(keyCode: 49, modifiers: [.option, .shift]),
+            "written as literals rather than as `PersistedSettings.defaultConverseHotkeyChord`, "
+                + "because a test that asks the new code what it thinks the old behaviour was "
+                + "cannot detect the new code changing it")
+        XCTAssertEqual(
+            logged.entries, [],
+            "an install that never rebound converse has chosen nothing — that is not an error")
+    }
+
+    /// The shipped converse chord still reads as ⌥⇧Space, through the one renderer.
+    ///
+    /// `PRODUCT_SPEC.md:192` binds converse to ⌥⇧Space; the day the default changes, the product's
+    /// own documentation and copy still say it, and this row fails rather than shipping a surface
+    /// naming a chord nothing is bound to.
+    func testTheShippedConverseChordStillRendersAsTheDocumentedGlyphs() {
+        XCTAssertEqual(
+            HotkeyChordFormatter.describe(
+                keyCode: PersistedSettings.defaultConverseHotkeyKeyCode,
+                modifiers: PersistedSettings.defaultConverseHotkeyModifiers),
+            "⌥⇧Space")
+    }
+
     // MARK: - One read, no hardcodes
 
     /// **The load-bearing row.** `AppBootstrap.swift` builds no `HotkeyConfiguration` from a
-    /// literal modifier set any more, and reads the stored chord exactly once.
+    /// literal modifier set any more, and reads each stored chord exactly once.
     ///
-    /// Both halves fail for different reasons. A surviving `modifiers: [.option]` is a machine
-    /// that ignores the user's binding. A second `hotkeyChord()` read is worse and much harder to
-    /// see: the two reads can answer differently, leaving the two machines bound to different
-    /// chords — one that starts a session and one that cannot end it.
+    /// Three halves fail for three different reasons. A surviving `modifiers: [.option]` is a
+    /// machine that ignores the user's binding. A surviving `modifiers: [.option, .shift]` is a
+    /// hardcoded converse chord — the same defect, for the second pair. A second `hotkeyChord()`
+    /// or `converseChord()` read is worse and much harder to see: two reads can answer
+    /// differently, leaving the two modes bound to different chords — one that starts a session
+    /// and one that cannot end it.
     func testTheRootHardcodesNoChordAndReadsTheStoreExactlyOnce() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let file = root.appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
@@ -169,12 +208,24 @@ final class HotkeyLaunchReadTests: XCTestCase {
             """
             AppBootstrap.swift still builds a hotkey from a literal modifier set. Every             configuration must come from the one stored chord; a literal is a machine that             silently ignores the binding the user chose.
             """)
+        XCTAssertFalse(
+            source.contains("modifiers: [.option, .shift]"),
+            """
+            AppBootstrap.swift still builds a converse chord from a literal modifier set. The             converse chord must come from the stored pair like the dictate one; a literal is a             converse binding that silently ignores the user's choice.
+            """)
 
         let reads = source.components(separatedBy: "hotkeyChord()").count - 1
         XCTAssertEqual(
             reads, 1,
             """
             the stored chord must be read exactly once in the composition root; found \(reads).             Two reads can answer differently, which is how the hold-to-talk and toggle machines             end up bound to different chords.
+            """)
+
+        let converseReads = source.components(separatedBy: "converseChord()").count - 1
+        XCTAssertEqual(
+            converseReads, 1,
+            """
+            the stored converse chord must be read exactly once in the composition root; found             \(converseReads). Two reads can answer differently, which is how the two modes end up             bound to chords that collide or disagree.
             """)
     }
 }

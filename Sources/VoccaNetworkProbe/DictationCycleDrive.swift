@@ -660,6 +660,11 @@ extension VoccaNetworkProbe {
         case .recording: return "recording"
         case .transcribing: return "transcribing"
         case .delivered: return "delivered"
+        // The converse state is unreachable from the probe's dictation cycles (no probe folds a
+        // converse state — the widget-store folds here are the dictation effect stream's), but
+        // the switch is exhaustive over the closed six-state set and the arm is explicit, never
+        // a `default` (`widget-converse` D9's rule).
+        case .conversing: return "conversing"
         }
     }
 

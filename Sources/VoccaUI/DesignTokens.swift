@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import SwiftUI
+import VoccaCore
 
 /// The one place a colour, a size or a duration is named — the design direction's token layer.
 ///
@@ -50,6 +51,17 @@ public enum VoccaTheme {
         public static var transcribing: Color { Color(nsColor: .secondaryLabelColor) }
         /// DELIVERED: the text landed.
         public static var delivered: Color { Color(nsColor: .systemGreen) }
+        /// CONVERSING (`dual-mode` D4): the conversation loop's state. Purple is the system
+        /// semantic hue furthest from the widget's other fills — blue accent, red recording,
+        /// green delivered, orange egress — so the mode reads as "clearly different hue (not a
+        /// tint of the same one)" (`PRODUCT_SPEC.md:194`) while staying a semantic system colour
+        /// that follows Increase Contrast and the user's appearance.
+        ///
+        /// It is the **third** cue, not the first (`:203`): the notched-pill shape and the `◈`
+        /// label carry the mode signal independently, so the purple/red distinction does not
+        /// have to survive deuteranopia alone (`ConverseWidgetTokensTests` pins the hue differs
+        /// from every other token).
+        public static var conversing: Color { Color(nsColor: .systemPurple) }
     }
 
     /// The network badge's colour — amber, and **only** ever this.
@@ -116,5 +128,35 @@ public enum VoccaTheme {
         public static let idleFadedOpacity: Double = 0.28
         /// How long idle waits before fading (`PRODUCT_SPEC.md:27`).
         public static let idleFadeDelay: Duration = .seconds(10)
+
+        /// The converse pill's notch depth (`dual-mode` D3): how far the notch cuts into the
+        /// leading edge, in points. The geometry of "pill with a distinct notch"
+        /// (`PRODUCT_SPEC.md:193`) lives here — one place each — so the shape and its token
+        /// cannot drift apart (`NotchedPill` reads them).
+        public static let converseNotchDepth: CGFloat = 5
+        /// The converse pill's notch width (`dual-mode` D3): the notch's vertical span along the
+        /// leading edge, in points — small enough to stay a notch, wide enough to read at the
+        /// pill's 30-point height.
+        public static let converseNotchWidth: CGFloat = 8
+    }
+}
+
+/// The pill's shape family (`dual-mode` D3): the pure mapping from every ``WidgetState`` to the
+/// shape the view draws — the capsule for the dictation states, the notched pill for converse.
+///
+/// The mapping is the **tested half** of the shape cue (`PRODUCT_SPEC.md:193`): it lives above
+/// the window server, so a drifted mapping — a converse state drawing a capsule, or a dictate
+/// state drawing the notch — fails in `ConverseWidgetTokensTests` where CI can see it.
+/// ``NotchedPill`` (the SwiftUI `Shape` that renders the notch) is the glue that executes it.
+public enum WidgetShape: Equatable, Sendable {
+    /// The shipped dictation shape — `WidgetView`'s `Capsule()`.
+    case capsule
+    /// Converse's "pill with a distinct notch" (`PRODUCT_SPEC.md:193`).
+    case notchedPill
+
+    /// The one mapping: converse draws the notch, every other state draws the capsule.
+    public static func `for`(_ state: WidgetState) -> WidgetShape {
+        if case .conversing = state { return .notchedPill }
+        return .capsule
     }
 }

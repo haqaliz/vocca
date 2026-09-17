@@ -397,6 +397,108 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
             defaults.object(forKey: UserDefaultsSettingsStore.hotkeyModifiersKey) as? String, "2")
     }
 
+    // MARK: - The converse chord, through the adapter (`dual-mode` R3)
+
+    /// A written converse chord reads back from a fresh instance — the converse half of "a
+    /// setting, once chosen, stays chosen", since a converse rebind that does not survive a
+    /// relaunch is not a rebind.
+    ///
+    /// ⌃⌘F13 rather than the shipped ⌥⇧Space, so a store that writes nothing and answers the
+    /// default cannot pass this row.
+    func testAWrittenConverseChordReadsBackFromAFreshInstance() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        UserDefaultsSettingsStore(defaults: defaults)
+            .setConverseChord(HotkeyChord(keyCode: 0x69, modifiers: [.control, .command]))
+
+        let reread = UserDefaultsSettingsStore(defaults: defaults)
+        XCTAssertEqual(
+            reread.converseChord(),
+            HotkeyChord(keyCode: 0x69, modifiers: [.control, .command]))
+    }
+
+    /// With nothing stored, the converse chord answers the shipped ⌥⇧Space and **nothing is
+    /// logged** — the fresh-install silence, for the second pair.
+    func testAnAbsentConverseChordIsTheShippedDefaultAndIsNotLogged() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let logged = LogCollector()
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logged.append($0) })
+
+        XCTAssertEqual(store.converseChord(), PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(
+            logged.entries, [],
+            "an install that never rebound converse has chosen nothing — that is not an error")
+    }
+
+    /// One half of the converse pair deleted by hand — the shipped chord plus **exactly one**
+    /// report, driven through the real store because the pairing is the adapter's read.
+    func testHalfAStoredConversePairIsTheShippedChordAndIsLoggedOnce() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        UserDefaultsSettingsStore(defaults: defaults)
+            .setConverseChord(HotkeyChord(keyCode: 0x69, modifiers: [.control, .command]))
+        defaults.removeObject(forKey: UserDefaultsSettingsStore.converseHotkeyModifiersKey)
+
+        let logged = LogCollector()
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logged.append($0) })
+        XCTAssertEqual(store.converseChord(), PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(
+            logged.entries.count, 1,
+            "half a pair is unreadable, not absent; got \(logged.entries)")
+    }
+
+    /// A converse chord stored as something that is not a string takes the **loud** path — the
+    /// `string(forKey:)` trap, for the second pair.
+    func testAConverseChordStoredAsANonStringIsTheShippedChordAndIsLogged() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(
+            ["not", "a", "key", "code"],
+            forKey: UserDefaultsSettingsStore.converseHotkeyKeyCodeKey)
+        defaults.set(["neither"], forKey: UserDefaultsSettingsStore.converseHotkeyModifiersKey)
+
+        let logged = LogCollector()
+        let store = UserDefaultsSettingsStore(defaults: defaults, log: { logged.append($0) })
+        XCTAssertEqual(store.converseChord(), PersistedSettings.defaultConverseHotkeyChord)
+        XCTAssertEqual(
+            logged.entries.count, 1,
+            "a present non-string is unreadable, not absent; got \(logged.entries)")
+    }
+
+    /// A converse chord the store cannot decode is left on disk exactly as it was found — the
+    /// `FileSystemDictionaryStore` rule, applied to the second pair.
+    func testAFailedConverseChordReadDoesNotRewriteTheStoredPair() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("space", forKey: UserDefaultsSettingsStore.converseHotkeyKeyCodeKey)
+        defaults.set("6", forKey: UserDefaultsSettingsStore.converseHotkeyModifiersKey)
+
+        _ = UserDefaultsSettingsStore(defaults: defaults, log: { _ in }).converseChord()
+
+        XCTAssertEqual(
+            defaults.object(forKey: UserDefaultsSettingsStore.converseHotkeyKeyCodeKey) as? String,
+            "space")
+        XCTAssertEqual(
+            defaults.object(forKey: UserDefaultsSettingsStore.converseHotkeyModifiersKey) as? String,
+            "6")
+    }
+
+    /// **Caps Lock never reaches the disk for the converse chord either.** The bytes stored for
+    /// ⌥⇧ with Caps Lock on are the bytes for ⌥⇧ — asserted against the raw stored string, not
+    /// against the value read back, because the read side masks too.
+    func testCapsLockIsMaskedBeforeStorageForTheConverseChord() {
+        let (defaults, name) = makeScopedSuite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        UserDefaultsSettingsStore(defaults: defaults)
+            .setConverseChord(HotkeyChord(keyCode: 0x69, modifiers: [.option, .shift, .capsLock]))
+
+        XCTAssertEqual(
+            defaults.object(forKey: UserDefaultsSettingsStore.converseHotkeyModifiersKey) as? String,
+            String(ModifierSet([.option, .shift]).rawValue),
+            "a stored binding must never carry a bit that cannot match a key press")
+    }
+
     // MARK: - The frozen keys
 
     /// The two keys are frozen constants, pinned here as literals.
@@ -405,10 +507,19 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
     /// value on their next launch, silently and with no error anywhere. Asked of the constant
     /// rather than written out, this test would pass through any rename — which is the event it
     /// exists to catch.
+    ///
+    /// The converse pair joins the dictate pair under the same `settings.hotkey.` prefix — four
+    /// keys, two pairs, one rationale: a half-written pair is visible (`dual-mode` D1).
     func testTheSettingsKeysAreFrozenConstants() {
         XCTAssertEqual(UserDefaultsSettingsStore.engineSelectionKey, "settings.engineSelection")
         XCTAssertEqual(UserDefaultsSettingsStore.hotkeyKeyCodeKey, "settings.hotkey.keyCode")
         XCTAssertEqual(UserDefaultsSettingsStore.hotkeyModifiersKey, "settings.hotkey.modifiers")
+        XCTAssertEqual(
+            UserDefaultsSettingsStore.converseHotkeyKeyCodeKey,
+            "settings.hotkey.converse.keyCode")
+        XCTAssertEqual(
+            UserDefaultsSettingsStore.converseHotkeyModifiersKey,
+            "settings.hotkey.converse.modifiers")
         XCTAssertEqual(UserDefaultsSettingsStore.activationModeKey, "settings.activationMode")
         XCTAssertEqual(
             UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey,
@@ -416,11 +527,12 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
         XCTAssertEqual(UserDefaultsSettingsStore.keepInTrayKey, "settings.keepInTray")
     }
 
-    /// The two keys are different keys.
+    /// The settings keys are all different keys.
     ///
     /// A collision would make each setting overwrite the other, and both would then read back as
     /// an unreadable value taking the shipped default — a user who changed one setting losing the
-    /// other, with the log blaming the value rather than the key.
+    /// other, with the log blaming the value rather than the key. The converse pair must also be
+    /// distinct from the dictate pair's: the two chords are two settings.
     func testTheSettingsKeysAreDistinct() {
         let keys = [
             UserDefaultsSettingsStore.engineSelectionKey,
@@ -428,6 +540,8 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
             UserDefaultsSettingsStore.cloudCleanupAcknowledgementKey,
             UserDefaultsSettingsStore.hotkeyKeyCodeKey,
             UserDefaultsSettingsStore.hotkeyModifiersKey,
+            UserDefaultsSettingsStore.converseHotkeyKeyCodeKey,
+            UserDefaultsSettingsStore.converseHotkeyModifiersKey,
             UserDefaultsSettingsStore.keepInTrayKey,
         ]
         XCTAssertEqual(Set(keys).count, keys.count, "every key is its own")
