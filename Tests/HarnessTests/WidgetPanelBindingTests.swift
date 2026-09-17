@@ -93,9 +93,16 @@ final class WidgetPanelBindingTests: XCTestCase {
     /// A converse session orders the window front — the pill is the mode's visible state for the
     /// whole session (`PRODUCT_SPEC.md:102-103`), so the listening phase is something to show,
     /// exactly as RECORDING is.
+    ///
+    /// The recording fake is injected (not the default player): the entry into converse would
+    /// otherwise play the real tick in CI — the player is glue executed by nothing in CI, and
+    /// the fake keeps the window-server-adjacent test audio-free.
     func testAConversingStateOrdersTheWindowFront() async {
         let store = WidgetStateStore(clock: TestClock())
-        let panel = WidgetPanel(store: store, levelSource: FakeLevelSource(level: 0.5))
+        let panel = WidgetPanel(
+            store: store,
+            levelSource: FakeLevelSource(level: 0.5),
+            soundPlayer: RecordingWidgetSoundPlayer())
 
         store.fold(.state(.conversing(phase: .listening)))
         await drainMainActor()
@@ -107,7 +114,10 @@ final class WidgetPanelBindingTests: XCTestCase {
     /// continuous session (D1), and the pill must not collapse between utterances.
     func testASpeakingPhaseKeepsTheWindowFront() async {
         let store = WidgetStateStore(clock: TestClock())
-        let panel = WidgetPanel(store: store, levelSource: FakeLevelSource(level: 0.5))
+        let panel = WidgetPanel(
+            store: store,
+            levelSource: FakeLevelSource(level: 0.5),
+            soundPlayer: RecordingWidgetSoundPlayer())
 
         store.fold(.state(.conversing(phase: .listening)))
         await drainMainActor()
