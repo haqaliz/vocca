@@ -231,7 +231,7 @@ final class CleanupSummaryTests: XCTestCase {
             SwiftSourceScanner.stripComments(
                 from: try String(contentsOf: folder.appendingPathComponent(file), encoding: .utf8))
         }
-        let page = try sources.joined()
+        let page = sources.joined()
 
         XCTAssertTrue(
             page.contains("converseProvider"),
