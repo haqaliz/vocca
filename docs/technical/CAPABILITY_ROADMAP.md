@@ -322,6 +322,24 @@ never gated.)*
 
 **Dependencies:** C4, C10.
 
+*(Amended by the `dual-mode` implementation unit, 2026-09-16: **C11 is complete.** The
+`SessionMode` state machine is real (`SessionModeMachine` in `VoccaCore/Mode/` — the closed
+7-row transition table: no implicit switching, no mid-session switching, one active capture,
+no session outlives a system trigger), the `⌥⇧Space` converse chord is persisted and
+rebindable with the collision refusal, the CONVERSING widget surface ships the five
+simultaneous cues, the C10 loop is wired (`ConverseLoopDriver` — utterance → ASR →
+per-mode cleanup → `ReplyGenerator` → synth/playback with the echo-gate reference → barge-in
+cancel+duck), per-mode cleanup selection is real (`CleanupContext.mode` consumed,
+`cleanup-config.json` `converseProvider`), and the machine's owner routing closes the chord →
+machine → driver → widget chain with the menu-bar toggle and system-trigger stops. The
+structural acceptance holds: converse can never reach `TextInjector` (the prohibition lint
++ the mode-routing tests), and the mode-transition reset is pinned (the epoch-minted
+`ModeSession`). The reply generator is an **honest stand-in** (`EchoReplyGenerator` —
+deterministic, local, zero-network); the real agent is C13's. Per-mode ASR engine selection
+stays deferred (recorded follow-on — `EngineSelection` remains single-valued). Reply text
+rendering stays deferred to the C13 design pass (`PRODUCT_SPEC.md:379`). No gate passes;
+the P3 gate's spoken-exchange leg is SMOKE 134, machinery-verified never gated.)*
+
 ---
 
 ## C12. Context provider — active app and selection · P4, weeks 17–18
