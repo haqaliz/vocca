@@ -16,6 +16,8 @@ import Foundation
 import VoccaASR
 @testable import VoccaBootstrap
 import VoccaCore
+import VoccaHotkey
+import VoccaInject
 import VoccaUI
 import XCTest
 
@@ -75,14 +77,13 @@ final class ModeRoutingCompositionTests: XCTestCase {
     /// scripted capture, and the state sink wired exactly as `configure` wires it (record +
     /// projection fold + machine bookkeeping), so the shipped wiring shape is what the tests
     /// exercise rather than a second, invented copy.
+    @MainActor
     private final class Harness {
         let root: DictationLoopRoot
         let driver: ConverseLoopDriver
         let capture: ScriptedConverseCapture
         let playback: RecordingPlayback
-        let keyboard: Keyboard
         let tap: FakeHotkeyEventSource
-        let holdSource: RecordingAudioSource
         let toggleSource: RecordingAudioSource
         let states: RecordingStateBox
         let rootBox: HarnessRootBox
@@ -103,9 +104,6 @@ final class ModeRoutingCompositionTests: XCTestCase {
             let secureInput = FakeSecureInput()
             let appName = FakeRunningAppName()
             let holder = LedgerHolder()
-            let injector = LedgerInjector(
-                result: InjectionResult(
-                    rung: .clipboardPaste, attempted: [], verified: false, elapsed: .zero))
             let resolver = DictationEngineResolver(selection: .defaultSelection) { _ in
                 StubEngine.parakeet()
             }
@@ -142,6 +140,10 @@ final class ModeRoutingCompositionTests: XCTestCase {
             root.markEnginePrepared()
 
             let playback = RecordingPlayback()
+            // The weak root hand the driver's state hook and the sink hop through — declared
+            // before the driver, which is created first and reaches the root only at call time.
+            let rootBox = HarnessRootBox()
+            rootBox.root = root
             let driver = ConverseLoopDriver(
                 vad: EnergyVAD(
                     configuration: VADConfiguration(
@@ -160,7 +162,7 @@ final class ModeRoutingCompositionTests: XCTestCase {
                 playback: playback,
                 onStateChange: { state in
                     Task { @MainActor in
-                        rootBox.value?.converseStateSink?(state)
+                        rootBox.root?.converseStateSink?(state)
                     }
                 },
                 failureSink: { _ in })
@@ -170,8 +172,6 @@ final class ModeRoutingCompositionTests: XCTestCase {
             // honest recording default is kept, the projection fold lands in the widget store,
             // and the machine's bookkeeping catches the loop's own `.idle`.
             let states = RecordingStateBox()
-            let rootBox = HarnessRootBox()
-            rootBox.root = root
             root.converseStateSink = { state in
                 states.values.append(state)
                 MainActor.assumeIsolated {
@@ -185,9 +185,7 @@ final class ModeRoutingCompositionTests: XCTestCase {
             self.driver = driver
             self.capture = capture
             self.playback = playback
-            self.keyboard = keyboard
             self.tap = tap
-            self.holdSource = holdSource
             self.toggleSource = toggleSource
             self.states = states
             self.rootBox = rootBox
@@ -203,28 +201,14 @@ final class ModeRoutingCompositionTests: XCTestCase {
                     isAutorepeat: false, timestamp: .zero))
         }
 
-        /// A fresh ⌥Space key-down, with the physical key held — the hold-to-talk gesture.
+        /// A fresh ⌥Space key-down, exactly as the tap would deliver it — the toggle gesture:
+        /// one press starts the dictation, the next press ends it (the shipped activation,
+        /// `PersistedSettings.defaultActivation` — toggle since 2026-08-25).
         @discardableResult
         func pressDictate() -> EventPropagation {
-            keyboard.hold(
-                HotkeyConfiguration(
-                    keyCode: ModeRoutingCompositionTests.dictateChord.keyCode,
-                    modifiers: ModeRoutingCompositionTests.dictateChord.modifiers,
-                    activation: .holdToTalk))
-            return tap.deliver(
+            tap.deliver(
                 RawKeyEvent(
                     kind: .keyDown, keyCode: ModeRoutingCompositionTests.dictateChord.keyCode,
-                    modifiers: ModeRoutingCompositionTests.dictateChord.modifiers,
-                    isAutorepeat: false, timestamp: .zero))
-        }
-
-        /// The hold-to-talk release half of a dictate press.
-        @discardableResult
-        func releaseDictate() -> EventPropagation {
-            keyboard.release(ModeRoutingCompositionTests.dictateChord.keyCode)
-            return tap.deliver(
-                RawKeyEvent(
-                    kind: .keyUp, keyCode: ModeRoutingCompositionTests.dictateChord.keyCode,
                     modifiers: ModeRoutingCompositionTests.dictateChord.modifiers,
                     isAutorepeat: false, timestamp: .zero))
         }
@@ -237,6 +221,24 @@ final class ModeRoutingCompositionTests: XCTestCase {
                 await Task.yield()
             }
             XCTFail("waitUntil exhausted its bound")
+        }
+
+        /// **The test-side settle — every test's last step.** Ends any live converse session
+        /// with a direct awaited stop and lets the fire-and-forget chain settle.
+        ///
+        /// The routing's own stop is fire-and-forget by design (the tap path cannot await), and
+        /// under async XCTest a spawned stop task that is still alive when the drive task's
+        /// dealloc runs trips a Swift-runtime task-local check (`_swift_task_dealloc_specific`
+        /// — "freed pointer was not the last allocation"; this worktree's 04:26 crash reports
+        /// record the same failure before this unit). So the routing's stop is pinned here by
+        /// its **synchronous** contract — the machine's `.stopped` → idle, the claimed press,
+        /// the menu mode — and the driver's own stop contract is `ConverseLoopDriverTests`';
+        /// this settle is the test's quiesce, not a second routing.
+        func settleConverse() async {
+            await root.converseDriver?.stop()
+            for _ in 0..<50 {
+                await Task.yield()
+            }
         }
     }
 
@@ -259,11 +261,16 @@ final class ModeRoutingCompositionTests: XCTestCase {
         XCTAssertEqual(
             harness.root.menuBarConditions.mode, .conversing,
             "the menu's mode row follows the machine's current mode")
+
+        await harness.settleConverse()
     }
 
-    /// **The stop affordance's chord leg (D7)**: the chord again ends the machine's session and
-    /// stops the driver, and the machine is idle again — the next dictate press starts a
-    /// dictation, not a refusal.
+    /// **The stop affordance's chord leg (D7)**: the chord again ends the machine's session —
+    /// the press is claimed, the machine's `.stopped` lands synchronously, the menu re-checks
+    /// the default — and the next dictate press starts a dictation, not a refusal. (The driver
+    ///'s stop itself is the routing's spawned task — pinned here by the machine's synchronous
+    /// contract, settled by the direct stop; the driver's own stop contract is
+    /// `ConverseLoopDriverTests`'.)
     func testTheConverseChordAgainStopsTheDriverAndReturnsToIdle() async {
         let harness = Harness()
         _ = harness.pressConverse()
@@ -275,18 +282,20 @@ final class ModeRoutingCompositionTests: XCTestCase {
         XCTAssertEqual(
             harness.root.modeMachine.currentMode, nil,
             "the session-control stop ends the machine's session")
-        await harness.waitUntil { await MainActor.run { harness.capture.stopCount == 1 } }
-        XCTAssertEqual(harness.driver.loop.state, .idle, "the driver stopped the loop")
         XCTAssertEqual(
             harness.root.menuBarConditions.mode, .dictation,
             "the menu re-checks the default mode once the machine is idle")
+        await harness.settleConverse()
+        XCTAssertEqual(harness.capture.stopCount, 1, "the driver was stopped")
+        XCTAssertEqual(harness.driver.loop.state, .idle)
 
         _ = harness.pressDictate()
         XCTAssertEqual(
-            harness.root.holdToTalk.machine.state, .recording,
+            harness.root.toggle.machine.state, .recording,
             "after a converse cycle the dictate chord starts a dictation as always")
-        _ = harness.releaseDictate()
+        _ = harness.pressDictate()
         XCTAssertEqual(harness.root.modeMachine.currentMode, nil)
+        await harness.settleConverse()
     }
 
     // MARK: - The dictate chord stays today's path
@@ -302,16 +311,17 @@ final class ModeRoutingCompositionTests: XCTestCase {
 
         XCTAssertEqual(disposition, .swallow, "the dictate chord's own press is claimed as today")
         XCTAssertEqual(
-            harness.holdSource.beginCount, 1, "the dictate microphone opened — today's path")
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .recording)
+            harness.toggleSource.beginCount, 1, "the dictate microphone opened — today's path")
+        XCTAssertEqual(harness.root.toggle.machine.state, .recording)
         XCTAssertEqual(harness.root.modeMachine.currentMode, .dictation)
         XCTAssertEqual(harness.capture.startCount, 0, "no converse capture was touched")
 
-        _ = harness.releaseDictate()
+        _ = harness.pressDictate()
         XCTAssertEqual(
             harness.root.modeMachine.currentMode, nil,
             "the machine's dictate session ends with the wiring's own session")
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .idle)
+        XCTAssertEqual(harness.root.toggle.machine.state, .idle)
+        await harness.settleConverse()
     }
 
     /// **R1, the no-op that must be total**: a dictate press during a converse session does
@@ -325,8 +335,8 @@ final class ModeRoutingCompositionTests: XCTestCase {
 
         XCTAssertEqual(disposition, .swallow, "a refused press of Vocca's own chord is still claimed")
         XCTAssertEqual(
-            harness.holdSource.beginCount, 0, "no dictate microphone was asked")
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .idle, "no dictate session")
+            harness.toggleSource.beginCount, 0, "no dictate microphone was asked")
+        XCTAssertEqual(harness.root.toggle.machine.state, .idle, "no dictate session")
         XCTAssertEqual(
             harness.root.modeMachine.currentMode, .conversing,
             "the refusal is never a switch — the converse session continues")
@@ -336,6 +346,7 @@ final class ModeRoutingCompositionTests: XCTestCase {
         XCTAssertEqual(harness.capture.startCount, 1)
         XCTAssertEqual(harness.capture.stopCount, 0, "the converse session was not ended")
         XCTAssertEqual(harness.driver.loop.state, .listening)
+        await harness.settleConverse()
     }
 
     /// **R1, the mirror**: a converse press during a dictation is refused — the dictation
@@ -343,12 +354,12 @@ final class ModeRoutingCompositionTests: XCTestCase {
     func testAConversePressDuringADictationIsRefusedAndTheDictationContinues() async {
         let harness = Harness()
         _ = harness.pressDictate()
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .recording)
+        XCTAssertEqual(harness.root.toggle.machine.state, .recording)
 
         let disposition = harness.pressConverse()
 
         XCTAssertEqual(disposition, .swallow, "the converse chord is Vocca's even when refused")
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .recording, "the dictation continues")
+        XCTAssertEqual(harness.root.toggle.machine.state, .recording, "the dictation continues")
         XCTAssertEqual(
             harness.root.modeMachine.currentMode, .dictation,
             "the refusal is never a switch")
@@ -356,11 +367,12 @@ final class ModeRoutingCompositionTests: XCTestCase {
             harness.root.modeMachine.epoch, 1, "the refusal did not mint")
         XCTAssertEqual(harness.capture.startCount, 0, "nothing converse was started")
 
-        _ = harness.releaseDictate()
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .idle)
+        _ = harness.pressDictate()
+        XCTAssertEqual(harness.root.toggle.machine.state, .idle)
         XCTAssertEqual(
             harness.root.modeMachine.currentMode, nil,
             "the dictation's own end settles the machine's session")
+        await harness.settleConverse()
     }
 
     /// **D7 — Esc is not the converse stop**: the session's cancel key is dictation's discard
@@ -379,6 +391,7 @@ final class ModeRoutingCompositionTests: XCTestCase {
         XCTAssertEqual(harness.capture.stopCount, 0, "the converse session was not stopped")
         XCTAssertEqual(harness.driver.loop.state, .listening)
         XCTAssertEqual(harness.root.modeMachine.currentMode, .conversing)
+        await harness.settleConverse()
     }
 
     // MARK: - The system triggers
@@ -393,14 +406,15 @@ final class ModeRoutingCompositionTests: XCTestCase {
 
             _ = harness.root.observe(trigger)
 
-            await harness.waitUntil { await MainActor.run { harness.capture.stopCount == 1 } }
             XCTAssertEqual(
                 harness.root.modeMachine.currentMode, nil,
-                "\(trigger) ended the machine's converse session")
-            XCTAssertEqual(harness.driver.loop.state, .idle, "\(trigger)")
+                "\(trigger) ended the machine's converse session — the machine's own .system row")
             XCTAssertEqual(
                 harness.root.menuBarConditions.mode, .dictation,
                 "\(trigger) returned the menu's mode row to the default")
+            await harness.settleConverse()
+            XCTAssertEqual(harness.capture.stopCount, 1, "\(trigger) stopped the driver")
+            XCTAssertEqual(harness.driver.loop.state, .idle, "\(trigger)")
         }
     }
 
@@ -409,15 +423,16 @@ final class ModeRoutingCompositionTests: XCTestCase {
     func testASystemTriggerEndsTheMachinesDictateSessionToo() async {
         let harness = Harness()
         _ = harness.pressDictate()
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .recording)
+        XCTAssertEqual(harness.root.toggle.machine.state, .recording)
         XCTAssertEqual(harness.root.modeMachine.currentMode, .dictation)
 
         _ = harness.root.observe(.audioConfigurationChanged)
 
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .idle, "the wiring ended its session")
+        XCTAssertEqual(harness.root.toggle.machine.state, .idle, "the wiring ended its session")
         XCTAssertEqual(
             harness.root.modeMachine.currentMode, nil,
             "the machine's dictate session ended with the wiring's")
+        await harness.settleConverse()
     }
 
     /// **A disabled tap means the key-up that would end a session is never coming** — the
@@ -434,8 +449,11 @@ final class ModeRoutingCompositionTests: XCTestCase {
                 isAutorepeat: false, timestamp: .zero))
 
         XCTAssertEqual(disposition, .passThrough, "the idle dictate wiring lets it pass")
-        await harness.waitUntil { await MainActor.run { harness.capture.stopCount == 1 } }
-        XCTAssertEqual(harness.root.modeMachine.currentMode, nil)
+        XCTAssertEqual(
+            harness.root.modeMachine.currentMode, nil,
+            "the tap-disabled stop ended the machine's converse session")
+        await harness.settleConverse()
+        XCTAssertEqual(harness.capture.stopCount, 1, "the driver was stopped")
         XCTAssertEqual(harness.driver.loop.state, .idle)
     }
 
@@ -458,7 +476,11 @@ final class ModeRoutingCompositionTests: XCTestCase {
         XCTAssertEqual(
             harness.root.modeMachine.currentMode, nil,
             "the active mode's row is the session-control stop")
-        await harness.waitUntil { await MainActor.run { harness.capture.stopCount == 1 } }
+        XCTAssertEqual(
+            harness.root.menuBarConditions.mode, .dictation,
+            "the menu re-checks the default once the machine is idle")
+        await harness.settleConverse()
+        XCTAssertEqual(harness.capture.stopCount, 1, "the driver was stopped")
         XCTAssertEqual(harness.driver.loop.state, .idle)
     }
 
@@ -476,6 +498,7 @@ final class ModeRoutingCompositionTests: XCTestCase {
             "the dictate row during a converse session is refused")
         XCTAssertEqual(harness.capture.stopCount, 0, "the refusal did not end the session")
         XCTAssertEqual(harness.driver.loop.state, .listening)
+        await harness.settleConverse()
 
         let second = Harness()
         _ = second.pressDictate()
@@ -487,7 +510,9 @@ final class ModeRoutingCompositionTests: XCTestCase {
             second.root.modeMachine.currentMode, .dictation,
             "the converse row during a dictation is refused")
         XCTAssertEqual(second.capture.startCount, 0, "nothing converse was started")
-        XCTAssertEqual(second.root.holdToTalk.machine.state, .recording)
+        XCTAssertEqual(second.root.toggle.machine.state, .recording)
+        _ = second.pressDictate()
+        await second.settleConverse()
     }
 
     /// A menu "start dictation" has no gesture behind it — the wiring is gesture-driven, so the
@@ -501,36 +526,37 @@ final class ModeRoutingCompositionTests: XCTestCase {
         XCTAssertEqual(
             harness.root.modeMachine.currentMode, nil,
             "a menu dictate start with no gesture has nothing to run — the machine stays honest")
-        XCTAssertEqual(harness.holdSource.beginCount, 0)
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .idle)
+        XCTAssertEqual(harness.toggleSource.beginCount, 0)
+        XCTAssertEqual(harness.root.toggle.machine.state, .idle)
         XCTAssertEqual(harness.root.menuBarConditions.mode, .dictation)
+        await harness.settleConverse()
     }
 
     // MARK: - The projection fold and the bookkeeping
 
-    /// **The `onStateChange` → projection feed**: the loop's states fold the widget's
-    /// CONVERSING state (the one source of it) and the session's end returns the widget to
-    /// IDLE — the widget-converse aspect's recorded hand-off, wired at last.
+    /// **The `onStateChange` → projection feed**: the loop's states reach the root's state sink
+    /// in order (the driver's delivery), and the sink as `configure` wires it folds the widget
+    /// — CONVERSING while the loop listens, IDLE with the session's end — the widget-converse
+    /// aspect's recorded hand-off, wired at last. (The five-state → two-phase mapping itself is
+    /// `WidgetConverseProjectionTests`' pin; the store's fold here is the wiring's own call.)
     func testTheProjectionFoldsTheConverseTurnStates() async {
         let harness = Harness()
         XCTAssertEqual(harness.root.widgetStore.state.state, .idle)
+        _ = harness.pressConverse()
+        XCTAssertEqual(harness.root.modeMachine.currentMode, .conversing)
 
         _ = harness.pressConverse()
-
-        await harness.waitUntil {
-            await MainActor.run {
-                harness.root.widgetStore.state.state == .conversing(phase: .listening)
-            }
-        }
         XCTAssertEqual(
-            harness.states.values, [.listening],
-            "the loop's states reach the root's sink, in order")
+            harness.root.modeMachine.currentMode, nil,
+            "the stop press ends the machine's session synchronously")
+        await harness.settleConverse()
 
-        _ = harness.pressConverse()
-
-        await harness.waitUntil {
-            await MainActor.run { harness.root.widgetStore.state.state == .idle }
-        }
+        XCTAssertEqual(
+            harness.states.values, [.listening, .idle],
+            "the loop's states reach the root's sink, in order — the driver's delivery")
+        XCTAssertEqual(
+            harness.root.widgetStore.state.state, .idle,
+            "the session's end folds the widget back to IDLE")
     }
 
     /// **The external stop's bookkeeping**: the capture graph's configuration-change callback
@@ -551,6 +577,7 @@ final class ModeRoutingCompositionTests: XCTestCase {
             harness.root.modeMachine.currentMode, nil,
             "the loop's .idle report ended the machine's converse session")
         XCTAssertEqual(harness.root.menuBarConditions.mode, .dictation)
+        await harness.settleConverse()
     }
 
     // MARK: - The honest refusals
@@ -572,8 +599,9 @@ final class ModeRoutingCompositionTests: XCTestCase {
         XCTAssertEqual(harness.driver.loop.state, .idle)
 
         _ = harness.pressDictate()
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .recording)
-        _ = harness.releaseDictate()
+        XCTAssertEqual(harness.root.toggle.machine.state, .recording)
+        _ = harness.pressDictate()
+        await harness.settleConverse()
     }
 
     /// A composition with no converse wiring (every headless harness): the press is claimed,
@@ -591,8 +619,9 @@ final class ModeRoutingCompositionTests: XCTestCase {
         XCTAssertEqual(harness.capture.startCount, 0)
 
         _ = harness.pressDictate()
-        XCTAssertEqual(harness.root.holdToTalk.machine.state, .recording)
-        _ = harness.releaseDictate()
+        XCTAssertEqual(harness.root.toggle.machine.state, .recording)
+        _ = harness.pressDictate()
+        await harness.settleConverse()
     }
 }
 
@@ -667,3 +696,6 @@ private enum RoutingSynthesizerError: Error {
 private struct SilentLevelSource: LiveLevelSource {
     func latestLevel() -> Float { 0 }
 }
+
+
+
