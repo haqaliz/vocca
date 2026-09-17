@@ -38,6 +38,9 @@ final class HotkeySurfaceAgreementTests: XCTestCase {
     /// The shipped chord the harness launches on.
     private static let launchChord = PersistedSettings.defaultHotkeyChord
 
+    /// The shipped converse chord the harness launches on — ⌥⇧Space.
+    private static let launchConverseChord = PersistedSettings.defaultConverseHotkeyChord
+
     /// ⌃⌥J — a different key *and* different modifiers, so "the surfaces followed the rebind" is a
     /// claim about the whole rendering rather than about one glyph.
     private static let newChord = HotkeyChord(keyCode: 38, modifiers: [.control, .option])
@@ -63,7 +66,7 @@ final class HotkeySurfaceAgreementTests: XCTestCase {
         let before = bindings.hotkeyDisplayName()
         XCTAssertEqual(before, Self.rendered(Self.launchChord))
 
-        XCTAssertEqual(harness.root.rebind(to: Self.newChord), .rebound)
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound)
 
         let after = bindings.hotkeyDisplayName()
         XCTAssertEqual(after, Self.rendered(Self.newChord))
@@ -84,8 +87,70 @@ final class HotkeySurfaceAgreementTests: XCTestCase {
         let bindings = Self.settingsBindings(for: harness.root)
         let bare = HotkeyChord(keyCode: 38, modifiers: [])
 
-        XCTAssertEqual(harness.root.rebind(to: bare), .refused(.notBindable))
+        XCTAssertEqual(harness.root.rebind(to: bare, for: .dictation), .refused(.notBindable))
         XCTAssertEqual(bindings.hotkeyDisplayName(), Self.rendered(Self.launchChord))
+    }
+
+    // MARK: - The converse row (`dual-mode` R3)
+
+    /// **The converse row's display name, read twice across a converse rebind, answers
+    /// differently** — the dictate row's shape, for the second mode: a `String` field captured
+    /// once cannot follow a rebind no matter what the view does with it.
+    func testARebindOfTheConverseChordUpdatesTheConverseRowImmediately() {
+        let harness = Harness()
+        // Built once, before the rebind — the window's own lifetime.
+        let bindings = Self.settingsBindings(for: harness.root)
+
+        let before = bindings.converseHotkeyDisplayName()
+        XCTAssertEqual(before, Self.rendered(Self.launchConverseChord))
+
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .conversing), .rebound)
+
+        let after = bindings.converseHotkeyDisplayName()
+        XCTAssertEqual(after, Self.rendered(Self.newChord))
+        XCTAssertNotEqual(
+            before, after,
+            """
+            The same closure answered the same string on both sides of a converse rebind. That is \
+            the captured-String defect: the settings window is built once and kept for the \
+            process's lifetime, so a user who changes the converse shortcut would read the old one \
+            until they quit.
+            """)
+    }
+
+    /// **The structural half, for the converse row.** The recorder's idle branch reads the
+    /// per-mode display name **live** — never a captured literal — and the General page composes
+    /// exactly two recorder rows, one per mode (`dual-mode` D6).
+    func testTheConverseRowReadsItsDisplayNameLiveAndTheGeneralPageNamesBothModes() throws {
+        let recorder = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaUI/Settings/HotkeyRecorderView.swift"),
+            encoding: .utf8)
+        let strippedRecorder = SwiftSourceScanner.stripComments(from: recorder)
+        XCTAssertTrue(
+            strippedRecorder.contains("converseHotkeyDisplayName()"),
+            """
+            The recorder never reads the converse display name live. Whatever it names the \
+            converse chord with is a captured answer, and a captured answer is a row that goes \
+            stale the first time the user rebinds — on the very page they just changed it on.
+            """)
+        XCTAssertTrue(
+            strippedRecorder.contains("hotkeyDisplayName()"),
+            "and the dictate row must keep reading its own display name live")
+
+        let page = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaUI/SettingsView.swift"),
+            encoding: .utf8)
+        let strippedPage = SwiftSourceScanner.stripComments(from: page)
+        let rows = strippedPage.components(separatedBy: "HotkeyRecorderView(bindings:").count - 1
+        XCTAssertEqual(
+            rows, 2,
+            """
+            The General page must compose exactly two recorder rows — the dictate row and the \
+            converse row. One row renders only one mode's chord, and `PRODUCT_SPEC.md:252` \
+            requires General to show hotkeys for both modes.
+            """)
     }
 
     // MARK: - Criterion 4: one formatter, three surfaces
@@ -107,7 +172,7 @@ final class HotkeySurfaceAgreementTests: XCTestCase {
 
         for chord in [Self.launchChord, Self.newChord] {
             if chord != Self.launchChord {
-                XCTAssertEqual(harness.root.rebind(to: chord), .rebound)
+                XCTAssertEqual(harness.root.rebind(to: chord, for: .dictation), .rebound)
             }
             let expected = Self.rendered(chord)
 
@@ -215,9 +280,18 @@ final class HotkeySurfaceAgreementTests: XCTestCase {
             isToggleMode: { true },
             setToggleMode: { _ in },
             hotkeyDisplayName: { [weak root] in root?.hotkeyDisplayName ?? "" },
+            converseHotkeyDisplayName: { [weak root] in root?.converseHotkeyDisplayName ?? "" },
             chordForKeyEvent: { _, keyCode in HotkeyChord(keyCode: keyCode, modifiers: []) },
-            validateChord: { HotkeyBindingRules.validate($0, against: []) },
-            rebind: { [weak root] in root?.rebind(to: $0) ?? .refused(.notBindable) },
+            validateChord: { chord, mode in
+                HotkeyBindingRules.validate(
+                    chord, against: [],
+                    otherChord: mode == .dictation
+                        ? PersistedSettings.defaultConverseHotkeyChord
+                        : PersistedSettings.defaultHotkeyChord)
+            },
+            rebind: { [weak root] chord, mode in
+                root?.rebind(to: chord, for: mode) ?? .refused(.notBindable)
+            },
             engineDisplayName: { "" },
             cleanupSummary: { nil },
             loadDictionary: { [] },
@@ -266,6 +340,7 @@ final class HotkeySurfaceAgreementTests: XCTestCase {
                     holder: holder,
                     sessionKind: .dictation),
                 settings: AgreementSettingsStore(chord: chord),
+                converseChord: HotkeySurfaceAgreementTests.launchConverseChord,
                 toggleConfiguration: configurations.toggle,
                 toggleSource: RecordingAudioSource(),
                 toggleTimer: FakeTimer(),

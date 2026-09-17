@@ -187,9 +187,12 @@ final class HotkeyRecorderWiringTests: XCTestCase {
         }
     }
 
-    /// **The composition root wires the recorder's three closures.** Read off `showSettings`'s own
+    /// **The composition root wires the recorder's closures.** Read off `showSettings`'s own
     /// body: the behavioural rows above drive closures a test built, and cannot see a window handed
     /// something else.
+    ///
+    /// The list is the mode-keyed surface's (`dual-mode` D5): the two display names — one per row —
+    /// plus the shared chord translation and the mode-keyed `validateChord`/`rebind` closures.
     func testTheSettingsWiringSuppliesTheRecordersThreeClosures() throws {
         let source = try String(
             contentsOf: PackageRootLocator.find(from: #filePath)
@@ -208,7 +211,7 @@ final class HotkeyRecorderWiringTests: XCTestCase {
         }
         let identifiers = SwiftSourceScanner.identifiers(inBody: body.body)
 
-        for closure in ["chordForKeyEvent", "validateChord", "rebind"] {
+        for closure in ["chordForKeyEvent", "validateChord", "rebind", "converseHotkeyDisplayName"] {
             XCTAssertTrue(
                 identifiers.contains(closure),
                 """
@@ -217,6 +220,34 @@ final class HotkeyRecorderWiringTests: XCTestCase {
                 is not, which is the exact thing the deleted copy used to warn about.
                 """)
         }
+    }
+
+    /// **A converse recording that ends in a rebind changes the converse binding**, and the
+    /// row's own display name follows it — the dictate row's loop, driven through the same
+    /// mode-keyed closures the composition root hands the window.
+    func testTheConverseRecorderCanRebindThroughTheModeKeyedClosure() {
+        let harness = Harness()
+        let bindings = harness.bindings
+
+        var state = HotkeyRecorderReducer.reduce(.idle, .began)
+        let chord = bindings.chordForKeyEvent(Self.rawFlags(control: true, option: true), 38)
+        XCTAssertEqual(chord, Self.newChord, "the raw event word must translate to the chord meant")
+
+        state = HotkeyRecorderReducer.reduce(
+            state, .chordCaptured(chord, bindings.validateChord(chord, .conversing)))
+        guard let armed = state.chordToApply else {
+            return XCTFail("a clean modified chord must arm: \(state)")
+        }
+
+        state = HotkeyRecorderReducer.reduce(
+            state, .rebindAnswered(bindings.rebind(armed, .conversing)))
+        XCTAssertNil(state.notice, "a rebind that landed says nothing")
+        XCTAssertEqual(
+            bindings.converseHotkeyDisplayName(), "⌃⌥J",
+            "the converse row follows the rebind it just made")
+        XCTAssertEqual(
+            bindings.hotkeyDisplayName(), "⌥Space",
+            "and the dictate row is untouched by a converse rebind")
     }
 
     // MARK: - Helpers
@@ -285,15 +316,22 @@ final class HotkeyRecorderWiringTests: XCTestCase {
                 isToggleMode: { true },
                 setToggleMode: { _ in },
                 hotkeyDisplayName: { [weak root] in root?.hotkeyDisplayName ?? "" },
+                converseHotkeyDisplayName: { [weak root] in root?.converseHotkeyDisplayName ?? "" },
                 chordForKeyEvent: { rawFlags, keyCode in
                     HotkeyChord(
                         keyCode: keyCode,
                         modifiers: HotkeyFlagTranslation.modifiers(
                             rawFlags: rawFlags, keyCode: keyCode))
                 },
-                validateChord: { HotkeyBindingRules.validate($0, against: []) },
-                rebind: { [weak root] chord in
-                    root?.rebind(to: chord) ?? .refused(.notBindable)
+                validateChord: { chord, mode in
+                    HotkeyBindingRules.validate(
+                        chord, against: [],
+                        otherChord: mode == .dictation
+                            ? PersistedSettings.defaultConverseHotkeyChord
+                            : PersistedSettings.defaultHotkeyChord)
+                },
+                rebind: { [weak root] chord, mode in
+                    root?.rebind(to: chord, for: mode) ?? .refused(.notBindable)
                 },
                 engineDisplayName: { "" },
                 cleanupSummary: { nil },

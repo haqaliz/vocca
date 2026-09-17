@@ -42,6 +42,43 @@ final class RebindBoundaryTests: XCTestCase {
     /// A bare `J` — an unmodified text-entry key, which the rules refuse.
     private static let bareTextEntryChord = HotkeyChord(keyCode: 38, modifiers: [])
 
+    /// The converse chord the harnesses wire by default — the shipped ⌥⇧Space.
+    private static let launchConverseChord = PersistedSettings.defaultConverseHotkeyChord
+
+    /// The hand-moved clock the converse driver is built on — `MonotonicClock & Sendable`, the
+    /// driver's documented requirement (the loop holds it in an existential; a struct's copy
+    /// inside the loop freezes the loop's view, which nothing in this suite asserts).
+    private struct ConverseRebindClock: MonotonicClock {
+        var now: Duration = .zero
+    }
+
+    /// The composed converse wiring's driver, over the seam doubles — the loop is driven
+    /// directly (`loop.start()`/`loop.stop()`), so a "converse session in flight" is the real
+    /// machine's state, never a flag the harness believes.
+    @MainActor
+    private static func makeConverseDriver() -> ConverseLoopDriver {
+        ConverseLoopDriver(
+            vad: ScriptedVAD(
+                configuration: VADConfiguration(
+                    onsetRMS: 0.05, offsetRMS: 0.02, minimumSpeech: 0.10, minimumSilence: 0.20),
+                script: [.silence]),
+            turnDetector: ScriptedTurnDetector(script: [.keepListening]),
+            clock: ConverseRebindClock(),
+            gate: EchoGate(),
+            capture: ScriptedContinuousCapture(),
+            asrProvider: { nil },
+            cleanupProvider: { nil },
+            replyGenerator: EchoReplyGenerator(),
+            synthesizer: {
+                StubSynthesizer(
+                    identity: VoiceIdentity(engineID: "rebind-stub-synth", voiceName: nil),
+                    chunks: [])
+            },
+            playback: FakePlaybackEngine(),
+            onStateChange: { _ in },
+            failureSink: { _ in })
+    }
+
     // MARK: - Phase 1: the two wirings come from one construction
 
     /// **The §1 drift guard, at launch.** `init` and `rebind` build the two wirings through one
@@ -138,7 +175,7 @@ final class RebindBoundaryTests: XCTestCase {
         let holdToTalk = harness.root.holdToTalk
         let toggle = harness.root.toggle
 
-        XCTAssertEqual(harness.root.rebind(to: Self.launchChord), .unchanged)
+        XCTAssertEqual(harness.root.rebind(to: Self.launchChord, for: .dictation), .unchanged)
 
         XCTAssertTrue(
             harness.root.holdToTalk === holdToTalk,
@@ -149,6 +186,143 @@ final class RebindBoundaryTests: XCTestCase {
         XCTAssertEqual(
             harness.settings.chordWrites, 0,
             "and nothing was written: a no-op is not a change to persist")
+    }
+
+    // MARK: - The mode-keyed gate (`dual-mode` R3, `converse-hotkey` D3)
+
+    /// **A rebind to the other mode's wired chord is refused in both directions** — a dictate
+    /// rebind proposing the converse chord, and a converse rebind proposing the dictate chord —
+    /// with nothing rebuilt and nothing written.
+    ///
+    /// Two guards, two answers: a single equality guard would silently answer `.unchanged` for
+    /// the collision, because the candidate equals *some* bound chord. Same-mode re-ask is
+    /// `.unchanged` (row above); other-mode's chord is `.refused(.collidesWithOtherMode)` — the
+    /// asymmetric-unchanged trap, pinned in both directions (D4).
+    func testARebindToTheOtherModesChordIsRefusedInBothDirections() {
+        let converseChord = HotkeyChord(keyCode: 0x6A, modifiers: [.control, .option])
+        let harness = Harness(converseChord: converseChord)
+        let holdToTalk = harness.root.holdToTalk
+        let toggle = harness.root.toggle
+
+        XCTAssertEqual(
+            harness.root.rebind(to: converseChord, for: .dictation),
+            .refused(.collidesWithOtherMode),
+            "the dictate row must not adopt the converse chord")
+        XCTAssertEqual(
+            harness.root.rebind(to: Self.launchChord, for: .conversing),
+            .refused(.collidesWithOtherMode),
+            "and the converse row must not adopt the dictate chord")
+
+        XCTAssertTrue(
+            harness.root.holdToTalk === holdToTalk, "nothing was rebuilt on the dictate side")
+        XCTAssertTrue(harness.root.toggle === toggle)
+        XCTAssertEqual(
+            harness.settings.chordWrites, 0, "and nothing was written on the dictate half")
+        XCTAssertEqual(
+            harness.settings.converseChordWrites, 0, "nor on the converse half")
+    }
+
+    /// **A converse rebind re-asking the converse chord already bound rebuilds nothing** — the
+    /// dictate no-op row's shape, for the second mode: `.unchanged`, the converse wiring is the
+    /// same object, and nothing was written.
+    func testARebindToTheConverseChordAlreadyBoundRebuildsNothing() {
+        let harness = Harness(
+            converseChord: Self.newChord, converseDriver: Self.makeConverseDriver())
+        let driver = harness.converseDriver
+
+        XCTAssertEqual(
+            harness.root.rebind(to: Self.newChord, for: .conversing), .unchanged)
+
+        XCTAssertTrue(
+            harness.root.converseDriver === driver,
+            "the converse wiring is the same object — a no-op rebuilds nothing")
+        XCTAssertEqual(
+            harness.settings.converseChordWrites, 0,
+            "and nothing was written: a no-op is not a change to persist")
+        XCTAssertEqual(harness.settings.chordWrites, 0, "nor on the dictate half")
+    }
+
+    /// **A converse rebind persists the chord and re-points the converse wiring** — `.rebound`;
+    /// the converse store records a `setConverseChord` write; the wired converse chord (the
+    /// display name's live read) carries the new chord; and the dictate wirings are the **same
+    /// objects** — one mode's rebind never touches the other's wirings.
+    func testARebindOfTheConverseChordPersistsItAndRebuildsTheConverseWiring() {
+        let harness = Harness(converseDriver: Self.makeConverseDriver())
+        let holdToTalk = harness.root.holdToTalk
+        let toggle = harness.root.toggle
+
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .conversing), .rebound)
+
+        XCTAssertEqual(
+            harness.settings.converseChordWrites, 1, "the converse store records exactly one write")
+        XCTAssertEqual(
+            harness.settings.converseChord(), Self.newChord,
+            "and the next launch reads back the chord the user chose")
+        XCTAssertEqual(
+            harness.root.converseHotkeyDisplayName,
+            HotkeyChordFormatter.describe(
+                keyCode: Self.newChord.keyCode, modifiers: Self.newChord.modifiers),
+            "the wired converse chord is the new one — the display name reads it live")
+
+        XCTAssertTrue(
+            harness.root.holdToTalk === holdToTalk,
+            "the dictate wirings are untouched by a converse rebind")
+        XCTAssertTrue(harness.root.toggle === toggle)
+        XCTAssertEqual(harness.settings.chordWrites, 0, "and nothing was written on the dictate half")
+    }
+
+    /// **A rebind of either chord is refused while a converse session is in flight** — the
+    /// `.sessionInFlight` guard covers all wirings of both modes, not only the routed mode's.
+    ///
+    /// The converse session is the driver's own loop state — the real machine's answer, never a
+    /// flag the harness believes: the loop is started and stopped through the public seam, and
+    /// the same chords bind the moment it ends.
+    func testARebindOfEitherChordIsRefusedWhileAConverseSessionIsInFlight() {
+        let harness = Harness(converseDriver: Self.makeConverseDriver())
+        let driver = harness.converseDriver
+
+        driver.loop.start()
+        XCTAssertNotEqual(driver.loop.state, .idle, "a converse session really is in flight")
+
+        XCTAssertEqual(
+            harness.root.rebind(to: Self.newChord, for: .dictation), .refused(.sessionInFlight))
+        XCTAssertEqual(
+            harness.root.rebind(to: Self.newChord, for: .conversing),
+            .refused(.sessionInFlight))
+
+        XCTAssertEqual(
+            harness.settings.chordWrites, 0, "nothing was persisted on the dictate half")
+        XCTAssertEqual(
+            harness.settings.converseChordWrites, 0, "nor on the converse half")
+
+        driver.loop.stop()
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound)
+        XCTAssertEqual(
+            harness.root.rebind(to: Self.newChord, for: .conversing), .rebound,
+            "the same chords bind the moment the converse session ends")
+    }
+
+    /// **The cross half: a dictate rebind is refused while the *converse* machine is not quiet**
+    /// — the quiet guard is over all wirings of both modes, and a session in the unrouted
+    /// machine is still a session (the dictate in-flight doctrine, applied across modes).
+    func testARebindOfTheDictateChordIsRefusedWhileAConverseSessionIsInFlight() {
+        let harness = Harness(converseDriver: Self.makeConverseDriver())
+        let driver = harness.converseDriver
+        let holdToTalk = harness.root.holdToTalk
+        let toggle = harness.root.toggle
+
+        driver.loop.start()
+
+        XCTAssertEqual(
+            harness.root.rebind(to: Self.newChord, for: .dictation), .refused(.sessionInFlight),
+            "a dictate rebind must not land under a live converse session")
+        XCTAssertTrue(
+            harness.root.holdToTalk === holdToTalk,
+            "the dictate wirings are untouched by the refusal")
+        XCTAssertTrue(harness.root.toggle === toggle)
+
+        driver.loop.stop()
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound)
     }
 
     // MARK: - Criterion 7: a chord the rules refuse
@@ -167,7 +341,7 @@ final class RebindBoundaryTests: XCTestCase {
         let toggle = harness.root.toggle
 
         XCTAssertEqual(
-            harness.root.rebind(to: Self.bareTextEntryChord), .refused(.notBindable))
+            harness.root.rebind(to: Self.bareTextEntryChord, for: .dictation), .refused(.notBindable))
 
         XCTAssertEqual(
             harness.settings.chordWrites, 0,
@@ -225,7 +399,7 @@ final class RebindBoundaryTests: XCTestCase {
                 "\(wiring.configuration.activation): a session really is in flight")
 
             XCTAssertEqual(
-                harness.root.rebind(to: Self.newChord), .refused(.sessionInFlight),
+                harness.root.rebind(to: Self.newChord, for: .dictation), .refused(.sessionInFlight),
                 "\(wiring.configuration.activation): a rebind must be refused while this machine "
                     + "is recording — even when it is not the machine the tap is routed to")
 
@@ -246,7 +420,7 @@ final class RebindBoundaryTests: XCTestCase {
             // pass every assertion above.
             harness.endSession(in: wiring)
             XCTAssertEqual(
-                harness.root.rebind(to: Self.newChord), .rebound,
+                harness.root.rebind(to: Self.newChord, for: .dictation), .rebound,
                 "\(wiring.configuration.activation): and the same chord binds once the session ends")
         }
     }
@@ -268,7 +442,7 @@ final class RebindBoundaryTests: XCTestCase {
         var stateDuringHandoff: SessionState?
         harness.holdToTalkSource.duringEndCapture = { [root = harness.root] in
             stateDuringHandoff = wiring.machine.state
-            observed = root.rebind(to: RebindBoundaryTests.newChord)
+            observed = root.rebind(to: RebindBoundaryTests.newChord, for: .dictation)
         }
         harness.endSession(in: wiring)
 
@@ -312,7 +486,7 @@ final class RebindBoundaryTests: XCTestCase {
             "but an opening is owed, and the key is already claimed")
 
         XCTAssertEqual(
-            harness.root.rebind(to: Self.newChord), .refused(.sessionInFlight),
+            harness.root.rebind(to: Self.newChord, for: .dictation), .refused(.sessionInFlight),
             "a rebuild here would drop the opening on the floor and strand the widget in OPENING")
         XCTAssertTrue(harness.root.holdToTalk === holdToTalk, "so nothing was rebuilt")
         XCTAssertTrue(harness.root.toggle === toggle)
@@ -340,7 +514,7 @@ final class RebindBoundaryTests: XCTestCase {
         let harness = Harness()
         XCTAssertEqual(harness.root.activeMode, .toggle, "the shipped default, and what is routed")
 
-        XCTAssertEqual(harness.root.rebind(to: Self.newChord), .rebound)
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound)
 
         XCTAssertEqual(
             harness.machinesStartedByPressing(Self.launchChord), [],
@@ -382,7 +556,7 @@ final class RebindBoundaryTests: XCTestCase {
             let expected = DictationLoopRoot.mode(for: activation)
             XCTAssertEqual(harness.root.activeMode, expected, "\(activation)")
 
-            XCTAssertEqual(harness.root.rebind(to: Self.newChord), .rebound, "\(activation)")
+            XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound, "\(activation)")
 
             XCTAssertEqual(
                 harness.machinesStartedByPressing(Self.newChord), [expected],
@@ -407,7 +581,7 @@ final class RebindBoundaryTests: XCTestCase {
         let stopsBefore = harness.tap.stopCount
         let resumesBefore = harness.tap.resumeCount
 
-        XCTAssertEqual(harness.root.rebind(to: Self.newChord), .rebound)
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound)
 
         XCTAssertTrue(harness.root.tap === tap, "the same tap object — never re-created")
         XCTAssertEqual(
@@ -434,17 +608,17 @@ final class RebindBoundaryTests: XCTestCase {
     func testTheChordIsPersistedOnceOnSuccessAndOnNoOtherAnswer() {
         let harness = Harness()
 
-        XCTAssertEqual(harness.root.rebind(to: Self.newChord), .rebound)
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound)
         XCTAssertEqual(harness.settings.chordWrites, 1, "written exactly once")
         XCTAssertEqual(
             harness.settings.hotkeyChord(), Self.newChord,
             "and the next launch reads back the chord the user chose")
 
-        XCTAssertEqual(harness.root.rebind(to: Self.newChord), .unchanged)
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .unchanged)
         XCTAssertEqual(harness.settings.chordWrites, 1, "a no-op writes nothing")
 
         XCTAssertEqual(
-            harness.root.rebind(to: Self.bareTextEntryChord), .refused(.notBindable))
+            harness.root.rebind(to: Self.bareTextEntryChord, for: .dictation), .refused(.notBindable))
         XCTAssertEqual(harness.settings.chordWrites, 1, "and a refusal writes nothing")
     }
 
@@ -460,7 +634,7 @@ final class RebindBoundaryTests: XCTestCase {
     func testARootReboundToAChordMatchesARootLaunchedOnIt() {
         let launched = Harness(chord: Self.newChord)
         let rebound = Harness(chord: Self.launchChord)
-        XCTAssertEqual(rebound.root.rebind(to: Self.newChord), .rebound)
+        XCTAssertEqual(rebound.root.rebind(to: Self.newChord, for: .dictation), .rebound)
 
         for (which, pair) in [
             ("hold-to-talk", (launched.root.holdToTalk, rebound.root.holdToTalk)),
@@ -502,7 +676,7 @@ final class RebindBoundaryTests: XCTestCase {
     func testARebuildMintsAFreshTimerPerWiringAndStopsTheRetiredOnes() {
         let harness = Harness()
 
-        XCTAssertEqual(harness.root.rebind(to: Self.newChord), .rebound)
+        XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound)
 
         XCTAssertEqual(harness.timers.made.count, 2, "one fresh timer per wiring, and no more")
         XCTAssertFalse(
@@ -555,6 +729,9 @@ final class RebindBoundaryTests: XCTestCase {
         let timers: TimerFactory
         let settings: EphemeralSettingsStore
         let root: DictationLoopRoot
+        /// The composed converse wiring, when the row asked for one — `nil` in the rows that
+        /// never touch converse, which is exactly the shipped headless shape.
+        let converseDriver: ConverseLoopDriver?
 
         /// The two wirings by key path, so a row can drive "each machine independently" over a
         /// closed pair rather than by copying itself.
@@ -564,12 +741,17 @@ final class RebindBoundaryTests: XCTestCase {
         /// - Parameter deferOpening: where the microphone is opened. Synchronous by default, which
         ///   is what every other headless harness in the suite uses; a row that wants to observe
         ///   the deferred-opening window passes one that queues instead.
+        /// - Parameter converseChord: the wired converse chord the root launches on — the
+        ///   `converse-wiring` slot's fact, held beside the wirings it would route.
+        /// - Parameter converseDriver: the converse wiring itself, when the row exercises it.
         init(
             chord: HotkeyChord = RebindBoundaryTests.launchChord,
+            converseChord: HotkeyChord = RebindBoundaryTests.launchConverseChord,
+            converseDriver: ConverseLoopDriver? = nil,
             activation: HotkeyConfiguration.Activation = PersistedSettings.defaultActivation,
             deferOpening: @escaping RunLoopDeferral = { $0() }
         ) {
-            let settings = EphemeralSettingsStore(chord: chord, activation: activation)
+            let settings = EphemeralSettingsStore(chord: chord, converseChord: converseChord, activation: activation)
             let configurations = AppBootstrap.hotkeyConfigurations(chord: chord)
             let keyboard = Keyboard()
             let tap = FakeHotkeyEventSource()
@@ -609,6 +791,7 @@ final class RebindBoundaryTests: XCTestCase {
                     holder: holder,
                     sessionKind: .dictation),
                 settings: settings,
+                converseChord: converseChord,
                 toggleConfiguration: configurations.toggle,
                 toggleSource: toggleSource,
                 toggleTimer: launchToggleTimer,
@@ -627,6 +810,11 @@ final class RebindBoundaryTests: XCTestCase {
             self.timers = timers
             self.settings = settings
             self.root = root
+            self.converseDriver = converseDriver
+
+            if let converseDriver {
+                root.converseDriver = converseDriver
+            }
 
             // The readiness gate opens here rather than in each row: with it shut every
             // `beginCapture` answers `.unavailable`, no machine ever leaves `.idle`, and every

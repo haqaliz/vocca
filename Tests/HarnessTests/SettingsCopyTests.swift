@@ -43,6 +43,31 @@ final class SettingsCopyTests: XCTestCase {
             SettingsCopy.holdDetail, "Release to type. Best for quick, precise bursts.")
     }
 
+    /// The converse row's label names the mode it edits (`dual-mode` D6) — "Converse shortcut",
+    /// beside the dictate row's "Dictation shortcut".
+    func testTheConverseShortcutLabelIsPinned() {
+        XCTAssertEqual(SettingsCopy.converseHotkeyLabel, "Converse shortcut")
+    }
+
+    /// The cross-chord collision has words, byte-for-byte, on both halves of the surface.
+    ///
+    /// Both sentences say "the other mode" — the row the user is editing names the mode, and the
+    /// chord is in their hand (`converse-hotkey` D4) — and that the two shortcuts have to be
+    /// different. The capture-time refusal and the gate's defensive twin share the sentence,
+    /// exactly as `.notBindable` does.
+    func testTheCollisionRefusalHasWords() {
+        let sentence = "Vocca already uses that shortcut for the other mode. The two shortcuts "
+            + "have to be different."
+        XCTAssertEqual(SettingsCopy.hotkeyRefusal(.collidesWithOtherMode), sentence)
+        XCTAssertEqual(SettingsCopy.hotkeyRebindRefusal(.collidesWithOtherMode), sentence)
+        XCTAssertTrue(
+            sentence.contains("the other mode"),
+            "the copy must name the other mode — never the app, whose own chord this is")
+        XCTAssertTrue(
+            sentence.contains("different"),
+            "the copy must say the two shortcuts have to differ")
+    }
+
     /// The dictionary tab's empty state.
     func testTheDictionaryEmptyStateIsPinned() {
         XCTAssertEqual(
