@@ -126,6 +126,27 @@ final class CleanupTabCopyTests: XCTestCase {
             "the key is never in the config file, so the note must not send a user there for it")
     }
 
+    // MARK: - The converse section (D3)
+
+    /// **The converse section's title matches the D3 decision byte-for-byte.**
+    func testTheConverseSectionTitleMatchesTheDecision() {
+        XCTAssertEqual(CleanupTabCopy.converseSectionTitle, "While conversing")
+    }
+
+    /// **The converse section's detail matches the D3 decision byte-for-byte** — including the
+    /// never-injects prohibition (R2) stated on the surface that would otherwise read as
+    /// "cleanup for the other thing".
+    func testTheConverseSectionDetailMatchesTheDecision() {
+        XCTAssertEqual(
+            CleanupTabCopy.converseSectionDetail,
+            "The cleanup that runs on what you say to Vocca — nothing from a conversation is "
+                + "ever typed into an app.")
+        XCTAssertTrue(
+            CleanupTabCopy.converseSectionDetail.contains("never typed into an app"),
+            "the never-injects prohibition (R2) must be on the surface that could read as if "
+                + "conversation text is typed somewhere")
+    }
+
     /// **The summary lines say what is happening in plain words**, and the local one is
     /// unambiguous — "nothing is sent anywhere" is the sentence the whole tab exists to be able
     /// to say truthfully.

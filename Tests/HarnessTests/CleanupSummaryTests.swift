@@ -15,6 +15,7 @@
 import Foundation
 import VoccaCore
 import VoccaText
+import VoccaUI
 import XCTest
 
 /// **F3 — the Cleanup tab reports the provider Vocca resolved, not a literal.**
@@ -208,6 +209,73 @@ final class CleanupSummaryTests: XCTestCase {
         XCTAssertFalse(
             source.contains("cleanupNotEditable"),
             "the note became false when the choice became editable here")
+    }
+
+    // MARK: - The converse picker's wiring (D3, F3)
+
+    /// **The converse picker reads and writes the resolver's own config file.**
+    ///
+    /// A source scan over the tab's own folder, for the same reason the literal one is: the
+    /// failure this guards against is the converse picker acquiring its *own* store or its own
+    /// draft — a second file, or a second path to the same one, that drifts from what the
+    /// resolver loads (`spec.md` R2). The page names `converseProvider` (the draft's converse
+    /// half) and `converseSelection` (the picker's selection), and neither file names a store —
+    /// the picker goes through the one draft, which is the one file.
+    func testTheConversePickerReadsAndWritesTheResolversOwnConfigFile() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let folder = root.appendingPathComponent("Sources/VoccaUI/Cleanup")
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .filter { $0.hasSuffix(".swift") }
+        XCTAssertFalse(files.isEmpty, "the Cleanup folder must contain its two files")
+        let sources = try files.map { file in
+            SwiftSourceScanner.stripComments(
+                from: try String(contentsOf: folder.appendingPathComponent(file), encoding: .utf8))
+        }
+        let page = try sources.joined()
+
+        XCTAssertTrue(
+            page.contains("converseProvider"),
+            "the page must name the draft's converse half — one draft, one file")
+        XCTAssertTrue(
+            page.contains("converseSelection"),
+            "the page must name the converse picker's selection — beside the dictate one")
+        XCTAssertFalse(
+            page.contains("CleanupConfigStore"),
+            "a second store would be a second file; the picker goes through the one draft")
+    }
+
+    /// **The converse summary binding exists and claims nothing by default.**
+    ///
+    /// The `converse-wiring` handoff: `SettingsBindings.cleanupConversingSummary` is the slot the
+    /// wiring fills in its AppBootstrap re-anchor commit. Until then the default answers `nil`,
+    /// and the tab renders no converse "Using" line — the safe direction (a surface claims no
+    /// provider it cannot name).
+    @MainActor
+    func testTheConverseSummaryBindingExistsAndClaimsNothingByDefault() async throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let view = try String(
+            contentsOf: root.appendingPathComponent("Sources/VoccaUI/SettingsView.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            view.contains("cleanupConversingSummary"),
+            "the binding must exist for the converse-wiring handoff to fill it")
+
+        let bindings = SettingsBindings(
+            isToggleMode: { true },
+            setToggleMode: { _ in },
+            hotkeyDisplayName: { "" },
+            chordForKeyEvent: { _, keyCode in HotkeyChord(keyCode: keyCode, modifiers: []) },
+            validateChord: { HotkeyBindingRules.validate($0, against: []) },
+            rebind: { _ in .unchanged },
+            engineDisplayName: { "" },
+            cleanupSummary: { nil },
+            loadDictionary: { [] },
+            saveDictionary: { _ in })
+
+        let converse = await bindings.cleanupConversingSummary()
+        XCTAssertNil(
+            converse,
+            "the default binding claims nothing — a surface must not invent a provider")
     }
 
     // MARK: - Fixtures

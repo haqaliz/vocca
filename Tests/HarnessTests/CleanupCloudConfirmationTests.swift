@@ -74,9 +74,9 @@ final class CleanupCloudConfirmationTests: XCTestCase {
     /// and the file are all untouched while the user is reading.
     func testTheDialogBeingUpChangesNothingButTheDialog() {
         var state = Self.loaded(provider: .rules)
-        state = CleanupTabReducer.reduce(state, .confirmationRequested(.byok))
+        state = CleanupTabReducer.reduce(state, .confirmationRequested(.byok, for: .dictation))
 
-        XCTAssertEqual(state.pendingConfirmation, .byok)
+        XCTAssertEqual(state.pendingConfirmation?.kind, .byok)
         XCTAssertEqual(state.selection, .rules, "nothing is chosen while the dialog is open")
         XCTAssertEqual(state.draft.provider, .rules)
     }
@@ -91,7 +91,7 @@ final class CleanupCloudConfirmationTests: XCTestCase {
     /// take a user off Ollama for declining an unrelated dialog.
     func testDecliningLeavesThePreviousChoiceIntact() {
         var state = Self.loaded(provider: .ollama)
-        state = CleanupTabReducer.reduce(state, .confirmationRequested(.byok))
+        state = CleanupTabReducer.reduce(state, .confirmationRequested(.byok, for: .dictation))
         state = CleanupTabReducer.reduce(state, .confirmationDeclined)
 
         XCTAssertEqual(state.selection, .ollama, "the value that was there, not a default")
@@ -104,7 +104,7 @@ final class CleanupCloudConfirmationTests: XCTestCase {
     /// acknowledgement.
     func testDecliningDoesNotAcknowledgeAnything() {
         var state = Self.loaded(provider: .rules)
-        state = CleanupTabReducer.reduce(state, .confirmationRequested(.byok))
+        state = CleanupTabReducer.reduce(state, .confirmationRequested(.byok, for: .dictation))
         state = CleanupTabReducer.reduce(state, .confirmationDeclined)
 
         XCTAssertFalse(state.hasAcknowledgedCloud)
@@ -119,7 +119,7 @@ final class CleanupCloudConfirmationTests: XCTestCase {
     /// rung; the selection still waits for the write to land, exactly as every other rung does.
     func testAcceptingAcknowledgesAndThenTheRungIsWritten() {
         var state = Self.loaded(provider: .rules)
-        state = CleanupTabReducer.reduce(state, .confirmationRequested(.byok))
+        state = CleanupTabReducer.reduce(state, .confirmationRequested(.byok, for: .dictation))
         state = CleanupTabReducer.reduce(state, .confirmationAccepted)
 
         XCTAssertTrue(state.hasAcknowledgedCloud)
