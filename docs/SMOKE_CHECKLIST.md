@@ -2863,6 +2863,149 @@ user-visible surface exists — the CONVERSING widget state is C11's.
 
 ---
 
+## 20. Dual mode — `dual-mode`
+
+Nothing in this section runs in CI. The mode machine and its prohibition are proven headlessly
+(the acceptance asserts **no `TextInjector` call is ever made from the converse path** —
+enforced by type/assertion, not discipline — and a mode-transition test asserts full state
+reset with no carryover of buffer, transcript, or target); the realtime conversation itself is
+executed by nothing in CI (the tap-adapter precedent). These five rows are the founder's
+machine producing the first real observations of the CONVERSING surface and the wired loop —
+recorded, never gated, each under **rule 1**: the state must actually have been entered before
+a row means anything. **The reply source is the shipped deterministic stand-in (see step
+134): the machinery exchange proves the loop; the P3 gate's conversational leg stays formally
+unmet until C13's real agent** — nothing below may be read as a gate pass.
+
+134. **The first full spoken exchange — ≥5 turns with a barge-in, keyboard untouched (C11, recorded — never gated).**
+
+    *Gesture:* run the built bundle (Accessibility grant in place — the tap prerequisite named
+    in §1), press the converse chord (shipped `⌥⇧Space`, `PRODUCT_SPEC.md:192`), and complete a
+    full spoken exchange: **≥5 turns** — speak → the loop commits → ASR
+    (`engineIfReady`) → cleanup (`resolve(mode: .conversing)`) → the stand-in reply generator →
+    spoken reply through the shipped renderer and `SystemPlayback` (the composed recipe
+    `converse-wiring` landed in `ConverseWiring.swift`) — with **at least one barge-in**
+    (interrupt a reply mid-playback; it must halt ≤200 ms and the interrupting words must be
+    preserved, not dropped), then end the session with the shipped stop surface: the **converse
+    chord again** (D7's primary stop; the menu-bar toggle is the secondary; Esc is **not** the
+    converse stop). **The keyboard is untouched throughout** — no typing, no mouse, no trackpad.
+    Watch the unified log (`log stream --predicate 'subsystem == "dev.vocca.Vocca"'`) for the
+    loop's state transitions. The reply source is the shipped deterministic stand-in —
+    `EchoReplyGenerator` (your own words back, byte-for-byte, `reply-seam`'s shipped default) —
+    it is **not an agent**: it does not understand, remember, or act; it echoes so the loop is
+    exercisable end to end (and doubles as a by-ear ASR-accuracy check).
+
+    *Verify the state was entered:* the CONVERSING surface actually showed (the five cues: the
+    notched pill, the distinct hue, the `◈` label, the lower tick — and **no target app name**),
+    **≥5 turns** actually exchanged, the barge-in actually interrupted **real playback** (a
+    rendered reply was sounding and stopped), and no keystroke or click was used (rule 1 — an
+    exchange driven by any key press proves nothing).
+
+    *Pass:* the exchange recorded verbatim with the never-gated note: **≥5 turns including ≥1
+    barge-in, keyboard untouched** (`ROADMAP.md:215-217`) — with the honesty line attached: the
+    replies came from the deterministic stand-in, never an agent; the machinery exchange proves
+    the loop; **the P3 gate's conversational leg stays formally unmet until C13's real agent
+    slots into the `ReplyGenerator` seam**.
+
+    *Failure:* fewer than 5 turns, no barge-in (or a barge-in without real playback sounding), any
+    keyboard/mouse use, the CONVERSING surface not visibly entered, or the row recorded as a gate
+    pass (it is recorded-never-gated, and the stand-in honesty line is part of the record).
+
+135. **Mode clarity across daily use — zero mis-injections (C11, recorded — never gated).**
+
+    *Gesture:* use the app in the daily mix — dictate into real fields (`⌥Space` → text lands in
+    the focused field) and converse (`⌥⇧Space` → nothing typed anywhere) — across the observed
+    window, and watch for the mode-confusion failure: **text intended for the agent landing in an
+    app field, or dictate text spoken to the agent**. The gate's own duration is a **week of daily
+    use** (`ROADMAP.md:218`); the row records the actual elapsed days and session counts of the
+    observed window — a shorter window is a recorded observation, never the gate.
+
+    *Verify the state was entered:* real dictations delivered (≥1 per day of the observed window
+    — a window with no dictation proves nothing about mis-injection), real converse sessions ran,
+    and both chords were used.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **0 mis-injections** across the
+    observed window (days and session counts named). The gate's "zero mode-confusion
+    mis-injections across a week of daily use" (`ROADMAP.md:218`) stays the gate's; a shorter or
+    sparser window is stated as such, never claimed as the gate leg.
+
+    *Void — not fail — if:* no real dictation occurred in the window, or the window contained no
+    converse session (rule 1 — the state was not entered).
+
+    *Failure:* ≥1 mis-injection — the catastrophic mode-confusion failure (`ROADMAP.md:194`): the
+    number is recorded verbatim and surfaced to the integrator loudly; it is a product bug, never
+    silently absorbed.
+
+136. **The converse chord rebind (C11, recorded — never gated).**
+
+    *Gesture:* Settings → General → rebind the converse chord through the shipped two-chord
+    rebind flow (the `converse-hotkey` aspect's second recorder row, `rebind(to:for:)`): rebind
+    `⌥⇧Space` to a new chord, verify the **new** chord starts and stops converse and the old
+    chord no longer does; test the collision refusal (rebind the converse chord onto the dictate
+    chord — the rebind is **refused**, the two-mode collision answer, `HotkeyBindingRefusal` /
+    `RebindRefusal` with the `SettingsCopy` wording); verify a rebind is **refused while any
+    session is in flight** (`RebindOutcome.refused(.sessionInFlight)` — a rebuild under a live
+    capture would strand the session on a key nobody is holding); then relaunch the app and
+    verify the rebind **persisted**.
+
+    *Verify the state was entered:* the rebind actually persisted across relaunch (persistence is
+    the claim), the collision refusal actually surfaced when tested, the in-flight refusal was
+    actually exercised during a live session, and the dictate chord's behavior was untouched
+    throughout.
+
+    *Pass:* the row recorded verbatim with the never-gated note: the rebind persisted across
+    relaunch, the old chord inert, the dictate chord unchanged (equality-match semantics —
+    neither chord can end the other's session), the collision refusal surfaced, the in-flight
+    rebind refused.
+
+    *Failure:* a rebind that works only until relaunch, a rebind that silently breaks or aliases
+    the other chord, a missing collision refusal, or a rebind applied mid-session.
+
+137. **The menu-bar mode toggle (C11, recorded — never gated).**
+
+    *Gesture:* open the menu bar (`PRODUCT_SPEC.md:361` — current state + the mode toggle, the
+    `widget-converse` aspect's mode rows): verify the menu bar **shows the current state** while
+    a session is active (the current mode's row checked); toggle to converse and complete a turn;
+    toggle back and dictate; verify the toggle's behavior during a live session per the recorded
+    decision (explicit switching only — never inferred — the menu offers, the machine routes; a
+    live session's row is the session-control stop, the other mode's row is refused, and at most
+    one capture is ever active).
+
+    *Verify the state was entered:* the menu bar item existed and showed state; toggling actually
+    switched modes (the CONVERSING surface appeared/disappeared); a converse session was actually
+    stoppable from the menu (the explicit stop affordance's non-chord secondary).
+
+    *Pass:* the row recorded verbatim with the never-gated note: the toggle switches modes
+    explicitly, the current state is visible in the menu bar, and no toggle ever produced two
+    live captures or an inferred switch.
+
+    *Failure:* a toggle that starts a second capture, a state not visible in the menu bar, an
+    inferred (non-explicit) switch, or a converse session not stoppable from the menu.
+
+138. **The converse-never-injects check (C11, recorded — never gated).**
+
+    *Gesture:* put the cursor in a real editable field in a real app (Notes, Slack, an editor),
+    type a known marker, then run a **converse** session (≥1 committed turn — speak, hear the
+    reply, end); after the session, verify the focused field contains **exactly the marker and
+    nothing else** — no transcript text was typed, pasted, or AX-inserted; and verify the widget
+    showed **no target app name** in converse (the absence of `→ AppName` is itself a mode
+    signal, `PRODUCT_SPEC.md:198-201` — the `◈ Vocca` label never names a target).
+
+    *Verify the state was entered:* the CONVERSING surface was really entered (listening/speaking
+    states seen), the session committed ≥1 turn (ASR ran and produced a transcript — a silent
+    session proves nothing), and the focused field was a real editable field with the marker
+    before the session.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **0 bytes entered into the
+    focused field** across the converse session, and no target app name shown — the structural
+    prohibition (no `TextInjector` call from the converse path, enforced by type/assertion and
+    asserted in CI) observed on the real surface.
+
+    *Failure:* any text landing in the field, the marker disturbed, or the widget showing a target
+    app name in converse (any of these is a prohibition violation — recorded verbatim and
+    surfaced).
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here
