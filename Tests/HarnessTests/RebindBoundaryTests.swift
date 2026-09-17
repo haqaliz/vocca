@@ -92,22 +92,34 @@ final class RebindBoundaryTests: XCTestCase {
     /// not activation mode's silent no-op — because a rebind that appears not to have registered
     /// invites a second attempt, and the second attempt is made on a keyboard whose binding the
     /// user is no longer sure of.
+    ///
+    /// The third reason is `dual-mode`'s cross-chord collision (`converse-hotkey` D4): a
+    /// candidate equal to the other mode's wired chord is refused — payload-free, so the
+    /// `CaseIterable` synthesis and this closed-set walk stay alive.
     func testTheRefusalsAreAClosedSet() {
         XCTAssertEqual(
-            Set(RebindRefusal.allCases), [.sessionInFlight, .notBindable],
-            "two reasons a rebind is refused — a third must be named here, and given copy, "
+            Set(RebindRefusal.allCases),
+            [.sessionInFlight, .notBindable, .collidesWithOtherMode],
+            "three reasons a rebind is refused — a fourth must be named here, and given copy, "
                 + "rather than reaching a user as a rebind that silently did nothing")
     }
 
     /// The three answers are distinguishable, which is the whole reason the outcome is a type
     /// rather than a `Bool`: *nothing changed* and *we would not change it* lead to different
     /// sentences on the page, and a caller that cannot tell them apart writes one of them wrong.
+    ///
+    /// The third refusal distinguishes from the other two — a collision is not a busy moment and
+    /// not an unbindable chord; the recorder must say which.
     func testTheThreeOutcomesAreDistinguishable() {
         XCTAssertNotEqual(RebindOutcome.rebound, .unchanged)
         XCTAssertNotEqual(RebindOutcome.unchanged, .refused(.sessionInFlight))
         XCTAssertNotEqual(
             RebindOutcome.refused(.sessionInFlight), .refused(.notBindable),
             "a refusal carries *which* refusal — the reason is the half the user needs")
+        XCTAssertNotEqual(
+            RebindOutcome.refused(.collidesWithOtherMode), .refused(.sessionInFlight))
+        XCTAssertNotEqual(
+            RebindOutcome.refused(.collidesWithOtherMode), .refused(.notBindable))
         XCTAssertEqual(RebindOutcome.refused(.notBindable), .refused(.notBindable))
     }
 
