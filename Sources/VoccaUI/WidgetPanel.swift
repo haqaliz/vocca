@@ -62,7 +62,15 @@ public final class WidgetPanel: NSPanel {
 
     /// The state the previous `apply` saw — the diff the sound selection reads. A converse entry
     /// plays the tick; a phase change or any dictation transition plays nothing.
-    private var lastState: WidgetState
+    ///
+    /// Initialised to `.idle`, the pre-session state, not to the store's current state: the
+    /// window is created **lazily on the first non-IDLE fold** (`LiveWidget`), so by the time
+    /// this initializer runs the store already holds the state that fold produced — the diff
+    /// against the store's current state would be converse→converse and the entry tick would
+    /// never play on the one apply that can. Diffing against the pre-session IDLE makes the
+    /// initial `apply` the tick's play (the `widget-converse` D6 edge case, pinned by
+    /// `WidgetPanelBindingTests`).
+    private var lastState: WidgetState = .idle
 
     /// The store observation, cancelled with the window.
     private var observation: AnyCancellable?
@@ -79,7 +87,6 @@ public final class WidgetPanel: NSPanel {
     ) {
         self.store = store
         self.soundPlayer = soundPlayer
-        self.lastState = store.state.state
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 30),
             styleMask: [.nonactivatingPanel, .titled],

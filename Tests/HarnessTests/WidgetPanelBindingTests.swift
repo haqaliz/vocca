@@ -127,6 +127,25 @@ final class WidgetPanelBindingTests: XCTestCase {
         XCTAssertTrue(panel.isVisible, "the phase change must not hide the pill")
     }
 
+    /// The lazy-creation path (`LiveWidget` creates the window on the first non-IDLE fold):
+    /// the store is already `.conversing` when the panel exists, so the initial `apply` diff is
+    /// against the pre-session IDLE — the entry tick plays on the very `apply` that shows the
+    /// window, which is the only one that can (D6's edge case).
+    func testThePanelCreatedMidConversationPlaysTheTickOnItsInitialApply() async {
+        let store = WidgetStateStore(clock: TestClock())
+        store.fold(.state(.conversing(phase: .listening)))
+        let player = RecordingWidgetSoundPlayer()
+        let panel = WidgetPanel(
+            store: store,
+            levelSource: FakeLevelSource(level: 0.5),
+            soundPlayer: player)
+
+        XCTAssertEqual(
+            player.played, [.converseStarted],
+            "the initial apply is the entry tick — the panel is born on the fold that enters converse")
+        XCTAssertTrue(panel.isVisible)
+    }
+
     // MARK: - The sound hook (dual-mode widget-converse D6)
 
     /// The panel's `apply` drives the sound selection through the seam: the fake player records
