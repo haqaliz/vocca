@@ -252,16 +252,28 @@ public enum PersistedSettings {
         .control, .option, .shift, .command, .function, .capsLock,
     ]
 
-    /// How the shipped chord is written in a report, so a user reading the log sees the binding
-    /// they have been given rather than two numbers.
-    private static var shippedChordDescription: String {
-        HotkeyChordFormatter.describe(
-            keyCode: defaultHotkeyKeyCode, modifiers: defaultHotkeyModifiers)
-    }
-
     /// The chord a fresh install runs, and the chord every failure below degrades to.
     public static var defaultHotkeyChord: HotkeyChord {
         HotkeyChord(keyCode: defaultHotkeyKeyCode, modifiers: defaultHotkeyModifiers)
+    }
+
+    /// The key code a fresh install's converse chord is bound to: Space, as in `⌥⇧Space`
+    /// (`PRODUCT_SPEC.md:192`).
+    ///
+    /// The same number as the dictate chord's — the shipped pair shares a key code with a
+    /// strict-superset modifier set, and the superset press is the designed R1 no-op
+    /// (`SessionRules.swift:122-128`), never a collision (the `converse-hotkey` aspect's load-
+    /// bearing row pins the pair accepted). The same number as `AppBootstrap.shippedHotkeyKeyCode`,
+    /// which is the composition root's name for it — held together by test rather than by comment,
+    /// because the two live in modules that cannot import each other.
+    public static let defaultConverseHotkeyKeyCode: UInt16 = 49
+
+    /// The modifiers a fresh install's converse chord is bound with: Option and Shift.
+    public static let defaultConverseHotkeyModifiers: ModifierSet = [.option, .shift]
+
+    /// The converse chord a fresh install runs, and the chord every converse failure degrades to.
+    public static var defaultConverseHotkeyChord: HotkeyChord {
+        HotkeyChord(keyCode: defaultConverseHotkeyKeyCode, modifiers: defaultConverseHotkeyModifiers)
     }
 
     /// The two strings a chord is stored as — decimal, matching the store's habit of persisting
@@ -270,15 +282,39 @@ public enum PersistedSettings {
     /// **Two values rather than one encoded chord**, so that a half-written pair degrades to the
     /// shipped default rather than to a chord nobody chose: a single string with a missing half
     /// has no shape that says so.
+    ///
+    /// Chord-agnostic: the same encode serves the dictate pair and the converse pair
+    /// (`dual-mode` D1 — two key pairs, one rationale).
     public static func encodeHotkeyChord(_ chord: HotkeyChord) -> (keyCode: String, modifiers: String) {
         (String(chord.keyCode), String(chord.modifiers.rawValue))
     }
 
     /// Decode a persisted chord, tolerantly — the same three-answer contract as the settings
     /// above, over a *pair* of stored strings.
+    ///
+    /// The dictation wrapper: the `dual-mode` converse chord reads through the generalized form
+    /// below with ``defaultConverseHotkeyChord``; this signature is the dictate half, byte-for-
+    /// byte the behavior the dictate rows pin.
     public static func decodeHotkeyChord(
         keyCodeRaw: String?,
         modifiersRaw: String?,
+        onInvalidValue: (String) -> Void
+    ) -> HotkeyChord {
+        decodeHotkeyChord(
+            keyCodeRaw: keyCodeRaw, modifiersRaw: modifiersRaw,
+            defaultChord: defaultHotkeyChord, onInvalidValue: onInvalidValue)
+    }
+
+    /// Decode a persisted chord, tolerantly, **against a named fallback** — the same three-answer
+    /// contract as the dictation decode, parameterized by the chord it degrades to.
+    ///
+    /// `dual-mode` D1: the decode is chord-agnostic and reused; only the fallback chord (and its
+    /// rendered name in every report — "the fallback it degraded to") differs between the
+    /// dictation pair and the converse pair.
+    public static func decodeHotkeyChord(
+        keyCodeRaw: String?,
+        modifiersRaw: String?,
+        defaultChord: HotkeyChord,
         onInvalidValue: (String) -> Void
     ) -> HotkeyChord {
         if (keyCodeRaw == nil) != (modifiersRaw == nil) {
@@ -286,38 +322,45 @@ public enum PersistedSettings {
             let missing = keyCodeRaw == nil ? "keyCode" : "modifiers"
             onInvalidValue(
                 "settings: half a stored hotkey binding (\(present) present, \(missing) "
-                    + "missing); falling back to \(shippedChordDescription)")
-            return defaultHotkeyChord
+                    + "missing); falling back to \(describe(defaultChord))")
+            return defaultChord
         }
-        guard let keyCodeRaw, let modifiersRaw else { return defaultHotkeyChord }
+        guard let keyCodeRaw, let modifiersRaw else { return defaultChord }
         guard let keyCode = UInt16(keyCodeRaw) else {
             onInvalidValue(
                 "settings: unreadable hotkey key code \"\(keyCodeRaw)\"; falling back to "
-                    + shippedChordDescription)
-            return defaultHotkeyChord
+                    + describe(defaultChord))
+            return defaultChord
         }
         guard let modifierBits = UInt16(modifiersRaw) else {
             onInvalidValue(
                 "settings: unreadable hotkey modifiers \"\(modifiersRaw)\"; falling back to "
-                    + shippedChordDescription)
-            return defaultHotkeyChord
+                    + describe(defaultChord))
+            return defaultChord
         }
         let modifiers = ModifierSet(rawValue: modifierBits)
         guard modifiers.subtracting(knownModifierBits).isEmpty else {
             onInvalidValue(
                 "settings: hotkey modifiers \"\(modifiersRaw)\" carry a bit this version does "
-                    + "not define; falling back to \(shippedChordDescription)")
-            return defaultHotkeyChord
+                    + "not define; falling back to \(describe(defaultChord))")
+            return defaultChord
         }
         let validity = HotkeyBindingRules.validate(keyCode: keyCode, modifiers: modifiers)
         guard isAdoptable(validity) else {
             onInvalidValue(
                 "settings: stored hotkey "
                     + "\(HotkeyChordFormatter.describe(keyCode: keyCode, modifiers: modifiers)) "
-                    + "is not bindable (\(validity)); falling back to \(shippedChordDescription)")
-            return defaultHotkeyChord
+                    + "is not bindable (\(validity)); falling back to \(describe(defaultChord))")
+            return defaultChord
         }
         return HotkeyChord(keyCode: keyCode, modifiers: modifiers)
+    }
+
+    /// How a fallback chord is written in a report — the generalized decode's "the fallback it
+    /// degraded to", rendered so a user reading the log sees the binding they have been given
+    /// rather than two numbers.
+    private static func describe(_ chord: HotkeyChord) -> String {
+        HotkeyChordFormatter.describe(keyCode: chord.keyCode, modifiers: chord.modifiers)
     }
 
     /// Whether a stored chord of this validity may be adopted at launch.

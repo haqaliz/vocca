@@ -29,13 +29,16 @@ final class HotkeyBindingRulesTests: XCTestCase {
 
     // MARK: - The vocabulary
 
-    /// The refusal set is closed at three reasons, and `CaseIterable` is the mechanism the
-    /// exhaustiveness test below rides on rather than decoration: a fourth reason added without a
+    /// The refusal set is closed at four reasons, and `CaseIterable` is the mechanism the
+    /// exhaustiveness test below rides on rather than decoration: a fifth reason added without a
     /// candidate that produces it fails there, not in review.
+    ///
+    /// The fourth is `dual-mode`'s cross-chord collision (`converse-hotkey` D4) — produced only
+    /// by the three-argument overload, which is why that row's reachability leg is separate.
     func testTheRefusalVocabularyIsClosed() {
         XCTAssertEqual(
             Set(HotkeyBindingRefusal.allCases),
-            [.modifierOnly, .reservedByVocca, .unmodifiedTextEntryKey],
+            [.modifierOnly, .reservedByVocca, .unmodifiedTextEntryKey, .collidesWithOtherMode],
             """
             The refusal vocabulary changed. A new reason is a product decision — spec.md names \
             the closed set — and it needs a candidate that produces it before it exists.
@@ -334,14 +337,17 @@ final class HotkeyBindingRulesTests: XCTestCase {
     /// and house doctrine reserves warnings for facts Vocca cannot verify (the user's machine is
     /// the authority on their own shortcuts).
     func testACandidateEqualToTheOtherModesChordIsRefusedAsACollision() {
-        let dictate = HotkeyChord(keyCode: 0x31, modifiers: [.option])
-        let converse = HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift])
+        let dictateChord = HotkeyChord(keyCode: 0x31, modifiers: [.option])
+        let converseChord = HotkeyChord(keyCode: 0x31, modifiers: [.option, .shift])
 
+        // The converse row is open and the user presses the dictate chord — the candidate is
+        // exactly the other mode's wired chord.
         XCTAssertEqual(
-            HotkeyBindingRules.validate(converse, against: [], otherChord: dictate),
+            HotkeyBindingRules.validate(dictateChord, against: [], otherChord: dictateChord),
             .refused(.collidesWithOtherMode))
+        // The dictate row is open and the user presses the converse chord.
         XCTAssertEqual(
-            HotkeyBindingRules.validate(dictate, against: [], otherChord: converse),
+            HotkeyBindingRules.validate(converseChord, against: [], otherChord: converseChord),
             .refused(.collidesWithOtherMode))
     }
 
@@ -506,23 +512,36 @@ final class HotkeyBindingRulesTests: XCTestCase {
     /// produced by some candidate, driven over `allCases` rather than a hand-written list. A new
     /// reason added to the enum without a candidate that reaches it fails here, so a refusal
     /// nothing can produce cannot be shipped — and neither can one no test knows how to trigger.
-    func testEveryRefusalReasonIsReachable() {
+func testEveryRefusalReasonIsReachable() {
         let candidates: [(UInt16, ModifierSet)] = [
             (0x37, [.command]),  // kVK_Command alone       -> modifierOnly
             (0x35, []),  // kVK_Escape              -> reservedByVocca
             (0x02, []),  // kVK_ANSI_D bare         -> unmodifiedTextEntryKey
         ]
-        let produced = Set(
+        var produced = Set(
             candidates.compactMap { code, chord -> HotkeyBindingRefusal? in
                 guard case .refused(let reason) =
                     HotkeyBindingRules.validate(keyCode: code, modifiers: chord)
                 else { return nil }
                 return reason
             })
+
+        // The fourth reason lives on the three-argument overload — the cross-chord collision
+        // (`converse-hotkey` D4) needs the other mode's chord as input, which the two-argument
+        // form has no parameter for.
+        let collision = HotkeyChord(keyCode: 0x31, modifiers: [.option])
+        if case .refused(let reason) =
+            HotkeyBindingRules.validate(collision, against: [], otherChord: collision)
+        {
+            produced.insert(reason)
+        }
+
         XCTAssertEqual(
             produced, Set(HotkeyBindingRefusal.allCases),
             """
-            A refusal reason exists that no candidate above produces. Either the rules cannot             reach it — a reason a user can never be given — or a new reason was added without             the candidate that shows it happening. Add the candidate, not an exception.
+            A refusal reason exists that no candidate above produces. Either the rules cannot \
+            reach it — a reason a user can never be given — or a new reason was added without \
+            the candidate that shows it happening. Add the candidate, not an exception.
             """)
     }
     // MARK: - Single-source scans (criterion 9)

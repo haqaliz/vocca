@@ -258,9 +258,9 @@ final class SettingsCopyTests: XCTestCase {
     /// Every member this file asserts. The list is the checklist the scan above enforces.
     private static let pinnedMembers: Set<String> = [
         "toggleTitle", "toggleDetail", "holdTitle", "holdDetail", "dictionaryEmpty",
-        "hotkeyLabel", "hotkeyRecordButton", "hotkeyRecordingPrompt", "hotkeyUseAnyway",
-        "hotkeyCancel", "hotkeyRefusal", "hotkeySystemShortcutWarning", "hotkeyRebindRefusal",
-        "hotkeyOtherAppsUnknown", "hotkeySystemShortcutsIncomplete",
+        "hotkeyLabel", "converseHotkeyLabel", "hotkeyRecordButton", "hotkeyRecordingPrompt",
+        "hotkeyUseAnyway", "hotkeyCancel", "hotkeyRefusal", "hotkeySystemShortcutWarning",
+        "hotkeyRebindRefusal", "hotkeyOtherAppsUnknown", "hotkeySystemShortcutsIncomplete",
         "keepInTrayTitle", "keepInTrayDetail",
     ]
 }

@@ -710,6 +710,7 @@ private final class TimerFactory {
 /// A settings store with no disk behind it, remembering what it was handed.
 private final class EphemeralSettingsStore: SettingsStore, @unchecked Sendable {
     private var chord: HotkeyChord
+    private var converse: HotkeyChord
     private var activation: HotkeyConfiguration.Activation
     private var selection = EngineSelection.defaultSelection
     private var acknowledgedCloud = false
@@ -718,11 +719,16 @@ private final class EphemeralSettingsStore: SettingsStore, @unchecked Sendable {
     /// and "persisted once" are different bugs and a flag cannot tell them apart.
     private(set) var chordWrites = 0
 
+    /// The converse half of ``chordWrites`` — a count rather than a flag, for the same reason.
+    private(set) var converseChordWrites = 0
+
     init(
         chord: HotkeyChord = PersistedSettings.defaultHotkeyChord,
+        converseChord: HotkeyChord = PersistedSettings.defaultConverseHotkeyChord,
         activation: HotkeyConfiguration.Activation = PersistedSettings.defaultActivation
     ) {
         self.chord = chord
+        self.converse = converseChord
         self.activation = activation
     }
 
@@ -736,6 +742,11 @@ private final class EphemeralSettingsStore: SettingsStore, @unchecked Sendable {
     func setHotkeyChord(_ chord: HotkeyChord) {
         self.chord = chord
         chordWrites += 1
+    }
+    func converseChord() -> HotkeyChord { converse }
+    func setConverseChord(_ chord: HotkeyChord) {
+        self.converse = chord
+        converseChordWrites += 1
     }
     func hasAcknowledgedCloudCleanup() -> Bool { acknowledgedCloud }
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }

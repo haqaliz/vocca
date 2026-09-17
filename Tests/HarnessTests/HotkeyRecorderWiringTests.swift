@@ -332,6 +332,8 @@ private final class RecorderSettingsStore: SettingsStore, @unchecked Sendable {
     }
     func hotkeyChord() -> HotkeyChord { chord }
     func setHotkeyChord(_ chord: HotkeyChord) { self.chord = chord }
+    func converseChord() -> HotkeyChord { PersistedSettings.defaultConverseHotkeyChord }
+    func setConverseChord(_ chord: HotkeyChord) {}
     func hasAcknowledgedCloudCleanup() -> Bool { acknowledgedCloud }
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }
     func keepInTray() -> Bool { false }

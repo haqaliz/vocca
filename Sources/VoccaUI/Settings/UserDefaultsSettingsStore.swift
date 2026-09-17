@@ -85,6 +85,19 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     /// The modifiers half of the pair.
     public static let hotkeyModifiersKey = "settings.hotkey.modifiers"
 
+    /// The frozen keys the **converse** chord lives under (`dual-mode` R3) — the second pair,
+    /// under the same `settings.hotkey.` prefix. Pinned by test as literals, for the same reason
+    /// as the dictate pair's.
+    ///
+    /// **Four keys, two pairs, one rationale** (`converse-hotkey` D1): a half-written converse
+    /// pair decodes loudly to ⌥⇧Space, never to a chord nobody chose. The dictate pair's spelling
+    /// is byte-for-byte unchanged — a renamed key would silently reset every existing user's
+    /// binding.
+    public static let converseHotkeyKeyCodeKey = "settings.hotkey.converse.keyCode"
+
+    /// The modifiers half of the converse pair.
+    public static let converseHotkeyModifiersKey = "settings.hotkey.converse.modifiers"
+
     private let defaults: UserDefaults
     private let log: @Sendable (String) -> Void
 
@@ -143,6 +156,27 @@ public struct UserDefaultsSettingsStore: SettingsStore {
         let encoded = PersistedSettings.encodeHotkeyChord(chord)
         defaults.set(encoded.keyCode, forKey: Self.hotkeyKeyCodeKey)
         defaults.set(encoded.modifiers, forKey: Self.hotkeyModifiersKey)
+    }
+
+    /// The bound converse chord, or the shipped default (⌥⇧Space).
+    ///
+    /// The dictate read's shape exactly: both halves go through ``rawValue(forKey:)``, so a
+    /// stored non-string takes the loud path rather than reading as nothing stored — and a
+    /// corrupted half is seen as half a pair rather than silently paired with the default's
+    /// other half.
+    public func converseChord() -> HotkeyChord {
+        PersistedSettings.decodeHotkeyChord(
+            keyCodeRaw: rawValue(forKey: Self.converseHotkeyKeyCodeKey),
+            modifiersRaw: rawValue(forKey: Self.converseHotkeyModifiersKey),
+            defaultChord: PersistedSettings.defaultConverseHotkeyChord,
+            onInvalidValue: log)
+    }
+
+    /// Persist the bound converse chord — both halves. Best-effort, never throws.
+    public func setConverseChord(_ chord: HotkeyChord) {
+        let encoded = PersistedSettings.encodeHotkeyChord(chord)
+        defaults.set(encoded.keyCode, forKey: Self.converseHotkeyKeyCodeKey)
+        defaults.set(encoded.modifiers, forKey: Self.converseHotkeyModifiersKey)
     }
 
     /// Whether the cloud-cleanup confirmation has been read and accepted. `false` for a fresh

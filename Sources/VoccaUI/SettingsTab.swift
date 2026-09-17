@@ -96,6 +96,10 @@ public enum SettingsCopy {
     /// (``SettingsCopyTests``).
     public static let hotkeyLabel = "Dictation shortcut"
 
+    /// What the converse row's control is (`dual-mode` D6) — the second recorder row's label,
+    /// naming the mode the row edits.
+    public static let converseHotkeyLabel = "Converse shortcut"
+
     /// The button that starts a recording.
     public static let hotkeyRecordButton = "Change…"
 
@@ -129,6 +133,12 @@ public enum SettingsCopy {
             // The mechanism is deliberately not explained. What matters to the person in front of
             // it is that the bare key would stop typing everywhere, and that a modifier fixes it.
             return "That key types on its own. Add ⌘, ⌥, ⌃ or ⇧ so you can still use it."
+        case .collidesWithOtherMode:
+            // The row the user is editing names the mode, and the chord is in their hand — so the
+            // sentence says "the other mode" rather than repeating either name (`converse-hotkey`
+            // D4). A refusal, not a warning: both chords are Vocca-owned facts.
+            return "Vocca already uses that shortcut for the other mode. The two shortcuts have "
+                + "to be different."
         }
     }
 
@@ -161,6 +171,12 @@ public enum SettingsCopy {
             // binding, so a user should never read this — but a refusal with no words is worse
             // than one that is terse.
             return "That shortcut can't be used."
+        case .collidesWithOtherMode:
+            // The gate's defensive twin of the capture-time collision: the recorder refuses the
+            // chord the moment it is pressed, so this should never be read — the `.notBindable`
+            // precedent, same sentence, same reason.
+            return "Vocca already uses that shortcut for the other mode. The two shortcuts have "
+                + "to be different."
         }
     }
 

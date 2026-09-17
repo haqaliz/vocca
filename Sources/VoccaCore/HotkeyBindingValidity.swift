@@ -35,6 +35,17 @@ public enum HotkeyBindingRefusal: Sendable, Equatable, CaseIterable {
     /// that key untypeable **system-wide** — in a tool whose entire job is putting text into
     /// fields, with the recovery path behind a Settings window that needs the keyboard.
     case unmodifiedTextEntryKey
+
+    /// The candidate is **the other mode's wired chord** (`dual-mode` R3, `converse-hotkey` D4).
+    ///
+    /// Start matching is equality (`SessionRules.swift:187,342`), so an equal pair is the one
+    /// configuration in which one press matches both bindings and chord-keyed routing is
+    /// ambiguous — and this is a **refusal, not a warning**: both chords are Vocca-owned facts,
+    /// and house doctrine reserves warnings for facts Vocca cannot verify (the user's machine is
+    /// the authority on their own shortcuts). Payload-free, so ``CaseIterable`` keeps synthesizing
+    /// and the closed-set walks stay alive. The copy names "the other mode" — the row the user is
+    /// editing names the mode, and the chord is in their hand.
+    case collidesWithOtherMode
 }
 
 /// A binding that is legal but worth saying something about.
