@@ -98,7 +98,11 @@ Sources/
     Onboarding/              # the five-step first-run flow (shipped `first-run-permissions`,
                              #   2026-08-27)
   VoccaCore/
-    Session/                 # DictationSession, ConverseSession, SessionMode
+    Session/                 # DictationSession, ConverseSession
+    Mode/                    # SessionMode + SessionModeMachine — the explicit mode
+                             #   machine (REAL since `dual-mode`, 2026-09-16):
+                             #   SessionModeIntent/Effect, ModeSession, the closed
+                             #   transition table, the TextInjector prohibition
     Custody/                 # TranscriptCustody — I1 lives here
     Pipeline/                # stage orchestration + latency spans
     Config/                  # Configuration, persistence, defaults
@@ -234,7 +238,9 @@ struct InjectionResult: Sendable {
 // ─── Cleanup ──────────────────────────────────────────────────────────────
 struct CleanupContext: Sendable {
     let target: TargetContext
-    let mode: SessionMode
+    let mode: SessionMode              // consumed at last — per-mode provider selection,
+                                       // `CleanupResolver.resolve(mode:)` (`dual-mode`,
+                                       // 2026-09-16)
     let dictionary: [ReplacementRule]
     let budget: Duration            // exceed it and we return raw — I5
 }
@@ -264,12 +270,14 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Capture (dictation) | `SessionAudioSource` | `MicrophoneSource` | No — always local |
 | Capture (voice loop, C10) | `ContinuousAudioSource` | `StreamingCapture` | No — always local |
 | ASR | `ASREngine` | `ParakeetEngine`, `WhisperCppEngine` | **Yes** |
-| Cleanup | `CleanupProvider` | `RulesCleanup`, `OllamaCleanup`, `BYOKCleanup` | **Yes** |
+| Cleanup | `CleanupProvider` | `RulesCleanup`, `OllamaCleanup`, `BYOKCleanup` — per-mode provider selection real since `dual-mode` (2026-09-16): `resolve(mode:)` with the persisted per-mode keys | **Yes** |
 | Injection | `TextInjector` | `LadderInjector` + per-rung strategies | No — always local |
 | Strategy memory | `InjectionStrategyStore` | `PersistentInjectionStrategyStore`, `EphemeralInjectionStrategyStore` (tests) | No |
 | TTS | `SpeechSynthesizer` | `KokoroEngine`, `SystemSynthesizer` | **Yes** |
 | VAD | `VoiceActivityDetector` | `SileroVAD` (FluidAudio `VadManager`, in `VoccaASR/VAD/` — H8b), `EnergyVAD` (fallback/tests) | No |
 | Turn detection | `TurnDetector` | `SilenceThresholdDetector` (shipped); `ParakeetEOU` **PENDING** — Branch B, the EOU is ASR-integrated in the pinned SDK, not a standalone scored call (`sdk-adapters`, 2026-09-15) | No |
+| Reply generation | `ReplyGenerator` | `EchoReplyGenerator` (the shipped default — your words back byte-for-byte), `AcknowledgmentReplyGenerator` ("Vocca is listening.") — two deterministic locals (`reply-seam`, 2026-09-16); **C13's real agent slots in behind this seam** | **Yes** |
+| Mode (dictate/converse) | `SessionMode` + `SessionModeMachine` | the explicit state machine (`VoccaCore/Mode/`) — chord-keyed, no implicit switching, the injection path reachable only from the dictate state (type/assertion-enforced; `mode-machine`, 2026-09-16) | No — always local |
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` | **No — by design** |
 | Actions | `ActionProvider` | `MCPProvider`, `ShellProvider` | No |
 
@@ -391,6 +399,10 @@ record are the claims, never a latency number CI did not produce.
 ┌─ SessionMachine (VoccaCore), owned by whoever owns the tap ─┐
 │  The orchestrator. Owns SessionMode, drives the pipeline,   │
 │  owns TranscriptCustody. Single source of truth for state.  │
+│  SessionMode is the explicit `SessionModeMachine` since     │
+│  `dual-mode` (2026-09-16) — chord-keyed at session start,   │
+│  no implicit switching, the injection path reachable only   │
+│  from the dictate state (§5)                                │
 └───┬──────────┬──────────┬──────────┬────────────────────────┘
     │          │          │          │
  ASRActor  TextActor  InjectActor  SpeechActor
@@ -563,6 +575,14 @@ bought latency (`prd.md` M1).
 
 The user dictionary is plain JSON in Application Support — hand-editable and version-controllable, because the people who need a custom dictionary most (developers, clinicians, lawyers) are exactly the people who will want to sync it.
 
+*Annotated (`dual-mode`, 2026-09-16): `CleanupContext.mode` is **consumed at last** — the
+`CleanupResolver` gained `resolve(mode: SessionMode)` (the no-arg `resolve()` is
+`resolve(mode: .dictation)`, same decision table, same degrade, same cache), and the converse
+path calls `resolve(mode: .conversing)`. The per-mode selection persists in `cleanup-config.json`
+under the `converseProvider` key (`CleanupConfigDraft.converseProvider`, default `.rules`; an
+existing file without the key decodes to converse `.rules` — no migration), with the Cleanup
+tab's converse picker as the one control. The timeout-yields-raw policy is unchanged.*
+
 ---
 
 ## 12. Voice loop (P3) — full duplex and barge-in
@@ -588,6 +608,8 @@ The user dictionary is plain JSON in Application Support — hand-editable and v
 **Hold-to-talk remains available forever** as the escape hatch. When endpointing misjudges, the user must always have a mode where their finger is the ground truth.
 
 That is unchanged by the 2026-08-25 amendment making **toggle the shipped default** (`ROADMAP.md`, `PRODUCT_SPEC.md`): "available forever" is a statement about the mode existing, not about it being the default. Both configurations of the machine are constructed and owned at every launch; `DictationLoopRoot.defaultMode` decides only which one the tap's events reach, and `setActiveMode(_:)` moves that route. The escape hatch this paragraph is about is therefore still there, and the endpointing argument it rests on is untouched — it concerns P3's VAD, which P0 does not run in either mode.
+
+*Annotated (`dual-mode`, 2026-09-16) — the loop is now WIRED, additively, in `VoccaBootstrap` (`ConverseWiring.swift`, `composeConverseWiring`): the C10 recipe executes — a capture-stream driver (`ConverseLoopDriver`) over `StreamingCapture` (or `RefusingContinuousCapture` when the graph refuses), the loop composed with the fallback `EnergyVAD`/`SilenceThresholdDetector` pair and the shipped reply stand-in `EchoReplyGenerator`, utterance → ASR (`engineIfReady`) → cleanup (`resolve(mode: .conversing)`) → reply → render → playback (`SystemPlayback` with `reportPlayback*`), the barge-in path applied, and `onStateChange` folded through `WidgetProjection.project(turnState:)` into the widget store (the only source of the CONVERSING state). The mode machine (`SessionModeMachine`, §5) owns the chord routing: a converse-chord press starts/stops the driver, system triggers end every session, and the dictate wiring is byte-for-byte today's — the machine's dictate rows forward to it unchanged. The `PROBE-CONVERSE` leg drives the converse default work inside the zero-network interposer; the realtime conversation is the SMOKE leg (steps 134-138), executed by nothing in CI.*
 
 ---
 
@@ -694,6 +716,7 @@ Every seam has a fake; every capability's acceptance from `CAPABILITY_ROADMAP.md
 | **Network interposer** | Asserts **zero outbound connections** on the default path | C6 — **permanent release blocker** |
 | **Benchmark harness** | Replays fixtures, asserts p50/p95, fails CI on regression | C7 |
 | **Conversational set** | Labelled turn boundaries; scores endpointing with 5× false-cutoff weight. **Shipped (`turn-taking-barge-in`, 2026-09-15):** the `TurnCommitmentScorer` + scripted corpus + harness run in CI (passing corpus 1.0000 with zero false cutoffs; the planted-false-cutoff corpus genuinely fails at 0.0000; the late-commit corpus 0.2500); the founder-recorded set is SMOKE 131, recorded never gated | C10 |
+| **Mode-machine acceptance** | **Shipped (`dual-mode`, 2026-09-16):** the prohibition — no `TextInjector` call is ever made from the converse path, enforced by type/assertion and asserted in CI (`ModeProhibitionTests` + the seam-lint scan) — and the mode-transition reset (full state reset with no carryover of buffer, transcript, or target, `ModeResetTests`); `PROBE-CONVERSE` drives the converse default work inside the zero-network interposer. The realtime conversation is the SMOKE leg (134-138), founder-run, recorded never gated | C11 |
 | **Custody audit** | Asserts no `CustodyToken` is ever deinit'd unresolved | I1, all phases |
 
 The load-bearing tests are the failure-path ones. Any competent implementation passes the happy path; what distinguishes this product is that the ladder's fourth rung always catches, and only fault injection proves it.
