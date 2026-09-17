@@ -10,6 +10,113 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `dual-mode` unit shipped 2026-09-16 — C11's CONVERSING surface is real: the mode
+machine, the wired loop, the honest reply stand-in; no gate passes.** `feat/dual-mode/aliz`.
+Seven aspects plus the integrator's routing close: the explicit `SessionMode` state machine
+with the closed 7-row transition table, the `ReplyGenerator` seam with two deterministic
+implementations (the shipped default is honest about being a stand-in), the additive converse
+composition in `VoccaBootstrap` driven by `PROBE-CONVERSE` inside the zero-network
+interposer, the CONVERSING widget state with its five cues, the per-mode cleanup selection
+consumed at last, the persisted converse chord with the two-chord rebind surface, and the
+routing close that made the machine the chords' owner. SMOKE 134-138 are **written and
+runnable** — the full spoken exchange, mode clarity, the chord rebind, the menu-bar toggle,
+and the never-injects check; the executed rows land when the founder runs them. Floor
+**2350** (executed 2350).
+
+**What shipped, per aspect.** *mode-machine* (299765f, 359523f, 4544e38; floor 2160 held):
+the `SessionModeMachine` in `VoccaCore/Mode/` (`SessionModeIntent`, `SessionModeEffect`,
+`ModeSession`) — the epoch-minted `ModeSession` handoff (buffer/transcript/target — the reset
+carrier), the closed 7-row transition table (idle ↔ active, the other-mode rows refused), the
+seam-family lint and the `TextInjector`-prohibition scan (no `TextInjector` call is ever made
+from the converse path), `ModeResetTests` (full state reset with no carryover). *reply-seam*
+(0798a8d, 59b4cb0, 931e334; 2160 → 2208): the `ReplyGenerator` seam in `VoccaCore/Reply/`
+with the two deterministic local implementations — `EchoReplyGenerator` (the shipped default,
+your words back byte-for-byte) and `AcknowledgmentReplyGenerator` ("Vocca is listening.") —
+and the seam-family lint. *converse-wiring* (22e6a9e, 32f6e4d, 05f1f5c, 1422eb8, ed468fe,
+1cf22e9; 2208 → 2233): the `ConverseLoopDriver` + `ConverseTurnFailure` behind the pinned
+contracts, the additive `AppBootstrap` composition (`ConverseWiring.swift` — the third
+`AudioCaptureGraph`, `StreamingCapture`/`RefusingContinuousCapture`, the fallback
+VAD/detector, `EchoGate`, `SystemPlayback`, `resolve(mode: .conversing)`), `PROBE-CONVERSE`
+inside the zero-network interposer, the converse-family lint, and the first G5 pin re-anchor.
+*widget-converse* (b862d27, a098969, c1333cd, 37048b9, 200860e; 2233 → 2301 → 2302):
+`WidgetState.conversing(phase: ConversePhase)` — the turn-state projection, the five cues
+(notched pill, distinct hue, `◈` labels, lower tick, no target name), the never-a-target
+rule's full spine, the lower-tick sound seam, the menu-bar mode toggle, the family lint, and
+the second pin re-anchor. *per-mode-cleanup* (2dd7cb9, 5a4933b, ef12cea, 95df602):
+`cleanup-config.json`'s `converseProvider` key (default `.rules`, no migration),
+`resolve(mode:)` with the no-arg ≡ `.dictation` equivalence, the Cleanup tab's converse
+picker — `CleanupContext.mode` consumed at last. *converse-hotkey* (a93ad5d, 785e6d0,
+7550e13, f8068ac, 7fc2fc5; 2302 → 2334): the converse chord `⌥⇧Space` persisted (four frozen
+keys), `rebind(to:for:)` with the two-chord rebind surface, the collision refusal (equality —
+neither chord can end the other's session), the in-flight refusal
+(`RebindOutcome.refused(.sessionInFlight)`), and the third pin re-anchor. *mode-routing*
+(79d3901, c6a0b6e; no ratchet — the suite's growth is the record's deliberate ratchet below):
+the machine's owner at last — the chord press → `machine.observe` → `driver.start()`/`stop()`,
+the stop chord leg, system-trigger stops, the menu toggle (`root.selectMode(_:)`), the
+projection feed from `onStateChange`, the fourth pin re-anchor, and the recorded test-harness
+limitation (the routing's fire-and-forget driver stop under async XCTest trips the Swift
+task-allocator LIFO check — swiftlang#75501/#81771/#87481; the suite pins the stop's
+synchronous contract instead). *record* (this entry): SMOKE 134-138, the five-cue prose
+correction, the STATUS/CLAUDE/ARCHITECTURE sync, and the floor verified then deliberately
+ratcheted.
+
+**The G5 pin re-anchor record.** `AppBootstrap.swift` is the one pinned file C11
+legitimately changes (its wiring is additive converse composition), so the pin was
+deliberately re-anchored four times in reviewed commits — per the pin's own contract ("a
+deliberate edit recomputes the digest and edits the pin in review; it must never be edited to
+match a moved tree"): `03b624df…` → `a323750e…` (`converse-wiring` ed468fe), → `a4302a24…`
+(`widget-converse` a098969), → `292c1d8f…` (`converse-hotkey` f8068ac), →
+`6d98acf4…0448` (`mode-routing` c6a0b6e — the unit's **final** digest). The dictation files'
+digests are unchanged throughout: `SessionMachine.swift
+1baeb2de2c45149746468bfef49862a08279008d3d2f305be892122d5727537e`, `DictationPipeline.swift
+ce70ca10c15914d6960f07e53da8571a5fa9ec1fb58b8f0051ef051f16c07a84`.
+
+**The five-cue correction recorded.** `PRODUCT_SPEC.md:188`'s "four simultaneous differences"
+corrected to "five simultaneous cues" (O7, the card's Contradictions surfaced 1); `:203`'s
+"color is the *third* cue" recorded as a table position (color is the third row of the
+five-cue table), not a count. The seam-doctrine citation drift is recorded here too: the PRD
+cites `CAPABILITY_ROADMAP.md:413` for the two-implementations guardrail; the guardrail's line
+is **`:414`** (the landed `AcknowledgmentReplyGenerator` doc cites the corrected line).
+
+**Measured (recorded, never gated):**
+- The full suite at the unit's close: **2350 tests executed** through the floor script (the
+  record's run printed `executed 2350 (floor: 2334)` — the routing close grew
+  `ModeRoutingCompositionTests` without a ratchet; the mismatch was surfaced and the
+  deliberate, reviewed ratchet landed as its own commit, eeacd87, 2334 → 2350).
+- `PROBE-CONVERSE` drives the converse default work (fallback VAD/detector +
+  `EchoReplyGenerator`) inside the zero-network interposer — the zero-network invariant stays
+  green over the probe leg.
+- SMOKE 134-138 are **written and runnable, not yet executed**: the ≥5-turn spoken exchange
+  with ≥1 barge-in and the keyboard untouched (134), the zero-mis-injections week (135), the
+  chord rebind (136), the menu-bar toggle (137), and the never-injects check (138) —
+  recorded, never gated, land when the founder runs them; this aspect's merge does not depend
+  on their execution.
+
+**The honesty block:**
+- **No P2/P3 gate passes.** The P3 gate's spoken-exchange leg (`ROADMAP.md:215-217`) is SMOKE
+  134 — recorded, never gated — and **the conversational leg stays formally unmet until C13's
+  real agent**: the shipped reply is `EchoReplyGenerator`, an honest stand-in that does not
+  understand, remember, or act; it echoes so the loop is exercisable end to end.
+- **Numbers recorded never gated.** Every measured row above is recorded verbatim; an
+  over-budget observation is recorded verbatim too, never a pass.
+- **The dictation path is byte-for-byte untouched** — the G5 pin's first two digests unchanged
+  across all four re-anchors; `AppBootstrap`'s re-anchor is deliberate and recorded, never an
+  edit-to-match.
+- **Converse never injects** — structural (the `.conversing` payload is phase-only; no
+  `TextInjector` call from the converse path, enforced by type/assertion and asserted in CI),
+  and SMOKE 138 observes it on the real surface.
+- **Zero network.** The zero-network interposer stays green over `PROBE-CONVERSE`; the
+  converse default work is fallback VAD/detector + the minimal reply generator — no model
+  artifact, no SDK, no URL in the converse path.
+- **Interim states recorded, not papered over:** `ParakeetEOU` stays PENDING —
+  `SilenceThresholdDetector` is the shipped `TurnDetector`, consumed as-is (Branch B);
+  per-mode ASR engine selection deferred (N1); the ledger stays dictation-only (converse
+  sessions not folded — recorded out-of-scope); the routing's task-allocator limitation is
+  recorded with its pinned synchronous-contract shape; hold-to-talk (dictate) stays whole.
+- Floor **2350** (executed 2350).
+
+---
+
 **The `turn-taking-barge-in` unit's machinery shipped 2026-09-15 — C10's seams, loop and echo
 gate are real; no gate passes, no user-visible surface.** `feat/turn-taking-barge-in/aliz`.
 Seven aspects: the FluidAudio VAD/EOU vetting (six findings, the EOU-shape correction, the
