@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import VoccaCore
+
 /// The menu bar's symbols and words — one file, so the icon, the status line and the VoiceOver
 /// label for a state can never drift out of agreement with each other.
 public enum MenuBarCopy {
@@ -124,5 +126,27 @@ public enum MenuBarCopy {
     /// button is a single element and its icon is meaningless to a screen reader.
     public static func accessibilityLabel(for state: MenuBarState, hotkey: String) -> String {
         "Vocca. \(statusTitle(for: state)). \(statusDetail(for: state, hotkey: hotkey))"
+    }
+
+    /// The mode section's rows (`dual-mode` D8; `PRODUCT_SPEC.md:361`'s "mode toggle"): each row
+    /// names the mode it selects, in the product's own vocabulary (`prd.md:47-52`). Exact-equality
+    /// pinned in `MenuBarStateTests` — the menu's words are copy, and copy is a decision.
+    public static func modeTitle(_ mode: SessionMode) -> String {
+        switch mode {
+        case .dictation: return "Dictation"
+        case .conversing: return "Conversation"
+        }
+    }
+
+    /// The mode row's VoiceOver label: **new copy the spec does not write** (§11 names the
+    /// toggle's existence, not its words) — decided here as the action each row performs, so a
+    /// screen reader hears the row as something to do rather than as a label of what is. Pinned
+    /// by exact equality with the decision recorded (the decided-new-copy precedent,
+    /// `UsageTabCopyTests.swift:298-308`).
+    public static func modeToggleTitle(_ mode: SessionMode) -> String {
+        switch mode {
+        case .dictation: return "Switch to Dictation"
+        case .conversing: return "Switch to Conversation"
+        }
     }
 }
