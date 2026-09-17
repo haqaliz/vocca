@@ -38,6 +38,12 @@ final class AppQuitPolicyTests: XCTestCase {
         /// terminated.
         var replies: [Bool] = []
 
+        /// The deferred reply's signal — the reply lands on a separate main-actor hop after the
+        /// work completes (`AppQuitPolicy.accept()`'s task), so a test that awaits only the work
+        /// can read the reply list before it is written under a loaded runner. Awaiting this
+        /// makes the ordering deterministic without touching the policy.
+        private var replyWaiters: [CheckedContinuation<Void, Never>] = []
+
         func makePolicy() -> AppQuitPolicy {
             AppQuitPolicy(
                 keepInTray: { self.keepInTray },
@@ -50,7 +56,24 @@ final class AppQuitPolicyTests: XCTestCase {
                 keepInTray: { self.keepInTray },
                 stayInTray: { self.stayInTrayCalls += 1 },
                 flushBeforeTerminating: work.work,
-                replyWhenFinished: { self.replies.append($0) })
+                replyWhenFinished: {
+                    self.replies.append($0)
+                    let waiters = self.replyWaiters
+                    self.replyWaiters = []
+                    for waiter in waiters { waiter.resume() }
+                })
+        }
+
+        /// Suspends until the deferred reply has been recorded.
+        func replyLanded() async {
+            guard replies.isEmpty else { return }
+            await withCheckedContinuation { continuation in
+                if replies.isEmpty {
+                    replyWaiters.append(continuation)
+                } else {
+                    continuation.resume()
+                }
+            }
         }
     }
 
@@ -145,6 +168,7 @@ final class AppQuitPolicyTests: XCTestCase {
 
         await work.ran()
         XCTAssertEqual(work.runCount, 1, "the work runs exactly once per quit")
+        await probe.replyLanded()
         XCTAssertEqual(
             probe.replies, [true],
             """

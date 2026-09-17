@@ -342,13 +342,13 @@ public struct CleanupConfig: Sendable, Equatable {
         case .rules:
             return .rules
         case .ollama:
-            guard let ollama else {
+            guard ollama != nil else {
                 log("cleanup-config: the converse ollama selection has no block (a model is required); using the rules provider for conversations")
                 return .rules
             }
             return .ollama
         case .byok:
-            guard let byok else {
+            guard byok != nil else {
                 log("cleanup-config: the converse byok selection has no block (a dialable endpoint is required); using the rules provider for conversations")
                 return .rules
             }
