@@ -1759,8 +1759,15 @@ set -euo pipefail
 # VOCCA_MODEL_DIR and skips visibly in CI — skips count as executed, which is what this
 # line's arithmetic assumes.
 #
+# The dual-mode raise (2334 -> 2350; executed 2350) — the mode-routing close
+# (`feat/dual-mode/aliz`, 79d3901 + c6a0b6e) grew `ModeRoutingCompositionTests` without a
+# ratchet: the record aspect's floor run at close printed `executed 2350 (floor: 2334)`, the
+# mismatch surfaced per the plan's edge case 5, and the integrator directed the deliberate
+# reviewed ratchet in its own commit — the count taken from the floor script's own parse at
+# record time.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2334
+MINIMUM_EXECUTED_TESTS=2350
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
