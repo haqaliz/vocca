@@ -48,6 +48,10 @@ import VoccaCore
 struct HotkeyRecorderView: View {
 
     let bindings: SettingsBindings
+    /// Which mode's chord this row edits (`dual-mode` D5) — surface context, never reducer
+    /// state: the mode picks the label, the display-name read and the closures' mode argument,
+    /// and the reducer stays mode-agnostic.
+    let mode: SessionMode
 
     @State private var state: HotkeyRecorderState = .idle
     /// The modifiers held right now, for the live preview while a chord is being pressed. Display
@@ -56,7 +60,7 @@ struct HotkeyRecorderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            LabeledContent(SettingsCopy.hotkeyLabel) {
+            LabeledContent(label) {
                 ZStack {
                     // The capture view sits behind the label so it can be made first responder
                     // without changing the layout.
@@ -64,7 +68,7 @@ struct HotkeyRecorderView: View {
                         isRecording: state.isRecording,
                         onKeyEvent: { rawFlags, keyCode in
                             let chord = bindings.chordForKeyEvent(rawFlags, keyCode)
-                            apply(.chordCaptured(chord, bindings.validateChord(chord)))
+                            apply(.chordCaptured(chord, bindings.validateChord(chord, mode)))
                         },
                         // Through the same seam the chord is, with a key code the `fn` rule does
                         // not touch — so an explicitly-held fn shows, and this view still
@@ -102,7 +106,16 @@ struct HotkeyRecorderView: View {
         // be triggered is a state the reducer put the recorder into — not a branch in a button.
         .onChange(of: state.chordToApply) { _, chord in
             guard let chord else { return }
-            apply(.rebindAnswered(bindings.rebind(chord)))
+            apply(.rebindAnswered(bindings.rebind(chord, mode)))
+        }
+    }
+
+    /// The row's label — the per-mode copy, read from ``SettingsCopy`` rather than a literal in
+    /// the view (a literal in a view is a string with no pin).
+    private var label: String {
+        switch mode {
+        case .dictation: return SettingsCopy.hotkeyLabel
+        case .conversing: return SettingsCopy.converseHotkeyLabel
         }
     }
 
@@ -119,7 +132,10 @@ struct HotkeyRecorderView: View {
             return HotkeyChordFormatter.describe(
                 keyCode: chord.keyCode, modifiers: chord.modifiers)
         case .idle, .applying:
-            return bindings.hotkeyDisplayName()
+            switch mode {
+            case .dictation: return bindings.hotkeyDisplayName()
+            case .conversing: return bindings.converseHotkeyDisplayName()
+            }
         }
     }
 

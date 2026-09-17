@@ -242,6 +242,13 @@ public enum AppBootstrap {
         // and must carry the same binding, and two reads can answer differently the moment a
         // rebind lands between them.
         let hotkey = Self.hotkeyConfigurations(chord: settings.hotkeyChord())
+        // The converse chord, read **once** beside it (`dual-mode` R3): the two chords are the
+        // routing's one stored truth, and a second read of either can answer differently the
+        // moment a rebind lands between them. The converse wiring itself is chord-agnostic
+        // (`composeConverseWiring` takes no chord — the driver is the machine's slot, and the
+        // chord is the routing's question), so the local lands on the root, where the routing
+        // composition reads the wired fact.
+        let converseChord = settings.converseChord()
 
         // MARK: The engine lifecycle
         //
@@ -506,6 +513,7 @@ public enum AppBootstrap {
             },
             makeResolver: makeResolver,
             settings: settings,
+            converseChord: converseChord,
             downloadSession: downloadSession,
             recorder: ledger,
             sessionBox: sessionBox,
@@ -1366,6 +1374,10 @@ public final class DictationLoopRoot {
                     // very page the user changed it on (the `engineSelection` argument, applied to
                     // the fact this tab exists to show).
                     hotkeyDisplayName: { [weak self] in self?.hotkeyDisplayName ?? "" },
+                    // The converse row's own display name — same doctrine, second mode.
+                    converseHotkeyDisplayName: { [weak self] in
+                        self?.converseHotkeyDisplayName ?? ""
+                    },
                     // The recorder reads a raw macOS modifier word and a key code off an NSEvent
                     // and translates neither: the `fn` rule — where the hardware sets the function
                     // bit by itself on the arrow keys and the navigation cluster — lives in the
@@ -1379,18 +1391,30 @@ public final class DictationLoopRoot {
                                 rawFlags: rawFlags, keyCode: keyCode))
                     },
                     // Asked once, and answered by Core: the rules plus what the system has already
-                    // claimed, with the refusal outranking the collision. The preferences domain is
-                    // read here, while a chord is being recorded — once per capture, never on the
-                    // dictation path — because the user may have changed a shortcut since launch.
-                    validateChord: { chord in
-                        HotkeyBindingRules.validate(
-                            chord, against: SystemShortcutDefaultsReader().occupiedChords())
+                    // claimed — and what the *other* mode is wired to, so a candidate equal to it
+                    // is refused as a collision the moment it is pressed (the refusal outranks the
+                    // system warning). The other chord is read live from the root, never captured:
+                    // the window is built once, and a captured chord would keep refusing against a
+                    // binding the user already changed. The preferences domain is read here, while
+                    // a chord is being recorded — once per capture, never on the dictation path —
+                    // because the user may have changed a shortcut since launch.
+                    validateChord: { [weak self] chord, mode in
+                        let other: HotkeyChord
+                        switch mode {
+                        case .dictation: other = self?.boundChord(for: .conversing)
+                            ?? PersistedSettings.defaultConverseHotkeyChord
+                        case .conversing: other = self?.boundChord(for: .dictation)
+                            ?? PersistedSettings.defaultHotkeyChord
+                        }
+                        return HotkeyBindingRules.validate(
+                            chord, against: SystemShortcutDefaultsReader().occupiedChords(),
+                            otherChord: other)
                     },
                     // The answer is returned to the page, not left in a log: a rebind that appears
                     // not to have registered invites a second attempt, made on a keyboard whose
                     // binding the user is no longer sure of.
-                    rebind: { [weak self] chord in
-                        self?.rebind(to: chord) ?? .refused(.notBindable)
+                    rebind: { [weak self] chord, mode in
+                        self?.rebind(to: chord, for: mode) ?? .refused(.notBindable)
                     },
                     // The *live* selection, not the launch-time one: after a switch this label
                     // must name the engine Vocca is now using, and the resolver's selection is
@@ -1790,6 +1814,18 @@ public final class DictationLoopRoot {
     /// where a switch applies but is not persisted.
     private let settings: (any SettingsStore)?
 
+    /// **The converse chord this process listens for** (`dual-mode` R3, `converse-hotkey`).
+    ///
+    /// The converse wiring itself is chord-agnostic — `ConverseLoopDriver` takes no chord; the
+    /// driver is the machine's slot, and the chord is the routing's question. So the wired fact
+    /// lives here, beside the wirings the routing would compare it against: minted once at
+    /// launch from the read-once store read (``configure``), replaced by the converse rebind's
+    /// atomic swap, read by ``boundChord(for:)`` for the collision guard and the display name.
+    /// The routing composition (the mode machine's owner) reads this same fact, so a rebound
+    /// chord keeps delivering the start and the chord-again stop with equality-match semantics
+    /// (`SessionRules.swift:66-72`) — and never reads as the other mode's chord.
+    public private(set) var converseChord: HotkeyChord
+
     private let logger = Logger(subsystem: "dev.vocca.Vocca", category: "loop")
 
     /// - Parameters:
@@ -1843,6 +1879,7 @@ public final class DictationLoopRoot {
         pipelineAssembly: (@MainActor (any ASREngine) async throws -> DictationPipeline)? = nil,
         makeResolver: (@Sendable (EngineSelection) -> DictationEngineResolver)? = nil,
         settings: (any SettingsStore)? = nil,
+        converseChord: HotkeyChord = PersistedSettings.defaultConverseHotkeyChord,
         downloadSession: (any ModelDownloadSession)? = nil,
         recorder: (any LatencyRecorder)? = nil,
         sessionBox: LatencySessionBox? = nil,
@@ -1877,6 +1914,7 @@ public final class DictationLoopRoot {
         self.pipelineAssembly = pipelineAssembly
         self.makeResolver = makeResolver
         self.settings = settings
+        self.converseChord = converseChord
         self.readiness = readiness
         self.widgetClock = widgetClock
         self.runningAppName = runningAppName
@@ -2123,12 +2161,14 @@ public final class DictationLoopRoot {
 
     // MARK: - The binding
 
-    /// **Binds the hotkey to a new chord, at an idle boundary** — `hotkey-rebinding` M4.
+    /// **Binds the hotkey to a new chord, at an idle boundary** — `hotkey-rebinding` M4, in the
+    /// `dual-mode` two-mode shape (`converse-hotkey` D3).
     ///
     /// ``setActiveMode(_:)``'s and ``setEngineSelection(_:)``'s shape, and for the same reason: a
     /// change while a session is in flight is refused, so a user who rebinds mid-dictation gets the
     /// new chord on their next press rather than a broken session. Nothing is ever swapped under a
-    /// running microphone.
+    /// running microphone — and the guard is over **all** wirings of **both** modes, so a rebind
+    /// of either chord is refused while any session — dictate or converse — is in flight (PRD R3).
     ///
     /// **This is a rebuild, not a value update, and that is a safety choice rather than a
     /// limitation.** The binding is immutable end to end — `HotkeyConfiguration`'s fields are `let`
@@ -2140,24 +2180,31 @@ public final class DictationLoopRoot {
     /// Fatal for trust. Rebuilding on an idle boundary makes that unrepresentable rather than
     /// merely unlikely.
     ///
-    /// The order of the seven steps below is the whole of the argument:
+    /// The order of the eight steps below is the whole of the argument:
     ///
     /// 1. **Refuse a no-op.** Re-choosing the running chord must not cost two rebuilt watchdogs and
     ///    two discarded timers — which is exactly what a recorder's Save button does when a user
     ///    opens it, looks at the binding and saves it back.
-    /// 2. **Refuse what the rules refuse**, before anything is built or written. The rules are
+    /// 2. **Refuse the cross-chord collision.** The candidate equals the *other* mode's wired
+    ///    chord — the ask is wrong, and the cheapest check fails first. Same-mode re-ask is
+    ///    `.unchanged` (step 1); other-mode's chord is `.refused(.collidesWithOtherMode)`; the two
+    ///    questions are two guards.
+    /// 3. **Refuse what the rules refuse**, before anything is built or written. The rules are
     ///    asked, never re-derived: the recorder, the launch read and this method give one answer or
     ///    they give three.
-    /// 3. **Refuse unless both machines are quiet** — see ``isQuiet(_:)``. Both, not the routed
-    ///    one: both are constructed at every launch, and a session in the unrouted machine is
-    ///    still a session.
-    /// 4. **Build both new wirings**, with nothing adopted yet.
-    /// 5. **Persist.**
-    /// 6. **Swap, and re-point the route** — one straight-line block with no suspension point in
+    /// 4. **Refuse unless every wiring of both modes is quiet** — see ``isQuiet(_:)``. All of
+    ///    them, not the routed one: both dictate wirings and the converse wiring are constructed at
+    ///    every launch, and a session in the unrouted mode is still a session.
+    /// 5. **Build the new wiring(s)**, with nothing adopted yet. Dictate rebuilds the hold/toggle
+    ///    pair; the converse rebuild is the wired-chord fact itself — the driver is chord-agnostic
+    ///    by construction, so there is nothing else to build on that side (the routing composition
+    ///    reads the root's fact, never a remembered copy).
+    /// 6. **Persist**, per mode.
+    /// 7. **Swap, and re-point the route** — one straight-line block with no suspension point in
     ///    it, which is what makes the rebuild atomic (M4a).
-    /// 7. **Stop the retired timers**, after the swap.
+    /// 8. **Stop the retired timers**, after the swap.
     ///
-    /// **Synchronous, and it must stay so.** A suspension point between step 3 and step 6 would let
+    /// **Synchronous, and it must stay so.** A suspension point between step 4 and step 7 would let
     /// a session start into a wiring that is about to be discarded — which is the failure the idle
     /// guard exists to prevent, re-introduced one `await` at a time.
     ///
@@ -2165,12 +2212,28 @@ public final class DictationLoopRoot {
     /// from event kinds, never key codes — and it is owned above the wirings; re-creating it would
     /// be a chance to lose a working tap, since `CGEvent.tapCreate` needs the Accessibility grant.
     ///
+    /// - Parameters:
+    ///   - chord: the chord to bind.
+    ///   - mode: which mode's chord is being bound — the dictate pair (`holdToTalk` + `toggle`
+    ///     wirings) or the converse chord.
     /// - Returns: what happened, **returned rather than only logged** (M5), so the recorder can
     ///   tell the user why a rebind did not take. A rebind that appears not to have registered
     ///   invites a second attempt, made on a keyboard whose binding the user is no longer sure of.
     @discardableResult
-    public func rebind(to chord: HotkeyChord) -> RebindOutcome {
-        guard chord != boundChord else { return .unchanged }
+    public func rebind(to chord: HotkeyChord, for mode: SessionMode) -> RebindOutcome {
+        guard chord != boundChord(for: mode) else { return .unchanged }
+
+        // Step 2 — the cross-chord collision (`converse-hotkey` D3/D4). The ask is wrong: the
+        // candidate equals the *other* mode's wired chord. Two guards, two answers: a single
+        // equality guard would silently answer `.unchanged` for the collision, because the
+        // candidate equals *some* bound chord. Start matching is equality
+        // (`SessionRules.swift:187,342`), so an equal pair is the one configuration in which one
+        // press matches both bindings and chord-keyed routing is ambiguous. The app can never
+        // create that configuration through its own surface.
+        let otherMode: SessionMode = mode == .dictation ? .conversing : .dictation
+        guard chord != boundChord(for: otherMode) else {
+            return .refused(.collidesWithOtherMode)
+        }
 
         let validity = HotkeyBindingRules.validate(
             keyCode: chord.keyCode, modifiers: chord.modifiers)
@@ -2182,49 +2245,72 @@ public final class DictationLoopRoot {
             return .refused(.notBindable)
         }
 
-        guard Self.isQuiet(holdToTalk), Self.isQuiet(toggle) else {
+        // Step 4. **All wirings of both modes must be quiet** — the two dictate wirings and the
+        // converse wiring (the driver's loop is the converse machine's own state, never a
+        // projection). A session in the unrouted mode is still a session: a rebind is a rebuild,
+        // and adopting one under a running session would discard the wiring that owns the open
+        // microphone — the Fatal-rated C1-A shape, now across modes.
+        guard Self.isQuiet(holdToTalk), Self.isQuiet(toggle), Self.isQuiet(converseDriver) else {
             logger.error(
                 "refusing to rebind the hotkey while a session is in flight — end it first")
             return .refused(.sessionInFlight)
         }
 
-        // Step 4. Everything fallible or expensive happens here, with nothing adopted yet: two new
-        // machines, two new watchdogs, two fresh timers. If this were to fail, the previous pair is
-        // still built and still routed.
-        let configurations = AppBootstrap.hotkeyConfigurations(chord: chord)
-        let rebuilt = Self.makeWirings(
-            holdToTalk: configurations.holdToTalk, toggle: configurations.toggle,
-            ceiling: ceiling, clock: clock, holdSource: gate, toggleSource: toggleGate,
-            keyState: keyState, holdTimer: makeWatchdogTimer(), toggleTimer: makeWatchdogTimer(),
-            deferOpening: deferOpening, deliverEffect: deliverEffect)
+        // Step 5. Everything fallible or expensive happens here, with nothing adopted yet: the
+        // dictate rebuild is two new machines, two new watchdogs, two fresh timers; the converse
+        // wiring's rebuild is the wired-chord fact itself — `ConverseLoopDriver` is chord-agnostic
+        // by construction (`composeConverseWiring` takes no chord; the driver is the machine's
+        // slot and the chord is the routing's question), so there is nothing to rebuild on that
+        // side, and the seam is adopted at step 6. If the dictate construction were to fail, the
+        // previous pair is still built and still routed.
+        var rebuilt: (holdToTalk: Wiring, toggle: Wiring)?
+        if mode == .dictation {
+            let configurations = AppBootstrap.hotkeyConfigurations(chord: chord)
+            rebuilt = Self.makeWirings(
+                holdToTalk: configurations.holdToTalk, toggle: configurations.toggle,
+                ceiling: ceiling, clock: clock, holdSource: gate, toggleSource: toggleGate,
+                keyState: keyState, holdTimer: makeWatchdogTimer(), toggleTimer: makeWatchdogTimer(),
+                deferOpening: deferOpening, deliverEffect: deliverEffect)
+        }
 
-        // Step 5. Persisted only now, and this is where the order deviates from `setActiveMode`.
+        // Step 6. Persisted only now, and this is where the order deviates from `setActiveMode`.
         // That method persists first because its adopt is infallible; this one does real
         // construction, so persisting first would risk a store describing a chord the running app
         // never adopted — the failure that method's own comment warns about, from the other side.
-        settings?.setHotkeyChord(chord)
-
-        // Step 6. **One straight-line block, with no `await` and no suspension point in it.** This
-        // is what makes the rebuild atomic (M4a): there is no window in which one wiring is new and
-        // the other old, and none in which the routing sink points at a discarded object. It is
-        // also why this method is synchronous and must stay so — a suspension between the idle
-        // guard above and these three lines would let a session start into a wiring about to be
-        // thrown away.
-        let previous = (holdToTalk: holdToTalk, toggle: toggle)
-        holdToTalk = rebuilt.holdToTalk
-        toggle = rebuilt.toggle
-        switch activeMode {
-        case .holdToTalk: modeRouting.active = rebuilt.holdToTalk.scheduledWatchdog
-        case .toggle: modeRouting.active = rebuilt.toggle.scheduledWatchdog
+        switch mode {
+        case .dictation: settings?.setHotkeyChord(chord)
+        case .conversing: settings?.setConverseChord(chord)
         }
 
-        // Step 7. After the swap, so a timer that refuses to stop cannot leave the new graph
-        // unrouted: a leaked timer is a leak, and a dead hotkey on an `LSUIElement` app is
-        // indistinguishable from a working one. `stop()` rather than the non-asserting form
-        // because this is not a `deinit` — the method is `@MainActor` and the isolation the shipped
-        // timer asserts is genuinely held.
-        previous.holdToTalk.timer.stop()
-        previous.toggle.timer.stop()
+        // Step 7. **One straight-line block, with no `await` and no suspension point in it.** This
+        // is what makes the rebuild atomic (M4a): there is no window in which one mode's wiring is
+        // new and the other's old, and none in which the routing sink points at a discarded object.
+        // It is also why this method is synchronous and must stay so — a suspension between the
+        // idle guard above and these lines would let a session start into a wiring about to be
+        // thrown away.
+        switch mode {
+        case .dictation:
+            guard let rebuilt else {
+                preconditionFailure("a dictate rebind must build its wirings at step 5")
+            }
+            let previous = (holdToTalk: holdToTalk, toggle: toggle)
+            holdToTalk = rebuilt.holdToTalk
+            toggle = rebuilt.toggle
+            switch activeMode {
+            case .holdToTalk: modeRouting.active = rebuilt.holdToTalk.scheduledWatchdog
+            case .toggle: modeRouting.active = rebuilt.toggle.scheduledWatchdog
+            }
+
+            // Step 8. After the swap, so a timer that refuses to stop cannot leave the new graph
+            // unrouted: a leaked timer is a leak, and a dead hotkey on an `LSUIElement` app is
+            // indistinguishable from a working one. `stop()` rather than the non-asserting form
+            // because this is not a `deinit` — the method is `@MainActor` and the isolation the
+            // shipped timer asserts is genuinely held.
+            previous.holdToTalk.timer.stop()
+            previous.toggle.timer.stop()
+        case .conversing:
+            converseChord = chord
+        }
 
         return .rebound
     }
@@ -2249,26 +2335,61 @@ public final class DictationLoopRoot {
         wiring.machine.state == .idle && !wiring.machine.hasPendingOpening
     }
 
-    /// **The bound chord as a person reads it** — the one answer all three surfaces render
-    /// (`general-tab-recorder` M10): the General tab, the menu bar's VoiceOver label and
+    /// **Whether the converse wiring has nothing in flight** — the quiet half of the mode-keyed
+    /// rebind's guard (`converse-hotkey` D3).
+    ///
+    /// The converse machine's own state is the driver's loop state (`TurnTakingLoop` — the
+    /// machine the mode machine's converse slot drives), read here rather than a projection of
+    /// it: a widget state is a rendering, and the rebind guard must ask the machine. `nil` — a
+    /// composition that built no converse wiring, which is every headless harness — is quiet:
+    /// there is no session a rebuild could strand.
+    private static func isQuiet(_ driver: ConverseLoopDriver?) -> Bool {
+        driver.map { $0.loop.state == .idle } ?? true
+    }
+
+    /// **The bound dictate chord as a person reads it** — the one answer all three surfaces
+    /// render (`general-tab-recorder` M10): the General tab, the menu bar's VoiceOver label and
     /// onboarding's "Hold …" lines.
     ///
-    /// Computed from ``boundChord`` through ``HotkeyChordFormatter`` on every read, so there is no
-    /// stored string anywhere to go stale. All three surfaces are built once and kept for the
-    /// process's lifetime, and until this aspect all three read one captured literal — so the first
-    /// rebind would have left every one of them naming a chord nothing was bound to
+    /// Computed from ``boundChord(for:)`` through ``HotkeyChordFormatter`` on every read, so there
+    /// is no stored string anywhere to go stale. All three surfaces are built once and kept for
+    /// the process's lifetime, and until this aspect all three read one captured literal — so the
+    /// first rebind would have left every one of them naming a chord nothing was bound to
     /// (`HotkeySurfaceAgreementTests`).
     public var hotkeyDisplayName: String {
         HotkeyChordFormatter.describe(
-            keyCode: boundChord.keyCode, modifiers: boundChord.modifiers)
+            keyCode: boundChord(for: .dictation).keyCode,
+            modifiers: boundChord(for: .dictation).modifiers)
     }
 
-    /// The chord the loop is listening for **now** — read from the wiring rather than remembered,
+    /// **The bound converse chord as a person reads it** — the General tab's converse row's one
+    /// answer (`dual-mode` D6).
+    ///
+    /// Computed from ``boundChord(for: .conversing)`` on every read, so a rebind is visible the
+    /// moment it lands — the window is built once and kept for the process's lifetime, and a
+    /// captured string would go on naming the old converse chord until the next launch, on the
+    /// very page the user just changed it on.
+    public var converseHotkeyDisplayName: String {
+        HotkeyChordFormatter.describe(
+            keyCode: converseChord.keyCode, modifiers: converseChord.modifiers)
+    }
+
+    /// The chord the mode is listening for **now** — read from the wiring rather than remembered,
     /// so a rebind cannot leave it describing a binding nothing is bound to.
-    private var boundChord: HotkeyChord {
-        HotkeyChord(
-            keyCode: holdToTalk.configuration.keyCode,
-            modifiers: holdToTalk.configuration.modifiers)
+    ///
+    /// Dictate reads the hold-to-talk wiring, as it always has; converse reads the root's wired
+    /// chord fact — the driver is chord-agnostic by construction, and this fact is what the
+    /// routing composition compares presses against (equality-match semantics, the
+    /// `converse-hotkey` handoff).
+    private func boundChord(for mode: SessionMode) -> HotkeyChord {
+        switch mode {
+        case .dictation:
+            return HotkeyChord(
+                keyCode: holdToTalk.configuration.keyCode,
+                modifiers: holdToTalk.configuration.modifiers)
+        case .conversing:
+            return converseChord
+        }
     }
 
     // MARK: - The engine

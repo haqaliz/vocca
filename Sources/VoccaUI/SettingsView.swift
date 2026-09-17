@@ -38,6 +38,11 @@ public struct SettingsBindings {
     /// binding until the next launch — including on the very page the user had just changed it on.
     /// The `engineSelection` argument, applied to the fact this tab exists to show.
     public var hotkeyDisplayName: () -> String
+    /// The converse chord, in the form a person reads — **read, never captured**, the
+    /// `hotkeyDisplayName` doctrine for the second mode (`dual-mode` D6): the window is built
+    /// once and kept for the process's lifetime, so a captured string would go on naming the old
+    /// converse binding until the next launch — on the very page the user had just changed it on.
+    public var converseHotkeyDisplayName: () -> String
     /// **What a captured key event means as a chord.** The recorder reads a raw macOS modifier
     /// word and a virtual key code off an `NSEvent` and hands them straight here — it translates
     /// nothing itself.
@@ -50,17 +55,19 @@ public struct SettingsBindings {
     /// translation the whole hotkey story rests on.
     public var chordForKeyEvent: (UInt64, UInt16) -> HotkeyChord
 
-    /// Whether a candidate chord may be bound, and what to say about it — the rules plus what the
-    /// system has already claimed, asked once (``HotkeyBindingRules/validate(_:against:)``).
-    public var validateChord: (HotkeyChord) -> HotkeyBindingValidity
+    /// Whether a candidate chord may be bound for a mode, and what to say about it — the rules
+    /// plus what the system has already claimed plus what the **other** mode is wired to, asked
+    /// once (`dual-mode` D5: the wiring closure computes the other chord; the recorder never
+    /// re-derives it).
+    public var validateChord: (HotkeyChord, SessionMode) -> HotkeyBindingValidity
 
-    /// Binds a chord, and says what happened.
+    /// Binds a chord for a mode, and says what happened.
     ///
-    /// Routed to `DictationLoopRoot.rebind(to:)`, which refuses mid-session and takes effect on the
-    /// next press. **The answer is returned, not merely logged**: a rebind that appears not to have
-    /// registered invites a second attempt, and the second attempt is made on a keyboard whose
-    /// binding the user is no longer sure of.
-    public var rebind: (HotkeyChord) -> RebindOutcome
+    /// Routed to `DictationLoopRoot.rebind(to:for:)`, which refuses mid-session — in either
+    /// mode — and takes effect on the next press. **The answer is returned, not merely logged**:
+    /// a rebind that appears not to have registered invites a second attempt, and the second
+    /// attempt is made on a keyboard whose binding the user is no longer sure of.
+    public var rebind: (HotkeyChord, SessionMode) -> RebindOutcome
 
     /// The engine currently transcribing, for the Speech tab.
     public var engineDisplayName: () -> String
@@ -172,9 +179,10 @@ public struct SettingsBindings {
         isKeepInTray: @escaping () -> Bool = { false },
         setKeepInTray: @escaping (Bool) -> Void = { _ in },
         hotkeyDisplayName: @escaping () -> String,
+        converseHotkeyDisplayName: @escaping () -> String = { "" },
         chordForKeyEvent: @escaping (UInt64, UInt16) -> HotkeyChord,
-        validateChord: @escaping (HotkeyChord) -> HotkeyBindingValidity,
-        rebind: @escaping (HotkeyChord) -> RebindOutcome,
+        validateChord: @escaping (HotkeyChord, SessionMode) -> HotkeyBindingValidity,
+        rebind: @escaping (HotkeyChord, SessionMode) -> RebindOutcome,
         engineDisplayName: @escaping () -> String,
         cleanupSummary: @escaping () async -> CleanupSummary?,
         // The converse summary defaults claim **nothing**, for the reason the dictate defaults
@@ -222,6 +230,7 @@ public struct SettingsBindings {
         self.isKeepInTray = isKeepInTray
         self.setKeepInTray = setKeepInTray
         self.hotkeyDisplayName = hotkeyDisplayName
+        self.converseHotkeyDisplayName = converseHotkeyDisplayName
         self.chordForKeyEvent = chordForKeyEvent
         self.validateChord = validateChord
         self.rebind = rebind
@@ -320,7 +329,11 @@ private struct GeneralSettingsPage: View {
     var body: some View {
         Form {
             Section("Hotkey") {
-                HotkeyRecorderView(bindings: bindings)
+                // Two rows, one per mode (`dual-mode` D6): dictation first — the older surface,
+                // the known row — converse second. Each instance holds its own recorder state,
+                // so a recording in one row never arms the other.
+                HotkeyRecorderView(bindings: bindings, mode: .dictation)
+                HotkeyRecorderView(bindings: bindings, mode: .conversing)
                 // Both limits, because the check has two separate holes and one sentence covering
                 // them would leave a reader believing the untouched half is checked.
                 Text(SettingsCopy.hotkeyOtherAppsUnknown)

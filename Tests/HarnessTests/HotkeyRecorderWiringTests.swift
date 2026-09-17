@@ -85,12 +85,14 @@ final class HotkeyRecorderWiringTests: XCTestCase {
         let chord = bindings.chordForKeyEvent(Self.rawFlags(control: true, option: true), 38)
         XCTAssertEqual(chord, Self.newChord, "the raw event word must translate to the chord meant")
 
-        state = HotkeyRecorderReducer.reduce(state, .chordCaptured(chord, bindings.validateChord(chord)))
+        state = HotkeyRecorderReducer.reduce(
+            state, .chordCaptured(chord, bindings.validateChord(chord, .dictation)))
         guard let armed = state.chordToApply else {
             return XCTFail("a clean modified chord must arm: \(state)")
         }
 
-        state = HotkeyRecorderReducer.reduce(state, .rebindAnswered(bindings.rebind(armed)))
+        state = HotkeyRecorderReducer.reduce(
+            state, .rebindAnswered(bindings.rebind(armed, .dictation)))
         XCTAssertNil(state.notice, "a rebind that landed says nothing")
         XCTAssertEqual(bindings.hotkeyDisplayName(), "⌃⌥J")
     }
@@ -104,10 +106,12 @@ final class HotkeyRecorderWiringTests: XCTestCase {
 
         var state = HotkeyRecorderReducer.reduce(.idle, .began)
         state = HotkeyRecorderReducer.reduce(
-            state, .chordCaptured(Self.newChord, harness.bindings.validateChord(Self.newChord)))
+            state,
+            .chordCaptured(
+                Self.newChord, harness.bindings.validateChord(Self.newChord, .dictation)))
         guard let armed = state.chordToApply else { return XCTFail("expected an armed chord") }
 
-        let outcome = harness.bindings.rebind(armed)
+        let outcome = harness.bindings.rebind(armed, .dictation)
         XCTAssertEqual(outcome, .refused(.sessionInFlight))
 
         state = HotkeyRecorderReducer.reduce(state, .rebindAnswered(outcome))

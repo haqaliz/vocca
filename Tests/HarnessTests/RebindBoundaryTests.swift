@@ -279,7 +279,12 @@ final class RebindBoundaryTests: XCTestCase {
     /// the same chords bind the moment it ends.
     func testARebindOfEitherChordIsRefusedWhileAConverseSessionIsInFlight() {
         let harness = Harness(converseDriver: Self.makeConverseDriver())
-        let driver = harness.converseDriver
+        guard let driver = harness.converseDriver else {
+            return XCTFail("the harness must compose the converse wiring for this row")
+        }
+        // The two modes bind two different chords — a rebind that proposed the same chord to
+        // both would be refused as a collision by the very gate this row exercises.
+        let converseTarget = HotkeyChord(keyCode: 0x69, modifiers: [.control, .command])
 
         driver.loop.start()
         XCTAssertNotEqual(driver.loop.state, .idle, "a converse session really is in flight")
@@ -287,7 +292,7 @@ final class RebindBoundaryTests: XCTestCase {
         XCTAssertEqual(
             harness.root.rebind(to: Self.newChord, for: .dictation), .refused(.sessionInFlight))
         XCTAssertEqual(
-            harness.root.rebind(to: Self.newChord, for: .conversing),
+            harness.root.rebind(to: converseTarget, for: .conversing),
             .refused(.sessionInFlight))
 
         XCTAssertEqual(
@@ -298,7 +303,7 @@ final class RebindBoundaryTests: XCTestCase {
         driver.loop.stop()
         XCTAssertEqual(harness.root.rebind(to: Self.newChord, for: .dictation), .rebound)
         XCTAssertEqual(
-            harness.root.rebind(to: Self.newChord, for: .conversing), .rebound,
+            harness.root.rebind(to: converseTarget, for: .conversing), .rebound,
             "the same chords bind the moment the converse session ends")
     }
 
@@ -307,7 +312,9 @@ final class RebindBoundaryTests: XCTestCase {
     /// machine is still a session (the dictate in-flight doctrine, applied across modes).
     func testARebindOfTheDictateChordIsRefusedWhileAConverseSessionIsInFlight() {
         let harness = Harness(converseDriver: Self.makeConverseDriver())
-        let driver = harness.converseDriver
+        guard let driver = harness.converseDriver else {
+            return XCTFail("the harness must compose the converse wiring for this row")
+        }
         let holdToTalk = harness.root.holdToTalk
         let toggle = harness.root.toggle
 
