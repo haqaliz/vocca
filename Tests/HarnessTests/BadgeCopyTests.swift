@@ -48,4 +48,31 @@ final class BadgeCopyTests: XCTestCase {
             BadgeCopy.egressHoverText(endpoint: "https://api.example.com/v1")
                 .contains("https://api.example.com/v1"))
     }
+
+    // MARK: - The context badge (widget-indicator D5)
+
+    /// **The context marker's glyph** — decided-new copy the spec does not write (O2): the SF
+    /// Symbol `eye`, distinct from the ☁︎ egress glyph at a glance (shape-carrying — the
+    /// menu-bar "shape carries the state" doctrine applied to the badge).
+    func testTheContextGlyphSymbolNameIsPinned() {
+        XCTAssertEqual(BadgeCopy.contextGlyphSymbolName, "eye")
+    }
+
+    /// **The context marker's hover** — decided-new copy the spec does not write (O2), the
+    /// egress hover's fact-then-consequence shape (`PRODUCT_SPEC.md:323`): naming what is being
+    /// read (M8) — "Vocca can read Slack. Slack allowed this." — exact-equality pinned.
+    func testTheContextHoverTextIsPinned() {
+        XCTAssertEqual(
+            BadgeCopy.contextHoverText(appName: "Slack"),
+            "Vocca can read Slack. Slack allowed this.")
+    }
+
+    /// **The empty-name fallback** (the dangling-arrow honesty rule, `WidgetCopy.swift:29-33`):
+    /// a badge with no resolved app name says so without a dangling name — "Vocca can read the
+    /// focused app. It allowed this."
+    func testTheContextHoverTextFallsBackWithoutAName() {
+        XCTAssertEqual(
+            BadgeCopy.contextHoverText(appName: nil),
+            "Vocca can read the focused app. It allowed this.")
+    }
 }
