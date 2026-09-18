@@ -77,4 +77,13 @@ public protocol SettingsStore {
     /// Persist the keep-in-tray choice. Best-effort, never throws: a failed write means the app
     /// quits when told to, which is the behaviour every fresh install already has.
     func setKeepInTray(_ keepInTray: Bool)
+    /// Whether the separate, off-by-default global grant for sending app context with cloud
+    /// cleanup is on (`context-provider` PRD M7 — per-app consent **and** this grant, never
+    /// either alone). Absent is `false` on a fresh install, silently. **Unreadable is also
+    /// `false`, loudly** — a corrupted preferences entry can never spend a grant the user never
+    /// gave.
+    func contextGrantEnabled() -> Bool
+    /// Persist — or withdraw — that grant. Best-effort, never throws: a failed write means the
+    /// toggle reverts to off, which is the safe direction.
+    func setContextGrantEnabled(_ enabled: Bool)
 }

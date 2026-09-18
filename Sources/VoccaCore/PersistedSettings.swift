@@ -225,6 +225,51 @@ public enum PersistedSettings {
         }
     }
 
+    // MARK: - Context grant
+
+    /// The stable on-disk spelling of a granted — or withdrawn — context grant.
+    ///
+    /// A string rather than a `Bool`, for the cloud acknowledgement's reason: `object(forKey:)`
+    /// cannot tell a stored `false` from a stored array from nothing at all once narrowed to
+    /// `Bool`, and the difference between "not granted" and "unreadable" is the one this
+    /// contract exists to keep.
+    public static func encodeContextGrant(_ enabled: Bool) -> String {
+        enabled ? contextGrantEnabledValue : contextGrantDisabledValue
+    }
+
+    /// The spelling of a grant that was given.
+    public static let contextGrantEnabledValue = "enabled"
+
+    /// The spelling of a withdrawn grant — written when the user turns it off, so the absent
+    /// value keeps meaning "never asked".
+    public static let contextGrantDisabledValue = "disabled"
+
+    /// **Whether the separate, off-by-default global grant for sending app context with cloud
+    /// cleanup is on** (`prd.md:102-107` — per-app consent **and** this grant, never either
+    /// alone) — the same three-answer contract, with the safe direction chosen deliberately.
+    ///
+    /// Absent is `false`, silently: a fresh install has granted nothing, which is the normal
+    /// path. **Unreadable is also `false`, loudly** — and that direction is the point. Degrading
+    /// a corrupted preferences entry to `true` would spend a grant the user never gave and send
+    /// their context off the machine without the separate explicit grant the roadmap's
+    /// acceptance demands (`CAPABILITY_ROADMAP.md:353-355`); degrading to `false` costs only a
+    /// toggle they can re-enable in one click. Those are not comparable failures.
+    public static func decodeContextGrant(
+        _ raw: String?,
+        onInvalidValue: (String) -> Void
+    ) -> Bool {
+        guard let raw else { return false }
+        switch raw {
+        case contextGrantEnabledValue: return true
+        case contextGrantDisabledValue: return false
+        default:
+            onInvalidValue(
+                "settings: unreadable context grant \"\(raw)\"; treating it as disabled, so "
+                    + "context never leaves the machine without the grant")
+            return false
+        }
+    }
+
     // MARK: - The hotkey chord
 
     /// The key code a fresh install's hotkey is bound to: Space, as in ⌥Space

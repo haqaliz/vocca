@@ -55,6 +55,16 @@ public struct BYOKCleanupProvider: CleanupProvider {
     /// The transport the completion is sent through — injected, so a test drives a stub.
     public let transport: any LLMTransport
 
+    /// The granted-context source this provider asks per `clean()` call — or `nil` (the shipped
+    /// default) for today's byte-identical shape.
+    ///
+    /// The AND-gate is the caller's decision, never this provider's (`CleanupProvider.swift:39-41`):
+    /// the source returns **only already-gated** snapshots — `nil` unless per-app consent **and**
+    /// the separate global grant held (`prd.md:102-107`) — and the provider's only decision is
+    /// "is there a granted snapshot for this turn?". The key read stays first: with the key
+    /// absent, `keyUnavailable` is thrown and the source is never asked.
+    public let grantedContext: (any GrantedContextSource)?
+
     /// The machine key the seam reserves for the BYOK provider (`ProviderIdentity.swift:31`).
     public let identity = ProviderIdentity(id: "byok-cleanup", displayName: "BYOK")
 
@@ -70,16 +80,22 @@ public struct BYOKCleanupProvider: CleanupProvider {
         endpoint: URL,
         model: String?,
         keyProvider: any KeyProvider,
-        transport: any LLMTransport
+        transport: any LLMTransport,
+        grantedContext: (any GrantedContextSource)? = nil
     ) {
         self.endpoint = endpoint
         self.model = model
         self.keyProvider = keyProvider
         self.transport = transport
+        self.grantedContext = grantedContext
     }
 
     /// Clean one transcript: read the key, build the chat-completions request, send it, parse
     /// the answer.
+    ///
+    /// The granted-context leg never throws: a source answering `nil` — the AND-gate's refusal,
+    /// or a failed read — simply leaves the payload absent. Context is enrichment; the key path
+    /// is first and is the only path that throws for what is missing.
     ///
     /// - Throws: ``LLMProviderError/keyUnavailable`` when the key is absent;
     ///   ``LLMProviderError/unauthorized`` when the server rejects the key (401/403, never
@@ -92,12 +108,21 @@ public struct BYOKCleanupProvider: CleanupProvider {
             throw LLMProviderError.keyUnavailable
         }
 
+        var grantedPayload: ContextPayload?
+        if let source = grantedContext, let snapshot = await source.grantedSnapshot() {
+            grantedPayload = ContextPayload(
+                bundleID: snapshot.bundleID,
+                windowTitle: snapshot.windowTitle,
+                selectedText: snapshot.selectedText)
+        }
+
         let body = RequestBody(
             model: model,
             messages: [
                 Message(role: "system", content: CleanupPrompts.byokSystem),
                 Message(role: "user", content: transcript.text),
-            ])
+            ],
+            context: grantedPayload)
         let request = LLMRequest(
             url: endpoint,
             headers: [
@@ -130,9 +155,23 @@ public struct BYOKCleanupProvider: CleanupProvider {
 }
 
 /// The chat-completions request body — the v1 contract, model optional (omitted when nil).
+///
+/// `context` is declared **last** on purpose (`byok-context-grant` D5): the encoder omits `nil`
+/// optionals, so an absent grant leaves the body byte-identical to the pre-grant shape — the
+/// never-in-payload pin holds by construction, and any future field must be declared after
+/// `context` or the key-set pins fail.
 private struct RequestBody: Encodable {
     let model: String?
     let messages: [Message]
+    let context: ContextPayload?
+}
+
+/// The granted-context half of the body — the snapshot's three optional fields, mirroring its
+/// nil-vs-empty semantics: absent subfields are omitted on the wire, never coerced to `""`.
+private struct ContextPayload: Encodable {
+    let bundleID: String?
+    let windowTitle: String?
+    let selectedText: String?
 }
 
 /// One chat message — role plus content; the provider ships exactly the system instruction and
