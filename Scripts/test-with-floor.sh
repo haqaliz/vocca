@@ -1790,8 +1790,17 @@ set -euo pipefail
 # fail-if-invoked mode actually fail) — the count taken from the floor script's own parse in the
 # ratchet commit.
 #
+# The confirmation-gate raise (2500 -> 2517; executed 2517) — the C13 slice-1 gate aspect:
+# `ActionGateTests` (15 — the without-a-token refusal asserted by attempting the call, the
+# read-only direct path, dry-run invoking nothing, per-tool enablement declining before both
+# `describe` and `invoke`, per-invocation-only confirmation, refusal-distinguishable-from-failure,
+# and the escalate-only rule swept over `BlastRadius.allCases` squared) and two legs added to
+# `ActionSeamBoundaryTests` (the widened Family A rows and Family B's middle leg, which stopped
+# being vacuous the day `ActionGate.swift` became the tree's first token-minting site) — the count
+# taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2500
+MINIMUM_EXECUTED_TESTS=2517
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
