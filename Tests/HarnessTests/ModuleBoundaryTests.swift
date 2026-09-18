@@ -120,9 +120,16 @@ final class ModuleBoundaryTests: XCTestCase {
     /// `AVFoundation` module name on the same reviewed row. It was the last module left in
     /// `leafModules`; the move leaves that set empty, which is the point — every module now either
     /// owns a seam or implements one.
+    ///
+    /// `VoccaContext` joined in the accessibility-context aspect: it implements the `ContextProvider`
+    /// seam (the `AccessibilityContext` conformance), the module `ARCHITECTURE.md:151` reserves
+    /// for the P4 context capability. The move is what lets it import `VoccaCore` — the seam's
+    /// types (`ContextProvider`, `ContextSnapshot`) live there — while the per-seam AX and Secure
+    /// Input lints in `InjectionSeamBoundaryTests` confine the system surfaces to the adapter's
+    /// two permitted files.
     private static let adapterModules: Set<String> = [
         "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio", "VoccaText", "VoccaUsage",
-        "VoccaSpeech",
+        "VoccaSpeech", "VoccaContext",
     ]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.
