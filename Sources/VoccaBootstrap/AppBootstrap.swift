@@ -728,6 +728,13 @@ public enum AppBootstrap {
             // routes (start from idle, the session-control stop, the refusal).
             onSelectMode: { [weak root] mode in
                 root?.selectMode(mode)
+            },
+            // The context kill row's destination — the wiring-close's (the defaulted seam
+            // `widget-indicator` D7 recorded): the menu offers the one-action revoke (M9), and
+            // the root's kill switch stops the reads, discards the in-flight snapshot and
+            // folds the badge clear in the same call.
+            onKillContext: { [weak root] in
+                root?.contextKillSwitch?()
             })
         root.menuBarItem = item
         root.onMenuBarConditionsChanged = { [weak item] conditions in
@@ -1557,6 +1564,31 @@ public final class DictationLoopRoot {
                     },
                     setCloudCleanupAcknowledged: { [weak self] acknowledged in
                         self?.settings?.setAcknowledgedCloudCleanup(acknowledged)
+                    },
+                    // The persisted BYOK grant (byok-context-grant D7): the same settings store
+                    // the engine and activation choices persist to, so the Cleanup tab's toggle
+                    // and the payload gate read one fact. Read, never captured — the window is
+                    // built once and kept for the process's lifetime.
+                    isContextGrantEnabled: { [weak self] in
+                        self?.settings?.contextGrantEnabled() ?? false
+                    },
+                    setContextGrantEnabled: { [weak self] enabled in
+                        self?.settings?.setContextGrantEnabled(enabled)
+                    },
+                    // The runtime revoke (M9, widget-indicator D8): read from the menu-bar
+                    // conditions fact the wiring folds — the kill clears the fold in the same
+                    // call, so the General tab's toggle reflects the runtime state. Read, never
+                    // captured: a captured value would keep showing the launch state after a
+                    // mid-session kill.
+                    isContextReading: { [weak self] in
+                        self?.menuBarConditions.isContextReading ?? false
+                    },
+                    // The one-action revoke: turning the toggle off throws the kill switch —
+                    // reads stop, the in-flight snapshot is discarded, the badge folds clear.
+                    // Turning it on grants nothing — the kill never reads as an invitation to
+                    // grant (M9); grants are the Apps tab's per-app consent.
+                    setContextReading: { [weak self] reading in
+                        if !reading { self?.contextKillSwitch?() }
                     },
                     // The same store the rules engine reads from, so an edit here is an edit the
                     // next dictation applies — not a second copy of the file that drifts from it.

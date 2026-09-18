@@ -410,6 +410,88 @@ final class AppBootstrapWiringTests: XCTestCase {
         return body
     }
 
+    /// **The menu bar wires the context kill row** (the wiring-close gap 2): the shipped
+    /// `MenuBarItem` construction names `onKillContext:` — the defaulted closure the
+    /// widget-indicator aspect left for the composition to fill (`MenuBarItem.swift:85-93`).
+    /// `attachMenuBarItem` runs only in `main()` (the window-server rule), so this is a source
+    /// scan of the one construction site, the `HotkeySurfaceAgreementTests` shape.
+    func testAttachMenuBarItemWiresTheContextKillRow() throws {
+        let block = try Self.menuBarItemConstructionBlock()
+        XCTAssertTrue(
+            block.contains("onKillContext:"),
+            "the menu bar item must wire onKillContext — the one-action kill row (M9) calls "
+                + "the root's kill switch")
+        XCTAssertTrue(
+            block.contains("contextKillSwitch"),
+            "the kill row must reach the root's contextKillSwitch slot")
+    }
+
+    /// **Settings constructs the four context bindings** (the wiring-close gap 3): the shipped
+    /// `SettingsBindings` construction names `isContextReading`/`setContextReading` (the
+    /// runtime revoke, M9 — read, never captured) and `isContextGrantEnabled`/
+    /// `setContextGrantEnabled` (the persisted BYOK grant). The defaulted closures that claim
+    /// nothing are gone from this call site. `showSettings` builds a window, so this is a
+    /// source scan of the one construction site.
+    func testShowSettingsConstructsTheFourContextBindings() throws {
+        let block = try Self.settingsBindingsConstructionBlock()
+        for binding in [
+            "isContextReading:", "setContextReading:",
+            "isContextGrantEnabled:", "setContextGrantEnabled:",
+        ] {
+            XCTAssertTrue(
+                block.contains(binding),
+                "the SettingsBindings construction must name \(binding) — the defaulted "
+                    + "closure that claims nothing has no place at the shipped call site")
+        }
+    }
+
+    /// The `MenuBarItem(` call's parenthesized block in `AppBootstrap.swift`, comments
+    /// stripped — the `contextCompositionBlock` shape, for the menu bar's construction.
+    private static func menuBarItemConstructionBlock() throws -> String {
+        try Self.balancedBlock(in: "AppBootstrap.swift", after: "MenuBarItem(")
+    }
+
+    /// The `SettingsBindings(` call's parenthesized block in `AppBootstrap.swift`, comments
+    /// stripped — the `contextCompositionBlock` shape, for the settings window's construction.
+    private static func settingsBindingsConstructionBlock() throws -> String {
+        try Self.balancedBlock(in: "AppBootstrap.swift", after: "SettingsBindings(")
+    }
+
+    /// The balanced parenthesized block following `header` in `AppBootstrap.swift` — the
+    /// `contextCompositionBlock` extraction, generalised.
+    private static func balancedBlock(in fileName: String, after header: String) throws -> String {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaBootstrap/\(fileName)")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        // Word-boundary matched: `attachMenuBarItem(` must not satisfy a search for
+        // `MenuBarItem(` — the construction is the call, not a name containing it.
+        guard let start = source.range(
+            of: "\\b" + NSRegularExpression.escapedPattern(for: header),
+            options: .regularExpression)
+        else {
+            XCTFail(
+                """
+                `AppBootstrap.swift` no longer constructs `\(header)`. That construction is \
+                where the wiring happens; if it moved, this pin has to move with it rather \
+                than be deleted.
+                """)
+            return ""
+        }
+        var depth = 0
+        var body = ""
+        for character in source[start.lowerBound...] {
+            if character == "(" { depth += 1 }
+            if depth > 0 { body.append(character) }
+            if character == ")" {
+                depth -= 1
+                if depth == 0 { break }
+            }
+        }
+        XCTAssertFalse(body.isEmpty, "the \(header) construction must have a body")
+        return body
+    }
+
     // MARK: - Fixtures
 
     /// Builds a resolver over a temp directory, writing `configJSON` when non-nil, with stub
