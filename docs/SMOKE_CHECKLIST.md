@@ -3004,6 +3004,19 @@ unmet until C13's real agent** — nothing below may be read as a gate pass.
     app name in converse (any of these is a prohibition violation — recorded verbatim and
     surfaced).
 
+## 21. Context provider — `context-provider`
+
+Nothing in this section runs in CI. The two privacy acceptances are proven headlessly and
+structurally (with context capture off for an app, **no content read of that app occurs at
+all** — not read-then-discard, never read, asserted by test and lint; context never appears in
+a BYOK request payload without the separate explicit grant, asserted against the one
+payload-building site); the real app/selection resolution is executed by nothing in CI — real
+apps need a real machine with an Accessibility grant (the tap-adapter precedent). These five
+rows are the founder's machine producing the first real observations of the C12 surface —
+recorded, never gated, each under **rule 1**: the state must actually have been entered before
+a row means anything. **No context-accuracy percentage is quoted until a real run exists
+(step 139)** — nothing below may be read as a gate pass.
+
 139. **The first real context resolution run (C12, recorded — never gated).**
 
     *Gesture:* run `VOCCA_CONTEXT_REAL=1 swift test --filter
@@ -3024,6 +3037,107 @@ unmet until C13's real agent** — nothing below may be read as a gate pass.
 
     *Failure:* a run that attempts nothing, a run resolving every row empty while the grant was
     present, or a `CONTEXT-RESOLUTION` below the bar with no explanation recorded.
+
+140. **The consent grant and the never-read audit (C12, recorded — never gated).**
+
+    *Gesture:* in a real app (Notes, an editor), **without** consent for that app, run a real
+    dictation while a selection is present in the focused app, then verify that **no content
+    read** of that app occurred — the never-read gate (`ContextConsentGate`) declines before
+    any AX call, so nothing was read-then-discarded, nothing was read at all; watch the
+    unified log (`log stream --predicate 'subsystem == "dev.vocca.Vocca"'`) and the consent
+    store's own loud-corruption logs, and open the auditable artifact
+    (`context-consent.json` — bundle IDs only, the byte-level pin). Then grant consent for
+    the app: Settings → Apps, the **Allow context** column ("Vocca can read the focused
+    app's selected text while you dictate. Off by default — stop it any time from General or
+    the menu bar."), flip it on for the focused app; run a second dictation with the same
+    selection present, and verify the read now occurs (the badge lights; the resolution
+    resolves non-empty).
+
+    *Verify the state was entered:* the dictations really ran (a delivered transcript each),
+    the selection was really present in the focused app both times, and consent was really
+    flipped between the two runs (the store's answer observed to change).
+
+    *Pass:* the row recorded verbatim with the never-gated note: **0 content reads before
+    consent, reads after** — the "not read-then-discard, never read" claim observed on the
+    real surface, with the M5 scope recorded (bundle ID + window title are legitimately read
+    by the dictate path; the boundary is content = selected text).
+
+    *Void — not fail — if:* no real dictation ran in either state (rule 1 — a window with no
+    dictation proves nothing about reads).
+
+    *Failure:* a content read observed before consent (the privacy incident — recorded
+    verbatim and surfaced loudly; it is a product bug, never silently absorbed).
+
+141. **The visible indicator (C12, recorded — never gated).**
+
+    *Gesture:* with consent active for the focused app, verify the widget shows the context
+    indicator persistently — the `eye` glyph beside the egress marker, hovering plainly
+    ("Vocca can read <app>. <app> allowed this."; the name-less fallback "Vocca can read the
+    focused app. It allowed this.") — and that it is **distinct from the egress ☁ badge**
+    (both visible when a BYOK provider is active); focus an app without consent and verify
+    the indicator clears; focus a Secure Input field in a consented app and verify the
+    indicator **never lights** (M5b).
+
+    *Verify the state was entered:* consent was really active for the focused app (the store's
+    answer), the egress badge was really lit where the distinctness check ran, and the Secure
+    Input field was really focused (the system's own Secure Input indicator visible).
+
+    *Pass:* the row recorded verbatim with the never-gated note: indicator present iff consent
+    active for the focused app, distinct copy from egress, never lit on Secure Input — the M8
+    contract observed on the real surface.
+
+    *Failure:* the indicator lit without consent, lit on a Secure Input field, or
+    indistinguishable from the egress badge.
+
+142. **The one-action kill switch, incl. the mid-turn discard (C12, recorded — never gated).**
+
+    *Gesture:* with consent active and the indicator lit, throw the kill switch **mid-session**
+    — the menu-bar row **"Stop reading context"** (`MenuBarCopy.contextKillRowTitle`, one
+    action, present only while reading; VoiceOver reads "Stop Vocca from reading the focused
+    app's content") — and verify the indicator clears in the same fold, further reads stop
+    immediately (a fresh dictation in the consented app reads nothing), and the current turn's
+    snapshot is discarded (nothing persisted — the consent store holds bundle IDs only, the
+    byte-level pin); then verify the kill switch never reads as an invitation to grant (the
+    General-tab Context section — "Read the focused app's content": "Off stops Vocca from
+    reading the focused app's content until the next launch. Apps you've allowed stay
+    allowed." — grants and revokes are different axes).
+
+    *Verify the state was entered:* the kill was thrown during a live session with the
+    indicator lit (a kill while nothing was armed proves nothing about mid-turn semantics),
+    and a real dictation ran after the kill.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **one action revoked globally,
+    reads stopped immediately, the in-flight snapshot discarded, the badge cleared in the same
+    fold** (M9's mid-turn semantics) — observed on the real surface.
+
+    *Failure:* a kill that takes more than one action, reads continuing after the kill, a
+    snapshot surviving the kill, or a badge that outlives the fold.
+
+143. **The BYOK never-in-payload audit (C12, recorded — never gated).**
+
+    *Gesture:* with consent active for a focused app **and** a BYOK cleanup provider configured
+    but the separate global grant **off**, dictate in the consented app and verify the captured
+    request payload carries **no context field** (the grant's off-state: context reaches the
+    payload only when the AND-gate holds — per-app consent **and** the global grant, never
+    either alone); then turn the grant on — Settings → Cleanup, **"Include app context in
+    cloud cleanup"** ("When on, Vocca sends the focused app and its selected text with your
+    cloud cleanup. Off by default.") — dictate again, and verify the payload carries the
+    granted context — bundle ID, window title, and the bounded selected text (≤ 4 KB,
+    `ContextGrantGate.maxSelectedTextBytes`) — and nothing else.
+
+    *Verify the state was entered:* both dictations really ran through the BYOK provider (the
+    provider's own request log — a run that never reached the payload builder proves nothing),
+    consent was really active, and the grant was really flipped between the two runs.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **context absent from the
+    payload with the grant off, present and bounded with it on** — the AND-gate (per-app
+    consent **and** the global grant, never either alone) observed on the real surface.
+
+    *Void — not fail — if:* no BYOK request was actually sent in either state (rule 1).
+
+    *Failure:* context in the payload without the grant, the grant on without the per-app
+    consent, or unbounded selection text in the payload (the 4 KB bound is the gate's, applied
+    at the one payload-building site).
 
 ---
 

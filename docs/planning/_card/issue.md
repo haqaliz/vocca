@@ -1,56 +1,54 @@
-# Card: feat/dual-mode
+# Card: feat/context-provider
 
 > Inline brief — no GitHub issue exists (`gh issue list` for `haqaliz/vocca` is empty).
-> Source: the `vocca-next` handoff (2026-09-16) + `CAPABILITY_ROADMAP.md` C11 entry +
-> the C10 unit records (STATUS.md turn-taking-barge-in entry, turn-taking PRD/plans).
+> Source: the `vocca-next` handoff (2026-09-18) + `CAPABILITY_ROADMAP.md` C12 entry +
+> the C11 unit records (STATUS.md dual-mode entry).
 
 ## Brief
 
-Build **C11 — dual mode (dictate vs converse)** (`CAPABILITY_ROADMAP.md:309-325`): the
-CONVERSING surface C10's machinery was built for. C10 shipped 2026-09-15 as seam-only
-machinery — `TurnTakingLoop`, `PlaybackEngine`/`SystemPlayback`, `ContinuousAudioSource`
-+ `StreamingCapture` — composed into nothing and holding no mic seam; its records name
-this unit as the consumer: "nothing wires the loop into the app until C11"
-(`docs/STATUS.md:107`), "the CONVERSING surface is C11's" (turn-taking PRD), and the
-loop's composition recipe and `onStateChange` hook are recorded as C11's wiring
-(`turn-taking-barge-in/barge-in-loop/plan_20260915.md:877-880`).
+Build **C12 — Context provider — active app and selection** (`CAPABILITY_ROADMAP.md:345-359`):
+a `ContextProvider` seam yielding the active bundle ID, window title, and current selected
+text via AX. Per-app opt-in — **default off for every app**; the user grants each app
+deliberately, no blanket "allow all". A **visible indicator whenever context is being read**,
+plus a **global kill switch reachable in one action**. Context is **never persisted** beyond
+the current turn and **never leaves the machine** — including when a BYOK cleanup provider is
+active, where context is excluded from the payload unless separately and explicitly permitted.
 
-What we build: two distinct hotkeys with two unmistakably different widget states (color,
-shape, sound); `SessionMode` as an explicit state machine with **no implicit mode
-switching, ever**; per-mode configuration (different cleanup providers, different ASR
-engines) — deferred here by the llm-cleanup, cleanup-config, engine-picker and
-hotkey-rebinding records; a visible indicator of the injection *target* in dictate mode
-("→ Slack"); and the structural guarantee that converse mode can never call
-`TextInjector`.
+Dependencies are met: C4's AX infrastructure ships (the injection ladder's
+`kAXSelectedTextAttribute` read/verify machinery — `AXSource.swift`); C13 (Actions and MCP)
+blocks on this capability (`CAPABILITY_ROADMAP.md:379`); the P3 gate's conversational leg
+stays formally unmet until C13 (`docs/STATUS.md:97-99`). C12 is the lowest unshipped
+capability in the roadmap.
 
-Dependencies C4 (injection ladder) and C10 (turn-taking machinery) are shipped; C11 is
-the lowest unshipped capability.
+Acceptance, written first (per `CAPABILITY_ROADMAP.md:353-355`):
+1. A test asserts correct app/selection resolution across the C8 app matrix at ≥95%.
+2. A privacy test asserts that with context capture off for an app, **no AX read of that
+   app's content occurs at all** — not read-then-discard, but never read.
+3. A second privacy test asserts context **never appears in a BYOK request payload**
+   without the separate explicit grant.
+These two privacy tests are the ones that make the privacy claim auditable rather than
+promised.
 
-Acceptance, written first (per `CAPABILITY_ROADMAP.md:315-321`): a test asserting that in
-converse mode **no `TextInjector` call is ever made** — the structural guarantee that
-agent conversation cannot leak into an app field, enforced by type or assertion rather
-than discipline; a mode-transition test asserting state is fully reset between modes with
-no carryover of buffer, transcript, or target.
-
-Seams: `SessionMode` as the explicit state machine, with the injection path only
-reachable from the dictate state. `SessionMode` already exists in `VoccaCore` (declared,
-dictation-only in the pipeline). Per-mode deferrals to honor: cleanup selection
-(`llm-cleanup/prd.md:216,267`), engine choice (`second-asr-engine/engine-picker/spec.md:39`),
-the converse-mode second chord (`hotkey-rebinding/prd.md:268`).
+Seam: `ContextProvider`. Notably, **this seam has no hosted counterpart by design** — context
+is read locally, always, and the hosted tier never sees it (`CAPABILITY_ROADMAP.md:357`).
 
 ## Caveats (binding)
 
-- The P2 and P3 gates stay **uncleared**; this is the third unit built ahead of them
-  under the recorded posture (`docs/STATUS.md`, kokoro-binding and turn-taking entries),
-  not a drift. No gate passes; the P3 gate's full spoken exchange is SMOKE-verifiable
-  only, never CI.
-- **The realtime conversation is executed by nothing in CI.** The env-gated suite skips
-  visibly; SMOKE steps 131-133 are written and runnable for the founder's machine
-  (`STATUS.md:93-96`); C11's real verification lands there too.
-- **`ParakeetEOU` stays PENDING** — `SilenceThresholdDetector` is the shipped
-  `TurnDetector` (`STATUS.md:29-31`); C11 consumes the seam as-is, no re-litigation.
-- The zero-network invariant and the transcript-never-lost invariant are load-bearing:
-  nothing here may hand a URL to any port, and every `.ended` with non-empty text
-  terminates in an injector call or a journaled failsafe hold.
-- Hold-to-talk remains available forever as the escape hatch — dual mode must not
-  remove or weaken the dictate path.
+- The P2 and P3 gates stay **uncleared**; this is the fourth unit built ahead of them under
+  the recorded posture (kokoro-binding, turn-taking, dual-mode — each recorded "No gate
+  passes"), not a drift.
+- The privacy contract is load-bearing: the never-read test and the never-in-BYOK-payload
+  test are the auditable core. Per-app opt-in default-off and the one-action kill switch are
+  requirements, not preferences.
+- The zero-network invariant and the transcript-never-lost invariant stay untouched: context
+  adds AX *reads* only — no injection-path changes, no new egress surface, nothing handed to
+  a URL.
+- The seam-doctrine two-implementation rule (`CAPABILITY_ROADMAP.md:414`) **is met**: the
+  architecture record names `ContextProvider` → `AccessibilityContext`, `NullContext` —
+  hosted tier **No — by design** (`ARCHITECTURE.md:281`). `NullContext` is the honest
+  shipped default (nothing read); `AccessibilityContext` is the real AX adapter. (This
+  caveat supersedes the original handoff's "record the exemption" note — the understanding
+  note corrects it.)
+- The dictate path is digest-pinned (`SessionMachine.swift`, `DictationPipeline.swift`) —
+  C12 must not touch the dictation pipeline; its reads share AX infrastructure but add no
+  writes.
