@@ -99,6 +99,12 @@ public struct SettingsBindings {
     /// Records that it has. Best-effort: a failed write shows the dialog once more, which is the
     /// safe direction.
     public var setCloudCleanupAcknowledged: (Bool) -> Void
+    /// Whether the separate, off-by-default global grant for sending app context with cloud
+    /// cleanup is on (`byok-context-grant` M7) — the Cleanup tab's toggle.
+    public var isContextGrantEnabled: () -> Bool
+    /// Persists the grant choice. Best-effort: a failed write reverts to off, which is the safe
+    /// direction.
+    public var setContextGrantEnabled: (Bool) -> Void
     /// Loads the user's replacements.
     public var loadDictionary: () async -> [ReplacementRule]
     /// Saves the user's replacements.
@@ -197,6 +203,11 @@ public struct SettingsBindings {
         saveCleanupConfig: @escaping (CleanupConfigDraft) async throws -> Void = { _ in },
         isCloudCleanupAcknowledged: @escaping () -> Bool = { false },
         setCloudCleanupAcknowledged: @escaping (Bool) -> Void = { _ in },
+        // The context-grant defaults claim **nothing** and change **nothing**: off is both the
+        // fresh-install truth and the safe direction — a default that answered `true` would let
+        // the toggle render a grant nobody gave.
+        isContextGrantEnabled: @escaping () -> Bool = { false },
+        setContextGrantEnabled: @escaping (Bool) -> Void = { _ in },
         loadDictionary: @escaping () async -> [ReplacementRule],
         saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
         loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
@@ -241,6 +252,8 @@ public struct SettingsBindings {
         self.saveCleanupConfig = saveCleanupConfig
         self.isCloudCleanupAcknowledged = isCloudCleanupAcknowledged
         self.setCloudCleanupAcknowledged = setCloudCleanupAcknowledged
+        self.isContextGrantEnabled = isContextGrantEnabled
+        self.setContextGrantEnabled = setContextGrantEnabled
         self.loadDictionary = loadDictionary
         self.saveDictionary = saveDictionary
         self.loadStrategies = loadStrategies

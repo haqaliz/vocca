@@ -39,6 +39,7 @@ struct CleanupSettingsPage: View {
     let openDictionary: () -> Void
 
     @State private var state = CleanupTabState.initial
+    @State private var contextGrant = false
 
     var body: some View {
         Form {
@@ -75,6 +76,17 @@ struct CleanupSettingsPage: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+            }
+
+            // The context grant, surfaced beside the egress summary (`prd.md:102-107`): what a
+            // cloud cleanup may carry is decided on the surface that already says what leaves —
+            // the "Closing" toggle's shape (`SettingsView.swift`), off by default.
+            Section {
+                Toggle(CleanupTabCopy.contextGrantTitle, isOn: $contextGrant)
+                    .onChange(of: contextGrant) { _, next in bindings.setContextGrantEnabled(next) }
+                Text(CleanupTabCopy.contextGrantDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section(CleanupTabCopy.converseSectionTitle) {
@@ -124,6 +136,9 @@ struct CleanupSettingsPage: View {
                 state, .summaryLoaded(await bindings.cleanupSummary()))
             state = CleanupTabReducer.reduce(
                 state, .converseSummaryLoaded(await bindings.cleanupConversingSummary()))
+        }
+        .onAppear {
+            contextGrant = bindings.isContextGrantEnabled()
         }
         .confirmationDialog(
             CleanupTabCopy.cloudConfirmationTitle,

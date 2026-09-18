@@ -131,6 +131,18 @@ public enum CleanupTabCopy {
         "Vocca reads your API key from the macOS Keychain. It is never written to Vocca's "
         + "settings file."
 
+    // MARK: - The context grant (`byok-context-grant` M7)
+
+    /// The toggle's title: the grant is about cloud cleanup's payload, named plainly.
+    public static let contextGrantTitle = "Include app context in cloud cleanup"
+
+    /// What travels when the grant is on — and that it is off by default. The egress honesty
+    /// doctrine (`PRODUCT_SPEC.md:16`): a surface that sends the focused app and its selected
+    /// text off the machine says so in the words a user reads before deciding.
+    public static let contextGrantDetail =
+        "When on, Vocca sends the focused app and its selected text with your cloud cleanup. "
+        + "Off by default."
+
     // MARK: - The one-time cloud confirmation (`PRODUCT_SPEC.md:273`)
 
     /// The dialog's title. Asks the question rather than announcing a setting: the user is about
