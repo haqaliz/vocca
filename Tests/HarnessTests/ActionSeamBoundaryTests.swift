@@ -40,7 +40,7 @@ private enum ActionSeamTestError: Error, CustomStringConvertible {
 
 /// The action-seam family lint (`action-seam` plan Phase 3), in two families.
 ///
-/// **Family A — the vocabulary.** Within `Sources/`, only the seven files of
+/// **Family A — the vocabulary.** Within `Sources/`, only the eight files of
 /// `VoccaCore/Actions/` may name the action families. The same shape as
 /// ``ContextSeamBoundaryTests``: the seam lives in Core, everything *decided* about acting lives
 /// above it in the seam's vocabulary, and this lint is what keeps a caller from branching on a
@@ -58,16 +58,27 @@ private enum ActionSeamTestError: Error, CustomStringConvertible {
 /// `ActionConfirmation.swift`'s own doc comment says, and this suite is the half of that claim
 /// that CI executes.
 ///
-/// ## The permitted construction set is empty today, on purpose
+/// ## The permitted construction set holds exactly one file, by a reviewed edit
 ///
-/// Nothing in the tree constructs an ``ActionConfirmation``. The only thing that ever legitimately
-/// will is the confirmation gate, which is `confirmation-gate`'s aspect and does not exist yet, so
-/// "no file may construct one" is the true statement today rather than a placeholder. The gate's
-/// file joins ``filesPermittedToConstructAConfirmation`` by a reviewed edit when it lands, and the
-/// count leg below starts biting at that moment.
+/// It was empty until `confirmation-gate` landed, because nothing in the tree legitimately minted a
+/// token. `ActionGate.swift` is the first site that does, and it joined
+/// ``filesPermittedToConstructAConfirmation`` here rather than by working around the lint — which
+/// is the guard doing its job, not being defeated. The whole purpose of confining construction is
+/// that every minting site costs a deliberate edit to this file and is read in review; a guard that
+/// admitted the second one silently would have protected nothing.
 ///
-/// An empty permitted set would pass "no file names it" vacuously if the type itself were renamed
-/// away or its initializer quietly made `public` — so the emptiness is anchored, not assumed, by
+/// **Exactly one, and a second is a design problem rather than a lint problem.** More than one file
+/// minting means more than one place decides that an action may act, and the structural refusal is
+/// only structural while there is a single door. So the count is asserted below, and raising it
+/// requires answering why the gate is no longer the only decision point.
+///
+/// **No file under `Tests/` may ever join the set.** The whole of Family B's value is that a test
+/// with `@testable import VoccaCore` compiles and still fails this lint; admitting one would close
+/// the loop the other way and let a forging test authorise itself. That is asserted rather than
+/// remembered.
+///
+/// The permitted set would still pass "no other file names it" vacuously if the type itself were
+/// renamed away or its initializer quietly made `public` — so it is anchored, not assumed, by
 /// ``testTheConfirmationInitializerStaysUnforgeableOutsideTheModule``.
 ///
 /// ## What this lint does and does not see
@@ -92,6 +103,7 @@ final class ActionSeamBoundaryTests: XCTestCase {
         (
             name: "ActionProvider",
             permitted: [
+                "VoccaCore/Actions/ActionGate.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
             ]
@@ -99,6 +111,7 @@ final class ActionSeamBoundaryTests: XCTestCase {
         (
             name: "ActionInvocation",
             permitted: [
+                "VoccaCore/Actions/ActionGate.swift",
                 "VoccaCore/Actions/ActionInvocation.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
@@ -107,6 +120,7 @@ final class ActionSeamBoundaryTests: XCTestCase {
         (
             name: "ActionSummary",
             permitted: [
+                "VoccaCore/Actions/ActionGate.swift",
                 "VoccaCore/Actions/ActionSummary.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
@@ -115,6 +129,7 @@ final class ActionSeamBoundaryTests: XCTestCase {
         (
             name: "ActionOutcome",
             permitted: [
+                "VoccaCore/Actions/ActionGate.swift",
                 "VoccaCore/Actions/ActionOutcome.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
@@ -123,6 +138,7 @@ final class ActionSeamBoundaryTests: XCTestCase {
         (
             name: "ActionConfirmation",
             permitted: [
+                "VoccaCore/Actions/ActionGate.swift",
                 "VoccaCore/Actions/ActionConfirmation.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
@@ -131,6 +147,7 @@ final class ActionSeamBoundaryTests: XCTestCase {
         (
             name: "BlastRadius",
             permitted: [
+                "VoccaCore/Actions/ActionGate.swift",
                 "VoccaCore/Actions/BlastRadius.swift",
                 "VoccaCore/Actions/ActionSummary.swift",
             ]
@@ -171,10 +188,13 @@ final class ActionSeamBoundaryTests: XCTestCase {
 
     /// The file permitted to construct an ``ActionConfirmation``, relative to the package root.
     ///
-    /// **Empty, and empty is the true answer today** — see the type-level documentation. The
-    /// confirmation gate joins this set when `confirmation-gate` lands; nothing else ever does,
-    /// because anything else joining it is the forgery this lint exists to refuse.
-    private static let filesPermittedToConstructAConfirmation: Set<String> = []
+    /// **Exactly one: the confirmation gate** — see the type-level documentation for why it joined
+    /// and why nothing else may. `confirmation-gate` made this the first reviewed widening; a second
+    /// entry means the gate has stopped being the single decision point, which is a design question
+    /// to answer before it is an edit to make.
+    private static let filesPermittedToConstructAConfirmation: Set<String> = [
+        "Sources/VoccaCore/Actions/ActionGate.swift"
+    ]
 
     /// The file that declares the token — the anchor that stops the empty permitted set above
     /// from passing vacuously.
@@ -316,15 +336,33 @@ final class ActionSeamBoundaryTests: XCTestCase {
     // MARK: - Family B: the forgery guard
 
     /// The forgery guard itself: across `Sources/` **and** `Tests/`, only the permitted set may
-    /// construct an ``ActionConfirmation`` — and today that set is empty, so nothing may.
+    /// construct an ``ActionConfirmation`` — and the permitted set is the confirmation gate alone.
     ///
-    /// The same three legs as Family A, for the same reason. The middle leg iterates a set that is
-    /// empty today; it is written out rather than deferred because the day the confirmation gate
-    /// joins the set is the day a permitted file that has stopped constructing the token must fail
-    /// here, and a leg added after the fact is a leg nobody has watched.
+    /// The same three legs as Family A, for the same reason, and two more that the widening turned
+    /// on. The middle leg stopped being vacuous the day `ActionGate.swift` joined the set: a
+    /// permitted file that has *stopped* minting now fails here, which is what catches a mint that
+    /// moved somewhere this lint cannot see rather than disappeared.
     func testNoFileInSourcesOrTestsMayConstructAnActionConfirmation() throws {
         let sightings = try confirmationConstructionSightings()
         let permitted = Self.filesPermittedToConstructAConfirmation
+
+        XCTAssertEqual(
+            permitted.count, 1,
+            """
+            exactly one file may mint a confirmation, and it is the gate: \(permitted.sorted()).
+            A second minting site means a second place decides that an action may act, and the \
+            refusal is only structural while there is a single door — raise this number only \
+            after answering that, in review.
+            """)
+        for file in permitted {
+            XCTAssertFalse(
+                file.hasPrefix("Tests/"),
+                """
+                no file under Tests/ may ever be permitted to mint: \(file). Family B's whole \
+                value is that a forging test compiles and still fails this lint, and admitting \
+                one would let a test authorise itself.
+                """)
+        }
 
         let offenders = sightings.keys.filter { !permitted.contains($0) }
         XCTAssertTrue(
