@@ -325,6 +325,91 @@ final class AppBootstrapWiringTests: XCTestCase {
         XCTAssertNotNil(root.contextKillSwitch, "the kill switch is attached")
     }
 
+    // MARK: - The shipped composition (the wiring-close)
+
+    /// **The shipped composition is the real provider over the real store** (the wiring-close
+    /// gap 1): `configure`'s `composeContextWiring` call names `AccessibilityContext` (the AX
+    /// adapter over its two module-internal reads) and `PersistentConsentStore` (path-injected
+    /// through ``contextConsentDirectory``), the Secure Input fact is the root's own
+    /// `SystemSecureInputState`, and the composed default is **gone** — no `NullContext`, no
+    /// `consentStore: nil`. `configure` needs an `NSApplication`, so this is a source scan, the
+    /// `SessionKindWiringTests` shape: the call site itself is the wiring, and a reverted
+    /// composition is a silent return to the reads-nothing default.
+    func testTheShippedContextCompositionUsesTheRealProviderAndStore() throws {
+        let block = try Self.contextCompositionBlock()
+        XCTAssertTrue(
+            block.contains("AccessibilityContext("),
+            "the shipped composition must construct AccessibilityContext — the real provider")
+        XCTAssertTrue(
+            block.contains("AXContextSource("),
+            "the shipped composition must name the adapter's AX read")
+        XCTAssertTrue(
+            block.contains("ContextSecureInputRead("),
+            "the shipped composition must name the adapter's Secure Input read")
+        XCTAssertTrue(
+            block.contains("PersistentConsentStore("),
+            "the shipped composition must construct PersistentConsentStore — the real store")
+        XCTAssertTrue(
+            block.contains("SystemSecureInputState("),
+            "the Secure Input fact must come from the root's own SystemSecureInputState")
+        XCTAssertFalse(
+            block.contains("NullContext"),
+            "the shipped composition must not compose the reads-nothing default")
+        XCTAssertFalse(
+            block.contains("consentStore: nil"),
+            "the shipped composition must not pass an absent consent store")
+    }
+
+    /// **The consent store's directory resolves beside the usage ledger** — the
+    /// `PersistentUsageStore.defaultDirectory` shape, pure so the fallback is assertable: the
+    /// resolved Application Support answers `<applicationSupport>/Vocca`, and an unresolvable
+    /// one falls back to `<home>/Library/Application Support/Vocca` rather than dropping the
+    /// store.
+    func testContextConsentDirectoryResolvesBesideTheUsageLedger() {
+        let appSupport = URL(fileURLWithPath: "/tmp/Application Support")
+        let home = URL(fileURLWithPath: "/tmp/home")
+        XCTAssertEqual(
+            AppBootstrap.contextConsentDirectory(applicationSupport: appSupport, home: home),
+            appSupport.appendingPathComponent("Vocca"),
+            "the resolved branch — the consent file sits beside usage.json")
+        XCTAssertEqual(
+            AppBootstrap.contextConsentDirectory(applicationSupport: nil, home: home),
+            home.appendingPathComponent("Library/Application Support/Vocca"),
+            "the home fallback — an unresolvable Application Support must not lose the store")
+    }
+
+    /// The `composeContextWiring(` call's parenthesized block in `AppBootstrap.swift`,
+    /// comments stripped — so a mention in prose is never mistaken for the composition, and
+    /// reformatting the call does not fail the pin.
+    private static func contextCompositionBlock() throws -> String {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        let header = "composeContextWiring("
+        guard let start = source.range(of: header) else {
+            XCTFail(
+                """
+                `configure` no longer calls `composeContextWiring(`. That call is where the \
+                shipped composition happens; if it moved, this pin has to move with it rather \
+                than be deleted.
+                """)
+            return ""
+        }
+        var depth = 0
+        var body = ""
+        for character in source[start.lowerBound...] {
+            if character == "(" { depth += 1 }
+            if depth > 0 { body.append(character) }
+            if character == ")" {
+                depth -= 1
+                if depth == 0 { break }
+            }
+        }
+        XCTAssertFalse(body.isEmpty, "the composeContextWiring call must have a body")
+        return body
+    }
+
     // MARK: - Fixtures
 
     /// Builds a resolver over a temp directory, writing `configJSON` when non-nil, with stub

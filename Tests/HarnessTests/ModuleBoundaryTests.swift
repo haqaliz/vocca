@@ -339,4 +339,20 @@ final class ModuleBoundaryTests: XCTestCase {
             voccaImportsFromUI.isSubset(of: ["VoccaCore"]),
             "VoccaUI must import only VoccaCore among Vocca modules, found: \(voccaImportsFromUI)")
     }
+
+    /// The import-map side of the root's reach to the context adapter (the C12 wiring-close):
+    /// `VoccaBootstrap` must name `VoccaContext` — the composition root composes the real
+    /// provider and store, and the manifest fact (`VoccaContextTargetTests`) has no force: an
+    /// `import` can be deleted while the declared dependency stays, and this is the code-side
+    /// half that notices.
+    func testVoccaBootstrapImportsVoccaContext() throws {
+        let map = try moduleImportMap()
+        let imports = map["VoccaBootstrap"] ?? []
+        XCTAssertTrue(
+            imports.contains("VoccaContext"),
+            """
+            VoccaBootstrap must import VoccaContext — the composition root composes the real \
+            AccessibilityContext and PersistentConsentStore. Found: \(imports.sorted())
+            """)
+    }
 }

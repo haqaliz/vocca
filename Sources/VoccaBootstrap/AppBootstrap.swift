@@ -18,6 +18,7 @@ import OSLog
 import Synchronization
 import VoccaASR
 import VoccaAudio
+import VoccaContext
 import VoccaCore
 import VoccaHotkey
 import VoccaInject
@@ -603,19 +604,26 @@ public enum AppBootstrap {
         // The context composition (C12, R4 — the C11 additive shape, one more recipe + the
         // three slots above): the consent-gated resolution slot, the indicator fold and the
         // kill switch, composed through the probe-safe recipe (`composeContextWiring`). The
-        // composed default is the shipped `NullContext` (reads nothing); the consent store is
-        // absent at composition — every fresh install's shape — so the resolver takes the
-        // no-consents path and nothing is read or written (M4's default-off by construction,
-        // `bootstrap-wiring` edge case 3; the real store's injection is the recorded hand-off
-        // of the consent-UI work, which needs a `VoccaContext` dependency this module
-        // deliberately does not declare). The recipe is synchronous — the store is consulted
-        // per resolution — so the slots are assigned inline; the initial indicator fold runs
-        // in a launch task, the egress-fold precedent: resolving once for no focused app,
-        // which the consent gate declines before any provider call, so the fold's default is
-        // the safe unlit direction and nothing is read.
+        // composed provider is the **shipped** `AccessibilityContext` (the real AX adapter —
+        // construction is grant-free, the adapters-construct-without-grants precedent) and the
+        // composed store is the **shipped** `PersistentConsentStore`, path-injected to the
+        // same Application Support/Vocca directory the usage ledger uses. M4's default-off is
+        // by construction, over the real store: a fresh install has no consent file, the load
+        // answers "no consents", and the gate declines before any provider call — nothing is
+        // read and nothing is written. The recipe is synchronous — the store is consulted per
+        // resolution — so the slots are assigned inline; the initial indicator fold runs in a
+        // launch task, the egress-fold precedent: resolving once for no focused app, which the
+        // consent gate declines before any provider call, so the fold's default is the safe
+        // unlit direction and nothing is read.
         let contextWiring = AppBootstrap.composeContextWiring(
-            provider: NullContext(),
-            consentStore: nil,
+            provider: AccessibilityContext(
+                axRead: AXContextSource(),
+                secureInputRead: ContextSecureInputRead()),
+            consentStore: PersistentConsentStore(
+                directory: Self.contextConsentDirectory(
+                    applicationSupport: FileManager.default.urls(
+                        for: .applicationSupportDirectory, in: .userDomainMask).first,
+                    home: FileManager.default.homeDirectoryForCurrentUser)),
             secureInput: SystemSecureInputState(),
             root: root)
         root.contextResolution = contextWiring.resolve
@@ -866,6 +874,24 @@ public enum AppBootstrap {
         }
         let name = FileManager.default.displayName(atPath: url.path)
         return name.isEmpty ? bundleID : name
+    }
+
+    /// The context consent store's directory — the same Application Support/Vocca the usage
+    /// ledger persists to, so `context-consent.json` sits beside `usage.json` as a sibling
+    /// file (`PersistentConsentStore`'s path-injected initializer is what this composition
+    /// feeds).
+    ///
+    /// Resolved the ``PersistentUsageStore`` way — `<applicationSupport>/Vocca`, or
+    /// `<home>/Library/Application Support/Vocca` when Application Support could not be
+    /// resolved (the defensive default, never a decision about where the consent lives) — and
+    /// separated from the composition because the fallback is otherwise unreachable in a test:
+    /// the only way to drive it through `configure` is a machine whose Application Support
+    /// does not resolve. A pure function makes both branches assertable without a test ever
+    /// creating a file where a real install keeps its consent.
+    static func contextConsentDirectory(applicationSupport: URL?, home: URL) -> URL {
+        let base =
+            applicationSupport ?? home.appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("Vocca")
     }
 
     // MARK: - The learning ladder
