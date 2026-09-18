@@ -1779,8 +1779,19 @@ set -euo pipefail
 # hand-off (0 new — the guard-the-guard renamed in place) — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The action-seam raise (2475 -> 2500; executed 2500) — the C13 slice-1 seam aspect
+# (`feat/action-safety-spine/aliz`): `ActionSeamTests` (8 — the vocabulary, the describe/invoke
+# split, and the NullActionProvider default), `ActionSeamBoundaryTests` (10 — the action-family
+# lint scanning `Sources/` alone because tests legitimately name the vocabulary, the
+# ActionConfirmation forgery guard scanning `Sources/` and `Tests/` both, three planted controls,
+# two comment-strip controls, and the scanning-nothing-is-a-failure guard), and
+# `ActionProviderStubsTests` (7 — the recording stub that gives the later dry-run and
+# reconstruction acceptances a non-empty domain, plus the self-checks that watch its
+# fail-if-invoked mode actually fail) — the count taken from the floor script's own parse in the
+# ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2475
+MINIMUM_EXECUTED_TESTS=2500
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
