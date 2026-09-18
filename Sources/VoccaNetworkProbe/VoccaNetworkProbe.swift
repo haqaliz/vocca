@@ -339,6 +339,16 @@ struct VoccaNetworkProbe {
         let converse = exerciseConverseLoop()
         print("PROBE-CONVERSE\t\(converse.report)")
 
+        // `VoccaContext`'s real work, run rather than referenced — the same shape as the drives
+        // above, for the module that implements the `ContextProvider` seam
+        // (`ARCHITECTURE.md:151`). Its default-configuration surface is the stub read for now:
+        // the drive constructs the stub and performs the module's one read, which is also the
+        // honest empty shape a real read answers in CI (no Accessibility grant → failure → the
+        // empty snapshot). The witness it mints is produced *by* the call, so the entry cannot
+        // outlive it. See `ContextDrive.swift`.
+        let context = exerciseContext()
+        print("PROBE-CONTEXT\t\(context.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -351,6 +361,7 @@ struct VoccaNetworkProbe {
             turnLoop.moduleWitness,
             VoccaUIPlaceholder.self,
             converse.moduleWitness,
+            context.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be

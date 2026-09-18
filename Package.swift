@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "VoccaText", targets: ["VoccaText"]),
         .library(name: "VoccaInject", targets: ["VoccaInject"]),
         .library(name: "VoccaSpeech", targets: ["VoccaSpeech"]),
+        .library(name: "VoccaContext", targets: ["VoccaContext"]),
         .library(name: "VoccaUI", targets: ["VoccaUI"]),
         .library(name: "VoccaUsage", targets: ["VoccaUsage"]),
         // The app's composition root. It is a package module rather than a file in the Xcode app
@@ -122,6 +123,16 @@ let package = Package(
             dependencies: ["VoccaCore", .product(name: "KokoroCoreML", package: "kokoro-coreml")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // An adapter, not a leaf: it implements a seam VoccaCore owns (the ContextProvider,
+        // via the AccessibilityContext conformance — the module ARCHITECTURE.md:151 reserves),
+        // so it depends on VoccaCore and VoccaCore does not depend on it. See ModuleBoundaryTests'
+        // rule 3 for why the arrow points this way and what still constrains it. The AX and Secure
+        // Input surfaces are confined to one file each by the per-seam lint amendments.
+        .target(
+            name: "VoccaContext",
+            dependencies: ["VoccaCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "VoccaUI",
             dependencies: ["VoccaCore"],
@@ -170,7 +181,7 @@ let package = Package(
             name: "VoccaNetworkProbe",
             dependencies: [
                 "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR",
-                "VoccaText", "VoccaInject", "VoccaSpeech", "VoccaUI",
+                "VoccaText", "VoccaInject", "VoccaSpeech", "VoccaContext", "VoccaUI",
                 "VoccaUsage", "VoccaBootstrap",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
