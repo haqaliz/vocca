@@ -15,6 +15,7 @@
 import Foundation
 import VoccaASR
 @testable import VoccaBootstrap
+import VoccaContext
 import VoccaCore
 @testable import VoccaInject
 import VoccaText
@@ -253,6 +254,77 @@ final class AppBootstrapWiringTests: XCTestCase {
         XCTAssertFalse(present, "the recipe must not provision a model")
     }
 
+    // MARK: - The context composition (C12, R4)
+
+    /// **The context wiring is probe-safe and attached** (`bootstrap-wiring` Phase 2): the
+    /// recipe constructs the wiring over the shipped store (path-injected over a fresh
+    /// directory) and a failing provider, attaches nothing that starts, reads or provisions
+    /// — the consent store is never consulted at composition time, no provider read happens
+    /// and nothing is written — and the root's three slots are attached, exactly as
+    /// `configure` attaches them.
+    @MainActor
+    func testTheContextCompositionIsProbeSafeAndAttached() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let engine = StubEngine.parakeet()
+        let holdToTalkSource = RecordingAudioSource()
+        let toggleSource = RecordingAudioSource()
+        let root = DictationLoopRoot(
+            configuration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .holdToTalk),
+            ceiling: SessionCeiling.default,
+            clock: TestClock(),
+            audioSource: holdToTalkSource,
+            keyState: TruthfulKeyState(Keyboard()),
+            watchdogTimer: FakeTimer(),
+            healthTimer: FakeTimer(),
+            deferOpening: { $0() },
+            tap: FakeHotkeyEventSource(),
+            secureInput: FakeSecureInputState(),
+            resolver: DictationEngineResolver(selection: .defaultSelection) { _ in engine },
+            targetResolution: TargetResolution(
+                focusedApp: FakeFocusedApp(
+                    identity: FocusedAppIdentity(
+                        bundleID: "com.apple.Notes", windowTitle: "The Draft")),
+                secureInput: FakeSecureInput(),
+                frontmost: FakeFrontmostApp()),
+            panel: RecordingPanel(holder: LedgerHolder()),
+            toggleConfiguration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .toggle),
+            toggleSource: toggleSource,
+            toggleTimer: FakeTimer(),
+            runningAppName: FakeRunningAppName(),
+            widgetClock: FakeTimer(),
+            liveLevel: QuietLevelSource(),
+            sessionKind: .dictation)
+
+        let provider = FailingContextProvider()
+        let wiring = AppBootstrap.composeContextWiring(
+            provider: provider,
+            consentStore: PersistentConsentStore(directory: directory),
+            secureInput: FakeSecureInputState(),
+            root: root)
+        root.contextResolution = wiring.resolve
+        root.contextIndicatorFold = wiring.foldIndicator
+        root.contextKillSwitch = wiring.killSwitch
+
+        // Nothing starts, reads or provisions at composition time (the probe-safe-by-
+        // construction assertion): the microphones stayed closed, the provider was never
+        // consulted, and the consent file was not created.
+        XCTAssertEqual(holdToTalkSource.beginCount, 0, "the dictation mic stayed closed")
+        XCTAssertEqual(toggleSource.beginCount, 0, "the toggle mic stayed closed")
+        XCTAssertEqual(provider.readCalls, 0, "no provider read at composition time")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("context-consent.json").path),
+            "the composition never writes the consent file")
+
+        XCTAssertNotNil(root.contextResolution, "the resolution slot is attached")
+        XCTAssertNotNil(root.contextIndicatorFold, "the indicator fold is attached")
+        XCTAssertNotNil(root.contextKillSwitch, "the kill switch is attached")
+    }
+
     // MARK: - Fixtures
 
     /// Builds a resolver over a temp directory, writing `configJSON` when non-nil, with stub
@@ -300,4 +372,15 @@ private final class ConverseStateBox: @unchecked Sendable {
 /// is file-private to its own suites).
 private struct QuietLevelSource: LiveLevelSource {
     func latestLevel() -> Float { 0 }
+}
+
+/// A context provider that answers the all-absent snapshot on every call — the seam's only
+/// failure vocabulary (the seam is non-throwing by contract, `ContextProvider.swift:25-27`).
+private final class FailingContextProvider: ContextProvider, @unchecked Sendable {
+    private(set) var readCalls = 0
+
+    func resolveCurrent() -> ContextSnapshot {
+        readCalls += 1
+        return ContextSnapshot(bundleID: nil, windowTitle: nil, selectedText: nil)
+    }
 }

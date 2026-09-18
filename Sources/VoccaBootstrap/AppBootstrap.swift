@@ -600,6 +600,31 @@ public enum AppBootstrap {
             root.converseFailureSink = { failure in converseFailureRecorder.values.append(failure) }
         }
 
+        // The context composition (C12, R4 — the C11 additive shape, one more recipe + the
+        // three slots above): the consent-gated resolution slot, the indicator fold and the
+        // kill switch, composed through the probe-safe recipe (`composeContextWiring`). The
+        // composed default is the shipped `NullContext` (reads nothing); the consent store is
+        // absent at composition — every fresh install's shape — so the resolver takes the
+        // no-consents path and nothing is read or written (M4's default-off by construction,
+        // `bootstrap-wiring` edge case 3; the real store's injection is the recorded hand-off
+        // of the consent-UI work, which needs a `VoccaContext` dependency this module
+        // deliberately does not declare). The recipe is synchronous — the store is consulted
+        // per resolution — so the slots are assigned inline; the initial indicator fold runs
+        // in a launch task, the egress-fold precedent: resolving once for no focused app,
+        // which the consent gate declines before any provider call, so the fold's default is
+        // the safe unlit direction and nothing is read.
+        let contextWiring = AppBootstrap.composeContextWiring(
+            provider: NullContext(),
+            consentStore: nil,
+            secureInput: SystemSecureInputState(),
+            root: root)
+        root.contextResolution = contextWiring.resolve
+        root.contextIndicatorFold = contextWiring.foldIndicator
+        root.contextKillSwitch = contextWiring.killSwitch
+        Task { @MainActor in
+            _ = await contextWiring.resolve(nil)
+        }
+
         return root
     }
 
@@ -1378,6 +1403,27 @@ public final class DictationLoopRoot {
     /// The honest-drop notice's destination — the widget-converse aspect's slot. Defaults to a
     /// recording closure; widget-converse replaces it with the notice surface's fold.
     public var converseFailureSink: (@Sendable (ConverseTurnFailure) -> Void)?
+
+    /// **The C12 context-resolution slot** (`bootstrap-wiring` D2): per turn, for the focused
+    /// bundle ID, the consent-gated snapshot — consent is consulted before the provider
+    /// (declined ⇒ the empty snapshot and the provider is never invoked; Secure Input ⇒ the
+    /// empty snapshot; consented ⇒ the provider's snapshot). Nothing on the dictation path
+    /// calls the slot — C12's consumers are the tests, the indicator fold,
+    /// `byok-context-grant` and C13. `nil` only in a composition that built no context
+    /// wiring — every headless harness in the suite.
+    public var contextResolution: (@Sendable @MainActor (String?) async -> ContextSnapshot)?
+
+    /// **The C12 indicator-fold surface** (D3): the badge signal's fold, delivered through the
+    /// widget-indicator aspect's shipped fold case (`setContext` — never a reducer edit) plus
+    /// the menu-bar conditions fact. The wiring folds at resolution time, at wiring time, and
+    /// whenever the kill switch or a consent edit re-folds.
+    public var contextIndicatorFold: (@Sendable @MainActor (WidgetContextSignal) -> Void)?
+
+    /// **The C12 kill-switch surface** (D4): the one-action revoke the menu-bar row and the
+    /// Settings control call. Throwing it stops further reads, discards the in-flight
+    /// snapshot and clears the indicator fold in the same call (M9). A runtime revoke, never
+    /// a persisted setting and never an invitation to grant.
+    public var contextKillSwitch: (@Sendable @MainActor () -> Void)?
 
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
