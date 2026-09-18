@@ -28,6 +28,34 @@ aspect is that structure.
   **before any provider call**, including before `describe` (the `ContextConsentGate`
   never-read precedent: declined, never called-then-discarded).
 
+## The escalate-only rule (added 2026-09-19, from `action-seam`)
+
+`action-seam` placed `BlastRadius` on `ActionSummary` — the value `describe` returns — because
+only the provider knows a tool's radius. The consequence, recorded in
+`ActionSummary.blastRadius`'s doc comment and binding on this aspect:
+
+> **The blast radius is the provider's own claim, and nothing verifies it.**
+
+A safety gate that trusts the thing it is gating is not a gate. This aspect therefore applies
+a **local policy that may only ever escalate** a provider's claim and **may never
+de-escalate** it:
+
+| Provider claims | Local policy may make it | May NOT make it |
+|---|---|---|
+| `readOnly` | `destructive` / `outwardFacing` | — |
+| `destructive` | `outwardFacing` | `readOnly` |
+| `outwardFacing` | — | anything lower |
+
+The safety argument this buys, stated so it can be checked rather than believed: **a lying
+provider can only cause the user to be asked more often than necessary, never less.** A
+provider that under-declares to skip confirmation cannot, because the policy is the floor and
+the provider's claim can only raise it.
+
+**Acceptance (RED first):** a provider declaring `readOnly` for a tool the local policy marks
+destructive is **confirmed, not auto-run** — asserted by attempting the auto-run path and
+requiring refusal. And the inverse: no input to the policy produces a radius lower than the
+provider's claim, asserted over all three cases.
+
 ## Out of scope
 
 Persisting enablement (follow-on N1); the audit log's storage (this aspect emits the record,
