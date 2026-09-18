@@ -79,6 +79,25 @@ final class VoccaContextTargetTests: XCTestCase {
             """)
     }
 
+    /// The `VoccaBootstrap` target must depend on `VoccaContext`: the composition root wires
+    /// the modules together, so the context adapter and its consent store must be reachable
+    /// from it or the app cannot compose them — the `KokoroDependencyTests`
+    /// `testVoccaBootstrapTargetDependsOnVoccaSpeech` precedent, for the C12 module. The root
+    /// is the one module permitted to import adapters (`ARCHITECTURE.md` §2); this test pins
+    /// that the permission is *taken*.
+    func testVoccaBootstrapTargetDependsOnVoccaContext() throws {
+        let target = try XCTUnwrap(
+            try manifest().targets["VoccaBootstrap"],
+            "Package.swift must declare a VoccaBootstrap target")
+        XCTAssertTrue(
+            target.dependencies.contains("VoccaContext"),
+            """
+            The VoccaBootstrap target's dependencies must include VoccaContext. Declared: \
+            \(target.dependencies.sorted()). The composition root wires the modules together, \
+            and the context adapter reaches the app only through it.
+            """)
+    }
+
     /// The module directory must exist and hold at least one `.swift` file — the boundary
     /// tests' existence claim, spelled for this module: a vacuous scan (a directory with no
     /// Swift files, or no directory at all) is the failure mode this check exists to prevent.

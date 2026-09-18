@@ -153,6 +153,11 @@ let package = Package(
         // nothing in the package may import it). It is a package module rather than a file in the
         // Xcode app target so that VoccaNetworkProbe can drive it: sources under App/ are outside
         // the package and therefore outside the zero-network invariant.
+        //
+        // `VoccaContext` joined in the C12 wiring-close: the root composes the real
+        // `AccessibilityContext` provider and its `PersistentConsentStore` — the one module
+        // permitted to import adapters (`ARCHITECTURE.md` §2), which is exactly why the
+        // dependency belongs here and nowhere below the root.
         .target(
             name: "VoccaBootstrap",
             dependencies: [
@@ -163,6 +168,7 @@ let package = Package(
                 "VoccaInject",
                 "VoccaText",
                 "VoccaSpeech",
+                "VoccaContext",
                 "VoccaUI",
                 "VoccaUsage",
             ],
