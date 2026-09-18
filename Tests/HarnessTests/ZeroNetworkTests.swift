@@ -434,14 +434,15 @@ final class ZeroNetworkTests: XCTestCase {
         "started=1 turnCommits=2 replies=2 bargeIns=1 gated=1 asrTranscribes=2 cleanupMode=conversing state=idle"
 
     /// **The context composition's post-condition** (PROBE-CONTEXT): the verbatim report of
-    /// the composed context default work — the `NullContext` provider over a fresh-empty
-    /// consent store, never a read, the unlit fold, two resolutions, no revoke. Asserted
-    /// whole, as one line — the `expectedConverseLifecycle` shape. This is deliberately **not**
-    /// a golden string to be regenerated when it fails:
-    /// ``testTheAssertedContextPostConditionStillDescribesTheNullContextDefault`` reads it
-    /// back and refuses a version that no longer describes the composed default.
+    /// the composed context default work — the **shipped** `AccessibilityContext` provider
+    /// over a fresh-empty consent store, never a read (the no-consents gate declines before
+    /// any provider call), the unlit fold, two resolutions, no revoke. Asserted whole, as one
+    /// line — the `expectedConverseLifecycle` shape. This is deliberately **not** a golden
+    /// string to be regenerated when it fails:
+    /// ``testTheAssertedContextPostConditionStillDescribesTheShippedAccessibilityContextDefault``
+    /// reads it back and refuses a version that no longer describes the composed default.
     private static let expectedContextLifecycle =
-        "provider=null reads=0 consents=0 indicator=unlit resolves=2 revoke=no"
+        "provider=real reads=0 consents=0 indicator=unlit resolves=2 revoke=no"
 
     /// The only modules the probe is not required to drive.
     ///
@@ -1604,14 +1605,16 @@ final class ZeroNetworkTests: XCTestCase {
     }
 
     /// **Guards the guard.** ``expectedContextLifecycle`` must keep describing the composed
-    /// context **default work**: the `NullContext` provider (never any other — the G12 pin),
-    /// zero provider reads under no consent (M5's never-read doctrine), the store's own zero
-    /// consents, ≥1 resolution (a drive that resolved nothing proves nothing), and the
-    /// unthrown kill (a revoke would explain away the zero reads). A weakened constant (say,
-    /// `reads=0` dropped, or `provider=other`) that still satisfies the verbatim comparison
-    /// above would read green while the composed default said nothing — the same protection
-    /// the other guard-the-guard tests give their constants.
-    func testTheAssertedContextPostConditionStillDescribesTheNullContextDefault() throws {
+    /// context **default work**: the shipped `AccessibilityContext` provider (never any other
+    /// — the wiring-close pin; the type name is the one thing the report's `provider` field
+    /// derives from, so a reverted `NullContext` composition flips it), zero provider reads
+    /// under no consent (M5's never-read doctrine), the store's own zero consents, ≥1
+    /// resolution (a drive that resolved nothing proves nothing), and the unthrown kill (a
+    /// revoke would explain away the zero reads). A weakened constant (say, `reads=0`
+    /// dropped, or `provider=other`) that still satisfies the verbatim comparison above would
+    /// read green while the composed default said nothing — the same protection the other
+    /// guard-the-guard tests give their constants.
+    func testTheAssertedContextPostConditionStillDescribesTheShippedAccessibilityContextDefault() throws {
         let fields = try Self.parseFields(of: Self.expectedContextLifecycle)
 
         func value(_ key: String) throws -> String {
@@ -1623,9 +1626,10 @@ final class ZeroNetworkTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            try value("provider"), "null",
-            "The asserted context post-condition no longer names the NullContext composed "
-                + "default — the G12 pin could be describing any provider.")
+            try value("provider"), "real",
+            "The asserted context post-condition no longer names the shipped AccessibilityContext "
+                + "composed default — the wiring-close pin could be describing any provider, "
+                + "including the reads-nothing NullContext the close removed.")
         XCTAssertEqual(
             Int(try value("reads")) ?? -1, 0,
             "The asserted context post-condition no longer requires zero provider reads under "

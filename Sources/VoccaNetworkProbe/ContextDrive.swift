@@ -20,43 +20,48 @@ import VoccaInject
 import VoccaUI
 
 // The probe's half of the zero-network invariant for the C12 context composition
-// (`bootstrap-wiring` Phase 3, D6): the wiring recipe composed over the **shipped defaults**
-// — the composed default provider (`NullContext`, which reads nothing), the real consent
-// store over a **fresh empty temporary directory** (absent ⇒ no consents ⇒ the empty
-// snapshot; nothing written — the store is read-only here) and a real root over probe fakes
-// — driven once under the interposer.
+// (`bootstrap-wiring` Phase 3, D6; the wiring-close's shipped-composition hand-off): the
+// wiring recipe composed over the **shipped defaults** — the real `AccessibilityContext`
+// provider (constructed, never read through the wiring: a fresh-empty store answers no
+// consents, and the gate declines before any provider call), the real consent store over a
+// **fresh empty temporary directory** (absent ⇒ no consents ⇒ the empty snapshot; nothing
+// written — the store is read-only here) and a real root over probe fakes — driven once
+// under the interposer.
 //
 // ## What the drive reports, and where each field comes from
 //
-// `provider=null reads=0 consents=0 indicator=unlit resolves=2 revoke=no` — every field
+// `provider=real reads=0 consents=0 indicator=unlit resolves=2 revoke=no` — every field
 // derived, never a constant:
 //
-// - `provider` — the composed default's own type, `String(reflecting: type(of:))`; a
-//   different provider flips the field and the suite fails (the G12 default-work pin).
+// - `provider` — the composed default's own type, `String(reflecting: type(of:))`; the
+//   shipped `AccessibilityContext` flips the field to `real` (a reverted `NullContext`
+//   composition flips it back and the suite fails — the wiring-close default-work pin).
 // - `reads` — the measurement composition's provider double's ledger: with no consents the
 //   provider must never be reached (the never-read doctrine, M5), measured rather than
-//   assumed because `NullContext` cannot ledger.
+//   assumed because `AccessibilityContext` cannot ledger.
 // - `consents` — the store's own answer, `await store.load().count` (a fresh directory ⇒ 0).
 // - `indicator` — the root's folded widget state after the drives (`setContext` → `.off`).
 // - `resolves` — how many resolutions the drive made (the ≥1-answer guard's field).
 // - `revoke` — whether the default work threw the kill switch (it must not: the kill is a
 //   user action, asserted headlessly in `ContextWiringCompositionTests`).
 //
-// ## The module witness
+// ## The module witness and the failure path
 //
 // The witness is minted **by the call** — `type(of: context)` on the real
 // `AccessibilityContext` this drive constructed and resolved once — so the `VoccaContext`
-// entry in the probe's coverage list cannot outlive the call it stands for. The one
-// resolution is the landed sibling drive's decision, preserved: in CI, without an
+// entry in the probe's coverage list cannot outlive the call it stands for. That one direct
+// resolution is the drive's decision, preserved from the landed sibling: in CI, without an
 // Accessibility grant, the AX copies answer an error and the snapshot is the empty one, so
-// `AXContextSource`'s **failure path executes in CI** (recorded in that file's doc comment).
+// `AXContextSource`'s **failure path executes in CI** (recorded in that file's doc comment)
+// — the empty snapshot, never a throw, and the report stays deterministic: no field depends
+// on the snapshot's contents, so a grant on a developer machine cannot flake the suite.
 //
 // ## What this drive does not do
 //
 // It does **not** resolve a non-empty snapshot in CI: the success path needs a grant and a
 // real focused application, which stays unreachable on a hosted runner, now and ever. The
-// report's fields are derived from the wiring's no-consents default; nothing asserts the
-// adapter's snapshot, so a grant on a developer machine cannot flake the suite.
+// wiring's own resolutions stay on the no-consents path (the gate declines before the
+// provider), and nothing asserts the adapter's snapshot.
 
 extension VoccaNetworkProbe {
 
@@ -138,9 +143,12 @@ extension VoccaNetworkProbe {
         let store = PersistentConsentStore(directory: directory)
         let root = makeContextDriveRoot()
 
-        // The composed default (G12): the wiring over the shipped `NullContext`. The report's
-        // `provider` field is derived from this composition's own provider type.
-        let provider: any ContextProvider = NullContext()
+        // The composed default (the wiring-close hand-off): the wiring over the **shipped**
+        // `AccessibilityContext` — the same composition `AppBootstrap.configure` makes. The
+        // report's `provider` field is derived from this composition's own provider type.
+        let provider: any ContextProvider = AccessibilityContext(
+            axRead: AXContextSource(),
+            secureInputRead: ContextSecureInputRead())
         let defaultWiring = AppBootstrap.composeContextWiring(
             provider: provider,
             consentStore: store,
@@ -171,7 +179,7 @@ extension VoccaNetworkProbe {
 
         return ContextDrive(
             report: [
-                "provider=\(providerName.contains("NullContext") ? "null" : "other")",
+                "provider=\(providerName.contains("AccessibilityContext") ? "real" : "other")",
                 "reads=\(measuredProvider.readCalls)",
                 "consents=\(consents)",
                 "indicator=\(indicator)",
