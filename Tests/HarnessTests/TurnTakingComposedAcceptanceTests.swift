@@ -327,7 +327,7 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "9895f45ac20147c3a9cfa34ce9507a07f0b8637fff1b707fded21e7c6a9875d3"
+                "464b0d5a0e63b69dda8e72ca9ee793ff189e0d70094491c5bfde2c53e0328aff"
             ),
         ]
 
