@@ -158,6 +158,53 @@ once at launch into a structurally non-dismissable egress badge.
 
 ---
 
+### `VoccaCore` imports nothing — not even Foundation
+
+`CoreBoundaryTests.swift:116` enforces an **empty** import allow-list for `VoccaCore`. The
+`ActionProvider` protocol and its vocabulary must therefore be Foundation-free: no `Data`,
+no `URL`, no `Date`. This is a hard constraint on the seam's type design, and it is a second
+reason the audit log's instant must be a monotonic `Duration` rather than a timestamp.
+
+The division follows from it: `VoccaCore/Actions/` owns the protocol, the plain-data
+vocabulary, the pure gate logic and the trivial default; `VoccaActions/` owns the
+system-touching conformances (the audit-log store, and later `MCPProvider` / `ShellProvider`)
+and imports `VoccaCore` and no other Vocca module.
+
+### The G5 pin is NOT tripped by an unwired unit
+
+The pin lives in `TurnTakingComposedAcceptanceTests.swift:311-347` and hashes exactly three
+paths: `SessionMachine.swift`, `DictationPipeline.swift`, `AppBootstrap.swift`. A unit that
+adds a new module, new sources, new tests and `Package.swift` entries **without modifying
+`AppBootstrap.swift` leaves all three digests intact and never touches the pin.** C11 and C12
+each re-anchored only in their wiring aspect. Keeping the safety spine unwired defers the
+re-anchor to a later unit entirely — a real argument for machinery-only scope.
+
+### Permit files are test constants, and no subprocess family exists
+
+Mechanically a `private static let … : [String: Set<String>]` **inside a test file** — seam
+name → the one source path permitted to name a system-API identifier family. No file on
+disk. Doctrine (`InjectionSeamBoundaryTests.swift:75`): *a decision that names the system is
+a decision CI cannot reach.* File I/O needs rows in both `:1186` and `:1201`. **Subprocesses
+have no family at all** — `Process(` appears once tree-wide, unlinted. A `ShellProvider`
+would establish a new family rather than amend one.
+
+### The two-implementation doctrine is doctrine only
+
+**No test enforces it.** A recorded `PENDING` row is therefore viable without fighting CI —
+the `ParakeetEOU` Branch B precedent.
+
+### PRODUCT_SPEC says nothing about actions
+
+No confirmation UI, no action surface, no widget action state; "C13" does not appear in the
+file. There is no copy to honor and none to contradict — but also no design to inherit.
+
+> **Doc drift noted:** `docs/planning/dual-mode/prd.md:205` cites `PRODUCT_SPEC.md:379` as
+> the deferred reply-text rendering. Line 379 is now a §9 Sound table row
+> (`| Delivered | softer, higher tick |`). The citation has drifted; the deferral itself
+> still stands, the line number does not.
+
+---
+
 ## 4. Conventions this unit must follow
 
 - **RED-first commit sequence**, per C12: tests against a module that does not exist, then
