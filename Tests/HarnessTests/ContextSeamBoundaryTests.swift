@@ -53,8 +53,9 @@ private enum ContextSeamTestError: Error, CustomStringConvertible {
 ///
 /// - `ContextProvider` (the seam itself): the protocol file and the file whose conformance
 ///   must name it;
-/// - `ContextSnapshot` (the vocabulary): the vocabulary file, the seam's method signature, and
-///   the default's construction;
+/// - `ContextSnapshot` (the vocabulary): the vocabulary file, the seam's method signature, the
+///   default's construction, and the two `byok-context-grant` files that type against it — the
+///   ``GrantedContextSource`` seam's signature and the gate's truncation;
 /// - `NullContext` (the shipped default): exactly one file.
 ///
 /// ## What this lint does and does not see
@@ -91,6 +92,8 @@ final class ContextSeamBoundaryTests: XCTestCase {
                 "Context/ContextSnapshot.swift",
                 "Context/ContextProvider.swift",
                 "Context/NullContext.swift",
+                "Context/GrantedContextSource.swift",
+                "Context/ContextGrantGate.swift",
             ]
         ),
         (name: "NullContext", permitted: ["Context/NullContext.swift"]),
