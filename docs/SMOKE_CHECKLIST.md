@@ -3004,6 +3004,27 @@ unmet until C13's real agent** — nothing below may be read as a gate pass.
     app name in converse (any of these is a prohibition violation — recorded verbatim and
     surfaced).
 
+139. **The first real context resolution run (C12, recorded — never gated).**
+
+    *Gesture:* run `VOCCA_CONTEXT_REAL=1 swift test --filter
+    AccessibilityContextRealSuiteTests` on a machine with several of the matrix's apps running
+    (Notes, Safari, an editor, a terminal — the more rows present, the closer the run is to the
+    scripted corpus's 22). The suite activates each running matrix app, resolves through the real
+    `AccessibilityContext` (the real AX read, Secure Input refusal first), and records
+    `CONTEXT-RESOLUTION <correct>/<attempted> recorded-never-gated` in the output.
+
+    *Verify the state was entered:* the run actually activated apps and resolved (attempted ≥ 1),
+    the terminal running the suite had an Accessibility grant (otherwise every row resolves
+    empty), and Secure Input was not in force during the run.
+
+    *Pass:* the row recorded verbatim with the never-gated note — the `CONTEXT-RESOLUTION`
+    fraction, the apps present, and the misses named. The number is compared against the
+    scripted corpus's ≥95% bar **by eye, never asserted** — real-app resolution is environment by
+    nature (R3), and the CI-measurable contract is the harness's.
+
+    *Failure:* a run that attempts nothing, a run resolving every row empty while the grant was
+    present, or a `CONTEXT-RESOLUTION` below the bar with no explanation recorded.
+
 ---
 
 ## When this file is wrong
