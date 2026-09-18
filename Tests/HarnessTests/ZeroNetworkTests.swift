@@ -433,6 +433,16 @@ final class ZeroNetworkTests: XCTestCase {
     private static let expectedConverseLifecycle =
         "started=1 turnCommits=2 replies=2 bargeIns=1 gated=1 asrTranscribes=2 cleanupMode=conversing state=idle"
 
+    /// **The context composition's post-condition** (PROBE-CONTEXT): the verbatim report of
+    /// the composed context default work — the `NullContext` provider over a fresh-empty
+    /// consent store, never a read, the unlit fold, two resolutions, no revoke. Asserted
+    /// whole, as one line — the `expectedConverseLifecycle` shape. This is deliberately **not**
+    /// a golden string to be regenerated when it fails:
+    /// ``testTheAssertedContextPostConditionStillDescribesTheNullContextDefault`` reads it
+    /// back and refuses a version that no longer describes the composed default.
+    private static let expectedContextLifecycle =
+        "provider=null reads=0 consents=0 indicator=unlit resolves=2 revoke=no"
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -835,6 +845,37 @@ final class ZeroNetworkTests: XCTestCase {
             conversing cleanup mode. Do not fix this by deleting the call, and do not fix it \
             by pasting in whatever the probe now prints — see \
             testTheAssertedConversePostConditionStillDescribesATurnWithAConversingCleanup.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The context composition's post-condition. The eleventh effect-not-reference check,
+        // and the one that pins the C12 composed **default work** (M11, D6): the wiring
+        // recipe over the shipped `NullContext` — reads nothing — and the real consent store
+        // over a fresh empty temporary directory, so no consents answer and the provider is
+        // never reached (the never-read doctrine, M5), the badge fold lands unlit, and the
+        // drive made its two resolutions without throwing the kill (the kill is a user
+        // action, asserted headlessly). The report's `reads` comes from the drive's own
+        // provider double's ledger and `consents` from the store's own answer — effect-not-
+        // reference checks the verbatim comparison below cannot be weakened to a constant
+        // without the guard-the-guard noticing.
+        //
+        // Deleting the drive removes the line from the probe's output entirely, so the
+        // comparison fails against nil rather than quietly covering less.
+        XCTAssertEqual(
+            try XCTUnwrap(contextPayload(of: observation)),
+            Self.expectedContextLifecycle,
+            """
+            The probe did not report driving the context composition's composed default work.
+              expected: \(Self.expectedContextLifecycle)
+              observed: \(contextPayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseContext() was not called on the \
+            default-configuration path — in which case the context composition's default work \
+            is outside this invariant — or the composed default no longer behaves as written. \
+            Both matter: the report covers the NullContext provider, the zero reads under no \
+            consent, the store's own empty answer, the unlit fold, the two resolutions and \
+            the unthrown kill — the shape of the composed default work (M11). Do not fix this \
+            by deleting the call, and do not fix it by pasting in whatever the probe now \
+            prints — see testTheAssertedContextPostConditionStillDescribesTheNullContextDefault.
             \(observation.diagnosticSummary)
             """)
 
@@ -1562,6 +1603,47 @@ final class ZeroNetworkTests: XCTestCase {
                 + "converse loop must begin its session once.")
     }
 
+    /// **Guards the guard.** ``expectedContextLifecycle`` must keep describing the composed
+    /// context **default work**: the `NullContext` provider (never any other — the G12 pin),
+    /// zero provider reads under no consent (M5's never-read doctrine), the store's own zero
+    /// consents, ≥1 resolution (a drive that resolved nothing proves nothing), and the
+    /// unthrown kill (a revoke would explain away the zero reads). A weakened constant (say,
+    /// `reads=0` dropped, or `provider=other`) that still satisfies the verbatim comparison
+    /// above would read green while the composed default said nothing — the same protection
+    /// the other guard-the-guard tests give their constants.
+    func testTheAssertedContextPostConditionStillDescribesTheNullContextDefault() throws {
+        let fields = try Self.parseFields(of: Self.expectedContextLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("provider"), "null",
+            "The asserted context post-condition no longer names the NullContext composed "
+                + "default — the G12 pin could be describing any provider.")
+        XCTAssertEqual(
+            Int(try value("reads")) ?? -1, 0,
+            "The asserted context post-condition no longer requires zero provider reads under "
+                + "no consent — the never-read doctrine (M5) could be silently dropped.")
+        XCTAssertEqual(
+            Int(try value("consents")) ?? -1, 0,
+            "The asserted context post-condition no longer requires the store's empty answer — "
+                + "the drive could be reporting a store it seeded.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("resolves")) ?? 0, 1,
+            "The asserted context post-condition resolved nothing — a drive that never "
+                + "composed a default answer proves nothing about the wiring.")
+        XCTAssertEqual(
+            try value("revoke"), "no",
+            "The asserted context post-condition no longer requires the unthrown kill — the "
+                + "default work could be reporting reads that stopped because of a revoke.")
+    }
+
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
     /// probe never reported one.
     ///
@@ -1620,6 +1702,22 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-CONVERSE\t") {
             return String(line.dropFirst("PROBE-CONVERSE\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-CONTEXT` line's payload — the context drive's composed-default-work report
+    /// — or `nil` when the probe never reported one.
+    ///
+    /// The `PROBE-CONVERSE` parser shape: the line exists only when `exerciseContext()` ran on
+    /// the default-configuration path, so its absence is a missing drive rather than an empty
+    /// report. `VoccaContext` is already covered by the adapter's witness, so the module
+    /// coverage list alone would not notice a deleted drive — this accessor and its assertion
+    /// are the leg's survival guarantee.
+    private func contextPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-CONTEXT\t") {
+            return String(line.dropFirst("PROBE-CONTEXT\t".count))
         }
         return nil
     }

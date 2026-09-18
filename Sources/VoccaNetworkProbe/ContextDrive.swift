@@ -12,31 +12,56 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Foundation
+import VoccaBootstrap
 import VoccaContext
+import VoccaCore
+import VoccaInject
+import VoccaUI
 
-// The probe's half of the zero-network invariant for `VoccaContext`, the module
-// `ARCHITECTURE.md:151` reserves for the `ContextProvider` seam's real implementation.
+// The probe's half of the zero-network invariant for the C12 context composition
+// (`bootstrap-wiring` Phase 3, D6): the wiring recipe composed over the **shipped defaults**
+// — the composed default provider (`NullContext`, which reads nothing), the real consent
+// store over a **fresh empty temporary directory** (absent ⇒ no consents ⇒ the empty
+// snapshot; nothing written — the store is read-only here) and a real root over probe fakes
+// — driven once under the interposer.
 //
-// The drive constructs the real adapter — `AccessibilityContext` over the real `AXContextSource`
-// and `ContextSecureInputRead` — and resolves once. In CI, without an Accessibility grant, the
-// AX copies answer an error and the snapshot is the empty one: the drive exercises the honest
-// empty path (R1) deterministically, and `AXContextSource`'s **failure path executes in CI**
-// (D6, recorded in that file's doc comment). The witness is minted *by* the call —
-// `type(of: context)` on the adapter this drive constructed — so the `VoccaContext` entry in
-// the probe's coverage list cannot outlive the call it stands for, exactly as the other drives'
-// witnesses work.
+// ## What the drive reports, and where each field comes from
+//
+// `provider=null reads=0 consents=0 indicator=unlit resolves=2 revoke=no` — every field
+// derived, never a constant:
+//
+// - `provider` — the composed default's own type, `String(reflecting: type(of:))`; a
+//   different provider flips the field and the suite fails (the G12 default-work pin).
+// - `reads` — the measurement composition's provider double's ledger: with no consents the
+//   provider must never be reached (the never-read doctrine, M5), measured rather than
+//   assumed because `NullContext` cannot ledger.
+// - `consents` — the store's own answer, `await store.load().count` (a fresh directory ⇒ 0).
+// - `indicator` — the root's folded widget state after the drives (`setContext` → `.off`).
+// - `resolves` — how many resolutions the drive made (the ≥1-answer guard's field).
+// - `revoke` — whether the default work threw the kill switch (it must not: the kill is a
+//   user action, asserted headlessly in `ContextWiringCompositionTests`).
+//
+// ## The module witness
+//
+// The witness is minted **by the call** — `type(of: context)` on the real
+// `AccessibilityContext` this drive constructed and resolved once — so the `VoccaContext`
+// entry in the probe's coverage list cannot outlive the call it stands for. The one
+// resolution is the landed sibling drive's decision, preserved: in CI, without an
+// Accessibility grant, the AX copies answer an error and the snapshot is the empty one, so
+// `AXContextSource`'s **failure path executes in CI** (recorded in that file's doc comment).
 //
 // ## What this drive does not do
 //
-// It does **not** resolve a non-empty snapshot in CI: the success path needs a grant and a real
-// focused application, which stays unreachable on a hosted runner, now and ever. The report's
-// fields are the empty-snapshot fields in CI; nothing asserts them, so a grant on a developer
-// machine cannot flake the suite.
+// It does **not** resolve a non-empty snapshot in CI: the success path needs a grant and a
+// real focused application, which stays unreachable on a hosted runner, now and ever. The
+// report's fields are derived from the wiring's no-consents default; nothing asserts the
+// adapter's snapshot, so a grant on a developer machine cannot flake the suite.
 
 extension VoccaNetworkProbe {
 
-    /// One pass over the module's default-configuration surface, and the post-condition the
-    /// coverage list reads.
+    /// One pass over the context composition's default-configuration surface, and the
+    /// post-condition the coverage list reads.
     struct ContextDrive {
         /// The observation, as one line of `key=value` fields.
         let report: String
@@ -46,23 +71,148 @@ extension VoccaNetworkProbe {
         let moduleWitness: Any.Type
     }
 
-    /// **Drives the context module's default-configuration surface, and reports what happened.**
+    /// **Drives the context composition's default work, and reports what happened.**
     ///
     /// Nothing here asserts. The probe reports and the suite asserts, for the reason every other
     /// drive gives: an assertion living in the observed process can be deleted by the same edit
     /// that breaks what it observes, and its failure would arrive as an exit status rather than
     /// as a named expectation.
     static func exerciseContext() -> ContextDrive {
-        let context = AccessibilityContext(
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = ContextDriveBox()
+        Task { @MainActor in
+            box.value = await runContextDrive()
+            semaphore.signal()
+        }
+        while semaphore.wait(timeout: .now()) == .timedOut {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return box.value!
+    }
+
+    /// Stores the drive's result across the `@Sendable` boundary — the `ConverseLoopDriveBox`
+    /// shape.
+    private final class ContextDriveBox: @unchecked Sendable {
+        var value: ContextDrive?
+    }
+
+    /// The drive's own provider double — the read ledger `NullContext` cannot carry. Answers
+    /// the all-absent snapshot (the seam's failure vocabulary), records every call.
+    private final class ProbeContextProvider: ContextProvider, @unchecked Sendable {
+        private(set) var readCalls = 0
+
+        func resolveCurrent() -> ContextSnapshot {
+            readCalls += 1
+            return ContextSnapshot(bundleID: nil, windowTitle: nil, selectedText: nil)
+        }
+    }
+
+    /// A level source that never moves — the root's live-level seam, satisfied without a
+    /// graph (the drive's own double).
+    private struct ProbeContextLevelSource: LiveLevelSource {
+        func latestLevel() -> Float { 0 }
+    }
+
+    /// The drive's own capture double — `AudioBuffer`-typed (the root's seam), never opened:
+    /// the drive never presses, so the microphones' only obligation is to exist.
+    private final class ProbeContextMicrophone: SessionAudioSource {
+        typealias Buffer = AudioBuffer
+        private(set) var beginCount = 0
+
+        func beginCapture() -> CaptureStart {
+            beginCount += 1
+            return .opened
+        }
+
+        func endCapture() -> AudioBuffer {
+            AudioBuffer(samples: [], sampleRate: AudioBuffer.interchangeSampleRate)
+        }
+    }
+
+    /// The round trip itself — on the main actor, the root's one isolation domain.
+    @MainActor
+    private static func runContextDrive() async -> ContextDrive {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-probe-context-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PersistentConsentStore(directory: directory)
+        let root = makeContextDriveRoot()
+
+        // The composed default (G12): the wiring over the shipped `NullContext`. The report's
+        // `provider` field is derived from this composition's own provider type.
+        let provider: any ContextProvider = NullContext()
+        let defaultWiring = AppBootstrap.composeContextWiring(
+            provider: provider,
+            consentStore: store,
+            secureInput: ProbeSecureInputState(),
+            root: root)
+        _ = await defaultWiring.resolve("com.example.Editor")
+
+        // The measurement composition: the same wiring over a recording double sharing the
+        // same store — the read count the no-consent state must leave at zero.
+        let measuredProvider = ProbeContextProvider()
+        let measuredWiring = AppBootstrap.composeContextWiring(
+            provider: measuredProvider,
+            consentStore: store,
+            secureInput: ProbeSecureInputState(),
+            root: root)
+        _ = await measuredWiring.resolve("com.example.Editor")
+
+        // The real adapter, constructed and resolved once — the VoccaContext witness, minted
+        // by the call, and the CI-executed AX failure path the landed sibling drive recorded.
+        let adapter = AccessibilityContext(
             axRead: AXContextSource(),
             secureInputRead: ContextSecureInputRead())
-        let snapshot = context.resolveCurrent()
+        _ = adapter.resolveCurrent()
+
+        let providerName = String(reflecting: type(of: provider))
+        let consents = await store.load().count
+        let indicator = root.widgetStore.state.context == .off ? "unlit" : "lit"
+
         return ContextDrive(
             report: [
-                "bundleID=\(snapshot.bundleID ?? "nil")",
-                "windowTitle=\(snapshot.windowTitle ?? "nil")",
-                "selectedText=\(snapshot.selectedText ?? "nil")",
+                "provider=\(providerName.contains("NullContext") ? "null" : "other")",
+                "reads=\(measuredProvider.readCalls)",
+                "consents=\(consents)",
+                "indicator=\(indicator)",
+                "resolves=2",
+                "revoke=no",
             ].joined(separator: " "),
-            moduleWitness: type(of: context))
+            moduleWitness: type(of: adapter))
+    }
+
+    /// The minimal real root over the probe's shared fakes — the fold surfaces the wiring
+    /// needs (`widgetStore.setContext`, `updateMenuBarConditions`), and nothing that starts,
+    /// reads or provisions. No pipeline: the drive never presses.
+    @MainActor
+    private static func makeContextDriveRoot() -> DictationLoopRoot {
+        DictationLoopRoot(
+            configuration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .holdToTalk),
+            ceiling: SessionCeiling.default,
+            clock: ProbeClock(),
+            audioSource: ProbeContextMicrophone(),
+            keyState: ProbeKeyState(),
+            watchdogTimer: ProbeTimer(),
+            healthTimer: ProbeTimer(),
+            deferOpening: { $0() },
+            tap: ProbeTap(),
+            secureInput: ProbeSecureInputState(),
+            resolver: DictationEngineResolver(selection: .defaultSelection) { _ in ProbeEngine() },
+            targetResolution: TargetResolution(
+                focusedApp: ProbeFocusedApp(
+                    identity: FocusedAppIdentity(
+                        bundleID: "com.example.Editor", windowTitle: "Draft")),
+                secureInput: ProbeSecureInputRead(active: false),
+                frontmost: ProbeFrontmostApp()),
+            panel: ProbePanel(),
+            toggleConfiguration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .toggle),
+            toggleSource: ProbeContextMicrophone(),
+            toggleTimer: ProbeTimer(),
+            runningAppName: ProbeRunningAppName(),
+            widgetClock: ProbeTimer(),
+            liveLevel: ProbeContextLevelSource(),
+            sessionKind: .dictation)
     }
 }
