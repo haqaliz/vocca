@@ -54,7 +54,7 @@ Vocca.app  (single process, Swift 6, strict concurrency)
 
 **Swift 6 strict concurrency is on from commit one.** Retrofitting it onto an audio pipeline with a realtime thread, an actor graph, and main-thread UI is materially harder than starting with it.
 
-Modules are **Swift Package Manager targets** in one repository. The dependency graph is strictly acyclic and **points inward to the core**: `VoccaCore ← {VoccaAudio, VoccaHotkey, VoccaASR, VoccaText, VoccaInject, VoccaSpeech}`, with one deliberate outward exception — the composition root: `VoccaBootstrap → {VoccaCore, VoccaAudio, VoccaHotkey, VoccaASR, VoccaInject, VoccaUI}`. It is the only module permitted to import adapters, and it is itself imported by nothing but the zero-network probe (see §14).
+Modules are **Swift Package Manager targets** in one repository. The dependency graph is strictly acyclic and **points inward to the core**: `VoccaCore ← {VoccaAudio, VoccaHotkey, VoccaASR, VoccaText, VoccaInject, VoccaSpeech}`, with one deliberate outward exception — the composition root: `VoccaBootstrap → {VoccaCore, VoccaAudio, VoccaHotkey, VoccaASR, VoccaInject, VoccaUI}`. It is the only module permitted to import adapters, and it is itself imported by nothing but the zero-network probe (see §14). `VoccaContext` joined the root's set in the C12 wiring close (2026-09-18): the root composes the real `AccessibilityContext` and its `PersistentConsentStore` — the module-boundary lint proves the import, the manifest-pin test proves the dependency.
 
 > **Amended (`dictation-loop`, 2026-08-12).** This paragraph previously read
 > `VoccaBootstrap → VoccaUI → VoccaCore ← {…}` — the root had no edges because the loop was not
@@ -148,7 +148,9 @@ Sources/
   VoccaSpeech/
     Kokoro/
     System/                  # AVSpeechSynthesizer
-  VoccaContext/              # P4 — ContextProvider
+  VoccaContext/              # P4 — ContextProvider — SHIPPED (context-provider, 2026-09-18):
+                             #   the AX adapter + its per-seam AX/Secure Input permits, the
+                             #   consent store (bundle IDs only, the never-read gate)
   VoccaActions/              # P4 — ActionProvider, MCP client
   VoccaBridge/               # RESERVED — a second C-ABI consumer (Kokoro, C9) would
                              #   claim it. C3's whisper bridge lives in VoccaASR/Whisper/
@@ -278,7 +280,7 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Turn detection | `TurnDetector` | `SilenceThresholdDetector` (shipped); `ParakeetEOU` **PENDING** — Branch B, the EOU is ASR-integrated in the pinned SDK, not a standalone scored call (`sdk-adapters`, 2026-09-15) | No |
 | Reply generation | `ReplyGenerator` | `EchoReplyGenerator` (the shipped default — your words back byte-for-byte), `AcknowledgmentReplyGenerator` ("Vocca is listening.") — two deterministic locals (`reply-seam`, 2026-09-16); **C13's real agent slots in behind this seam** | **Yes** |
 | Mode (dictate/converse) | `SessionMode` + `SessionModeMachine` | the explicit state machine (`VoccaCore/Mode/`) — chord-keyed, no implicit switching, the injection path reachable only from the dictate state (type/assertion-enforced; `mode-machine`, 2026-09-16) | No — always local |
-| Context | `ContextProvider` | `AccessibilityContext`, `NullContext` | **No — by design** |
+| Context | `ContextProvider` | `AccessibilityContext`, `NullContext` — **real since `context-provider` (2026-09-18)**: the seam in `VoccaCore/Context/` (`ContextSnapshot`, the sync non-throwing contract — D1), `NullContext` the shipped default (reads nothing), `AccessibilityContext` in `VoccaContext` behind its own per-seam AX and Secure Input permits (Secure Input refused first); the per-app consent gate (bundle-IDs-only store, the never-read decision) and the AND-gated BYOK payload field are the same unit's | **No — by design** |
 | Actions | `ActionProvider` | `MCPProvider`, `ShellProvider` | No |
 
 > *Status (memory-order aspect, 2026-08-27): the strategy-memory row is real end to end.
@@ -291,6 +293,20 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > byte) and its persist is detached: the snapshot is applied in memory before `inject` returns,
 > and the disk write is chained off the latency path. What remains unbuilt is the Apps tab and
 > the matrix (see §9).*
+
+> *Annotated (`context-provider`, 2026-09-18) — the Context row above is real end to end. The
+> composed wiring is additive in `VoccaBootstrap` (`ContextWiring.swift`, the `ConverseWiring`
+> precedent): the consent-gated per-turn resolution (the `ContextConsentGate` declines before
+> any AX call — never-read is structural), the indicator fold (`contextChanged` → the
+> per-fold non-dismissable `eye` badge; never lights on Secure Input — a reducer row), the
+> kill-switch routing (one action: reads stop, the in-flight snapshot is discarded — nothing
+> persists — the badge clears in the same fold), and the grant-gated BYOK payload leg
+> (`GrantedContextSource`, the AND-gate owning the ≤4 KB bound). `PROBE-CONTEXT` drives the
+> composed default inside the zero-network interposer (first `NullContext`, then the shipped
+> composition). The G5 pin was deliberately re-anchored twice for `AppBootstrap.swift`
+> (`bootstrap-wiring` cef7978, `wiring-close` a51ba4f — the record, `docs/STATUS.md`); the
+> dictation files stay byte-for-byte. The real app/selection resolution is the SMOKE leg
+> (steps 139-143), executed by nothing in CI.*
 
 ```swift
 protocol ASREngine: Sendable {
@@ -717,6 +733,7 @@ Every seam has a fake; every capability's acceptance from `CAPABILITY_ROADMAP.md
 | **Benchmark harness** | Replays fixtures, asserts p50/p95, fails CI on regression | C7 |
 | **Conversational set** | Labelled turn boundaries; scores endpointing with 5× false-cutoff weight. **Shipped (`turn-taking-barge-in`, 2026-09-15):** the `TurnCommitmentScorer` + scripted corpus + harness run in CI (passing corpus 1.0000 with zero false cutoffs; the planted-false-cutoff corpus genuinely fails at 0.0000; the late-commit corpus 0.2500); the founder-recorded set is SMOKE 131, recorded never gated | C10 |
 | **Mode-machine acceptance** | **Shipped (`dual-mode`, 2026-09-16):** the prohibition — no `TextInjector` call is ever made from the converse path, enforced by type/assertion and asserted in CI (`ModeProhibitionTests` + the seam-lint scan) — and the mode-transition reset (full state reset with no carryover of buffer, transcript, or target, `ModeResetTests`); `PROBE-CONVERSE` drives the converse default work inside the zero-network interposer. The realtime conversation is the SMOKE leg (134-138), founder-run, recorded never gated | C11 |
+| **Context acceptance** | **Shipped (`context-provider`, 2026-09-18):** the never-read test (the consent gate declines before any AX call, ordering asserted with recording fakes + a planted-violation control), the never-in-payload test (against the one payload-building site, `BYOKCleanupProvider.clean`), the scripted-corpus resolution harness (`ContextResolutionScorer` — the 22-row corpus clears ≥95%, the planted 2-miss corpus fails loudly at 0.909), and `PROBE-CONTEXT` driving the composed default inside the zero-network interposer — all in CI. The real app/selection resolution is the SMOKE leg (139-143), founder-run, recorded never gated | C12 |
 | **Custody audit** | Asserts no `CustodyToken` is ever deinit'd unresolved | I1, all phases |
 
 The load-bearing tests are the failure-path ones. Any competent implementation passes the happy path; what distinguishes this product is that the ladder's fourth rung always catches, and only fault injection proves it.
