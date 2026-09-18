@@ -170,4 +170,23 @@ final class CleanupTabCopyTests: XCTestCase {
         XCTAssertTrue(CleanupTabCopy.missingFields(.ollama).lowercased().contains("model"))
         XCTAssertTrue(CleanupTabCopy.missingFields(.byok).lowercased().contains("endpoint"))
     }
+
+    // MARK: - The context grant (`byok-context-grant` M7)
+
+    /// **The toggle's title matches the decision byte-for-byte.**
+    func testTheContextGrantTitleMatchesTheDecision() {
+        XCTAssertEqual(
+            CleanupTabCopy.contextGrantTitle, "Include app context in cloud cleanup")
+    }
+
+    /// **The toggle's detail names exactly what travels when on** — and that it is off by
+    /// default. The egress honesty doctrine (`PRODUCT_SPEC.md:16`): a surface that sends the
+    /// focused app and its selected text off the machine must say so in the words a user reads
+    /// before deciding.
+    func testTheContextGrantDetailMatchesTheDecision() {
+        XCTAssertEqual(
+            CleanupTabCopy.contextGrantDetail,
+            "When on, Vocca sends the focused app and its selected text with your cloud cleanup. "
+                + "Off by default.")
+    }
 }

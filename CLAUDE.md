@@ -2,10 +2,39 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-16).** The skeleton exists; **the product does not.**
+> **Status (2026-09-18).** The skeleton exists; **the product does not.**
 > A Swift 6 package with ten modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaUsage`, `VoccaBootstrap`.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`context-provider` (C12, shipped 2026-09-18):** the context half of the wedge is real —
+> the seam with two local implementations, the per-app consent gate, the visible indicator and
+> the one-action kill switch, the BYOK exclusion grant. The `ContextProvider` seam in
+> `VoccaCore/Context/` (`ContextSnapshot`, `NullContext` — the shipped default, reads nothing)
+> and the new **`VoccaContext`** module: `AccessibilityContext` behind its own per-seam AX and
+> Secure Input permit files (Secure Input refused first, failures resolve to the empty snapshot,
+> never a throw; recorded deviation D1 — the seam is synchronous/non-throwing, so the adapter is
+> an actor with a `nonisolated` witness) and `PersistentConsentStore` (`context-consent.json`,
+> bundle IDs only, capped 512, the byte-level pin). `ContextConsentGate` is the never-read
+> decision — an unconsented app is **declined before any AX call** (not read-then-discard, never
+> read). `ContextGrantGate` is the AND-gate (per-app consent **and** the global off-by-default
+> BYOK grant, never either alone) owning the ≤4 KB bound; the gated payload field is declared
+> last so the absent-grant body is byte-identical to today's. The widget carries the persistent
+> `eye` badge (never lights on Secure Input — a reducer row), the menu bar the one-action
+> **"Stop reading context"** kill row, the Apps tab the per-app **"Allow context"** consent
+> (default off, never a blanket allow), General the Context section, Cleanup the
+> **"Include app context in cloud cleanup"** toggle. The additive `AppBootstrap` composition
+> (`ContextWiring.swift`) is driven by `PROBE-CONTEXT` inside the zero-network interposer; the
+> G5 pin was deliberately re-anchored twice (`6d98acf4…0448` → `9895f45a…` → `464b0d5a…`, never
+> an edit-to-match; the dictation files' digests unchanged). SMOKE 139-143 are **written and
+> runnable** — the first real resolution run, the consent/never-read audit, the indicator, the
+> one-action kill switch, the BYOK never-in-payload audit — recorded, never gated, executed by
+> nothing in CI; **no context-accuracy percentage exists until the founder runs SMOKE 139 on a
+> machine with an Accessibility grant**. The two privacy acceptances (never-read,
+> never-in-payload) are structural — asserted in CI and observed on the real surface by SMOKE
+> 140/143. **No gate passes; this is the fourth unit built ahead of the uncleared P2/P3 gates
+> under the recorded posture**; context is never persisted beyond the turn and never egresses —
+> the seam has no hosted counterpart by design; zero network. Test floor: **2475**.
 >
 > **`dual-mode` (C11, shipped 2026-09-16):** the CONVERSING surface is real — the mode
 > machine, the wired loop, the honest reply stand-in. The `SessionModeMachine` with the closed

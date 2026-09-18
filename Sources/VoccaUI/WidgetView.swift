@@ -140,6 +140,7 @@ public struct WidgetView: View {
                 HStack(spacing: 4) {
                     Text(WidgetCopy.openingLabel(targetAppName: targetAppName))
                     egressMarker
+                    contextMarker
                 }
             case .recording, .transcribing:
                 // One branch on purpose: the waveform's @State must survive RECORDING →
@@ -166,6 +167,7 @@ public struct WidgetView: View {
                         Text(WidgetCopy.transcribingProgress)
                     }
                     egressMarker
+                    contextMarker
                 }
             case .delivered(let targetAppName):
                 HStack(spacing: 5) {
@@ -183,6 +185,7 @@ public struct WidgetView: View {
                 HStack(spacing: 5) {
                     Text(WidgetCopy.converseLabel(phase))
                     egressMarker
+                    contextMarker
                 }
             }
         }
@@ -213,6 +216,27 @@ public struct WidgetView: View {
                 Text(BadgeCopy.egressGlyph)
                     .foregroundStyle(VoccaTheme.egress)
                     .help(BadgeCopy.egressHoverText(endpoint: endpoint))
+            }
+        }
+    }
+
+    /// The context marker (`context-provider` M8): the `eye` glyph while Vocca reads the focused
+    /// app's content, with the hover copy naming what is being read. Rendered in the same
+    /// branch set as ``egressMarker`` — IDLE keeps the mic alone and DELIVERED stays a 600 ms
+    /// confirmation (`widget-indicator` D4); "persistent" is the per-fold non-dismissable
+    /// argument, not per-branch. Display-only, like the egress marker: the badge lights only
+    /// from a folded signal, and Secure Input suppresses it structurally in the reducer.
+    @ViewBuilder
+    private var contextMarker: some View {
+        if case .reading(let appName) = store.state.context {
+            HStack(spacing: VoccaTheme.Panel.itemSpacing - 3) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.18))
+                    .frame(width: 0.5, height: 12)
+                Image(systemName: BadgeCopy.contextGlyphSymbolName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .help(BadgeCopy.contextHoverText(appName: appName))
             }
         }
     }

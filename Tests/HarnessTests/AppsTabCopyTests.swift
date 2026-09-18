@@ -103,4 +103,20 @@ final class AppsTabCopyTests: XCTestCase {
         XCTAssertEqual(AppsTabCopy.healthColumn, "How Vocca types")
         XCTAssertEqual(AppsTabCopy.stateColumn, "Where that came from")
     }
+
+    /// The context consent column (C12, M4): the heading names the grant and the detail says
+    /// plainly what granting means — the selected text of the focused app while dictating —
+    /// that it is off by default, and that the revoke is always one action away (the General
+    /// tab's toggle and the menu-bar kill row). Distinct from the kill-switch copy: this is
+    /// the grant axis, never the revoke axis (`understanding.md:130-132`).
+    func testContextConsentCopyIsPinned() {
+        XCTAssertEqual(AppsTabCopy.contextConsentColumn, "Allow context")
+        XCTAssertEqual(
+            AppsTabCopy.contextConsentDetail,
+            "Vocca can read the focused app's selected text while you dictate. "
+                + "Off by default — stop it any time from General or the menu bar.")
+        XCTAssertFalse(
+            AppsTabCopy.contextConsentDetail.contains("allow all"),
+            "the consent copy must never read as a blanket allow (M4)")
+    }
 }

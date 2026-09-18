@@ -149,4 +149,15 @@ public enum MenuBarCopy {
         case .conversing: return "Switch to Conversation"
         }
     }
+
+    /// The context kill row's title (`widget-indicator` D5): **new copy the spec does not write**
+    /// — decided here as consequence-first action copy (the ``statusDetail`` doctrine), never an
+    /// invitation to grant (M9 — the kill is a revoke, and the row appears only while something
+    /// is being read). Exact-equality pinned in `MenuBarStateTests`.
+    public static let contextKillRowTitle = "Stop reading context"
+
+    /// The context kill row's VoiceOver label — the consequence stated in full, so a screen
+    /// reader hears exactly what the row stops. Exact-equality pinned.
+    public static let contextKillAccessibilityLabel =
+        "Stop Vocca from reading the focused app's content"
 }

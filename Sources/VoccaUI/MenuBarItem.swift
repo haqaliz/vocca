@@ -48,6 +48,11 @@ public final class MenuBarItem {
     /// is active, the machine refuses (R1). The routing is `converse-wiring`'s +
     /// `mode-machine`'s work — this aspect ships the surface.
     private let onSelectMode: (SessionMode) -> Void
+    /// What to run when the user picks the context kill row — the one-action revoke (`context-provider`
+    /// M9): the wiring stops the reads, discards the in-flight snapshot, and folds the badge
+    /// clear. Defaulted so `AppBootstrap`'s construction compiles unchanged; the wiring is
+    /// `bootstrap-wiring`'s (recorded hand-off).
+    private let onKillContext: () -> Void
     /// What to run for Settings.
     private let onOpenSettings: () -> Void
     /// What to run for Quit.
@@ -61,6 +66,10 @@ public final class MenuBarItem {
     /// mode change rebuilds the menu's checkmark exactly when it must.
     private var renderedMode: SessionMode?
 
+    /// Whether the context kill row was last drawn — the fourth input to the idempotence guard,
+    /// so a stale `true` cannot keep the row alive after a kill fold (D7).
+    private var renderedContextReading: Bool = false
+
     /// The hotkey string the label was last drawn with. Part of the idempotence guard rather than
     /// a separate refresh call, so a rebind heals the label on the next condition tick — the ~1 s
     /// health poll — with nothing for a caller to forget to wire.
@@ -73,18 +82,22 @@ public final class MenuBarItem {
     ///   - onQuit: invoked for the Quit item.
     ///   - onSelectMode: invoked for a mode row — defaulted so `AppBootstrap`'s construction
     ///     compiles unchanged; `converse-wiring` wires it to the mode machine.
+    ///   - onKillContext: invoked for the context kill row — defaulted so `AppBootstrap`'s
+    ///     construction compiles unchanged; `bootstrap-wiring` wires it to the kill handler.
     public init(
         hotkey: @escaping () -> String,
         onAction: @escaping (MenuBarState) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
-        onSelectMode: @escaping (SessionMode) -> Void = { _ in }
+        onSelectMode: @escaping (SessionMode) -> Void = { _ in },
+        onKillContext: @escaping () -> Void = {}
     ) {
         self.hotkey = hotkey
         self.onAction = onAction
         self.onOpenSettings = onOpenSettings
         self.onQuit = onQuit
         self.onSelectMode = onSelectMode
+        self.onKillContext = onKillContext
         // `.variableLength` because the item is an icon whose symbol changes width between states.
         self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         apply(.ready)
@@ -92,14 +105,20 @@ public final class MenuBarItem {
 
     /// Draws a state: the icon, its accessibility label, and the menu behind it.
     ///
-    /// Idempotent by state (and by mode), so the ~1 s health poll that feeds this can call it
-    /// every tick without rebuilding an open menu out from under the user's cursor.
-    public func apply(_ next: MenuBarState, mode: SessionMode = .dictation) {
+    /// Idempotent by state (and by mode, and by the context-reading fact), so the ~1 s health
+    /// poll that feeds this can call it every tick without rebuilding an open menu out from
+    /// under the user's cursor.
+    public func apply(
+        _ next: MenuBarState, mode: SessionMode = .dictation, contextReading: Bool = false
+    ) {
         let hotkeyNow = hotkey()
-        guard next != state || mode != renderedMode || hotkeyNow != renderedHotkey else { return }
+        guard next != state || mode != renderedMode || hotkeyNow != renderedHotkey
+            || contextReading != renderedContextReading
+        else { return }
         state = next
         renderedMode = mode
         renderedHotkey = hotkeyNow
+        renderedContextReading = contextReading
 
         if let button = item.button {
             // A **template** image: monochrome, tinted by the system for a light or dark menu bar
@@ -114,7 +133,7 @@ public final class MenuBarItem {
                 MenuBarCopy.accessibilityLabel(for: next, hotkey: hotkeyNow))
         }
 
-        item.menu = menu(for: next, mode: mode)
+        item.menu = menu(for: next, mode: mode, contextReading: contextReading)
     }
 
     /// Builds the menu for a state and mode.
@@ -128,8 +147,10 @@ public final class MenuBarItem {
     ///
     /// The mode section (`PRODUCT_SPEC.md:361`, D8) is the one addition beyond that minimal set:
     /// the two mode rows, the active one checked (from the current mode), each row selecting its
-    /// mode explicitly — the menu offers, the machine routes.
-    private func menu(for state: MenuBarState, mode: SessionMode) -> NSMenu {
+    /// mode explicitly — the menu offers, the machine routes. The context kill row (`widget-indicator`
+    /// D7) follows, present only while `contextReading` — a kill row shown when nothing is being
+    /// read would be an invitation (M9).
+    private func menu(for state: MenuBarState, mode: SessionMode, contextReading: Bool) -> NSMenu {
         let menu = NSMenu()
 
         if let actionTitle = MenuBarCopy.actionTitle(for: state) {
@@ -153,6 +174,17 @@ public final class MenuBarItem {
         }
         menu.addItem(.separator())
 
+        if contextReading {
+            let kill = NSMenuItem(
+                title: MenuBarCopy.contextKillRowTitle,
+                action: #selector(killContext),
+                keyEquivalent: "")
+            kill.target = self
+            kill.setAccessibilityLabel(MenuBarCopy.contextKillAccessibilityLabel)
+            menu.addItem(kill)
+            menu.addItem(.separator())
+        }
+
         let settings = NSMenuItem(
             title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -174,6 +206,8 @@ public final class MenuBarItem {
         guard let mode = sender.representedObject as? SessionMode else { return }
         onSelectMode(mode)
     }
+
+    @objc private func killContext() { onKillContext() }
 
     @objc private func openSettings() { onOpenSettings() }
 

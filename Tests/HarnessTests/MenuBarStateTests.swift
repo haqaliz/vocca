@@ -281,4 +281,50 @@ final class MenuBarStateTests: XCTestCase {
         XCTAssertNotEqual(
             MenuBarConditions().mode, MenuBarConditions(mode: .conversing).mode)
     }
+
+    // MARK: - The context kill row (widget-indicator D7)
+
+    /// The kill row's fact rides in the conditions: `false` is the shipped default (nothing is
+    /// being read), and a hand-built carry round-trips — the ``mode`` field's precedent, so the
+    /// root feeds one more fact and every existing construction site compiles.
+    func testMenuBarConditionsCarryAContextReadingFact() {
+        XCTAssertFalse(MenuBarConditions().isContextReading, "off is the shipped default")
+        XCTAssertTrue(MenuBarConditions(isContextReading: true).isContextReading)
+        XCTAssertNotEqual(
+            MenuBarConditions().isContextReading,
+            MenuBarConditions(isContextReading: true).isContextReading)
+    }
+
+    /// The kill row's words (`widget-indicator` D5): consequence-first action copy (the
+    /// ``statusDetail`` doctrine), never an invitation to grant — exact-equality pinned, copy is
+    /// a decision.
+    func testTheContextKillCopyIsPinned() {
+        XCTAssertEqual(MenuBarCopy.contextKillRowTitle, "Stop reading context")
+        XCTAssertEqual(
+            MenuBarCopy.contextKillAccessibilityLabel,
+            "Stop Vocca from reading the focused app's content")
+    }
+
+    /// The kill row's surface shape (`widget-indicator` D7) — a compile pin: the row is
+    /// constructed over the defaulted ``onKillContext`` closure and the third ``apply`` input
+    /// `contextReading`, so `AppBootstrap`'s construction compiles unchanged and a stale
+    /// `true` cannot keep the row alive after a kill fold (the idempotence guard). The row
+    /// itself is window-server glue executed by nothing in CI — the tested halves are the fact,
+    /// the copy, and the closure wiring.
+    @MainActor
+    func testTheKillRowSurfaceIsConstructedOverTheDefaultedClosure() {
+        var killed = false
+        let item = MenuBarItem(
+            hotkey: { "⌥Space" },
+            onAction: { _ in },
+            onOpenSettings: {},
+            onQuit: {},
+            onSelectMode: { _ in },
+            onKillContext: { killed = true })
+        item.apply(.ready, contextReading: true)
+        item.apply(.ready, contextReading: false)
+        XCTAssertFalse(
+            killed,
+            "construction and apply must not fire the kill — only the row's own action does")
+    }
 }

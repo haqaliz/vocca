@@ -327,6 +327,48 @@ This is the difference between a tool that is private and a tool that says it is
 
 ---
 
+## 8a. Context (P4) — the reading surface
+
+Vocca can see the focused app and its selection — the context half of the wedge that lets a
+later agent act on what you're looking at. Reading another app's content is the sharpest
+privacy edge in the product, so the surface is built around three rules: **off by default,
+visibly on, and revocable in one action** — plus a separate gate for anything that would
+leave the machine.
+
+**The indicator.** Whenever consent is active for the focused app — and Secure Input is not
+holding the keyboard — the widget carries a persistent marker beside the egress badge: the
+`eye` glyph, distinct from the ☁︎ egress marker at a glance (shape-carrying, never color
+alone), non-dismissable per fold, hovering plainly — "Vocca can read <app>. <app> allowed
+this." (a name-less fallback: "Vocca can read the focused app. It allowed this."). It
+**never lights on a Secure Input field**, whatever the app consented to.
+
+**The consent UI.** Settings → Apps gains an **Allow context** column, one toggle per app —
+**off by default**, never a blanket allow: "Vocca can read the focused app's selected text
+while you dictate. Off by default — stop it any time from General or the menu bar." Consent
+is persisted per bundle ID only (`context-consent.json`, capped at 512 apps) — no transcript
+text, no selection text, no timestamps reach the file — and **with consent off for an app,
+no content read of that app occurs at all**: not read-then-discard, never read. Bundle ID
+and window title are read by the dictate path regardless; the boundary is content (selected
+text).
+
+**The kill switch.** One action, global: the menu-bar row **"Stop reading context"**, present
+while reading. Throwing it mid-session stops all further reads immediately, discards the
+current turn's snapshot (nothing persists), and clears the badge in the same fold. The
+Settings equivalent is the General tab's **Context** section — **"Read the focused app's
+content"**: "Off stops Vocca from reading the focused app's content until the next launch.
+Apps you've allowed stay allowed." A revoke, never an invitation to grant: the kill switch
+never reads as a grant, and grants survive it.
+
+**The BYOK exclusion.** Context never appears in a cloud-cleanup request payload without the
+separate global grant — an explicit AND-gate: per-app consent **and** the global grant,
+never either alone. The Cleanup tab carries the toggle, **"Include app context in cloud
+cleanup"**, off by default: "When on, Vocca sends the focused app and its selected text with
+your cloud cleanup. Off by default." When on, what travels is exactly bundle ID, window
+title, and the selected text bounded to ≤ 4 KB — and nothing else. Ollama (local) never
+carries context. With the grant off — the default — the payload is byte-identical to today's.
+
+---
+
 ## 9. Sound
 
 Default on, individually defeatable, all sub-100 ms and quiet.

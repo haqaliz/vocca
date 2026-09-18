@@ -31,4 +31,24 @@ public enum BadgeCopy {
     public static func egressHoverText(endpoint: String) -> String {
         "Cleanup runs on \(endpoint). Your text is sent there."
     }
+
+    // MARK: - The context badge (widget-indicator D5)
+
+    /// The SF Symbol the context marker draws (`context-provider` M8): `eye`, distinct from the
+    /// ☁︎ egress glyph at a glance — shape-carrying, the "shape carries the state" doctrine
+    /// applied to the badge. Decided-new copy the spec does not write (O2), exact-equality
+    /// pinned in `BadgeCopyTests`.
+    public static let contextGlyphSymbolName = "eye"
+
+    /// The context marker's hover copy — the egress hover's fact-then-consequence shape
+    /// (`PRODUCT_SPEC.md:323`), naming what is being read (M8): "Vocca can read <app>. <app>
+    /// allowed this." An empty or unresolved name renders the honest fallback — the badge is
+    /// the message, the name is the detail (the dangling-arrow honesty rule,
+    /// `WidgetCopy.swift:29-33`).
+    public static func contextHoverText(appName: String?) -> String {
+        guard let appName, !appName.isEmpty else {
+            return "Vocca can read the focused app. It allowed this."
+        }
+        return "Vocca can read \(appName). \(appName) allowed this."
+    }
 }

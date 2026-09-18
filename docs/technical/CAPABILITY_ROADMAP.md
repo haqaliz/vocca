@@ -358,6 +358,25 @@ the P3 gate's spoken-exchange leg is SMOKE 134, machinery-verified never gated.)
 
 **Dependencies:** C4 (shares AX infrastructure).
 
+*(Amended by the `context-provider` unit, 2026-09-18: **C12 is complete.** The seam is real
+(`ContextProvider` in `VoccaCore/Context/` with `NullContext` — the shipped default, reads
+nothing — and `AccessibilityContext` in the new `VoccaContext` module behind its own reviewed
+per-seam AX + Secure Input permits; the two-implementation doctrine met, both local, hosted
+tier No — by design). The privacy contract is auditable, not promised: the never-read gate
+(`ContextConsentGate` — decline before any AX call, the consent store `context-consent.json`
+bundle-IDs-only, atomic, capped, byte-pinned) and the never-in-payload pin (the BYOK payload
+gains context only under the explicit AND-gate — per-app consent **and** the global
+off-by-default grant — bounded to 4 KB, the Ollama payload pinned never-carries). The surface
+is real and wired: the persistent context badge (never lights on Secure Input), the one-action
+menu-bar kill switch with mid-turn discard, the General-tab Context section, the Cleanup-tab
+grant toggle, and the Apps-tab per-app consent UI (default off, no blanket allow) — closed by
+the integrator-directed `wiring-close` slice (the `mode-routing` precedent; G5 re-anchor #5).
+`PROBE-CONTEXT` drives the shipped composition inside the zero-network interposer. The ≥95%
+matrix-resolution acceptance runs as a scripted 22-row corpus in CI (planted 0.909 fails
+loudly; boundary 21/22 passes) with the real run env-gated — **recorded, never gated; no
+resolution percentage exists until a real run** (`SMOKE_CHECKLIST.md` 139-143). No gate
+passes; the fourth unit built ahead of the uncleared P2/P3 gates under the recorded posture.)*
+
 ---
 
 ## C13. Actions and MCP · P4, weeks 19–22

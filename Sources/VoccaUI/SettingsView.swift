@@ -99,6 +99,22 @@ public struct SettingsBindings {
     /// Records that it has. Best-effort: a failed write shows the dialog once more, which is the
     /// safe direction.
     public var setCloudCleanupAcknowledged: (Bool) -> Void
+    /// Whether the separate, off-by-default global grant for sending app context with cloud
+    /// cleanup is on (`byok-context-grant` M7) — the Cleanup tab's toggle.
+    public var isContextGrantEnabled: () -> Bool
+    /// Persists the grant choice. Best-effort: a failed write reverts to off, which is the safe
+    /// direction.
+    public var setContextGrantEnabled: (Bool) -> Void
+    /// Whether the context kill switch is off — the runtime revoke state (`widget-indicator`
+    /// D6), reflected by the General tab's Context toggle. **Read, never captured**: the window
+    /// is built once and kept for the process's lifetime, so a captured value would go on
+    /// showing the launch state after a mid-session kill. The wiring to the runtime revoked flag
+    /// is `bootstrap-wiring`'s (recorded hand-off).
+    public var isContextReading: () -> Bool
+    /// The one-action revoke (M9): stops the reads, discards the in-flight snapshot, and folds
+    /// the badge clear. Defaulted to claim **nothing** and change **nothing** — the "defaults
+    /// claim nothing" doctrine; the wiring of the closure is `bootstrap-wiring`'s.
+    public var setContextReading: (Bool) -> Void
     /// Loads the user's replacements.
     public var loadDictionary: () async -> [ReplacementRule]
     /// Saves the user's replacements.
@@ -115,6 +131,17 @@ public struct SettingsBindings {
     /// the table shows. The wiring also hands it to the running ladder, so a pin applies to the
     /// next dictation rather than to the next launch.
     public var saveStrategies: ([AppStrategyEntry]) async throws -> Void
+
+    // MARK: - Context consent (C12, M4)
+
+    /// The per-app context consent as the Apps tab reads it: the consented bundle IDs — the
+    /// store's own answer, bundle IDs only, nothing more. Asked every time the page opens,
+    /// never cached: the tab's own toggle is what changes it.
+    public var loadContextConsent: () async -> Set<String>
+    /// Writes the whole consented set back — the store's wholesale `save(_:)`, the editing
+    /// path the seam reserves for the Apps tab. A failed write is surfaced, never swallowed:
+    /// a grant that silently failed to save is one the next resolution never honours.
+    public var saveContextConsent: (Set<String>) async throws -> Void
 
     // MARK: - Usage
 
@@ -197,10 +224,28 @@ public struct SettingsBindings {
         saveCleanupConfig: @escaping (CleanupConfigDraft) async throws -> Void = { _ in },
         isCloudCleanupAcknowledged: @escaping () -> Bool = { false },
         setCloudCleanupAcknowledged: @escaping (Bool) -> Void = { _ in },
+        // The context-grant defaults claim **nothing** and change **nothing**: off is both the
+        // fresh-install truth and the safe direction — a default that answered `true` would let
+        // the toggle render a grant nobody gave.
+        isContextGrantEnabled: @escaping () -> Bool = { false },
+        setContextGrantEnabled: @escaping (Bool) -> Void = { _ in },
+        // The context-kill defaults claim **nothing** and change **nothing** (`widget-indicator`
+        // D8): a default that reported reading would render a badge nobody armed, and a default
+        // that revoked would perform a kill nothing asked for. `false`/`{}` is the safe
+        // direction of a revoke-shaped surface — the toggle renders off.
+        isContextReading: @escaping () -> Bool = { false },
+        setContextReading: @escaping (Bool) -> Void = { _ in },
         loadDictionary: @escaping () async -> [ReplacementRule],
         saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
         loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
         saveStrategies: @escaping ([AppStrategyEntry]) async throws -> Void = { _ in },
+        // The consent defaults claim **nothing** and write **nothing**, for the reason the
+        // strategy defaults do: an empty answer renders the honest "nothing consented"
+        // (which is the fresh-install truth and the safe direction), and a save that claims
+        // success while writing nothing would let the page tell a user their grant was
+        // stored when it was not.
+        loadContextConsent: @escaping () async -> Set<String> = { [] },
+        saveContextConsent: @escaping (Set<String>) async throws -> Void = { _ in },
         // The usage defaults claim **nothing** and delete **nothing**, for the reason the Speech
         // and cleanup defaults do. An empty snapshot renders the empty state — the honest "we
         // have nothing to show you" — where a fabricated day or streak would be this page's one
@@ -241,10 +286,16 @@ public struct SettingsBindings {
         self.saveCleanupConfig = saveCleanupConfig
         self.isCloudCleanupAcknowledged = isCloudCleanupAcknowledged
         self.setCloudCleanupAcknowledged = setCloudCleanupAcknowledged
+        self.isContextGrantEnabled = isContextGrantEnabled
+        self.setContextGrantEnabled = setContextGrantEnabled
+        self.isContextReading = isContextReading
+        self.setContextReading = setContextReading
         self.loadDictionary = loadDictionary
         self.saveDictionary = saveDictionary
         self.loadStrategies = loadStrategies
         self.saveStrategies = saveStrategies
+        self.loadContextConsent = loadContextConsent
+        self.saveContextConsent = saveContextConsent
         self.loadUsageSnapshot = loadUsageSnapshot
         self.clearUsage = clearUsage
         self.engineSelection = engineSelection
@@ -325,6 +376,7 @@ private struct GeneralSettingsPage: View {
     let bindings: SettingsBindings
     @State private var isToggle = true
     @State private var keepInTray = false
+    @State private var isContextReading = false
 
     var body: some View {
         Form {
@@ -365,11 +417,20 @@ private struct GeneralSettingsPage: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section(SettingsCopy.contextSectionTitle) {
+                Toggle(SettingsCopy.contextReadingTitle, isOn: $isContextReading)
+                    .onChange(of: isContextReading) { _, next in bindings.setContextReading(next) }
+                Text(SettingsCopy.contextReadingDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .onAppear {
             isToggle = bindings.isToggleMode()
             keepInTray = bindings.isKeepInTray()
+            isContextReading = bindings.isContextReading()
         }
     }
 

@@ -79,6 +79,14 @@ public struct WidgetReducerState: Equatable, Sendable {
     /// and no session effect can clear an `.active` state (`WidgetEgressState` documents why).
     public var egress: WidgetEgressState
 
+    /// The context badge's state (`context-provider` M8): `.off` unless consent is active for
+    /// the focused app and Secure Input is not holding the keyboard, in which case the pill
+    /// carries the context marker. Per-fold non-dismissable: only the wiring's own
+    /// ``WidgetAction/contextChanged(_:)`` touches it — no timer and no session effect can clear
+    /// a `.reading` state, and `adopting(_:)`/the notice branch carry it forward
+    /// (`WidgetContextState` documents why).
+    public var context: WidgetContextState
+
     /// The newest streaming partial (`widget-streaming` S3): provisional ASR text (`isFinal ==
     /// false`), stored so the view can render it during RECORDING/TRANSCRIBING. Bounded to
     /// ``WidgetTiming/maxPartialCharacters`` characters — truncation is the reducer's answer —
@@ -95,7 +103,8 @@ public struct WidgetReducerState: Equatable, Sendable {
     public init(
         state: WidgetState = .idle,
         ceiling: Duration = SessionCeiling.default,
-        egress: WidgetEgressState = .none
+        egress: WidgetEgressState = .none,
+        context: WidgetContextState = .off
     ) {
         self.state = state
         self.ceiling = ceiling
@@ -106,6 +115,7 @@ public struct WidgetReducerState: Equatable, Sendable {
         self.showsCeilingWarning = false
         self.notice = nil
         self.egress = egress
+        self.context = context
         self.partialText = nil
     }
 }
@@ -134,8 +144,9 @@ public enum WidgetTimer: Equatable, Sendable, CaseIterable {
 ///
 /// **The set is closed**: the Core projection's verdict on one machine effect or pipeline event
 /// (``WidgetAction/projection(_:)``), a due timer (``WidgetAction/timerFired(_:)``), a streaming
-/// partial from the pipeline's widget-only sink (``WidgetAction/partial(_:)``), and the
-/// wiring's egress fold (``WidgetAction/egressChanged(_:)``). There is no other input, so the
+/// partial from the pipeline's widget-only sink (``WidgetAction/partial(_:)``), the wiring's
+/// egress fold (``WidgetAction/egressChanged(_:)``), and the wiring's context fold
+/// (``WidgetAction/contextChanged(_:)``). There is no other input, so the
 /// exhaustive switch in ``WidgetStateReducer`` cannot hide a transition no action can carry — and
 /// the fold's `now` is consulted only by the timer action, which is the structural pin on "no
 /// time-based transition without a clock event".
@@ -152,6 +163,10 @@ public enum WidgetAction: Equatable, Sendable {
     /// The wiring's egress fold — the resolved cleanup provider's `requiresNetwork` + endpoint,
     /// sent exactly once at launch (resolve-once). The only action that touches egress.
     case egressChanged(WidgetEgressState)
+    /// The wiring's context fold — the raw ``WidgetContextSignal`` facts (consent, Secure Input,
+    /// the focused app's name) folded at every context resolution. The only action that touches
+    /// ``WidgetReducerState/context``; the badge rules live in the reducer (D2).
+    case contextChanged(WidgetContextSignal)
 }
 
 /// The plan's constants (`widget-live-states` Task 2's times and `widget-streaming` S3's partial
@@ -221,9 +236,13 @@ public enum WidgetStateReducer {
                 return adopting(projected, in: state, at: now)
             case .notice(let notice):
                 // A fresh IDLE — but the egress badge is launch-derived and must survive a
-                // session notice, so the new state carries it forward (WidgetEgressState).
+                // session notice, so the new state carries it forward (WidgetEgressState), and
+                // the context badge is per-fold non-dismissable and must survive it too
+                // (WidgetContextState — the badge is derived from a folded fact, not the
+                // session).
                 var next = WidgetReducerState(
-                    state: .idle, ceiling: state.ceiling, egress: state.egress)
+                    state: .idle, ceiling: state.ceiling, egress: state.egress,
+                    context: state.context)
                 next.notice = notice
                 return next
             }
@@ -239,6 +258,18 @@ public enum WidgetStateReducer {
             // touches it; see WidgetEgressState's non-dismissable note.
             var next = state
             next.egress = egress
+            return next
+        case .contextChanged(let signal):
+            // The badge's only writer — folded at every context resolution. The two rules live
+            // here: the badge lights iff consent is active and Secure Input is not holding the
+            // keyboard (M5b/M8 — a Secure Input signal folds `.off` from any state, the reducer
+            // row, never a wiring courtesy), and the kill lands as a `consentActive: false`
+            // signal clearing the badge in this same fold (M9 — no intermediate state, no
+            // timer). See WidgetContextState's per-fold non-dismissable note.
+            var next = state
+            next.context = (signal.consentActive && !signal.secureInputActive)
+                ? .reading(appName: signal.appName)
+                : .off
             return next
         case .partial(let partial):
             // Partials belong only to a live session's display: dropped outside RECORDING or

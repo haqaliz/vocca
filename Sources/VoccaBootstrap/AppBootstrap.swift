@@ -18,6 +18,7 @@ import OSLog
 import Synchronization
 import VoccaASR
 import VoccaAudio
+import VoccaContext
 import VoccaCore
 import VoccaHotkey
 import VoccaInject
@@ -600,6 +601,43 @@ public enum AppBootstrap {
             root.converseFailureSink = { failure in converseFailureRecorder.values.append(failure) }
         }
 
+        // The context composition (C12, R4 — the C11 additive shape, one more recipe + the
+        // three slots above): the consent-gated resolution slot, the indicator fold and the
+        // kill switch, composed through the probe-safe recipe (`composeContextWiring`). The
+        // composed provider is the **shipped** `AccessibilityContext` (the real AX adapter —
+        // construction is grant-free, the adapters-construct-without-grants precedent) and the
+        // composed store is the **shipped** `PersistentConsentStore`, path-injected to the
+        // same Application Support/Vocca directory the usage ledger uses. M4's default-off is
+        // by construction, over the real store: a fresh install has no consent file, the load
+        // answers "no consents", and the gate declines before any provider call — nothing is
+        // read and nothing is written. The recipe is synchronous — the store is consulted per
+        // resolution — so the slots are assigned inline; the initial indicator fold runs in a
+        // launch task, the egress-fold precedent: resolving once for no focused app, which the
+        // consent gate declines before any provider call, so the fold's default is the safe
+        // unlit direction and nothing is read.
+        let contextConsentStore = PersistentConsentStore(
+            directory: Self.contextConsentDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask).first,
+                home: FileManager.default.homeDirectoryForCurrentUser))
+        let contextWiring = AppBootstrap.composeContextWiring(
+            provider: AccessibilityContext(
+                axRead: AXContextSource(),
+                secureInputRead: ContextSecureInputRead()),
+            consentStore: contextConsentStore,
+            secureInput: SystemSecureInputState(),
+            root: root)
+        root.contextResolution = contextWiring.resolve
+        root.contextIndicatorFold = contextWiring.foldIndicator
+        root.contextKillSwitch = contextWiring.killSwitch
+        // The Apps tab's half of the same store: the consent UI reads and writes through it,
+        // so a grant applies to the next resolution — never the next launch (the `modelStore`
+        // assigned-after-construction shape).
+        root.contextConsentStore = contextConsentStore
+        Task { @MainActor in
+            _ = await contextWiring.resolve(nil)
+        }
+
         return root
     }
 
@@ -695,6 +733,13 @@ public enum AppBootstrap {
             // routes (start from idle, the session-control stop, the refusal).
             onSelectMode: { [weak root] mode in
                 root?.selectMode(mode)
+            },
+            // The context kill row's destination — the wiring-close's (the defaulted seam
+            // `widget-indicator` D7 recorded): the menu offers the one-action revoke (M9), and
+            // the root's kill switch stops the reads, discards the in-flight snapshot and
+            // folds the badge clear in the same call.
+            onKillContext: { [weak root] in
+                root?.contextKillSwitch?()
             })
         root.menuBarItem = item
         root.onMenuBarConditionsChanged = { [weak item] conditions in
@@ -841,6 +886,24 @@ public enum AppBootstrap {
         }
         let name = FileManager.default.displayName(atPath: url.path)
         return name.isEmpty ? bundleID : name
+    }
+
+    /// The context consent store's directory — the same Application Support/Vocca the usage
+    /// ledger persists to, so `context-consent.json` sits beside `usage.json` as a sibling
+    /// file (`PersistentConsentStore`'s path-injected initializer is what this composition
+    /// feeds).
+    ///
+    /// Resolved the ``PersistentUsageStore`` way — `<applicationSupport>/Vocca`, or
+    /// `<home>/Library/Application Support/Vocca` when Application Support could not be
+    /// resolved (the defensive default, never a decision about where the consent lives) — and
+    /// separated from the composition because the fallback is otherwise unreachable in a test:
+    /// the only way to drive it through `configure` is a machine whose Application Support
+    /// does not resolve. A pure function makes both branches assertable without a test ever
+    /// creating a file where a real install keeps its consent.
+    static func contextConsentDirectory(applicationSupport: URL?, home: URL) -> URL {
+        let base =
+            applicationSupport ?? home.appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("Vocca")
     }
 
     // MARK: - The learning ladder
@@ -1379,6 +1442,37 @@ public final class DictationLoopRoot {
     /// recording closure; widget-converse replaces it with the notice surface's fold.
     public var converseFailureSink: (@Sendable (ConverseTurnFailure) -> Void)?
 
+    /// **The C12 context-resolution slot** (`bootstrap-wiring` D2): per turn, for the focused
+    /// bundle ID, the consent-gated snapshot — consent is consulted before the provider
+    /// (declined ⇒ the empty snapshot and the provider is never invoked; Secure Input ⇒ the
+    /// empty snapshot; consented ⇒ the provider's snapshot). Nothing on the dictation path
+    /// calls the slot — C12's consumers are the tests, the indicator fold,
+    /// `byok-context-grant` and C13. `nil` only in a composition that built no context
+    /// wiring — every headless harness in the suite.
+    public var contextResolution: (@Sendable @MainActor (String?) async -> ContextSnapshot)?
+
+    /// **The C12 indicator-fold surface** (D3): the badge signal's fold, delivered through the
+    /// widget-indicator aspect's shipped fold case (`setContext` — never a reducer edit) plus
+    /// the menu-bar conditions fact. The wiring folds at resolution time, at wiring time, and
+    /// whenever the kill switch or a consent edit re-folds.
+    public var contextIndicatorFold: (@Sendable @MainActor (WidgetContextSignal) -> Void)?
+
+    /// **The C12 kill-switch surface** (D4): the one-action revoke the menu-bar row and the
+    /// Settings control call. Throwing it stops further reads, discards the in-flight
+    /// snapshot and clears the indicator fold in the same call (M9). A runtime revoke, never
+    /// a persisted setting and never an invitation to grant.
+    public var contextKillSwitch: (@Sendable @MainActor () -> Void)?
+
+    /// The consent store the context wiring and the Apps tab share — the same
+    /// `PersistentConsentStore` the wiring consults per resolution, reached back from
+    /// `configure` (the ``modelStore`` precedent): the tab reads and writes through it, so a
+    /// grant applies to the next resolution, never the next launch.
+    ///
+    /// `nil` only in a composition that built no store — every headless harness in the suite.
+    /// The tab's fallback there is to claim nothing and write nothing (the defaulted
+    /// bindings' safe direction).
+    public var contextConsentStore: (any ConsentStore)?
+
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
     /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
@@ -1486,6 +1580,31 @@ public final class DictationLoopRoot {
                     setCloudCleanupAcknowledged: { [weak self] acknowledged in
                         self?.settings?.setAcknowledgedCloudCleanup(acknowledged)
                     },
+                    // The persisted BYOK grant (byok-context-grant D7): the same settings store
+                    // the engine and activation choices persist to, so the Cleanup tab's toggle
+                    // and the payload gate read one fact. Read, never captured — the window is
+                    // built once and kept for the process's lifetime.
+                    isContextGrantEnabled: { [weak self] in
+                        self?.settings?.contextGrantEnabled() ?? false
+                    },
+                    setContextGrantEnabled: { [weak self] enabled in
+                        self?.settings?.setContextGrantEnabled(enabled)
+                    },
+                    // The runtime revoke (M9, widget-indicator D8): read from the menu-bar
+                    // conditions fact the wiring folds — the kill clears the fold in the same
+                    // call, so the General tab's toggle reflects the runtime state. Read, never
+                    // captured: a captured value would keep showing the launch state after a
+                    // mid-session kill.
+                    isContextReading: { [weak self] in
+                        self?.menuBarConditions.isContextReading ?? false
+                    },
+                    // The one-action revoke: turning the toggle off throws the kill switch —
+                    // reads stop, the in-flight snapshot is discarded, the badge folds clear.
+                    // Turning it on grants nothing — the kill never reads as an invitation to
+                    // grant (M9); grants are the Apps tab's per-app consent.
+                    setContextReading: { [weak self] reading in
+                        if !reading { self?.contextKillSwitch?() }
+                    },
                     // The same store the rules engine reads from, so an edit here is an edit the
                     // next dictation applies — not a second copy of the file that drifts from it.
                     loadDictionary: { await FileSystemDictionaryStore().load() },
@@ -1506,6 +1625,18 @@ public final class DictationLoopRoot {
                             return
                         }
                         try await memory.replaceAll(strategies)
+                    },
+                    // The Apps tab's consent half: the same store the wiring consults per
+                    // resolution, so a grant here applies to the next turn — and the read is
+                    // the store's own answer, never a remembered copy (a tab that rendered a
+                    // grant the store lost would be claiming a decision it does not hold).
+                    loadContextConsent: { [weak self] in
+                        guard let store = self?.contextConsentStore else { return [] }
+                        return await store.load()
+                    },
+                    saveContextConsent: { [weak self] ids in
+                        guard let store = self?.contextConsentStore else { return }
+                        try await store.save(ids)
                     },
                     // MARK: Usage
                     //

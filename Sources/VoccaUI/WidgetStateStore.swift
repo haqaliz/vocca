@@ -78,6 +78,14 @@ public final class WidgetStateStore: ObservableObject {
             state, action: .egressChanged(egress), now: clock.now)
     }
 
+    /// The wiring's context fold — the raw ``WidgetContextSignal`` facts folded at every context
+    /// resolution (the `setEgress` shape: the reducer owns the badge rules, the store is the
+    /// entry point). The only path that changes ``context``.
+    public func setContext(_ signal: WidgetContextSignal) {
+        state = WidgetStateReducer.reduce(
+            state, action: .contextChanged(signal), now: clock.now)
+    }
+
     /// The widget-streaming sink's fold — one streaming partial from the pipeline's widget-only
     /// sink (``PartialTranscriptSink``), folded into the reducer's bounded partial state.
     ///

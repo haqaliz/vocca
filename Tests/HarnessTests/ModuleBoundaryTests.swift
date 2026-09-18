@@ -120,9 +120,16 @@ final class ModuleBoundaryTests: XCTestCase {
     /// `AVFoundation` module name on the same reviewed row. It was the last module left in
     /// `leafModules`; the move leaves that set empty, which is the point — every module now either
     /// owns a seam or implements one.
+    ///
+    /// `VoccaContext` joined in the accessibility-context aspect: it implements the `ContextProvider`
+    /// seam (the `AccessibilityContext` conformance), the module `ARCHITECTURE.md:151` reserves
+    /// for the P4 context capability. The move is what lets it import `VoccaCore` — the seam's
+    /// types (`ContextProvider`, `ContextSnapshot`) live there — while the per-seam AX and Secure
+    /// Input lints in `InjectionSeamBoundaryTests` confine the system surfaces to the adapter's
+    /// two permitted files.
     private static let adapterModules: Set<String> = [
         "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio", "VoccaText", "VoccaUsage",
-        "VoccaSpeech",
+        "VoccaSpeech", "VoccaContext",
     ]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.
@@ -331,5 +338,21 @@ final class ModuleBoundaryTests: XCTestCase {
         XCTAssertTrue(
             voccaImportsFromUI.isSubset(of: ["VoccaCore"]),
             "VoccaUI must import only VoccaCore among Vocca modules, found: \(voccaImportsFromUI)")
+    }
+
+    /// The import-map side of the root's reach to the context adapter (the C12 wiring-close):
+    /// `VoccaBootstrap` must name `VoccaContext` — the composition root composes the real
+    /// provider and store, and the manifest fact (`VoccaContextTargetTests`) has no force: an
+    /// `import` can be deleted while the declared dependency stays, and this is the code-side
+    /// half that notices.
+    func testVoccaBootstrapImportsVoccaContext() throws {
+        let map = try moduleImportMap()
+        let imports = map["VoccaBootstrap"] ?? []
+        XCTAssertTrue(
+            imports.contains("VoccaContext"),
+            """
+            VoccaBootstrap must import VoccaContext — the composition root composes the real \
+            AccessibilityContext and PersistentConsentStore. Found: \(imports.sorted())
+            """)
     }
 }

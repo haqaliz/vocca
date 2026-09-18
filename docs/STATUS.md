@@ -10,6 +10,141 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `context-provider` unit shipped 2026-09-18 — C12's context half of the wedge: the seam
+with two local implementations, the per-app consent gate, the visible indicator and the
+one-action kill switch, the BYOK exclusion grant; the privacy claim is auditable rather than
+promised; no gate passes.** `feat/context-provider/aliz`.
+Seven aspects plus the integrator's wiring close: the `ContextProvider` seam with
+`NullContext` + `AccessibilityContext`, the new `VoccaContext` module, the per-app
+`ConsentStore` (bundle IDs only, the never-read gate), the widget badge + the menu-bar kill
+switch, the off-by-default BYOK context grant with its AND-gate, the additive
+`AppBootstrap` composition driven by `PROBE-CONTEXT` inside the zero-network interposer (with
+two G5 pin re-anchors), and the wiring close that made the shipped composition real and the
+hand-offs good. SMOKE 139-143 are **written and runnable** — the first real resolution run,
+the consent/never-read audit, the indicator, the one-action kill switch, and the BYOK
+never-in-payload audit; **no real resolution percentage exists yet** (SMOKE 139 waits for the
+founder's machine with an Accessibility grant); the executed rows land when the founder runs
+them. Floor **2475** (executed 2475).
+
+**What shipped, per aspect.** *context-seam* (49766c1, 66282ec, 6b4f1e1; 2350 → 2364): the
+`ContextProvider` protocol in `VoccaCore/Context/` — `ContextSnapshot` (bundle ID, window
+title, selected text; nil-vs-empty pinned distinct), `NullContext` (the shipped default,
+reads nothing), and the context-family seam lint with planted and comment-strip controls.
+*accessibility-context* (3d31e82, 5433f0c, 05364d5, a2b4d1e, 3533b3d, dea6696; 2364 → 2383):
+the new **`VoccaContext`** target (Package.swift + `ModuleBoundaryTests`), `AccessibilityContext`
+(the AX adapter — Secure Input refused first, failures resolve to the empty snapshot, never a
+throw) behind its own per-seam AX and Secure Input permit files (the `KeystrokeSource`
+precedent), `ContextResolutionScorer` with the 22-row scripted corpora (the passing corpus
+clears the ≥95% bar; the planted 2-miss corpus at 0.909 **fails loudly** — the gate that
+cannot fail proves nothing), the env-gated real suite + SMOKE 139, and the recorded deviation
+**D1**: the seam is synchronous/non-throwing by contract, so the adapter is an actor with a
+`nonisolated` witness — pinned, not drifted. *consent-store* (370062c, 766a9a7, f251391,
+6cb2c85, 962b334; 2383 → 2408): the `ConsentStore` seam + `ConsentBundleID` validation in
+`VoccaCore`, `PersistentConsentStore` in `VoccaContext/Consent/` (`context-consent.json`,
+atomic temp-write + replace, tolerant decode, capped at 512 apps, the byte-level pin that no
+content, transcript or timestamp reaches the file), the FileManager seam row widened five →
+six, and `ContextConsentGate` — the never-read decision: an unconsented app is **declined
+before any AX call** (not read-then-discard, never read). *widget-indicator* (23b567b,
+a010706, 2eae375, d5b9028; 2408 → 2449 — the combined ratchet; byok Phase 4's tests are
+counted by the widget Phase 4 commit): `WidgetContextState` (`.off` / `.reading(appName:)`)
+with the `contextChanged` fold in the store, the `eye`-glyph badge in `WidgetView` (never
+lights on Secure Input — a reducer row, not a wiring decision), the menu-bar kill row
+(`MenuBarState.isContextReading` + the defaulted `onKillContext` + the copy pins), and the
+General-tab Context section. *byok-context-grant* (20db61b, c2c3ae4, ee86082, 97c9c3a): the
+persisted global grant (`SettingsStore.contextGrantEnabled`, off by default, unreadable →
+false loudly), `GrantedContextSource` + the grant-gated payload leg in `BYOKCleanupProvider`
+(`ContextPayload` declared last — the absent-grant body is byte-identical to today's; the
+key read first), `ContextGrantGate` — the AND-gate (per-app consent **and** the global grant,
+never either alone) owning the ≤ 4 KB UTF-8 bound in exactly one place — and the Cleanup-tab
+toggle with the Ollama-never-carries-context pin. *bootstrap-wiring* (d86d62c, 5b71246,
+0c43be1, cef7978, a771aed; 2449 → 2463): the `ContextWiring` recipe with the three root slots
+(consent-gated per-turn resolution, the indicator fold, the kill-switch routing), the
+context-wiring family lint (no `ContextProvider` name in the pinned dictation path),
+`PROBE-CONTEXT` driving the composed default (`NullContext`) inside the zero-network
+interposer, and the **G5 pin re-anchor #4**. Recorded hand-offs (now closed): the consent
+store absent at configure and the kill-row/bindings closures unwired — both were real at
+`bootstrap-wiring`'s close and closed by the wiring close. *wiring-close* (e5a6201, 0b2700a,
+251025a, c9651a7, 8416ad4, a51ba4f, 8433226; 2463 → 2475): an integrator-directed slice **not
+in the aspect plans** (the C11 mode-routing precedent) — `Package.swift`: `VoccaBootstrap`
+now depends on `VoccaContext` (+ the import lint), the real composition
+(`AccessibilityContext` over the real `PersistentConsentStore`, path-injected beside the
+usage ledger), the kill-switch close (`attachMenuBarItem` wires `onKillContext`; `showSettings`
+constructs the four bindings closures), the Apps-tab per-app consent UI (grant/revoke per
+bundle ID, default off, never a blanket allow), `PROBE-CONTEXT` re-pointed at the shipped
+composition, the **G5 pin re-anchor #5**, and the floor ratchet 2463 → 2475 (executed 2475).
+*record* (this entry): SMOKE 139-143 (139 landed with `accessibility-context`; the section 21
+header + rows 140-143 here), the PRODUCT_SPEC §8a context section, the STATUS/CLAUDE/
+ARCHITECTURE sync, and the floor verified.
+
+**The G5 pin re-anchor record.** `AppBootstrap.swift` is the one pinned file C12
+legitimately changes (its wiring is additive context composition), so the pin was
+deliberately re-anchored **twice** in dedicated, reviewed commits — per the pin's own
+contract ("a deliberate edit recomputes the digest and edits the pin in review; it must never
+be edited to match a moved tree"): `6d98acf4…0448` → `9895f45ac20147c3a9cfa34ce9507a07f0b8637fff1b707fded21e7c6a9875d3`
+(`bootstrap-wiring` cef7978, re-anchor #4 — the M8/M9/M11 additive context wiring), →
+`464b0d5a0e63b69dda8e72ca9ee793ff189e0d70094491c5bfde2c53e0328aff`
+(`wiring-close` a51ba4f, re-anchor #5 — the real composition, the kill-switch wiring and the
+consent-UI wiring). The dictation files' digests are unchanged throughout:
+`SessionMachine.swift 1baeb2de2c45149746468bfef49862a08279008d3d2f305be892122d5727537e`,
+`DictationPipeline.swift ce70ca10c15914d6960f07e53da8571a5fa9ec1fb58b8f0051ef051f16c07a84`.
+
+**The history repair recorded.** The two Phase-4 aspects (`widget-indicator` and
+`byok-context-grant`) ran concurrently on one worktree; `git add -A`-style commits swept each
+other's WIP across commit boundaries (e2f5eee, 3008298 in the original history). The
+integrator replayed the branch from `byok-context-grant`'s 20db61b: a soft reset and
+per-phase re-commits in the intended order with the plans' messages. The tree is
+byte-identical to the pre-repair HEAD (the `git diff` of the replay verified empty); the
+floor ratchets were recomputed from actual runs (2408 → 2449 lands in the final
+`widget-indicator` commit, d5b9028). Recorded so future readers are not surprised by the
+commit timestamps or order.
+
+**Measured (recorded, never gated):**
+- The full suite at the unit's close: **2475 tests executed** through the floor script — the
+  record's Phase 2 run printed `swift test executed 2475 tests (floor: 2475)`; `N == E`, no
+  ratchet needed.
+- The scripted corpus in CI: the passing 22-row corpus clears the ≥95% bar; the planted
+  2-miss corpus resolves **0.909 and fails loudly** (21/22 ≈ 0.9545 passes by design — 1 miss
+  in 22 sits at the bar; 2 misses ≈ 0.909 fails).
+- `PROBE-CONTEXT` drives the composed default inside the zero-network interposer — first
+  `NullContext`, then the shipped composition (`AccessibilityContext` over the real store in
+  a temp dir); the zero-network invariant stays green over the probe leg.
+- SMOKE 139-143 are **written and runnable, not yet executed**: **no context-accuracy
+  percentage exists** — the ≥95% acceptance's real half (`CAPABILITY_ROADMAP.md:355`) is
+  SMOKE 139's, and it waits for the founder's machine with an Accessibility grant; nothing
+  below may be read as a gate pass, and no percentage may be quoted until a real run exists.
+  This aspect's merge does not depend on their execution (the C11 precedent).
+
+**The honesty block:**
+- **No P2/P3 gate passes.** This is the **fourth unit built ahead of the uncleared gates**
+  under the recorded posture; every record says "No gate passes", and this one does.
+- **No context-accuracy percentage is quoted** — the ≥95% matrix-resolution acceptance is
+  real-app work (R3), executed by nothing in CI, now or ever; the CI-measurable contract is
+  the scripted corpus, and the real number is SMOKE 139's, recorded never gated.
+- **Numbers recorded never gated.** Every measured row above is recorded verbatim; an
+  over-budget observation is recorded verbatim too, never a pass.
+- **The dictation path is byte-for-byte untouched** — the G5 pin's first two digests
+  unchanged across both re-anchors; `AppBootstrap`'s re-anchors are deliberate and recorded,
+  never an edit-to-match.
+- **Never-read and never-in-payload are structural, not discipline** — asserted in CI (the
+  consent gate's ordering contract with the planted-violation control; the one
+  payload-building site, `BYOKCleanupProvider.clean`), and observed on the real surface by
+  SMOKE 140 and 143.
+- **Context is never persisted beyond the turn and never egresses.** The consent store holds
+  bundle IDs only (the byte-level pin; capped at 512; `context-consent.json` is the auditable
+  artifact); the BYOK exclusion is the point — context reaches a payload only through the
+  AND-gate, and the seam has **no hosted counterpart by design**.
+- **Zero network.** `PROBE-CONTEXT` drives the context wiring inside the zero-network
+  interposer; no URL reaches any new port in the context path.
+- **Interim states recorded, not papered over:** D1 (the seam synchronous/non-throwing, the
+  adapter an actor with a `nonisolated` witness — the sync contract won, pinned not drifted);
+  the history repair above; the `bootstrap-wiring` hand-offs were real when recorded and are
+  now closed (store absent → real store; closures unwired → wired); C13's consumption of
+  context is out of scope — nothing user-visible consumes context beyond the BYOK grant field
+  and the tests.
+- Floor **2475** (executed 2475).
+
+---
+
 **The `dual-mode` unit shipped 2026-09-16 — C11's CONVERSING surface is real: the mode
 machine, the wired loop, the honest reply stand-in; no gate passes.** `feat/dual-mode/aliz`.
 Seven aspects plus the integrator's routing close: the explicit `SessionMode` state machine

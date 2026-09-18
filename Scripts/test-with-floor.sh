@@ -1766,8 +1766,21 @@ set -euo pipefail
 # reviewed ratchet in its own commit — the count taken from the floor script's own parse at
 # record time.
 #
+# The context-provider raise (2449 -> 2463; executed 2463) — the bootstrap-wiring aspect's C12
+# tests: `ContextWiringCompositionTests` (8), the additive `AppBootstrapWiringTests` test, the
+# `ZeroNetworkTests` PROBE-CONTEXT leg + its guard-the-guard, and `ContextWiringSeamBoundaryTests`
+# (4) — the count taken from the floor script's own parse in the ratchet commit.
+#
+# The wiring-close raise (2463 -> 2475; executed 2475) — the integrator-directed close of the
+# C12 must-haves (`feat/context-provider/aliz`, the seven wiring-close commits): the
+# VoccaBootstrap→VoccaContext manifest pin (1), the shipped-composition source-scan pins + the
+# consent-directory pins + the import lint (3), the kill-row and settings-binding pins (2), the
+# Apps-tab consent folds + copy pins + binding pins (6), and the PROBE-CONTEXT shipped-composition
+# hand-off (0 new — the guard-the-guard renamed in place) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2350
+MINIMUM_EXECUTED_TESTS=2475
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

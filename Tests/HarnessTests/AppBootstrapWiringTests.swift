@@ -15,6 +15,7 @@
 import Foundation
 import VoccaASR
 @testable import VoccaBootstrap
+import VoccaContext
 import VoccaCore
 @testable import VoccaInject
 import VoccaText
@@ -253,6 +254,284 @@ final class AppBootstrapWiringTests: XCTestCase {
         XCTAssertFalse(present, "the recipe must not provision a model")
     }
 
+    // MARK: - The context composition (C12, R4)
+
+    /// **The context wiring is probe-safe and attached** (`bootstrap-wiring` Phase 2): the
+    /// recipe constructs the wiring over the shipped store (path-injected over a fresh
+    /// directory) and a failing provider, attaches nothing that starts, reads or provisions
+    /// — the consent store is never consulted at composition time, no provider read happens
+    /// and nothing is written — and the root's three slots are attached, exactly as
+    /// `configure` attaches them.
+    @MainActor
+    func testTheContextCompositionIsProbeSafeAndAttached() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let engine = StubEngine.parakeet()
+        let holdToTalkSource = RecordingAudioSource()
+        let toggleSource = RecordingAudioSource()
+        let root = DictationLoopRoot(
+            configuration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .holdToTalk),
+            ceiling: SessionCeiling.default,
+            clock: TestClock(),
+            audioSource: holdToTalkSource,
+            keyState: TruthfulKeyState(Keyboard()),
+            watchdogTimer: FakeTimer(),
+            healthTimer: FakeTimer(),
+            deferOpening: { $0() },
+            tap: FakeHotkeyEventSource(),
+            secureInput: FakeSecureInputState(),
+            resolver: DictationEngineResolver(selection: .defaultSelection) { _ in engine },
+            targetResolution: TargetResolution(
+                focusedApp: FakeFocusedApp(
+                    identity: FocusedAppIdentity(
+                        bundleID: "com.apple.Notes", windowTitle: "The Draft")),
+                secureInput: FakeSecureInput(),
+                frontmost: FakeFrontmostApp()),
+            panel: RecordingPanel(holder: LedgerHolder()),
+            toggleConfiguration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .toggle),
+            toggleSource: toggleSource,
+            toggleTimer: FakeTimer(),
+            runningAppName: FakeRunningAppName(),
+            widgetClock: FakeTimer(),
+            liveLevel: QuietLevelSource(),
+            sessionKind: .dictation)
+
+        let provider = FailingContextProvider()
+        let wiring = AppBootstrap.composeContextWiring(
+            provider: provider,
+            consentStore: PersistentConsentStore(directory: directory),
+            secureInput: FakeSecureInputState(),
+            root: root)
+        root.contextResolution = wiring.resolve
+        root.contextIndicatorFold = wiring.foldIndicator
+        root.contextKillSwitch = wiring.killSwitch
+
+        // Nothing starts, reads or provisions at composition time (the probe-safe-by-
+        // construction assertion): the microphones stayed closed, the provider was never
+        // consulted, and the consent file was not created.
+        XCTAssertEqual(holdToTalkSource.beginCount, 0, "the dictation mic stayed closed")
+        XCTAssertEqual(toggleSource.beginCount, 0, "the toggle mic stayed closed")
+        XCTAssertEqual(provider.readCalls, 0, "no provider read at composition time")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("context-consent.json").path),
+            "the composition never writes the consent file")
+
+        XCTAssertNotNil(root.contextResolution, "the resolution slot is attached")
+        XCTAssertNotNil(root.contextIndicatorFold, "the indicator fold is attached")
+        XCTAssertNotNil(root.contextKillSwitch, "the kill switch is attached")
+    }
+
+    // MARK: - The shipped composition (the wiring-close)
+
+    /// **The shipped composition is the real provider over the real store** (the wiring-close
+    /// gap 1): `configure`'s `composeContextWiring` call names `AccessibilityContext` (the AX
+    /// adapter over its two module-internal reads) and the hoisted `contextConsentStore`
+    /// local (`PersistentConsentStore`, path-injected through
+    /// ``contextConsentDirectory``), the Secure Input fact is the root's own
+    /// `SystemSecureInputState`, and the composed default is **gone** — no `NullContext`, no
+    /// `consentStore: nil`. `configure` needs an `NSApplication`, so this is a source scan, the
+    /// `SessionKindWiringTests` shape: the call site itself is the wiring, and a reverted
+    /// composition is a silent return to the reads-nothing default.
+    func testTheShippedContextCompositionUsesTheRealProviderAndStore() throws {
+        let block = try Self.contextCompositionBlock()
+        XCTAssertTrue(
+            block.contains("AccessibilityContext("),
+            "the shipped composition must construct AccessibilityContext — the real provider")
+        XCTAssertTrue(
+            block.contains("AXContextSource("),
+            "the shipped composition must name the adapter's AX read")
+        XCTAssertTrue(
+            block.contains("ContextSecureInputRead("),
+            "the shipped composition must name the adapter's Secure Input read")
+        XCTAssertTrue(
+            block.contains("contextConsentStore"),
+            "the shipped composition must pass the hoisted real store")
+        XCTAssertTrue(
+            block.contains("SystemSecureInputState("),
+            "the Secure Input fact must come from the root's own SystemSecureInputState")
+        XCTAssertFalse(
+            block.contains("NullContext"),
+            "the shipped composition must not compose the reads-nothing default")
+        XCTAssertFalse(
+            block.contains("consentStore: nil"),
+            "the shipped composition must not pass an absent consent store")
+
+        let root = try PackageRootLocator.find(from: #filePath)
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(
+                contentsOf: root.appendingPathComponent(
+                    "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8))
+        XCTAssertTrue(
+            source.contains("let contextConsentStore = PersistentConsentStore("),
+            "the hoisted store must be the shipped PersistentConsentStore, path-injected")
+    }
+
+    /// **The consent store's directory resolves beside the usage ledger** — the
+    /// `PersistentUsageStore.defaultDirectory` shape, pure so the fallback is assertable: the
+    /// resolved Application Support answers `<applicationSupport>/Vocca`, and an unresolvable
+    /// one falls back to `<home>/Library/Application Support/Vocca` rather than dropping the
+    /// store.
+    func testContextConsentDirectoryResolvesBesideTheUsageLedger() {
+        let appSupport = URL(fileURLWithPath: "/tmp/Application Support")
+        let home = URL(fileURLWithPath: "/tmp/home")
+        XCTAssertEqual(
+            AppBootstrap.contextConsentDirectory(applicationSupport: appSupport, home: home),
+            appSupport.appendingPathComponent("Vocca"),
+            "the resolved branch — the consent file sits beside usage.json")
+        XCTAssertEqual(
+            AppBootstrap.contextConsentDirectory(applicationSupport: nil, home: home),
+            home.appendingPathComponent("Library/Application Support/Vocca"),
+            "the home fallback — an unresolvable Application Support must not lose the store")
+    }
+
+    /// The `composeContextWiring(` call's parenthesized block in `AppBootstrap.swift`,
+    /// comments stripped — so a mention in prose is never mistaken for the composition, and
+    /// reformatting the call does not fail the pin.
+    private static func contextCompositionBlock() throws -> String {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        let header = "composeContextWiring("
+        guard let start = source.range(of: header) else {
+            XCTFail(
+                """
+                `configure` no longer calls `composeContextWiring(`. That call is where the \
+                shipped composition happens; if it moved, this pin has to move with it rather \
+                than be deleted.
+                """)
+            return ""
+        }
+        var depth = 0
+        var body = ""
+        for character in source[start.lowerBound...] {
+            if character == "(" { depth += 1 }
+            if depth > 0 { body.append(character) }
+            if character == ")" {
+                depth -= 1
+                if depth == 0 { break }
+            }
+        }
+        XCTAssertFalse(body.isEmpty, "the composeContextWiring call must have a body")
+        return body
+    }
+
+    /// **The menu bar wires the context kill row** (the wiring-close gap 2): the shipped
+    /// `MenuBarItem` construction names `onKillContext:` — the defaulted closure the
+    /// widget-indicator aspect left for the composition to fill (`MenuBarItem.swift:85-93`).
+    /// `attachMenuBarItem` runs only in `main()` (the window-server rule), so this is a source
+    /// scan of the one construction site, the `HotkeySurfaceAgreementTests` shape.
+    func testAttachMenuBarItemWiresTheContextKillRow() throws {
+        let block = try Self.menuBarItemConstructionBlock()
+        XCTAssertTrue(
+            block.contains("onKillContext:"),
+            "the menu bar item must wire onKillContext — the one-action kill row (M9) calls "
+                + "the root's kill switch")
+        XCTAssertTrue(
+            block.contains("contextKillSwitch"),
+            "the kill row must reach the root's contextKillSwitch slot")
+    }
+
+    /// **Settings constructs the four context bindings** (the wiring-close gap 3): the shipped
+    /// `SettingsBindings` construction names `isContextReading`/`setContextReading` (the
+    /// runtime revoke, M9 — read, never captured) and `isContextGrantEnabled`/
+    /// `setContextGrantEnabled` (the persisted BYOK grant). The defaulted closures that claim
+    /// nothing are gone from this call site. `showSettings` builds a window, so this is a
+    /// source scan of the one construction site.
+    func testShowSettingsConstructsTheFourContextBindings() throws {
+        let block = try Self.settingsBindingsConstructionBlock()
+        for binding in [
+            "isContextReading:", "setContextReading:",
+            "isContextGrantEnabled:", "setContextGrantEnabled:",
+        ] {
+            XCTAssertTrue(
+                block.contains(binding),
+                "the SettingsBindings construction must name \(binding) — the defaulted "
+                    + "closure that claims nothing has no place at the shipped call site")
+        }
+    }
+
+    /// **Settings wires the Apps tab's consent bindings** (the wiring-close gap 3, consent
+    /// half): the shipped `SettingsBindings` construction names `loadContextConsent:` and
+    /// `saveContextConsent:` — the store's read and its wholesale editing path — and the
+    /// composition attaches the store to the root (`root.contextConsentStore`) so the tab and
+    /// the per-turn wiring consult one store. `showSettings` builds a window, so this is a
+    /// source scan of the construction site.
+    func testShowSettingsWiresTheAppsTabConsentBindings() throws {
+        let block = try Self.settingsBindingsConstructionBlock()
+        XCTAssertTrue(
+            block.contains("loadContextConsent:"),
+            "the SettingsBindings construction must name loadContextConsent: — the tab reads "
+                + "the store's own answer")
+        XCTAssertTrue(
+            block.contains("saveContextConsent:"),
+            "the SettingsBindings construction must name saveContextConsent: — the tab writes "
+                + "through the store's wholesale save")
+        XCTAssertTrue(
+            block.contains("contextConsentStore"),
+            "the bindings must reach the store through the root's slot")
+
+        let root = try PackageRootLocator.find(from: #filePath)
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(
+                contentsOf: root.appendingPathComponent(
+                    "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8))
+        XCTAssertTrue(
+            source.contains("root.contextConsentStore = contextConsentStore"),
+            "configure must attach the composed store to the root's slot")
+    }
+
+    /// The `MenuBarItem(` call's parenthesized block in `AppBootstrap.swift`, comments
+    /// stripped — the `contextCompositionBlock` shape, for the menu bar's construction.
+    private static func menuBarItemConstructionBlock() throws -> String {
+        try Self.balancedBlock(in: "AppBootstrap.swift", after: "MenuBarItem(")
+    }
+
+    /// The `SettingsBindings(` call's parenthesized block in `AppBootstrap.swift`, comments
+    /// stripped — the `contextCompositionBlock` shape, for the settings window's construction.
+    private static func settingsBindingsConstructionBlock() throws -> String {
+        try Self.balancedBlock(in: "AppBootstrap.swift", after: "SettingsBindings(")
+    }
+
+    /// The balanced parenthesized block following `header` in `AppBootstrap.swift` — the
+    /// `contextCompositionBlock` extraction, generalised.
+    private static func balancedBlock(in fileName: String, after header: String) throws -> String {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaBootstrap/\(fileName)")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        // Word-boundary matched: `attachMenuBarItem(` must not satisfy a search for
+        // `MenuBarItem(` — the construction is the call, not a name containing it.
+        guard let start = source.range(
+            of: "\\b" + NSRegularExpression.escapedPattern(for: header),
+            options: .regularExpression)
+        else {
+            XCTFail(
+                """
+                `AppBootstrap.swift` no longer constructs `\(header)`. That construction is \
+                where the wiring happens; if it moved, this pin has to move with it rather \
+                than be deleted.
+                """)
+            return ""
+        }
+        var depth = 0
+        var body = ""
+        for character in source[start.lowerBound...] {
+            if character == "(" { depth += 1 }
+            if depth > 0 { body.append(character) }
+            if character == ")" {
+                depth -= 1
+                if depth == 0 { break }
+            }
+        }
+        XCTAssertFalse(body.isEmpty, "the \(header) construction must have a body")
+        return body
+    }
+
     // MARK: - Fixtures
 
     /// Builds a resolver over a temp directory, writing `configJSON` when non-nil, with stub
@@ -300,4 +579,15 @@ private final class ConverseStateBox: @unchecked Sendable {
 /// is file-private to its own suites).
 private struct QuietLevelSource: LiveLevelSource {
     func latestLevel() -> Float { 0 }
+}
+
+/// A context provider that answers the all-absent snapshot on every call — the seam's only
+/// failure vocabulary (the seam is non-throwing by contract, `ContextProvider.swift:25-27`).
+private final class FailingContextProvider: ContextProvider, @unchecked Sendable {
+    private(set) var readCalls = 0
+
+    func resolveCurrent() -> ContextSnapshot {
+        readCalls += 1
+        return ContextSnapshot(bundleID: nil, windowTitle: nil, selectedText: nil)
+    }
 }

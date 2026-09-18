@@ -377,6 +377,11 @@ private final class AgreementSettingsStore: SettingsStore, @unchecked Sendable {
     func setAcknowledgedCloudCleanup(_ acknowledged: Bool) { acknowledgedCloud = acknowledged }
     func keepInTray() -> Bool { false }
     func setKeepInTray(_ keepInTray: Bool) {}
+    // The context grant is not what these tests are about, so the double answers the safe
+    // direction — off — and remembers a write, so a row that turns it on can read it back.
+    private var contextGrant = false
+    func contextGrantEnabled() -> Bool { contextGrant }
+    func setContextGrantEnabled(_ enabled: Bool) { contextGrant = enabled }
 }
 
 /// The widget's level source, silent — this suite asserts nothing about the waveform.

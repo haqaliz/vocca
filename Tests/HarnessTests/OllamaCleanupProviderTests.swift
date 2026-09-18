@@ -248,6 +248,26 @@ final class OllamaCleanupProviderTests: XCTestCase {
 
     // MARK: - B5: prompt byte-fidelity
 
+    /// **The Ollama payload never carries context** — the PRD's boundary pinned by test, not by
+    /// discipline: local egress is not egress (`prd.md:209-211`), the grant governs the BYOK
+    /// cloud provider only, and Ollama's body stays exactly `{model, prompt, stream}` — no
+    /// `context` key, no messages shape.
+    func testTheOllamaPayloadNeverCarriesContext() async throws {
+        let stub = StubLLMTransport(mode: .happyPath(response: Self.happyResponse))
+        let provider = Self.makeProvider(transport: stub)
+
+        _ = try await provider.clean(Self.transcript, context: Self.context())
+
+        let recorded = await stub.recordedRequests
+        let sent = try XCTUnwrap(recorded.first)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: sent.body) as? [String: Any])
+        XCTAssertEqual(
+            Set(json.keys), ["model", "prompt", "stream"],
+            "Ollama's body shape is {model, prompt, stream} — unchanged by the context grant")
+        XCTAssertNil(json["context"], "context never rides a local payload")
+    }
+
     /// **B5 — the Ollama prompt is pinned byte-for-byte.** The cleanup-not-creativity instruction
     /// is a shipped constant (`CleanupPrompts.ollama`); the copy-family discipline pins the exact
     /// text so review adjusts one string, not the logic.

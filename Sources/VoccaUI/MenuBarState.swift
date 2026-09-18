@@ -166,6 +166,13 @@ public struct MenuBarConditions: Sendable, Hashable {
     /// construction site compiling.
     public var mode: SessionMode
 
+    /// Whether the context badge is reading — the focused app is consented and Secure Input is
+    /// not holding the keyboard (`widget-indicator` D7). The menu's kill row appears only while
+    /// this is `true` — a kill row shown when nothing is being read would be an invitation (M9).
+    /// The defaulted field keeps every existing construction site compiling; feeding it is
+    /// `bootstrap-wiring`'s work (recorded hand-off).
+    public var isContextReading: Bool
+
     public init(
         isCapturing: Bool = false,
         isTranscribing: Bool = false,
@@ -176,7 +183,8 @@ public struct MenuBarConditions: Sendable, Hashable {
         isPreparingEngine: Bool = false,
         isMicrophoneAvailable: Bool = true,
         isBlockedBySecureInput: Bool = false,
-        mode: SessionMode = .dictation
+        mode: SessionMode = .dictation,
+        isContextReading: Bool = false
     ) {
         self.isCapturing = isCapturing
         self.isTranscribing = isTranscribing
@@ -188,6 +196,7 @@ public struct MenuBarConditions: Sendable, Hashable {
         self.isMicrophoneAvailable = isMicrophoneAvailable
         self.isBlockedBySecureInput = isBlockedBySecureInput
         self.mode = mode
+        self.isContextReading = isContextReading
     }
 }
 

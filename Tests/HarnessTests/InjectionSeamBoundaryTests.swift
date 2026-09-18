@@ -526,8 +526,15 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// unverified "success" count as failure) above it in ``AccessibilityRungStrategy`` and
     /// ``TargetResolution`` — the H7 doctrine applied to a third system family
     /// (`plan_20260809.md` §2, Phase D), and enforced from the moment the file exists.
+    ///
+    /// `AXContextSource` is the family's second seam (`accessibility-context`, C12 — the
+    /// `KeystrokeSource` precedent): the context adapter's read of the focused application and
+    /// its selection, with every decision (empty on failure, Secure Input refusal) above it in
+    /// ``AccessibilityContext`` (`Sources/VoccaContext/`). The `kAXSelectedTextAttribute` *read*
+    /// is new beside `AXSource`'s write of the same attribute; the prefix set already covers it.
     private static let filesPermittedToNameAccessibilityIdentifiersBySeam: [String: Set<String>] = [
         "accessibility": ["VoccaInject/Accessibility/AXSource.swift"],
+        "context": ["VoccaContext/Accessibility/AXContextSource.swift"],
     ]
 
     /// The accessibility table flattened — every permitted file in every seam. The tree-wide
@@ -727,17 +734,21 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// Files allowed to name `IsSecureEventInputEnabled`, relative to `Sources/`, keyed by seam.
     ///
     /// **One file per seam, and nothing else ever joins a seam's entry** — the H7 rule, stated
-    /// for the Carbon read. The call is the family's whole form, and it has two seams because
-    /// two mechanisms read it: the tap-health poll's ``SystemSecureInputState``
+    /// for the Carbon read. The call is the family's whole form, and it has three seams because
+    /// three mechanisms read it: the tap-health poll's ``SystemSecureInputState``
     /// (`VoccaHotkey/SecureInput.swift`, hotkey-source phase 6 — the file predates this aspect
     /// and its read is its own seam, exactly as the tap adapter predates the keystroke seam in
-    /// the CoreGraphics table), and the injection-time read the ladder resolves through
-    /// (`SecureInputRead.swift`, the `injection-adapters` addition). Both call the same one-line
-    /// Carbon API; each seam's single file is the only place its half of the read may be named
-    /// (`plan_20260809.md` §2, Phase D).
+    /// the CoreGraphics table), the injection-time read the ladder resolves through
+    /// (`SecureInputRead.swift`, the `injection-adapters` addition), and the context-time read
+    /// the `accessibility-context` aspect resolves through (`ContextSecureInputRead.swift` —
+    /// the decision seam `SecureInputReading` lives in `VoccaInject` and is unreachable from
+    /// `VoccaContext`, so M5b needs the module's own permitted Carbon file). All call the same
+    /// one-line Carbon API; each seam's single file is the only place its half of the read may
+    /// be named (`plan_20260809.md` §2, Phase D).
     private static let filesPermittedToNameSecureInputIdentifiersBySeam: [String: Set<String>] = [
         "tapHealthPoll": ["VoccaHotkey/SecureInput.swift"],
         "injectionTimeRead": ["VoccaInject/Accessibility/SecureInputRead.swift"],
+        "contextRead": ["VoccaContext/Accessibility/ContextSecureInputRead.swift"],
     ]
 
     /// The Secure Input table flattened — every permitted file in every seam. The tree-wide scan
@@ -1157,7 +1168,11 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// the usage seam's, added by the `usage-store` aspect: the same adapter shape once more —
     /// load, atomic save — with every decision (version tolerance, per-row skips, the
     /// bucket-bounds check) above it in the headless store tests. It is the only file in its
-    /// module, which is the cleanest form the rule takes.
+    /// module, which is the cleanest form the rule takes. `PersistentConsentStore` is the
+    /// consent seam's, added by the `consent-store` aspect: the same adapter shape again —
+    /// load, atomic set/save — with every decision (version tolerance, bundle-ID validation
+    /// skips, the consent cap) above it in the headless store tests. It is the only file in
+    /// its module, which is the cleanest form the rule takes.
     ///
     /// **The family is scoped per module, and that is a correction to the plan, not a
     /// weakening of it.** `FileManager` is already named in three `VoccaASR` files
@@ -1174,20 +1189,22 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         "config": ["Cleanup/CleanupConfigStore.swift"],
         "strategy": ["Memory/PersistentInjectionStrategyStore.swift"],
         "usage": ["PersistentUsageStore.swift"],
+        "consent": ["Consent/PersistentConsentStore.swift"],
     ]
 
     /// The module root each FileManager seam scans, keyed by the same seam names as
     /// ``filesPermittedToNameFileManagerIdentifiersBySeam``. The table's paths are
     /// module-relative, so each row needs its own root: the journal and strategy rows scan
-    /// `VoccaInject`, the dictionary and config rows scan `VoccaText`, and the usage row scans
-    /// `VoccaUsage` — the per-seam claim actually reaches the module that owns each seam, and
-    /// stops at it.
+    /// `VoccaInject`, the dictionary and config rows scan `VoccaText`, the usage row scans
+    /// `VoccaUsage`, and the consent row scans `VoccaContext` — the per-seam claim actually
+    /// reaches the module that owns each seam, and stops at it.
     private static let fileManagerSeamModuleRoots: [String: String] = [
         "journal": "VoccaInject",
         "dictionary": "VoccaText",
         "config": "VoccaText",
         "strategy": "VoccaInject",
         "usage": "VoccaUsage",
+        "consent": "VoccaContext",
     ]
 
     /// The FileManager table flattened — every permitted file in every seam. The module-wide
@@ -1311,20 +1328,21 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         }
     }
 
-    /// **The FileManager seam table names exactly the five shipped seams** — the `store-seam`
-    /// aspect's S15 pin, widened once: `journal` (VoccaInject), `dictionary` (VoccaText),
-    /// `config` (VoccaText), the strategy store the `store-seam` aspect adds (VoccaInject), and
-    /// the usage ledger the `usage-store` aspect adds (VoccaUsage). An exact-set pin, so a seam
+    /// **The FileManager seam table names exactly the six shipped seams** — the `store-seam`
+    /// aspect's S15 pin, widened twice: `journal` (VoccaInject), `dictionary` (VoccaText),
+    /// `config` (VoccaText), the strategy store the `store-seam` aspect adds (VoccaInject), the
+    /// usage ledger the `usage-store` aspect adds (VoccaUsage), and the consent store the
+    /// `consent-store` aspect adds (VoccaContext). An exact-set pin, so a seam
     /// that moves without its row — or a row that appears without a seam — fails here rather
-    /// than in the review. Widening it is the deliberate, reviewable act of admitting a fifth
+    /// than in the review. Widening it is the deliberate, reviewable act of admitting a sixth
     /// place in this tree where the file system is touched at all.
-    func testTheFileManagerSeamTableNamesExactlyTheFiveShippedSeams() {
+    func testTheFileManagerSeamTableNamesExactlyTheSixShippedSeams() {
         XCTAssertEqual(
             Set(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys),
-            ["journal", "dictionary", "config", "strategy", "usage"],
+            ["journal", "dictionary", "config", "strategy", "usage", "consent"],
             """
-            The FileManager seam table must name exactly the five shipped seams: journal, \
-            dictionary, config, strategy, usage. Got \
+            The FileManager seam table must name exactly the six shipped seams: journal, \
+            dictionary, config, strategy, usage, consent. Got \
             \(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted().joined(separator: ", ")). \
             A seam whose adapter moved without its row, or a row without a seam, is a leak the \
             other pins cannot see.
@@ -1427,6 +1445,47 @@ final class InjectionSeamBoundaryTests: XCTestCase {
             """
             The sighted identifier must be the planted family member: got \
             \(Set(sightings.map(\.identifier)).sorted().joined(separator: ", ")).
+            """)
+    }
+
+    /// The consent row's planted-tree negative control: with `VoccaContext` now a scanned
+    /// module, a `FileManager` sighting in a **second** `VoccaContext` file — beyond the
+    /// consent seam's one permitted adapter — is detected.
+    ///
+    /// The real check's own walk (`sightings(under:permitting:identifiersIn:)`) is run against
+    /// a fabricated `VoccaContext` root holding the permitted path's shape and a planted leak,
+    /// with the permit set the real scan uses for the module: only
+    /// `Consent/PersistentConsentStore.swift`. The planted file is sighted and the permitted
+    /// file is not: a row whose permit is narrower than its module must fail the module the
+    /// moment a second file names the family.
+    func testTheFileManagerScanSeesAPlantedIdentifierBeyondTheConsentSeamFile() throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-filemanager-\(UUID().uuidString)")
+        let contextRoot = scratch.appendingPathComponent("VoccaContext")
+        let consentDirectory = contextRoot.appendingPathComponent("Consent")
+        try FileManager.default.createDirectory(
+            at: consentDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        try "let manager = FileManager.default\n".write(
+            to: consentDirectory.appendingPathComponent("PersistentConsentStore.swift"),
+            atomically: true, encoding: .utf8)
+        try "let manager = FileManager.default\n".write(
+            to: consentDirectory.appendingPathComponent("Leaky.swift"),
+            atomically: true, encoding: .utf8)
+
+        let sightings = try Self.sightings(
+            under: contextRoot, permitting: ["Consent/PersistentConsentStore.swift"],
+            identifiersIn: Self.fileManagerIdentifiers)
+
+        XCTAssertEqual(
+            Set(sightings.map(\.file)), ["Consent/Leaky.swift"],
+            """
+            The VoccaContext-rooted scan must see the second file naming FileManager and permit \
+            only the consent seam's adapter: got \
+            \(Set(sightings.map(\.file)).sorted().joined(separator: ", ")). A second \
+            VoccaContext file that is not flagged is a consent-store decision that escaped CI \
+            forever.
             """)
     }
 

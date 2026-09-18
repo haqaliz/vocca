@@ -74,6 +74,13 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     /// same reason as the three above.
     public static let keepInTrayKey = "settings.keepInTray"
 
+    /// The frozen key the context grant lives under. Pinned by test as a literal, for the same
+    /// reason as the ones above — and with the sharpest consequence of the family: a renamed key
+    /// here silently resets every existing grant to off, which is the safe direction, but also
+    /// silently **loses** a grant a user did give. The grant is the one setting that must never
+    /// be spent without the user's explicit choice, so its key is frozen like the rest.
+    public static let contextGrantEnabledKey = "settings.contextGrantEnabled"
+
     /// The frozen keys the hotkey chord lives under. Pinned by test as literals, for the same
     /// reason as the three above.
     ///
@@ -207,6 +214,22 @@ public struct UserDefaultsSettingsStore: SettingsStore {
         defaults.set(
             PersistedSettings.encodeKeepInTray(keepInTray),
             forKey: Self.keepInTrayKey)
+    }
+
+    /// Whether the separate context grant is on. `false` for a fresh install and `false` for
+    /// anything unreadable — see `PersistedSettings.decodeContextGrant(_:onInvalidValue:)` for
+    /// why that direction: a value Vocca cannot read is never a grant it can spend.
+    public func contextGrantEnabled() -> Bool {
+        PersistedSettings.decodeContextGrant(
+            rawValue(forKey: Self.contextGrantEnabledKey), onInvalidValue: log)
+    }
+
+    /// Persist or withdraw the grant. Best-effort, never throws: a failed write means the
+    /// toggle reverts to off at the next launch, which is the safe direction.
+    public func setContextGrantEnabled(_ enabled: Bool) {
+        defaults.set(
+            PersistedSettings.encodeContextGrant(enabled),
+            forKey: Self.contextGrantEnabledKey)
     }
 
     // MARK: - The one piece of translation this file owns
