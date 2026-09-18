@@ -29,6 +29,24 @@ public struct ActionSummary: Sendable, Equatable {
     public let sentence: String
 
     /// How far the described action would reach — the gate's one branch point.
+    ///
+    /// ## The radius is the provider's own claim, and it is not yet verified
+    ///
+    /// This value arrives from ``ActionProvider/describe(_:)``, which means the thing being
+    /// gated is the thing that classified itself. Nothing in this aspect checks the claim
+    /// against anything: a provider that labels a destructive tool ``BlastRadius/readOnly``
+    /// is believed, and a gate that believes the thing it is gating is not yet a gate.
+    ///
+    /// The claim is carried here anyway because `describe` is the only place that can render
+    /// a concrete sentence at all — only the provider knows what its tool does. What is
+    /// missing is the second half, and it belongs to the `confirmation-gate` aspect: a
+    /// **local policy** that decides the radius the gate acts on, which may only ever
+    /// **escalate** a provider's claim (`readOnly` -> `destructive` or `outwardFacing`) and
+    /// may **never de-escalate** it. Under that rule a lying provider can only ever cause a
+    /// user to be asked more often than necessary, never less.
+    ///
+    /// Until that policy exists, this field is provider-asserted and unverified. Recorded
+    /// rather than assumed — see `action-safety-spine` PRD §6.
     public let blastRadius: BlastRadius
 
     /// A summary as the provider rendered it.

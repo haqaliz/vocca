@@ -27,6 +27,11 @@
 /// new case fails both places before it can inherit whichever side a `default` branch fell on.
 /// That is deliberate — a silently-permissive default is precisely the failure this type
 /// exists to prevent.
+///
+/// **A radius reaching the gate is provider-asserted and not locally verified.** The value
+/// travels on ``ActionSummary/blastRadius``, which the provider itself renders; the escalate-
+/// only local policy that closes that gap is `confirmation-gate`'s, and the constraint on it
+/// is recorded there.
 public enum BlastRadius: Sendable, CaseIterable {
     /// Observes and reports; changes nothing and sends nothing anywhere.
     case readOnly
