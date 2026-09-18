@@ -434,6 +434,199 @@ final class BYOKCleanupProviderTests: XCTestCase {
             "the key must ride the wire — the point of B8 is the logs and errors, not the header")
     }
 
+    // MARK: - The granted-context leg (M6/M7: never in the payload without the grant)
+
+    /// **M6 — a provider built without a granted source never carries context.** Today's
+    /// construction (no `grantedContext:`): the body's key-set is exactly `{model, messages}`,
+    /// the system prompt is still the pinned instruction and the user message the transcript
+    /// verbatim — the absent-grant body is byte-identical to the pre-grant shape.
+    func testWithoutAGrantedSourceThePayloadNeverCarriesContext() async throws {
+        let stub = StubLLMTransport(mode: .happyPath(response: Self.happyResponse))
+        let provider = Self.makeProvider(key: Self.sentinel, transport: stub)
+
+        _ = try await provider.clean(Self.transcript, context: Self.context())
+
+        let recorded = await stub.recordedRequests
+        let sent = try XCTUnwrap(recorded.first)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: sent.body) as? [String: Any])
+        XCTAssertEqual(
+            Set(json.keys), ["model", "messages"],
+            "without a granted source the payload's key-set is exactly {model, messages}")
+        let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages[0]["content"] as? String, CleanupPrompts.byokSystem)
+        XCTAssertEqual(messages[1]["content"] as? String, Self.transcriptText)
+    }
+
+    /// **M7 — a source answering `nil` is the gate's refusal, and the payload stays absent.**
+    /// Consent without the grant, grant without consent, or Secure Input all resolve to `nil`
+    /// above this provider; the body must not carry context for any of them.
+    func testAGrantedSourceAnsweringNilLeavesThePayloadAbsent() async throws {
+        let stub = StubLLMTransport(mode: .happyPath(response: Self.happyResponse))
+        let provider = Self.makeProvider(
+            key: Self.sentinel,
+            transport: stub,
+            grantedContext: StubGrantedContextSource(result: nil))
+
+        _ = try await provider.clean(Self.transcript, context: Self.context())
+
+        let recorded = await stub.recordedRequests
+        let sent = try XCTUnwrap(recorded.first)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: sent.body) as? [String: Any])
+        XCTAssertEqual(
+            Set(json.keys), ["model", "messages"],
+            "a nil source is the AND-gate's refusal — the key-set stays exactly {model, messages}")
+    }
+
+    /// **M6 — a granted snapshot adds the context field.** The body's key-set is exactly
+    /// `{model, messages, context}`, the context object carries the three subfields verbatim,
+    /// and the messages are untouched.
+    func testAGrantedSourceAnsweringASnapshotAddsTheContextField() async throws {
+        let snapshot = ContextSnapshot(
+            bundleID: "com.example.Notes",
+            windowTitle: "Notes - The Draft",
+            selectedText: "the selected paragraph")
+        let stub = StubLLMTransport(mode: .happyPath(response: Self.happyResponse))
+        let provider = Self.makeProvider(
+            key: Self.sentinel,
+            transport: stub,
+            grantedContext: StubGrantedContextSource(result: snapshot))
+
+        _ = try await provider.clean(Self.transcript, context: Self.context())
+
+        let recorded = await stub.recordedRequests
+        let sent = try XCTUnwrap(recorded.first)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: sent.body) as? [String: Any])
+        XCTAssertEqual(
+            Set(json.keys), ["model", "messages", "context"],
+            "the grant is what adds the context field — exactly one new key")
+        let context = try XCTUnwrap(json["context"] as? [String: Any])
+        XCTAssertEqual(context["bundleID"] as? String, "com.example.Notes")
+        XCTAssertEqual(context["windowTitle"] as? String, "Notes - The Draft")
+        XCTAssertEqual(context["selectedText"] as? String, "the selected paragraph")
+        let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages.count, 2, "the messages are untouched by the context leg")
+        XCTAssertEqual(messages[0]["content"] as? String, CleanupPrompts.byokSystem)
+        XCTAssertEqual(messages[1]["content"] as? String, Self.transcriptText)
+    }
+
+    /// **D5 — a nil subfield is omitted, never coerced to an empty string.** The snapshot's
+    /// nil-vs-empty semantics are preserved on the wire: absent stays absent.
+    func testANilSubfieldIsOmittedNotEmptied() async throws {
+        let snapshot = ContextSnapshot(
+            bundleID: "com.example.Notes", windowTitle: nil, selectedText: "selected")
+        let stub = StubLLMTransport(mode: .happyPath(response: Self.happyResponse))
+        let provider = Self.makeProvider(
+            key: Self.sentinel,
+            transport: stub,
+            grantedContext: StubGrantedContextSource(result: snapshot))
+
+        _ = try await provider.clean(Self.transcript, context: Self.context())
+
+        let recorded = await stub.recordedRequests
+        let sent = try XCTUnwrap(recorded.first)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: sent.body) as? [String: Any])
+        let context = try XCTUnwrap(json["context"] as? [String: Any])
+        XCTAssertEqual(
+            Set(context.keys), ["bundleID", "selectedText"],
+            "a nil windowTitle is omitted on the wire, never emptied to an empty string")
+        XCTAssertEqual(context["bundleID"] as? String, "com.example.Notes")
+        XCTAssertEqual(context["selectedText"] as? String, "selected")
+    }
+
+    /// **D6 — the key path is first: a missing key throws without ever asking the source.** The
+    /// grant being on never shadows or precedes the key read; context must not ride a request
+    /// that was never going to happen.
+    func testAMissingKeyStillThrowsWithoutAskingTheSource() async {
+        let source = StubGrantedContextSource(result: ContextSnapshot(
+            bundleID: "com.example.Notes", windowTitle: nil, selectedText: nil))
+        let stub = StubLLMTransport(mode: .happyPath(response: Self.happyResponse))
+        let provider = BYOKCleanupProvider(
+            endpoint: Self.endpoint,
+            model: Self.model,
+            keyProvider: StubKeyProvider(mode: .returnsNil),
+            transport: stub,
+            grantedContext: source)
+
+        do {
+            _ = try await provider.clean(Self.transcript, context: Self.context())
+            XCTFail("a missing key must throw even with the grant on")
+        } catch LLMProviderError.keyUnavailable {
+            let recorded = await stub.recordedRequests
+            XCTAssertEqual(recorded.count, 0, "the transport must never be reached")
+            let calls = await source.calls
+            XCTAssertEqual(
+                calls, 0,
+                "the key read is the first act of clean() — the context source is never asked")
+        } catch {
+            XCTFail("unexpected error type: \(error)")
+        }
+    }
+
+    /// **D8 — the granted context rides the wire body and appears in no error description.** The
+    /// B8 sweep's shape on the granted path: a sentinel context text appears in the happy-path
+    /// body — the one place it may be — and in **none** of the thrown errors' printable forms
+    /// across the closed failure set.
+    func testTheGrantedContextRidesTheBodyAndNoErrorRepeatsIt() async {
+        let sentinel = Self.sentinel
+        let contextSentinel = "CONTEXT-\(UUID().uuidString)"
+        let source = StubGrantedContextSource(result: ContextSnapshot(
+            bundleID: "com.example.Notes", windowTitle: "Notes - The Draft",
+            selectedText: contextSentinel))
+
+        let failurePaths: [(label: String, provider: BYOKCleanupProvider)] = [
+            ("unreachable",
+                Self.makeProvider(
+                    key: sentinel, transport: StubLLMTransport(mode: .failsUnreachable),
+                    grantedContext: source)),
+            ("unauthorized401",
+                Self.makeProvider(
+                    key: sentinel, transport: StubLLMTransport(mode: .serverStatus(401)),
+                    grantedContext: source)),
+            ("serverStatus500",
+                Self.makeProvider(
+                    key: sentinel, transport: StubLLMTransport(mode: .serverStatus(500)),
+                    grantedContext: source)),
+            ("malformedBody",
+                Self.makeProvider(
+                    key: sentinel,
+                    transport: StubLLMTransport(mode: .happyPath(response: LLMResponse(
+                        statusCode: 200, body: Data("not json".utf8)))),
+                    grantedContext: source)),
+        ]
+
+        for path in failurePaths {
+            let (string, localized) = await Self.captureError {
+                try await path.provider.clean(Self.transcript, context: Self.context())
+            }
+            XCTAssertFalse(
+                string.isEmpty,
+                "\(path.label) must throw — a silent pass would leave the sweep incomplete")
+            XCTAssertFalse(
+                string.contains(contextSentinel),
+                "\(path.label): String(describing:) leaked the granted context — \(string)")
+            XCTAssertFalse(
+                localized.contains(contextSentinel),
+                "\(path.label): localizedDescription leaked the granted context — \(localized)")
+        }
+
+        // The wire half: the granted context rides the happy-path body — the one place it may be.
+        let stub = StubLLMTransport(mode: .happyPath(response: Self.happyResponse))
+        let provider = Self.makeProvider(
+            key: sentinel, transport: stub, grantedContext: source)
+        _ = try? await provider.clean(Self.transcript, context: Self.context())
+        let recorded = await stub.recordedRequests
+        let json = try? JSONSerialization.jsonObject(with: recorded.first?.body ?? Data())
+            as? [String: Any]
+        XCTAssertEqual(
+            (json?["context"] as? [String: Any])?["selectedText"] as? String,
+            contextSentinel,
+            "the granted context must ride the wire — the point of the sweep is the errors, not the body")
+    }
+
     // MARK: - Fixtures
 
     /// A unique sentinel key, fresh per process — the key-hygiene sweeps key on its absence.
@@ -456,13 +649,15 @@ final class BYOKCleanupProviderTests: XCTestCase {
     /// Builds the provider under test over an injected key and transport.
     private static func makeProvider(
         key: String,
-        transport: any LLMTransport
+        transport: any LLMTransport,
+        grantedContext: (any GrantedContextSource)? = nil
     ) -> BYOKCleanupProvider {
         BYOKCleanupProvider(
             endpoint: endpoint,
             model: model,
             keyProvider: StubKeyProvider(mode: .returns(key)),
-            transport: transport)
+            transport: transport,
+            grantedContext: grantedContext)
     }
 
     /// The transcript the provider cleans, over the probe-stub engine identity.
@@ -562,4 +757,20 @@ private final class StubKeyProvider: KeyProvider {
 /// The one failure the stub's key seam can name — the B5 rethrow's distinct marker.
 private enum StubKeyProviderError: Error, Sendable {
     case locked
+}
+
+/// The granted-context seam's double: answers a fixed snapshot — or `nil`, the AND-gate's
+/// refusal — and counts the calls, so the key-path-first rule (D6) is asserted rather than hoped.
+private actor StubGrantedContextSource: GrantedContextSource {
+    private let result: ContextSnapshot?
+    private(set) var calls = 0
+
+    init(result: ContextSnapshot?) {
+        self.result = result
+    }
+
+    func grantedSnapshot() async -> ContextSnapshot? {
+        calls += 1
+        return result
+    }
 }
