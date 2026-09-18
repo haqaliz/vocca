@@ -95,6 +95,29 @@ final class SettingsCopyTests: XCTestCase {
             "the glyph must be the real ⌘ (U+2318), not a lookalike")
     }
 
+    // MARK: - The context kill switch (widget-indicator D5/D8)
+
+    /// The General tab's "Context" section title — the kill switch is global behavior, and the
+    /// General tab is the home of global behavior (hotkeys, activation, closing).
+    func testTheContextSectionTitleIsPinned() {
+        XCTAssertEqual(SettingsCopy.contextSectionTitle, "Context")
+    }
+
+    /// The toggle's label names what the toggle controls — reading the focused app's content.
+    func testTheContextReadingTitleIsPinned() {
+        XCTAssertEqual(SettingsCopy.contextReadingTitle, "Read the focused app's content")
+    }
+
+    /// The detail states the revoke plainly — grants and revokes are different axes
+    /// (`understanding.md:130-132`): off stops reading until the next launch, and apps the user
+    /// allowed stay allowed. The kill is a runtime revoke, not a persisted master switch (D6).
+    func testTheContextReadingDetailIsPinned() {
+        XCTAssertEqual(
+            SettingsCopy.contextReadingDetail,
+            "Off stops Vocca from reading the focused app's content until the next launch. "
+                + "Apps you've allowed stay allowed.")
+    }
+
     // MARK: - The recorder
 
     /// The control and the prompt it becomes. The prompt names the way out, because a control that
@@ -287,5 +310,6 @@ final class SettingsCopyTests: XCTestCase {
         "hotkeyUseAnyway", "hotkeyCancel", "hotkeyRefusal", "hotkeySystemShortcutWarning",
         "hotkeyRebindRefusal", "hotkeyOtherAppsUnknown", "hotkeySystemShortcutsIncomplete",
         "keepInTrayTitle", "keepInTrayDetail",
+        "contextSectionTitle", "contextReadingTitle", "contextReadingDetail",
     ]
 }

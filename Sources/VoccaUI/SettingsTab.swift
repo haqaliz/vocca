@@ -222,4 +222,23 @@ public enum SettingsCopy {
     /// proves it is not one.
     public static let keepInTrayDetail =
         "Quitting from the Dock (⌘Q) leaves Vocca running in the menu bar. Use Quit Vocca to quit."
+
+    // MARK: - Context (widget-indicator D5/D8)
+
+    /// The General tab's "Context" section title — the kill switch is global behavior, and the
+    /// General tab is the home of global behavior (hotkeys, activation, closing). Decided-new
+    /// copy the spec does not write, exact-equality pinned in `SettingsCopyTests`.
+    public static let contextSectionTitle = "Context"
+
+    /// The kill-switch toggle's label — what the toggle controls, stated as the thing being
+    /// read.
+    public static let contextReadingTitle = "Read the focused app's content"
+
+    /// The detail states the revoke plainly: off stops reading until the next launch, and apps
+    /// the user allowed stay allowed — grants and revokes are different axes
+    /// (`understanding.md:130-132`). The kill is a runtime revoke, not a persisted master switch
+    /// (D6), which is exactly what "until the next launch" says.
+    public static let contextReadingDetail =
+        "Off stops Vocca from reading the focused app's content until the next launch. "
+        + "Apps you've allowed stay allowed."
 }
