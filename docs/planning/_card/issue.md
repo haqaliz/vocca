@@ -1,54 +1,74 @@
-# Card: feat/context-provider
+# Card: feat/action-safety-spine
 
 > Inline brief — no GitHub issue exists (`gh issue list` for `haqaliz/vocca` is empty).
-> Source: the `vocca-next` handoff (2026-09-18) + `CAPABILITY_ROADMAP.md` C12 entry +
-> the C11 unit records (STATUS.md dual-mode entry).
+> Source: the `vocca-next` handoff (2026-09-19) + `CAPABILITY_ROADMAP.md` C13 entry +
+> the C11/C12 unit records (STATUS.md dual-mode + context-provider entries).
 
 ## Brief
 
-Build **C12 — Context provider — active app and selection** (`CAPABILITY_ROADMAP.md:345-359`):
-a `ContextProvider` seam yielding the active bundle ID, window title, and current selected
-text via AX. Per-app opt-in — **default off for every app**; the user grants each app
-deliberately, no blanket "allow all". A **visible indicator whenever context is being read**,
-plus a **global kill switch reachable in one action**. Context is **never persisted** beyond
-the current turn and **never leaves the machine** — including when a BYOK cleanup provider is
-active, where context is excluded from the payload unless separately and explicitly permitted.
+Build the **first slice of C13 — Actions and MCP** (`CAPABILITY_ROADMAP.md` C13, P4):
+the **safety spine**, over a stub provider only. **No MCP wire, no intent layer, no real
+tool execution** in this unit.
 
-Dependencies are met: C4's AX infrastructure ships (the injection ladder's
-`kAXSelectedTextAttribute` read/verify machinery — `AXSource.swift`); C13 (Actions and MCP)
-blocks on this capability (`CAPABILITY_ROADMAP.md:379`); the P3 gate's conversational leg
-stays formally unmet until C13 (`docs/STATUS.md:97-99`). C12 is the lowest unshipped
-capability in the roadmap.
+What the slice establishes:
 
-Acceptance, written first (per `CAPABILITY_ROADMAP.md:353-355`):
-1. A test asserts correct app/selection resolution across the C8 app matrix at ≥95%.
-2. A privacy test asserts that with context capture off for an app, **no AX read of that
-   app's content occurs at all** — not read-then-discard, but never read.
-3. A second privacy test asserts context **never appears in a BYOK request payload**
-   without the separate explicit grant.
-These two privacy tests are the ones that make the privacy claim auditable rather than
-promised.
+- The `ActionProvider` seam in the reserved `VoccaActions` module
+  (`ARCHITECTURE.md:154` reserves `VoccaActions/  # P4 — ActionProvider, MCP client`;
+  `ARCHITECTURE.md:284` reserves the seam row with `MCPProvider`, `ShellProvider` as its
+  two implementations and **hosted: No**).
+- **Blast-radius classification** of an action — read-only vs destructive/outward-facing.
+- A **confirmation gate** that states what will happen in concrete terms before it happens
+  ("send this message to #general"), never abstract ("execute slack_post").
+- **Dry-run**: every action previewable as "here's what I would do" before it is armed.
+- A local, **append-only audit log** with enough detail to reconstruct what happened.
 
-Seam: `ContextProvider`. Notably, **this seam has no hosted counterpart by design** — context
-is read locally, always, and the hosted tier never sees it (`CAPABILITY_ROADMAP.md:357`).
+## Acceptance (test-first — the load-bearing tests)
 
-## Caveats (binding)
+From C13's acceptance in `CAPABILITY_ROADMAP.md`:
 
-- The P2 and P3 gates stay **uncleared**; this is the fourth unit built ahead of them under
-  the recorded posture (kokoro-binding, turn-taking, dual-mode — each recorded "No gate
-  passes"), not a drift.
-- The privacy contract is load-bearing: the never-read test and the never-in-BYOK-payload
-  test are the auditable core. Per-app opt-in default-off and the one-action kill switch are
-  requirements, not preferences.
-- The zero-network invariant and the transcript-never-lost invariant stay untouched: context
-  adds AX *reads* only — no injection-path changes, no new egress surface, nothing handed to
-  a URL.
-- The seam-doctrine two-implementation rule (`CAPABILITY_ROADMAP.md:414`) **is met**: the
-  architecture record names `ContextProvider` → `AccessibilityContext`, `NullContext` —
-  hosted tier **No — by design** (`ARCHITECTURE.md:281`). `NullContext` is the honest
-  shipped default (nothing read); `AccessibilityContext` is the real AX adapter. (This
-  caveat supersedes the original handoff's "record the exemption" note — the understanding
-  note corrects it.)
-- The dictate path is digest-pinned (`SessionMachine.swift`, `DictationPipeline.swift`) —
-  C12 must not touch the dictation pipeline; its reads share AX infrastructure but add no
-  writes.
+1. A destructive action without confirmation must be **structurally impossible** — asserted
+   by *attempting* the call and requiring it to be **refused**, not merely by observing that
+   no prompt appeared.
+2. **Dry-run must produce zero side effects** — asserted by a stub that *fails the test if
+   invoked*.
+3. Every executed action must appear in the **audit log**, asserted by reconstruction.
+4. A **disabled tool is never callable**.
+
+## The caveat to settle in the dig, before any code
+
+**MCP transports are an egress surface.** Local stdio servers are subprocesses and stay
+inside the zero-network promise; a remote MCP server over HTTP/SSE *is* egress and would
+trip the `connect(2)` interposer, which is a permanent release blocker (`CLAUDE.md`,
+guardrail 2 in `CAPABILITY_ROADMAP.md`). The default composition must ship **stdio-only or
+with zero servers**, and any remote transport must be opt-in and badged at the point of use
+like BYOK. Decide this in the dig, not at the probe failure.
+
+## Posture (recorded, not drifted)
+
+This would be the **fifth unit built ahead of the uncleared P2/P3 gates**. Every prior unit
+record says "No gate passes"; this one must too. The gates are blocked on things this code
+cannot fix: the P2 external-users leg needs distribution (notarization recorded
+**blocked — not purchased**), the injection matrix was **closed by founder decision** with
+FMS not computable, and the P3 conversational leg is formally unmet until C13's real agent.
+
+Separately and in parallel (founder-hands work, no worktree): **SMOKE 129-143 are written,
+runnable, and executed by nothing.** No TTFA, turn-commitment, echo, or context-resolution
+percentage exists on a real machine, and the P0 seven-day ledger streak has never
+accumulated.
+
+## Dependencies (all shipped)
+
+C10 (`turn-taking-barge-in`), C11 (`dual-mode`), C12 (`context-provider`) — per
+`CAPABILITY_ROADMAP.md` C13's dependency line and the STATUS.md head entry.
+
+## Named deferrals that point at this capability
+
+- `docs/planning/dual-mode/prd.md:6` — `EchoReplyGenerator` is an honest stand-in;
+  "the real agent slots in at C13".
+- `docs/planning/dual-mode/prd.md:205` + `PRODUCT_SPEC.md:379` — reply-text rendering
+  deferred to "the C13 design pass".
+- `CLAUDE.md` — "the P3 gate's conversational leg stays formally unmet until C13's real
+  agent".
+
+**Note:** the reply/intent layer and reply-text rendering are *not* in this slice. They are
+C13's later slices; this unit is the safety spine only.
