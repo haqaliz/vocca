@@ -329,8 +329,9 @@ final class AppBootstrapWiringTests: XCTestCase {
 
     /// **The shipped composition is the real provider over the real store** (the wiring-close
     /// gap 1): `configure`'s `composeContextWiring` call names `AccessibilityContext` (the AX
-    /// adapter over its two module-internal reads) and `PersistentConsentStore` (path-injected
-    /// through ``contextConsentDirectory``), the Secure Input fact is the root's own
+    /// adapter over its two module-internal reads) and the hoisted `contextConsentStore`
+    /// local (`PersistentConsentStore`, path-injected through
+    /// ``contextConsentDirectory``), the Secure Input fact is the root's own
     /// `SystemSecureInputState`, and the composed default is **gone** — no `NullContext`, no
     /// `consentStore: nil`. `configure` needs an `NSApplication`, so this is a source scan, the
     /// `SessionKindWiringTests` shape: the call site itself is the wiring, and a reverted
@@ -347,8 +348,8 @@ final class AppBootstrapWiringTests: XCTestCase {
             block.contains("ContextSecureInputRead("),
             "the shipped composition must name the adapter's Secure Input read")
         XCTAssertTrue(
-            block.contains("PersistentConsentStore("),
-            "the shipped composition must construct PersistentConsentStore — the real store")
+            block.contains("contextConsentStore"),
+            "the shipped composition must pass the hoisted real store")
         XCTAssertTrue(
             block.contains("SystemSecureInputState("),
             "the Secure Input fact must come from the root's own SystemSecureInputState")
@@ -358,6 +359,15 @@ final class AppBootstrapWiringTests: XCTestCase {
         XCTAssertFalse(
             block.contains("consentStore: nil"),
             "the shipped composition must not pass an absent consent store")
+
+        let root = try PackageRootLocator.find(from: #filePath)
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(
+                contentsOf: root.appendingPathComponent(
+                    "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8))
+        XCTAssertTrue(
+            source.contains("let contextConsentStore = PersistentConsentStore("),
+            "the hoisted store must be the shipped PersistentConsentStore, path-injected")
     }
 
     /// **The consent store's directory resolves beside the usage ledger** — the
@@ -443,6 +453,36 @@ final class AppBootstrapWiringTests: XCTestCase {
                 "the SettingsBindings construction must name \(binding) — the defaulted "
                     + "closure that claims nothing has no place at the shipped call site")
         }
+    }
+
+    /// **Settings wires the Apps tab's consent bindings** (the wiring-close gap 3, consent
+    /// half): the shipped `SettingsBindings` construction names `loadContextConsent:` and
+    /// `saveContextConsent:` — the store's read and its wholesale editing path — and the
+    /// composition attaches the store to the root (`root.contextConsentStore`) so the tab and
+    /// the per-turn wiring consult one store. `showSettings` builds a window, so this is a
+    /// source scan of the construction site.
+    func testShowSettingsWiresTheAppsTabConsentBindings() throws {
+        let block = try Self.settingsBindingsConstructionBlock()
+        XCTAssertTrue(
+            block.contains("loadContextConsent:"),
+            "the SettingsBindings construction must name loadContextConsent: — the tab reads "
+                + "the store's own answer")
+        XCTAssertTrue(
+            block.contains("saveContextConsent:"),
+            "the SettingsBindings construction must name saveContextConsent: — the tab writes "
+                + "through the store's wholesale save")
+        XCTAssertTrue(
+            block.contains("contextConsentStore"),
+            "the bindings must reach the store through the root's slot")
+
+        let root = try PackageRootLocator.find(from: #filePath)
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(
+                contentsOf: root.appendingPathComponent(
+                    "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8))
+        XCTAssertTrue(
+            source.contains("root.contextConsentStore = contextConsentStore"),
+            "configure must attach the composed store to the root's slot")
     }
 
     /// The `MenuBarItem(` call's parenthesized block in `AppBootstrap.swift`, comments

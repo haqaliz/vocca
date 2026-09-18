@@ -359,6 +359,72 @@ final class AppsTabReducerTests: XCTestCase {
         XCTAssertEqual(state.rows, before)
     }
 
+    // MARK: - Context consent (C12, M4 — the Apps-tab surface)
+
+    /// **The store's consent answer folds onto the rows**: the consented apps'
+    /// rows carry `isContextConsented == true`, the unconsented apps' rows carry
+    /// `false` — the toggle renders the store's truth, never a remembered grant.
+    func testContextConsentLoadedMarksTheConsentedApps() {
+        var state = loaded([
+            entry(Self.notes, name: "Notes", allowlisted: true),
+            entry(Self.editor, name: "Editor"),
+        ])
+        state = AppsTabReducer.reduce(
+            state, .contextConsentLoaded([Self.notes]))
+
+        XCTAssertTrue(
+            row(state, Self.notes)?.isContextConsented ?? false,
+            "the consented app's row shows the grant")
+        XCTAssertFalse(
+            row(state, Self.editor)?.isContextConsented ?? true,
+            "the unconsented app's row shows no grant")
+    }
+
+    /// **An app the strategies store knows nothing about is not hidden**: consent
+    /// is a user decision, so a consented app no strategy was ever learned for
+    /// gets its row created — the `overrideSet` creation precedent, named by its
+    /// bundle identifier until a snapshot resolves a better name.
+    func testContextConsentLoadedCreatesRowsForConsentedAppsTheStoreKnowsNothingAbout() {
+        let state = AppsTabReducer.reduce(
+            .initial, .contextConsentLoaded([Self.chrome]))
+
+        XCTAssertTrue(state.isLoaded == false, "the consent load alone is not the snapshot")
+        let chrome = row(state, Self.chrome)
+        XCTAssertNotNil(chrome, "the consented app's row exists")
+        XCTAssertEqual(chrome?.displayName, Self.chrome, "the bundle identifier stands in as the name")
+        XCTAssertEqual(chrome?.isContextConsented, true, "the created row shows the grant")
+    }
+
+    /// **Grant and revoke fold per app**: flipping the row's toggle grants or
+    /// revokes exactly that app — never a blanket allow, never a blanket revoke.
+    func testContextConsentSetGrantsAndRevokesPerApp() {
+        var state = loaded([entry(Self.notes, name: "Notes", allowlisted: true)])
+        state = AppsTabReducer.reduce(
+            state, .contextConsentSet(bundleID: Self.notes, consented: true))
+        XCTAssertTrue(
+            row(state, Self.notes)?.isContextConsented ?? false,
+            "the grant lands on the row")
+
+        state = AppsTabReducer.reduce(
+            state, .contextConsentSet(bundleID: Self.notes, consented: false))
+        XCTAssertFalse(
+            row(state, Self.notes)?.isContextConsented ?? true,
+            "the revoke lands on the same row")
+    }
+
+    /// **Reset leaves consent alone**: consent is a user decision, never learning
+    /// — the button that clears what Vocca worked out must not un-consent an app.
+    func testResetPreservesContextConsent() {
+        var state = loaded([entry(Self.notes, name: "Notes", allowlisted: true)])
+        state = AppsTabReducer.reduce(
+            state, .contextConsentSet(bundleID: Self.notes, consented: true))
+        state = AppsTabReducer.reduce(state, .resetLearned)
+
+        XCTAssertTrue(
+            row(state, Self.notes)?.isContextConsented ?? false,
+            "reset clears learning, never a user's grant")
+    }
+
     // MARK: - Totality
 
     /// Every action folds from every state without trapping — the closed-set discipline. The
@@ -382,6 +448,10 @@ final class AppsTabReducerTests: XCTestCase {
             .resetLearned,
             .saveSucceeded,
             .saveFailed("x"),
+            .contextConsentLoaded([]),
+            .contextConsentLoaded([Self.editor]),
+            .contextConsentSet(bundleID: Self.notes, consented: true),
+            .contextConsentSet(bundleID: "com.example.NeverSeen", consented: false),
         ]
 
         for state in states {
@@ -402,6 +472,8 @@ final class AppsTabReducerTests: XCTestCase {
             .overrideSet(bundleID: Self.notes, method: .paste),
             .overrideCleared(bundleID: Self.notes), .resetLearned, .saveSucceeded,
             .saveFailed("x"),
+            .contextConsentLoaded([Self.notes]),
+            .contextConsentSet(bundleID: Self.notes, consented: true),
         ] {
             state = AppsTabReducer.reduce(state, action)
             XCTAssertTrue(state.isLoaded)
@@ -417,6 +489,12 @@ final class AppsTabReducerTests: XCTestCase {
         XCTAssertNotEqual(
             base,
             AppsTabReducer.reduce(base, .overrideSet(bundleID: Self.notes, method: .manual)))
+        XCTAssertNotEqual(
+            base,
+            AppsTabReducer.reduce(
+                base, .contextConsentSet(bundleID: Self.notes, consented: true)),
+            "the consent field must distinguish states too — a consent comparison that cannot "
+                + "fail would not notice a dropped grant")
         XCTAssertNotEqual(base, loaded([entry(Self.notes, name: "Notes 2", allowlisted: true)]))
         XCTAssertEqual(base, loaded([entry(Self.notes, name: "Notes", allowlisted: true)]))
     }

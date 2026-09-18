@@ -132,6 +132,17 @@ public struct SettingsBindings {
     /// next dictation rather than to the next launch.
     public var saveStrategies: ([AppStrategyEntry]) async throws -> Void
 
+    // MARK: - Context consent (C12, M4)
+
+    /// The per-app context consent as the Apps tab reads it: the consented bundle IDs — the
+    /// store's own answer, bundle IDs only, nothing more. Asked every time the page opens,
+    /// never cached: the tab's own toggle is what changes it.
+    public var loadContextConsent: () async -> Set<String>
+    /// Writes the whole consented set back — the store's wholesale `save(_:)`, the editing
+    /// path the seam reserves for the Apps tab. A failed write is surfaced, never swallowed:
+    /// a grant that silently failed to save is one the next resolution never honours.
+    public var saveContextConsent: (Set<String>) async throws -> Void
+
     // MARK: - Usage
 
     /// The daily-use ledger as the Usage tab reads it: the days the window holds, and the streak
@@ -228,6 +239,13 @@ public struct SettingsBindings {
         saveDictionary: @escaping ([ReplacementRule]) async throws -> Void,
         loadStrategies: @escaping () async -> [AppStrategyEntry] = { [] },
         saveStrategies: @escaping ([AppStrategyEntry]) async throws -> Void = { _ in },
+        // The consent defaults claim **nothing** and write **nothing**, for the reason the
+        // strategy defaults do: an empty answer renders the honest "nothing consented"
+        // (which is the fresh-install truth and the safe direction), and a save that claims
+        // success while writing nothing would let the page tell a user their grant was
+        // stored when it was not.
+        loadContextConsent: @escaping () async -> Set<String> = { [] },
+        saveContextConsent: @escaping (Set<String>) async throws -> Void = { _ in },
         // The usage defaults claim **nothing** and delete **nothing**, for the reason the Speech
         // and cleanup defaults do. An empty snapshot renders the empty state — the honest "we
         // have nothing to show you" — where a fabricated day or streak would be this page's one
@@ -276,6 +294,8 @@ public struct SettingsBindings {
         self.saveDictionary = saveDictionary
         self.loadStrategies = loadStrategies
         self.saveStrategies = saveStrategies
+        self.loadContextConsent = loadContextConsent
+        self.saveContextConsent = saveContextConsent
         self.loadUsageSnapshot = loadUsageSnapshot
         self.clearUsage = clearUsage
         self.engineSelection = engineSelection

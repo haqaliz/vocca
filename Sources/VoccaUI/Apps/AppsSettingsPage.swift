@@ -51,7 +51,20 @@ struct AppsSettingsPage: View {
                     TableColumn(AppsTabCopy.stateColumn) { row in
                         methodPicker(for: row)
                     }
+                    TableColumn(AppsTabCopy.contextConsentColumn) { row in
+                        consentToggle(for: row)
+                    }
                 }
+            }
+
+            // The consent column's promise, in words — the grant axis's row copy (C12, M4):
+            // what granting means, that it defaults off, and that the revoke is one action
+            // away. Shown whenever the table is, so a user never reads a bare switch.
+            if !(state.isLoaded && state.rows.isEmpty) {
+                Text(AppsTabCopy.contextConsentDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
             }
 
             if let saveError = state.saveError {
@@ -73,6 +86,8 @@ struct AppsSettingsPage: View {
         }
         .task {
             state = AppsTabReducer.reduce(state, .snapshotLoaded(await bindings.loadStrategies()))
+            state = AppsTabReducer.reduce(
+                state, .contextConsentLoaded(Array(await bindings.loadContextConsent())))
         }
     }
 
@@ -102,6 +117,40 @@ struct AppsSettingsPage: View {
             }
         }
         .labelsHidden()
+    }
+
+    /// One row's consent control (C12, M4): the per-app grant, off by default, one
+    /// application at a time — never a blanket allow. The toggle folds the action and writes
+    /// the whole consented set through, so what the table shows and what the store holds
+    /// cannot drift; a failed write is surfaced by the same `saveFailed` path the pins use.
+    @ViewBuilder
+    private func consentToggle(for row: AppsRow) -> some View {
+        Toggle(
+            "",
+            isOn: Binding(
+                get: { row.isContextConsented },
+                set: { consented in
+                    state = AppsTabReducer.reduce(
+                        state, .contextConsentSet(bundleID: row.bundleID, consented: consented))
+                    writeConsent()
+                })
+        )
+        .labelsHidden()
+    }
+
+    /// Writes the folded consent through — the store's wholesale `save(_:)`, the editing path
+    /// its seam reserves for this tab.
+    private func writeConsent() {
+        let consented = Set(state.entries.filter { $0.value.isContextConsented }.map(\.key))
+        Task {
+            do {
+                try await bindings.saveContextConsent(consented)
+                state = AppsTabReducer.reduce(state, .saveSucceeded)
+            } catch {
+                state = AppsTabReducer.reduce(
+                    state, .saveFailed(error.localizedDescription))
+            }
+        }
     }
 
     /// Folds the action and writes the result through, in that order — the table updates at the

@@ -615,20 +615,25 @@ public enum AppBootstrap {
         // launch task, the egress-fold precedent: resolving once for no focused app, which the
         // consent gate declines before any provider call, so the fold's default is the safe
         // unlit direction and nothing is read.
+        let contextConsentStore = PersistentConsentStore(
+            directory: Self.contextConsentDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask).first,
+                home: FileManager.default.homeDirectoryForCurrentUser))
         let contextWiring = AppBootstrap.composeContextWiring(
             provider: AccessibilityContext(
                 axRead: AXContextSource(),
                 secureInputRead: ContextSecureInputRead()),
-            consentStore: PersistentConsentStore(
-                directory: Self.contextConsentDirectory(
-                    applicationSupport: FileManager.default.urls(
-                        for: .applicationSupportDirectory, in: .userDomainMask).first,
-                    home: FileManager.default.homeDirectoryForCurrentUser)),
+            consentStore: contextConsentStore,
             secureInput: SystemSecureInputState(),
             root: root)
         root.contextResolution = contextWiring.resolve
         root.contextIndicatorFold = contextWiring.foldIndicator
         root.contextKillSwitch = contextWiring.killSwitch
+        // The Apps tab's half of the same store: the consent UI reads and writes through it,
+        // so a grant applies to the next resolution — never the next launch (the `modelStore`
+        // assigned-after-construction shape).
+        root.contextConsentStore = contextConsentStore
         Task { @MainActor in
             _ = await contextWiring.resolve(nil)
         }
@@ -1458,6 +1463,16 @@ public final class DictationLoopRoot {
     /// a persisted setting and never an invitation to grant.
     public var contextKillSwitch: (@Sendable @MainActor () -> Void)?
 
+    /// The consent store the context wiring and the Apps tab share — the same
+    /// `PersistentConsentStore` the wiring consults per resolution, reached back from
+    /// `configure` (the ``modelStore`` precedent): the tab reads and writes through it, so a
+    /// grant applies to the next resolution, never the next launch.
+    ///
+    /// `nil` only in a composition that built no store — every headless harness in the suite.
+    /// The tab's fallback there is to claim nothing and write nothing (the defaulted
+    /// bindings' safe direction).
+    public var contextConsentStore: (any ConsentStore)?
+
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
     /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
@@ -1610,6 +1625,18 @@ public final class DictationLoopRoot {
                             return
                         }
                         try await memory.replaceAll(strategies)
+                    },
+                    // The Apps tab's consent half: the same store the wiring consults per
+                    // resolution, so a grant here applies to the next turn — and the read is
+                    // the store's own answer, never a remembered copy (a tab that rendered a
+                    // grant the store lost would be claiming a decision it does not hold).
+                    loadContextConsent: { [weak self] in
+                        guard let store = self?.contextConsentStore else { return [] }
+                        return await store.load()
+                    },
+                    saveContextConsent: { [weak self] ids in
+                        guard let store = self?.contextConsentStore else { return }
+                        try await store.save(ids)
                     },
                     // MARK: Usage
                     //

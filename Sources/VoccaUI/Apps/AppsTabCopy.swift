@@ -134,4 +134,18 @@ public enum AppsTabCopy {
     public static let healthColumn = "How Vocca types"
     /// The learned/pinned column's heading.
     public static let stateColumn = "Where that came from"
+
+    // MARK: - Context consent (C12, M4)
+
+    /// The consent column's heading — the per-app grant's own column, distinct from the
+    /// kill-switch copy: this is the grant axis, that is the revoke axis
+    /// (`understanding.md:130-132`).
+    public static let contextConsentColumn = "Allow context"
+
+    /// What granting means, plainly — the row copy: consent lets Vocca read the focused
+    /// app's selected text while the user dictates. Off by default (M4), and the revoke is
+    /// always one action away — the General tab's toggle and the menu-bar kill row.
+    public static let contextConsentDetail =
+        "Vocca can read the focused app's selected text while you dictate. "
+        + "Off by default — stop it any time from General or the menu bar."
 }

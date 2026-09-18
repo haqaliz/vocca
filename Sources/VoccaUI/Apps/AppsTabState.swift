@@ -15,7 +15,9 @@
 import VoccaCore
 
 /// One application as the Apps tab was handed it: the strategy the ladder reads, the name a
-/// person recognises it by, and whether the seeded allowlist blesses it.
+/// person recognises it by, whether the seeded allowlist blesses it, and whether the user
+/// granted Vocca context consent for it (C12, M4 — the tab is the consent UI's recorded
+/// home, `consent-store`'s hand-off).
 ///
 /// `isAllowlisted` travels in the snapshot rather than being looked up, because the seeded
 /// allowlist lives in `VoccaInject` and this module may import only `VoccaCore`
@@ -31,14 +33,20 @@ public struct AppStrategyEntry: Sendable, Equatable {
     public var strategy: InjectionStrategy
     /// Whether the seeded accessibility allowlist blesses this application.
     public var isAllowlisted: Bool
+    /// Whether the user granted per-app context consent — **off by default** (M4): off is
+    /// both the fresh-install truth and the safe direction, and a grant is a user decision
+    /// that reset ("what Vocca learned") must never clear.
+    public var isContextConsented: Bool
 
     public init(
-        bundleID: String, displayName: String, strategy: InjectionStrategy, isAllowlisted: Bool
+        bundleID: String, displayName: String, strategy: InjectionStrategy, isAllowlisted: Bool,
+        isContextConsented: Bool = false
     ) {
         self.bundleID = bundleID
         self.displayName = displayName
         self.strategy = strategy
         self.isAllowlisted = isAllowlisted
+        self.isContextConsented = isContextConsented
     }
 }
 
@@ -56,18 +64,21 @@ public struct AppsRow: Sendable, Equatable, Identifiable {
     /// also for an overridden row whose stored order is something the picker does not know,
     /// which a hand-edited `strategies.json` can produce.
     public let method: AppsTabMethod?
+    /// Whether the user granted context consent for this application (C12, M4).
+    public let isContextConsented: Bool
 
     public var id: String { bundleID }
 
     public init(
         bundleID: String, displayName: String, health: AppsTabHealth, isOverridden: Bool,
-        method: AppsTabMethod?
+        method: AppsTabMethod?, isContextConsented: Bool = false
     ) {
         self.bundleID = bundleID
         self.displayName = displayName
         self.health = health
         self.isOverridden = isOverridden
         self.method = method
+        self.isContextConsented = isContextConsented
     }
 }
 
@@ -105,6 +116,11 @@ public struct AppsTabState: Sendable, Equatable {
 public enum AppsTabAction: Sendable, Equatable {
     /// The store was read; these are its applications, with names and allowlist answers.
     case snapshotLoaded([AppStrategyEntry])
+    /// The consent store was read; these are the consented bundle IDs. The rows render the
+    /// store's truth — grants are never remembered by the tab.
+    case contextConsentLoaded([String])
+    /// The user flipped an application's consent toggle.
+    case contextConsentSet(bundleID: String, consented: Bool)
     /// The user pinned an application to a method.
     case overrideSet(bundleID: String, method: AppsTabMethod)
     /// The user removed a pin, returning the application to what Vocca learned.
@@ -139,6 +155,39 @@ public enum AppsTabReducer {
                 entries.map { ($0.bundleID, $0) }, uniquingKeysWith: { _, last in last })
             next.isLoaded = true
 
+        case .contextConsentLoaded(let consented):
+            // The store's answer folded both ways: a consented app the strategies store
+            // knows nothing about gets its row created (the `overrideSet` creation
+            // precedent — consent is a user decision, never hidden because Vocca has not
+            // typed into the app), and an entry whose grant the store no longer holds
+            // loses it (the toggle renders the store's truth, never a remembered grant).
+            let granted = Set(consented)
+            for bundleID in granted {
+                var entry =
+                    next.entries[bundleID]
+                    ?? AppStrategyEntry(
+                        bundleID: bundleID, displayName: bundleID, strategy: InjectionStrategy(),
+                        isAllowlisted: false)
+                entry.isContextConsented = true
+                next.entries[bundleID] = entry
+            }
+            for (bundleID, entry) in next.entries where !granted.contains(bundleID) {
+                var updated = entry
+                updated.isContextConsented = false
+                next.entries[bundleID] = updated
+            }
+            next.saveError = nil
+
+        case .contextConsentSet(let bundleID, let consented):
+            // One app at a time — never a blanket allow (M4): the toggle folds exactly the
+            // application it sits on, and an entry nothing is known about cannot be granted
+            // from a row that does not exist.
+            if var entry = next.entries[bundleID] {
+                entry.isContextConsented = consented
+                next.entries[bundleID] = entry
+            }
+            next.saveError = nil
+
         case .overrideSet(let bundleID, let method):
             // An override on an application nothing is known about creates it: the pin *is* a
             // strategy, so there is now something to remember. The bundle identifier stands in
@@ -165,12 +214,19 @@ public enum AppsTabReducer {
             // as an empty strategy would also survive the launch-time hostile seed, which mints
             // only for applications with no entry at all, so a seeded-hostile app would come
             // back quietly *un*-seeded. What the user pinned is not learning and stays, with the
-            // learned fields around it cleared.
+            // learned fields around it cleared — and so does what the user **consented** (C12,
+            // M4): consent is a user decision, never learning, and a reset that hid the grant
+            // from the very table that manages it would read as if the grant had been lost.
             next.entries = next.entries.compactMapValues { entry in
-                guard let override = entry.strategy.overrideRungs else { return nil }
+                if let override = entry.strategy.overrideRungs {
+                    var kept = entry
+                    kept.strategy = InjectionStrategy(
+                        bundleID: entry.bundleID, overrideRungs: override)
+                    return kept
+                }
+                guard entry.isContextConsented else { return nil }
                 var kept = entry
-                kept.strategy = InjectionStrategy(
-                    bundleID: entry.bundleID, overrideRungs: override)
+                kept.strategy = InjectionStrategy(bundleID: entry.bundleID)
                 return kept
             }
             next.saveError = nil
@@ -213,6 +269,7 @@ public enum AppsTabReducer {
             displayName: entry.displayName,
             health: health,
             isOverridden: override != nil,
-            method: override.flatMap(AppsTabMethod.init(rungs:)))
+            method: override.flatMap(AppsTabMethod.init(rungs:)),
+            isContextConsented: entry.isContextConsented)
     }
 }
