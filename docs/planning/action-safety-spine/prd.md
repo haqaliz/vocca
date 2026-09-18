@@ -255,6 +255,24 @@ given and none is claimed.
 
 ### Named follow-ons
 
+**N2 — bind an approval to the invocation and sentence it was given for.**
+`confirmation-gate` shipped `ActionApproval` as a payload-free public enum defaulting to
+`.withheld`. Two properties are structural and good: the approval is an **argument**, so it
+lives for exactly one call and there is nowhere to remember it — *"don't ask me again" has no
+representation in the type*, which answers §8 for this slice — and a caller that forgot to ask
+has, correctly, not asked.
+
+The irreducible boundary, recorded rather than hidden: **`.granted` is publicly constructible,
+so the type asserts that a human approved; it cannot verify it.** No type can. The structural
+guarantee this slice actually delivers is narrower and should be stated as such — *there is
+exactly one path to `invoke`, it runs through the gate, and the gate applies the policy*. Whether
+a human really saw the sentence is a fact the UI layer asserts when it constructs `.granted`.
+
+The tightening, when a surface exists: bind the approval to the exact invocation **and the exact
+sentence the person was shown**, so an approval cannot be replayed against a different action
+than the one it was given for. This is the same class as the provider-asserted radius (`d1db69d`)
+— an unavoidable trust dependency made visible and bounded rather than pretended away.
+
 **N1 — persisted per-tool enablement.** In-memory in this slice; the persisted store
 (file, tolerant decode, byte-pin, permit rows, the `PersistentConsentStore` shape) lands
 with the slice that introduces real tools to enable.
