@@ -526,8 +526,15 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// unverified "success" count as failure) above it in ``AccessibilityRungStrategy`` and
     /// ``TargetResolution`` — the H7 doctrine applied to a third system family
     /// (`plan_20260809.md` §2, Phase D), and enforced from the moment the file exists.
+    ///
+    /// `AXContextSource` is the family's second seam (`accessibility-context`, C12 — the
+    /// `KeystrokeSource` precedent): the context adapter's read of the focused application and
+    /// its selection, with every decision (empty on failure, Secure Input refusal) above it in
+    /// ``AccessibilityContext`` (`Sources/VoccaContext/`). The `kAXSelectedTextAttribute` *read*
+    /// is new beside `AXSource`'s write of the same attribute; the prefix set already covers it.
     private static let filesPermittedToNameAccessibilityIdentifiersBySeam: [String: Set<String>] = [
         "accessibility": ["VoccaInject/Accessibility/AXSource.swift"],
+        "context": ["VoccaContext/Accessibility/AXContextSource.swift"],
     ]
 
     /// The accessibility table flattened — every permitted file in every seam. The tree-wide
@@ -727,17 +734,21 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// Files allowed to name `IsSecureEventInputEnabled`, relative to `Sources/`, keyed by seam.
     ///
     /// **One file per seam, and nothing else ever joins a seam's entry** — the H7 rule, stated
-    /// for the Carbon read. The call is the family's whole form, and it has two seams because
-    /// two mechanisms read it: the tap-health poll's ``SystemSecureInputState``
+    /// for the Carbon read. The call is the family's whole form, and it has three seams because
+    /// three mechanisms read it: the tap-health poll's ``SystemSecureInputState``
     /// (`VoccaHotkey/SecureInput.swift`, hotkey-source phase 6 — the file predates this aspect
     /// and its read is its own seam, exactly as the tap adapter predates the keystroke seam in
-    /// the CoreGraphics table), and the injection-time read the ladder resolves through
-    /// (`SecureInputRead.swift`, the `injection-adapters` addition). Both call the same one-line
-    /// Carbon API; each seam's single file is the only place its half of the read may be named
-    /// (`plan_20260809.md` §2, Phase D).
+    /// the CoreGraphics table), the injection-time read the ladder resolves through
+    /// (`SecureInputRead.swift`, the `injection-adapters` addition), and the context-time read
+    /// the `accessibility-context` aspect resolves through (`ContextSecureInputRead.swift` —
+    /// the decision seam `SecureInputReading` lives in `VoccaInject` and is unreachable from
+    /// `VoccaContext`, so M5b needs the module's own permitted Carbon file). All call the same
+    /// one-line Carbon API; each seam's single file is the only place its half of the read may
+    /// be named (`plan_20260809.md` §2, Phase D).
     private static let filesPermittedToNameSecureInputIdentifiersBySeam: [String: Set<String>] = [
         "tapHealthPoll": ["VoccaHotkey/SecureInput.swift"],
         "injectionTimeRead": ["VoccaInject/Accessibility/SecureInputRead.swift"],
+        "contextRead": ["VoccaContext/Accessibility/ContextSecureInputRead.swift"],
     ]
 
     /// The Secure Input table flattened — every permitted file in every seam. The tree-wide scan
