@@ -317,7 +317,7 @@ final class MCPProtocolTests: XCTestCase {
         let sent = await transport.send(frame("anything"))
         let received = await transport.receive()
 
-        XCTAssertEqual(sent, .failure(.peerUnavailable))
+        XCTAssertEqual(sent, .peerUnavailable)
         XCTAssertEqual(
             received, .failure(.peerUnavailable),
             "an unavailable peer must not deliver a scripted frame — the script is what the peer "

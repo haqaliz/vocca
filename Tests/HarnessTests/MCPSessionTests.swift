@@ -110,8 +110,10 @@ final class MCPSessionTests: XCTestCase {
         let negotiation = await session.negotiation
         XCTAssertEqual(negotiation, .negotiated)
 
-        XCTAssertEqual(await methodsAsked(of: transport), ["initialize"])
-        let params = try decodedParams(of: try XCTUnwrap(await transport.sentFrames.first))
+        let asked = await methodsAsked(of: transport)
+        XCTAssertEqual(asked, ["initialize"])
+        let sent = await transport.sentFrames
+        let params = try decodedParams(of: try XCTUnwrap(sent.first))
         XCTAssertEqual(params["protocolVersion"] as? String, MCPSession.protocolVersion)
         XCTAssertNotNil(
             params["capabilities"] as? [String: Any],
@@ -156,8 +158,9 @@ final class MCPSessionTests: XCTestCase {
             tools from a server we never agreed a protocol version with — and the scripted reply \
             above proves the failure is a refusal rather than an absence of anything to read.
             """)
+        let asked = await methodsAsked(of: transport)
         XCTAssertEqual(
-            await methodsAsked(of: transport), ["initialize"],
+            asked, ["initialize"],
             """
             the refusal must happen BEFORE the request leaves. A session that asked and then \
             discarded the answer would pass a return-value check while having spoken to a peer \
@@ -180,7 +183,8 @@ final class MCPSessionTests: XCTestCase {
             call, .failure(.notNegotiated),
             "tools/call is refused for the same reason tools/list is — invoking against a peer "
                 + "we never negotiated with is the one thing an unusable session must not do")
-        XCTAssertEqual(await methodsAsked(of: transport), [])
+        let asked = await methodsAsked(of: transport)
+        XCTAssertEqual(asked, [])
     }
 
     /// Negotiation happens **once**. A refused session is not retried into usefulness by asking
@@ -195,8 +199,9 @@ final class MCPSessionTests: XCTestCase {
         let retry = await session.initialize()
 
         XCTAssertEqual(retry, .failure(.notNegotiated))
+        let asked = await methodsAsked(of: transport)
         XCTAssertEqual(
-            await methodsAsked(of: transport), ["initialize"],
+            asked, ["initialize"],
             "the retry must not reach the peer — the scripted second reply would have negotiated "
                 + "successfully, which is exactly the loop this refusal closes")
     }
@@ -264,7 +269,8 @@ final class MCPSessionTests: XCTestCase {
                     name: "clear-log", summary: "Clear the log.",
                     annotations: MCPToolAnnotations(declaredReadOnly: false)),
             ]))
-        XCTAssertEqual(await methodsAsked(of: transport), ["initialize", "tools/list"])
+        let asked = await methodsAsked(of: transport)
+        XCTAssertEqual(asked, ["initialize", "tools/list"])
     }
 
     // MARK: - Fail-safe default (a): absent means unsafe
@@ -289,7 +295,8 @@ final class MCPSessionTests: XCTestCase {
         ])
 
         _ = await session.initialize()
-        let tools = try XCTUnwrap(try (await session.listTools()).get())
+        let listed = await session.listTools()
+        let tools = try XCTUnwrap(try listed.get())
 
         XCTAssertEqual(tools.count, 2)
         for tool in tools {
@@ -326,7 +333,8 @@ final class MCPSessionTests: XCTestCase {
         ])
 
         _ = await session.initialize()
-        let tools = try XCTUnwrap(try (await session.listTools()).get())
+        let listed = await session.listTools()
+        let tools = try XCTUnwrap(try listed.get())
 
         XCTAssertEqual(tools.map(\.name), ["numeric", "stringly", "null-hint"])
         for tool in tools {
@@ -350,7 +358,8 @@ final class MCPSessionTests: XCTestCase {
         ])
 
         _ = await session.initialize()
-        let tools = try XCTUnwrap(try (await session.listTools()).get())
+        let listed = await session.listTools()
+        let tools = try XCTUnwrap(try listed.get())
         XCTAssertEqual(tools.first?.annotations.declaredReadOnly, true)
         XCTAssertTrue(
             tools.first?.annotations.isReadOnly ?? false,
@@ -386,8 +395,9 @@ final class MCPSessionTests: XCTestCase {
             ])
             _ = await session.initialize()
 
+            let listed = await session.listTools()
             XCTAssertEqual(
-                await session.listTools(), .failure(.malformedToolList),
+                listed, .failure(.malformedToolList),
                 """
                 \(list.name) must yield NO tools. A partial list is the dangerous answer: the \
                 entries that parsed would be presented as the server's whole offering, and \
@@ -404,7 +414,8 @@ final class MCPSessionTests: XCTestCase {
             frame(#"{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}"#),
         ])
         _ = await session.initialize()
-        XCTAssertEqual(await session.listTools(), .success([]))
+        let listed = await session.listTools()
+        XCTAssertEqual(listed, .success([]))
     }
 
     // MARK: - tools/call
@@ -431,9 +442,11 @@ final class MCPSessionTests: XCTestCase {
             .success(MCPToolCallResult(textContent: ["12 entries", "done"], isError: false)),
             "the text blocks are returned in order and the block kinds this layer does not "
                 + "render are skipped rather than failing the call")
-        XCTAssertEqual(await methodsAsked(of: transport), ["initialize", "tools/call"])
+        let asked = await methodsAsked(of: transport)
+        XCTAssertEqual(asked, ["initialize", "tools/call"])
 
-        let params = try decodedParams(of: try XCTUnwrap(await transport.sentFrames.last))
+        let sent = await transport.sentFrames
+        let params = try decodedParams(of: try XCTUnwrap(sent.last))
         XCTAssertEqual(params["name"] as? String, "count-entries")
         let arguments = try XCTUnwrap(
             params["arguments"] as? [String: Any],
@@ -453,8 +466,9 @@ final class MCPSessionTests: XCTestCase {
             ),
         ])
         _ = await session.initialize()
+        let called = await session.callTool("failing", arguments: [:])
         XCTAssertEqual(
-            await session.callTool("failing", arguments: [:]),
+            called,
             .success(MCPToolCallResult(textContent: ["nope"], isError: true)),
             "a tool that ran and refused is not a protocol failure, and collapsing the two would "
                 + "lose the only signal that the tool itself was reached")
@@ -468,8 +482,9 @@ final class MCPSessionTests: XCTestCase {
                 #"{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"Unknown tool"}}"#),
         ])
         _ = await session.initialize()
+        let called = await session.callTool("missing", arguments: [:])
         XCTAssertEqual(
-            await session.callTool("missing", arguments: [:]),
+            called,
             .failure(.frame(.peerReportedError(JSONRPCError(code: -32602, message: "Unknown tool")))))
     }
 
@@ -480,8 +495,9 @@ final class MCPSessionTests: XCTestCase {
             frame(#"{"jsonrpc":"2.0","id":2,"result":{"isError":false}}"#),
         ])
         _ = await session.initialize()
+        let called = await session.callTool("count-entries", arguments: [:])
         XCTAssertEqual(
-            await session.callTool("count-entries", arguments: [:]),
+            called,
             .failure(.malformedResult("content")),
             "an empty success here would report that a tool ran and returned nothing, which is "
                 + "indistinguishable from a tool that ran and returned something we could not read")
