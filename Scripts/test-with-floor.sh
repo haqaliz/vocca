@@ -1858,8 +1858,23 @@ set -euo pipefail
 # detail rather than a missing check. CFBooleanGetTypeID undoes the collapse in exactly one place
 # — the count taken from the floor script's own parse in the ratchet commit.
 #
+# The mcp-provider raise (2595 -> 2617; executed 2617) — the C13 slice-3 provider aspect:
+# `ActionSeamTests` (+5 — `ActionInvocation.arguments` carried by default-nil, the 4096-byte bound
+# refused rather than truncated because truncated arguments are a different action, and equality
+# including it), `MCPProviderTests` (16 — discovery, concrete sentences quoting argument values,
+# server errors mapped to `.failed` rather than trapping, and THE LYING SERVER: a server declaring
+# `readOnlyHint: true` for a tool the local policy floors as destructive is confirmed rather than
+# auto-run, asserted by attempting the auto-run and requiring refusal BEFORE the wire, with its
+# counterfactual in the same test — the same lie under `policy: .none` does auto-run and does send
+# `tools/call`), the raw-arguments-absent-from-the-file pin in `ActionAuditStoreTests`, and one
+# `ActionSeamBoundaryTests` lint closing the fail-open default that the lying-server counterfactual
+# exposed: `ActionGate.submit`'s `policy` parameter no longer has one, so a caller who forgets a
+# floor no longer silently gets none. Swift cannot express "no default" in a type — a default is
+# not part of a function's type — so the pin is a scan over `Sources/` and `Tests/`, the Family B
+# precedent — the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2595
+MINIMUM_EXECUTED_TESTS=2617
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
