@@ -249,7 +249,8 @@ final class AuditActionProviderTests: XCTestCase {
 
         try await seed(3, into: store)
         let decision = await ActionGate.submit(
-            clear, to: provider, enablement: ActionEnablement([clear]), approval: .granted)
+            clear, to: provider, enablement: ActionEnablement([clear]), policy: .none,
+            approval: .granted)
 
         XCTAssertEqual(
             decision.outcome, ActionOutcome.succeeded,
@@ -281,14 +282,16 @@ final class AuditActionProviderTests: XCTestCase {
 
         // The counterfactual, on the same real store: record first, then clear.
         let wrongOrder = await ActionGate.submit(
-            clear, to: provider, enablement: ActionEnablement([clear]), approval: .granted,
+            clear, to: provider, enablement: ActionEnablement([clear]), policy: .none,
+            approval: .granted,
             mode: .dryRun)
         try await store.record(clear, decision: wrongOrder, at: .seconds(10))
         let beforeTheWrongOrderedClear = await store.list().count
         XCTAssertEqual(
             beforeTheWrongOrderedClear, 2, "the premise: two entries exist before the clear")
         _ = await ActionGate.submit(
-            clear, to: provider, enablement: ActionEnablement([clear]), approval: .granted)
+            clear, to: provider, enablement: ActionEnablement([clear]), policy: .none,
+            approval: .granted)
         let afterTheWrongOrderedClear = await store.list()
         XCTAssertEqual(
             afterTheWrongOrderedClear, [],
@@ -317,7 +320,7 @@ final class AuditActionProviderTests: XCTestCase {
         XCTAssertEqual(before.count, 4, "the domain must be non-empty — there is something to lose")
 
         let decision = await ActionGate.submit(
-            clear, to: provider, enablement: ActionEnablement([clear]))
+            clear, to: provider, enablement: ActionEnablement([clear]), policy: .none)
 
         guard case .confirmationRequired(let summary) = decision else {
             return XCTFail("a destructive tool without an approval must be refused: \(decision)")
@@ -348,7 +351,8 @@ final class AuditActionProviderTests: XCTestCase {
         XCTAssertEqual(before.count, 5, "five real files must exist for the comparison to mean any")
 
         let decision = await ActionGate.submit(
-            clear, to: provider, enablement: ActionEnablement([clear]), approval: .granted,
+            clear, to: provider, enablement: ActionEnablement([clear]), policy: .none,
+            approval: .granted,
             mode: .dryRun)
 
         guard case .previewed(let summary) = decision else {
@@ -379,7 +383,7 @@ final class AuditActionProviderTests: XCTestCase {
         let before = try committedBytes(in: directory)
 
         let decision = await ActionGate.submit(
-            count, to: provider, enablement: ActionEnablement([count]))
+            count, to: provider, enablement: ActionEnablement([count]), policy: .none)
 
         guard case .invoked(let summary, let outcome) = decision else {
             return XCTFail("a read-only tool needs no confirmation to run: \(decision)")
@@ -417,7 +421,7 @@ final class AuditActionProviderTests: XCTestCase {
             "the refusal must name the tool it will not serve: \(summary.sentence)")
 
         let decision = await ActionGate.submit(
-            unknown, to: provider, enablement: ActionEnablement([unknown]))
+            unknown, to: provider, enablement: ActionEnablement([unknown]), policy: .none)
         XCTAssertEqual(
             decision.outcome, ActionOutcome.failed(reasonKey: "provider.unknownTool"),
             "an unknown tool is a bounded reason key, returned — the audit log records it")

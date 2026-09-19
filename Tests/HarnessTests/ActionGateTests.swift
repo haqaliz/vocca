@@ -93,7 +93,7 @@ final class ActionGateTests: XCTestCase {
             behavior: .failsTheTestIfInvoked)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]))
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none)
 
         XCTAssertEqual(
             decision,
@@ -126,13 +126,14 @@ final class ActionGateTests: XCTestCase {
 
         let refusing = RecordingActionProvider(
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
-        let refused = await ActionGate.submit(invocation, to: refusing, enablement: enablement)
+        let refused = await ActionGate.submit(
+            invocation, to: refusing, enablement: enablement, policy: .none)
 
         let failing = RecordingActionProvider(
             toolIDs: ["delete-downloads"],
             behavior: .executes(.failed(reasonKey: "stub.diskFull")))
         let failed = await ActionGate.submit(
-            invocation, to: failing, enablement: enablement, approval: .granted)
+            invocation, to: failing, enablement: enablement, policy: .none, approval: .granted)
 
         XCTAssertNil(
             refused.outcome,
@@ -165,7 +166,8 @@ final class ActionGateTests: XCTestCase {
             let refusing = RecordingActionProvider(
                 toolIDs: ["send-message"], describedRadius: radius,
                 behavior: .failsTheTestIfInvoked)
-            let refused = await ActionGate.submit(invocation, to: refusing, enablement: enablement)
+            let refused = await ActionGate.submit(
+                invocation, to: refusing, enablement: enablement, policy: .none)
             XCTAssertFalse(
                 refused.reachedTheProvider,
                 "\(radius) must be refused without a confirmation, exactly like the other")
@@ -174,7 +176,7 @@ final class ActionGateTests: XCTestCase {
             let running = RecordingActionProvider(
                 toolIDs: ["send-message"], describedRadius: radius)
             let ran = await ActionGate.submit(
-                invocation, to: running, enablement: enablement, approval: .granted)
+                invocation, to: running, enablement: enablement, policy: .none, approval: .granted)
             XCTAssertEqual(
                 ran.outcome, .succeeded,
                 "\(radius) must run once confirmed, exactly like the other")
@@ -195,7 +197,7 @@ final class ActionGateTests: XCTestCase {
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             mode: .dryRun)
 
         XCTAssertEqual(
@@ -223,7 +225,7 @@ final class ActionGateTests: XCTestCase {
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             approval: .granted, mode: .dryRun)
 
         XCTAssertFalse(
@@ -249,7 +251,7 @@ final class ActionGateTests: XCTestCase {
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: .none, approval: .granted)
+            invocation, to: provider, enablement: .none, policy: .none, approval: .granted)
 
         XCTAssertEqual(
             decision, .declined(.toolNotEnabled),
@@ -272,7 +274,8 @@ final class ActionGateTests: XCTestCase {
             toolIDs: ["list-files", "delete-downloads"], behavior: .failsTheTestIfInvoked)
 
         let decision = await ActionGate.submit(
-            unknown, to: provider, enablement: ActionEnablement([known]), approval: .granted)
+            unknown, to: provider, enablement: ActionEnablement([known]), policy: .none,
+            approval: .granted)
 
         XCTAssertEqual(
             decision, .declined(.toolNotEnabled),
@@ -309,7 +312,7 @@ final class ActionGateTests: XCTestCase {
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: .none, mode: .dryRun)
+            invocation, to: provider, enablement: .none, policy: .none, mode: .dryRun)
 
         XCTAssertEqual(decision, .declined(.toolNotEnabled))
         XCTAssertEqual(
@@ -328,13 +331,13 @@ final class ActionGateTests: XCTestCase {
         let enabled = ActionEnablement().enabling(invocation)
 
         let first = await ActionGate.submit(
-            invocation, to: provider, enablement: enabled, approval: .granted)
+            invocation, to: provider, enablement: enabled, policy: .none, approval: .granted)
         XCTAssertEqual(first.outcome, .succeeded, "the enabled tool ran once")
         XCTAssertEqual(provider.invokeCount, 1)
 
         let disabled = enabled.disabling(invocation)
         let second = await ActionGate.submit(
-            invocation, to: provider, enablement: disabled, approval: .granted)
+            invocation, to: provider, enablement: disabled, policy: .none, approval: .granted)
 
         XCTAssertEqual(
             second, .declined(.toolNotEnabled),
@@ -357,11 +360,12 @@ final class ActionGateTests: XCTestCase {
         let enablement = ActionEnablement([invocation])
 
         let first = await ActionGate.submit(
-            invocation, to: provider, enablement: enablement, approval: .granted)
+            invocation, to: provider, enablement: enablement, policy: .none, approval: .granted)
         XCTAssertEqual(first.outcome, .succeeded)
         XCTAssertEqual(provider.invokeCount, 1)
 
-        let second = await ActionGate.submit(invocation, to: provider, enablement: enablement)
+        let second = await ActionGate.submit(
+            invocation, to: provider, enablement: enablement, policy: .none)
 
         XCTAssertFalse(
             second.reachedTheProvider,
@@ -386,7 +390,7 @@ final class ActionGateTests: XCTestCase {
             toolIDs: ["list-files"], describedRadius: .readOnly)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]))
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none)
 
         XCTAssertEqual(
             decision,
@@ -409,7 +413,7 @@ final class ActionGateTests: XCTestCase {
 
         let decision = await ActionGate.submit(
             invocation, to: NullActionProvider(),
-            enablement: ActionEnablement([invocation]), approval: .granted)
+            enablement: ActionEnablement([invocation]), policy: .none, approval: .granted)
 
         XCTAssertEqual(
             decision.outcome, .notInvoked,
@@ -569,7 +573,7 @@ final class ActionGateTests: XCTestCase {
             outcome: .failed(reasonKey: "suspending.diskFull"))
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             approval: .granted)
 
         XCTAssertEqual(
@@ -614,7 +618,8 @@ final class ActionGateTests: XCTestCase {
         let decisions = await withTaskGroup(of: ActionDecision.self) { group in
             for _ in 0..<submissions {
                 group.addTask {
-                    await ActionGate.submit(invocation, to: provider, enablement: enablement)
+                    await ActionGate.submit(
+                        invocation, to: provider, enablement: enablement, policy: .none)
                 }
             }
             var collected: [ActionDecision] = []

@@ -388,7 +388,7 @@ final class MCPProviderTests: XCTestCase {
             toolID: "send-message", arguments: ##"{"channel":"#general","text":"ship it"}"##)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             approval: .granted, mode: .live)
 
         XCTAssertEqual(decision.outcome, .succeeded)
@@ -424,11 +424,13 @@ final class MCPProviderTests: XCTestCase {
         let invocation = try makeInvocation(toolID: "send-message")
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             approval: .granted, mode: .live)
 
         guard case .failed(let reasonKey)? = decision.outcome else {
-            return XCTFail("a peer's error must be a returned failure: \(String(describing: decision.outcome))")
+            return XCTFail(
+                "a peer's error must be a returned failure: "
+                    + "\(String(describing: decision.outcome))")
         }
         XCTAssertFalse(reasonKey.isEmpty, "the key names why")
         XCTAssertFalse(
@@ -447,11 +449,12 @@ final class MCPProviderTests: XCTestCase {
         let invocation = try makeInvocation(toolID: "send-message")
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             approval: .granted, mode: .live)
 
         guard case .failed = decision.outcome else {
-            return XCTFail("isError: true is the tool saying no: \(String(describing: decision.outcome))")
+            return XCTFail(
+                "isError: true is the tool saying no: \(String(describing: decision.outcome))")
         }
     }
 
@@ -468,11 +471,12 @@ final class MCPProviderTests: XCTestCase {
             "nothing will happen, so nothing needs confirming")
 
         let decision = await ActionGate.submit(
-            unknown, to: provider, enablement: ActionEnablement([unknown]),
+            unknown, to: provider, enablement: ActionEnablement([unknown]), policy: .none,
             approval: .granted, mode: .live)
 
         guard case .failed(let reasonKey)? = decision.outcome else {
-            return XCTFail("an unknown tool is a returned failure: \(String(describing: decision.outcome))")
+            return XCTFail(
+                "an unknown tool is a returned failure: \(String(describing: decision.outcome))")
         }
         XCTAssertFalse(reasonKey.isEmpty)
         let asked = await methodsAsked(of: transport)
@@ -501,11 +505,13 @@ final class MCPProviderTests: XCTestCase {
                 + "must not become a read-only classification: \(summary.sentence)")
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             approval: .granted, mode: .live)
 
         guard case .failed(let reasonKey)? = decision.outcome else {
-            return XCTFail("unreadable arguments are a returned failure: \(String(describing: decision.outcome))")
+            return XCTFail(
+                "unreadable arguments are a returned failure: "
+                    + "\(String(describing: decision.outcome))")
         }
         XCTAssertFalse(reasonKey.isEmpty)
         let asked = await methodsAsked(of: transport)
@@ -529,7 +535,7 @@ final class MCPProviderTests: XCTestCase {
         let invocation = try makeInvocation(toolID: "delete-everything")
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             approval: .withheld, mode: .live)
 
         guard case .confirmationRequired = decision else {
@@ -551,7 +557,7 @@ final class MCPProviderTests: XCTestCase {
         let invocation = try makeInvocation(toolID: "list-files")
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            invocation, to: provider, enablement: ActionEnablement([invocation]), policy: .none,
             approval: .granted, mode: .dryRun)
 
         guard case .previewed = decision else {

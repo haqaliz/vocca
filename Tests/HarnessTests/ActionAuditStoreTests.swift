@@ -102,30 +102,38 @@ final class ActionAuditStoreTests: XCTestCase {
         let store = FileSystemActionAuditStore(directory: directory)
 
         let submissions: [(ActionInvocation, ActionDecision)] = [
-            (listFiles, await ActionGate.submit(listFiles, to: readOnly, enablement: enabled)),
+            (
+                listFiles,
+                await ActionGate.submit(listFiles, to: readOnly, enablement: enabled, policy: .none)
+            ),
             (
                 deleteDownloads,
                 await ActionGate.submit(
-                    deleteDownloads, to: destructive, enablement: enabled, approval: .granted)
+                    deleteDownloads, to: destructive, enablement: enabled, policy: .none,
+                    approval: .granted)
             ),
             (
                 sendMessage,
                 await ActionGate.submit(
-                    sendMessage, to: outward, enablement: enabled, approval: .granted)
-            ),
-            (
-                deleteDownloads,
-                await ActionGate.submit(deleteDownloads, to: destructive, enablement: enabled)
+                    sendMessage, to: outward, enablement: enabled, policy: .none,
+                    approval: .granted)
             ),
             (
                 deleteDownloads,
                 await ActionGate.submit(
-                    deleteDownloads, to: destructive, enablement: enabled, approval: .granted,
+                    deleteDownloads, to: destructive, enablement: enabled, policy: .none)
+            ),
+            (
+                deleteDownloads,
+                await ActionGate.submit(
+                    deleteDownloads, to: destructive, enablement: enabled, policy: .none,
+                    approval: .granted,
                     mode: .dryRun)
             ),
             (
                 listFiles,
-                await ActionGate.submit(listFiles, to: readOnly, enablement: ActionEnablement())
+                await ActionGate.submit(
+                    listFiles, to: readOnly, enablement: ActionEnablement(), policy: .none)
             ),
         ]
 
@@ -658,11 +666,12 @@ final class ActionAuditStoreTests: XCTestCase {
         let enabled = ActionEnablement([invocation])
         let store = FileSystemActionAuditStore(directory: directory)
 
-        let refused = await ActionGate.submit(invocation, to: provider, enablement: enabled)
+        let refused = await ActionGate.submit(
+            invocation, to: provider, enablement: enabled, policy: .none)
         let failed = await ActionGate.submit(
-            invocation, to: provider, enablement: enabled, approval: .granted)
+            invocation, to: provider, enablement: enabled, policy: .none, approval: .granted)
         let declined = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement())
+            invocation, to: provider, enablement: ActionEnablement(), policy: .none)
         for (index, decision) in [refused, failed, declined].enumerated() {
             _ = try await store.record(invocation, decision: decision, at: .seconds(index))
         }
@@ -707,7 +716,7 @@ final class ActionAuditStoreTests: XCTestCase {
         let store = FileSystemActionAuditStore(directory: directory)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement())
+            invocation, to: provider, enablement: ActionEnablement(), policy: .none)
         _ = try await store.record(invocation, decision: decision, at: .seconds(1))
 
         XCTAssertEqual(
