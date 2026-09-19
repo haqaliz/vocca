@@ -147,6 +147,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // type documentation for why a provider outside VoccaCore/Actions/ names
                 // five families and why that is one widening rather than five.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -172,6 +177,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // type documentation for why a provider outside VoccaCore/Actions/ names
                 // five families and why that is one widening rather than five.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -190,6 +200,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // type documentation for why a provider outside VoccaCore/Actions/ names
                 // five families and why that is one widening rather than five.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -208,6 +223,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // type documentation for why a provider outside VoccaCore/Actions/ names
                 // five families and why that is one widening rather than five.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -221,6 +241,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // never constructs one — Family B below is the check that says so, and it is
                 // unchanged by this widening.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
