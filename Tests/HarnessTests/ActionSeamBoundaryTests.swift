@@ -147,6 +147,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // type documentation for why a provider outside VoccaCore/Actions/ names
                 // five families and why that is one widening rather than five.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -172,6 +177,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // type documentation for why a provider outside VoccaCore/Actions/ names
                 // five families and why that is one widening rather than five.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -190,6 +200,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // type documentation for why a provider outside VoccaCore/Actions/ names
                 // five families and why that is one widening rather than five.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -208,6 +223,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // type documentation for why a provider outside VoccaCore/Actions/ names
                 // five families and why that is one widening rather than five.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -221,6 +241,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // never constructs one — Family B below is the check that says so, and it is
                 // unchanged by this widening.
                 "VoccaActions/Providers/AuditActionProvider.swift",
+                // `mcp-provider`'s reviewed widening — the third real implementation behind
+                // the seam, and one of the five rows that conformance costs. The peer it speaks
+                // for is a program Vocca did not write, which is why the annotation it reports
+                // is a claim the gate's policy may raise and may never lower.
+                "VoccaActions/MCP/MCPProvider.swift",
             ]
         ),
         (
@@ -308,6 +333,152 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 String(code[$0]).filter { !$0.isWhitespace }
             }
         }
+    }
+
+    // MARK: - The local radius policy has no default
+
+    /// The marker a call site is found by, assembled rather than written.
+    ///
+    /// This file is inside the scan root and the scanner is not string-literal aware, so a marker
+    /// written out verbatim would make this suite its own first offender — the same reason
+    /// ``constructionMarker`` is assembled. Nothing here is exempted from its own scan.
+    private static let submitMarker = "ActionGate" + ".submit("
+
+    /// How far a single call is followed before the scan gives up on its parentheses balancing.
+    private static let submitCallScanLimit = 2000
+
+    /// The argument text of every ``ActionGate/submit(_:to:enablement:policy:approval:mode:)``
+    /// call in `source`, comments removed first.
+    ///
+    /// Balanced over parentheses and brackets, skipping double-quoted literals so that a `)`
+    /// inside a message cannot end a call early. A call whose parentheses do not balance within
+    /// ``submitCallScanLimit`` characters is reported as `nil` and **fails** the test: a truncated
+    /// call read as compliant is the one way this scan could lie.
+    private static func submitCalls(inSource source: String) -> [String?] {
+        let code = Array(SwiftSourceScanner.stripComments(from: source))
+        let marker = Array(submitMarker)
+        var calls: [String?] = []
+        var index = 0
+        while index + marker.count <= code.count {
+            guard code[index..<(index + marker.count)].elementsEqual(marker) else {
+                index += 1
+                continue
+            }
+            let argumentsBegin = index + marker.count
+            var cursor = argumentsBegin
+            var depth = 1
+            var inString = false
+            var escaped = false
+            var captured: String?
+            let limit = min(code.count, argumentsBegin + submitCallScanLimit)
+            while cursor < limit {
+                let character = code[cursor]
+                if inString {
+                    if escaped {
+                        escaped = false
+                    } else if character == "\\" {
+                        escaped = true
+                    } else if character == "\"" {
+                        inString = false
+                    }
+                } else if character == "\"" {
+                    inString = true
+                } else if character == "(" || character == "[" {
+                    depth += 1
+                } else if character == ")" || character == "]" {
+                    depth -= 1
+                    if depth == 0 {
+                        captured = String(code[argumentsBegin..<cursor])
+                        break
+                    }
+                }
+                cursor += 1
+            }
+            calls.append(captured)
+            index = max(cursor, argumentsBegin)
+        }
+        return calls
+    }
+
+    /// **The `policy` parameter has no default, and every call site supplies one.**
+    ///
+    /// The fail-open default that `mcp-provider`'s lying-server test made visible. `submit`'s
+    /// other parameters withhold when a caller says nothing — `enablement` has no default at all,
+    /// `approval` defaults to ``ActionApproval/withheld`` because "a caller that forgot to ask has
+    /// not asked" — while `policy` used to default to ``ActionRadiusPolicy/none``, which *grants*.
+    /// A server's `readOnlyHint: true` therefore stood, and a tool the local floor would have
+    /// caught auto-ran, for a caller whose only mistake was not typing an argument. The
+    /// escalate-only rule exists because provider claims are untrusted, and a rule that applies
+    /// only when someone remembers to ask for it is not doing the work it was written for.
+    ///
+    /// ``ActionRadiusPolicy/none`` is still legitimate — trusting a server is a real
+    /// configuration — but it is now a choice made at a call site and read in review, rather than
+    /// one arrived at by omission.
+    ///
+    /// ## Why this is a text lint rather than a compile-time pin
+    ///
+    /// Swift cannot express "this parameter has no default" at the type level: a default is not
+    /// part of a function's type, so the unapplied-reference trick that pins `async` and the
+    /// absence of `throws` in ``ActionSeamTests`` cannot see one. The precedent is Family B above,
+    /// where a forging test *compiles* and is caught by a scan instead. Both halves are asserted
+    /// here — the declaration carries no `=`, and no call site omits the argument — because either
+    /// alone could pass while the property was gone.
+    func testTheRadiusPolicyParameterHasNoDefaultAndEveryCallSiteSuppliesOne() throws {
+        let gate = try sourcesRoot().appendingPathComponent("VoccaCore/Actions/ActionGate.swift")
+        let declaration = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: gate, encoding: .utf8))
+
+        XCTAssertTrue(
+            declaration.contains("policy: ActionRadiusPolicy"),
+            "the parameter must still be spelled this way, or this pin is watching nothing — a "
+                + "renamed or removed policy parameter is a reviewed change to the gate, not a "
+                + "reason for this assertion to pass quietly")
+        XCTAssertNil(
+            declaration.range(
+                of: "policy:\\s*ActionRadiusPolicy\\s*=", options: .regularExpression),
+            """
+            the policy parameter has regained a default. It is the one argument whose default \
+            would GRANT rather than withhold: with no floor, a provider's own blast-radius claim \
+            stands, and a lying readOnlyHint auto-runs a destructive tool for a caller who merely \
+            did not type the argument. Pass `.none` explicitly where trusting the provider is \
+            what you mean.
+            """)
+
+        var scannedCalls = 0
+        var offenders: [String] = []
+        for root in [try sourcesRoot(), try packageRoot().appendingPathComponent("Tests")] {
+            let files = SwiftSourceScanner.swiftFiles(under: root)
+            guard !files.isEmpty else {
+                throw ActionSeamTestError.noSwiftFilesScanned(under: root.path)
+            }
+            for file in files {
+                let relative = String(file.path.dropFirst(root.path.count + 1))
+                let source = try String(contentsOf: file, encoding: .utf8)
+                for call in Self.submitCalls(inSource: source) {
+                    scannedCalls += 1
+                    guard let call else {
+                        offenders.append("\(relative): a call did not balance within the scan")
+                        continue
+                    }
+                    guard !call.contains("policy:") else { continue }
+                    offenders.append(
+                        "\(relative): \(call.split(separator: "\n").first ?? "").")
+                }
+            }
+        }
+
+        XCTAssertGreaterThan(
+            scannedCalls, 10,
+            "vacuity guard: the scan must have found real call sites — a scan that found none "
+                + "would report every call compliant forever")
+        XCTAssertTrue(
+            offenders.isEmpty,
+            """
+            these call sites submit to the gate without naming a local radius policy: \
+            \(offenders.sorted()).
+            Supply one. `.none` is a legitimate answer and means the provider's claim stands \
+            unraised; what is not legitimate is arriving at it by omission.
+            """)
     }
 
     // MARK: - Roots

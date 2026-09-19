@@ -478,6 +478,48 @@ final class ZeroNetworkTests: XCTestCase {
         "cleared=0",
     ].joined(separator: " ")
 
+    /// **The MCP protocol layer's post-condition** (PROBE-MCP): the verbatim report of a whole
+    /// MCP conversation — the shipped `InMemoryMCPTransport`, a successful negotiation, the three
+    /// requests that left in order, the two tools discovered, and the tool that declared nothing
+    /// answering `false` to "may I be treated as read-only". Asserted whole, as one line — the
+    /// `expectedActionAuditLifecycle` shape. This is deliberately **not** a golden string to be
+    /// regenerated when it fails:
+    /// ``testTheAssertedMCPPostConditionStillDescribesANegotiatedConversation`` reads it back and
+    /// refuses a version that no longer describes one.
+    ///
+    /// ## What a green line here proves, and what it does not
+    ///
+    /// It proves the **protocol layer** — encoder, frame parser, negotiation, discovery,
+    /// annotation reading, call — reaches no network name while a whole conversation runs. That
+    /// claim is available only because the card's Q3 decision put an **in-memory** transport
+    /// behind the seam, which appends to an array rather than opening anything.
+    ///
+    /// It proves **nothing** about a stdio transport. That is deviation **D2**, measured rather
+    /// than assumed: `DYLD_INSERT_LIBRARIES` is stripped *and purged* from a restricted child's
+    /// environment, so a spawned MCP server is invisible to this interposer for its whole
+    /// descendant tree, and the failure mode there is a green suite while a child egresses.
+    /// `ActionTransportProhibitionTests` is what keeps that a reviewed edit; this line is not a
+    /// substitute for it and must never be cited as one.
+    ///
+    /// `unannotatedIsReadOnly` is the field worth reading twice: the scripted peer offers a tool
+    /// with no annotations at all, and this is that tool's own answer. **Absent means unsafe**,
+    /// observed here in a live process rather than only in a unit test.
+    private static let expectedMCPLifecycle = [
+        // The shipped transport, named from its own type — a swapped-in double flips it.
+        "transport=in-memory",
+        "negotiated=yes",
+        // Read off the transport's record of what actually left, in order.
+        "requests=3",
+        "methods=initialize,tools/list,tools/call",
+        // What discovery parsed: one tool claiming read-only, one claiming nothing.
+        "tools=2",
+        "readOnlyTools=1",
+        // The fail-safe default, live.
+        "unannotatedIsReadOnly=false",
+        // The tool answered, so the call completed rather than merely being attempted.
+        "called=ok",
+    ].joined(separator: " ")
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -936,6 +978,33 @@ final class ZeroNetworkTests: XCTestCase {
             watch — or the store no longer behaves as written. Do not fix this by deleting the \
             call, and do not fix it by pasting in whatever the probe now prints — see \
             testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The MCP protocol layer's post-condition. The thirteenth effect-not-reference check, and
+        // the second one aimed at `VoccaActions` — deliberately, because the module coverage entry
+        // is already satisfied by the audit drive and therefore says nothing about this half of
+        // the module. Every field is an effect of a conversation that ran: `methods` is read off
+        // the transport's own record of what left, `tools` and `readOnlyTools` off what the parser
+        // made of the peer's frames, and `called` off the text the tool answered with — none of
+        // which a drive that constructed a session and discarded it could report.
+        //
+        // `unannotatedIsReadOnly=false` is the fail-safe default observed in a live process: the
+        // scripted peer offers a tool with no annotations, and absent means unsafe.
+        XCTAssertEqual(
+            try XCTUnwrap(mcpPayload(of: observation)),
+            Self.expectedMCPLifecycle,
+            """
+            The probe did not report driving a whole MCP conversation.
+              expected: \(Self.expectedMCPLifecycle)
+              observed: \(mcpPayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseMCPSession() was not called on the \
+            default-configuration path — in which case the MCP protocol layer is outside this \
+            invariant — or the layer no longer behaves as written. Do not fix this by deleting \
+            the call, and do not fix it by pasting in whatever the probe now prints — see \
+            testTheAssertedMCPPostConditionStillDescribesANegotiatedConversation. Note what this \
+            line does NOT cover: a stdio transport is deviation D2 and is invisible to this \
+            interposer, which is why ActionTransportProhibitionTests exists.
             \(observation.diagnosticSummary)
             """)
 
@@ -1763,6 +1832,86 @@ final class ZeroNetworkTests: XCTestCase {
                 + "fold probe entries into the founder's real audit log.")
     }
 
+    /// **Guards the guard.** ``expectedMCPLifecycle`` must keep describing a **whole negotiated
+    /// conversation**: the shipped in-memory transport (not some other stand-in), a successful
+    /// negotiation, all three methods actually sent in order, at least two tools discovered, at
+    /// least one of them claiming read-only, and the call answered.
+    ///
+    /// Two fields carry the weight, for different reasons.
+    ///
+    /// `methods` is the effect field: it is read off the transport's own record of what left, so
+    /// a constant that dropped it — or that kept only `initialize` — would still satisfy the
+    /// verbatim comparison above while the drive proved that a session can be constructed. The
+    /// three names in order are the conversation.
+    ///
+    /// `unannotatedIsReadOnly` is the **fail-safe default**, and the assertion is deliberately
+    /// three-sided: it must be present, it must not be the `none` the drive reports when the
+    /// scripted peer stopped offering an unannotated tool (which would leave the field watching
+    /// nothing), and it must be `false`. A constant weakened to `true` here would mean a tool
+    /// that claimed nothing was being treated as safe — absent read as a claim, which is the
+    /// cheapest way to defeat the action safety spine, and the one thing this line exists to
+    /// notice in a live process.
+    func testTheAssertedMCPPostConditionStillDescribesANegotiatedConversation() throws {
+        let fields = try Self.parseFields(of: Self.expectedMCPLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("transport"), "in-memory",
+            "The asserted MCP post-condition no longer names the shipped InMemoryMCPTransport — "
+                + "the drive could be reporting some other stand-in, which would put none of the "
+                + "shipped transport inside this invariant.")
+        XCTAssertEqual(
+            try value("negotiated"), "yes",
+            "The asserted MCP post-condition no longer requires a successful negotiation. A "
+                + "refused one would make every later field empty by design, and the drive would "
+                + "be reporting the fail-safe rather than the protocol layer.")
+        XCTAssertEqual(
+            try value("methods"), "initialize,tools/list,tools/call",
+            """
+            The asserted MCP post-condition no longer requires all three methods, in order. That \
+            field is read off the transport's own record of what left, so without it the drive \
+            proves a session can be constructed, never that a conversation happened.
+            """)
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("requests")) ?? 0, 3,
+            "The asserted MCP post-condition sent fewer than three requests — the three methods "
+                + "above cannot all have left.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("tools")) ?? 0, 2,
+            "The asserted MCP post-condition discovered fewer than two tools. Two is the minimum "
+                + "that can carry both an annotated tool and an unannotated one, and without both "
+                + "the read-only fields below watch nothing.")
+        XCTAssertEqual(
+            Int(try value("readOnlyTools")) ?? -1, 1,
+            "The asserted MCP post-condition no longer finds exactly one read-only tool — either "
+                + "the honoured claim was lost, or the unannotated tool has started being treated "
+                + "as read-only, and the two failures must not be able to cancel out.")
+        let unannotated = try value("unannotatedIsReadOnly")
+        XCTAssertNotEqual(
+            unannotated, "none",
+            "The asserted MCP post-condition no longer observes a tool that claimed nothing — the "
+                + "scripted peer must keep offering one, or this field watches nothing.")
+        XCTAssertEqual(
+            unannotated, "false",
+            """
+            The asserted MCP post-condition no longer requires that a tool with NO readOnlyHint \
+            is treated as NOT read-only. Absent means unsafe: reading a server's silence as a \
+            read-only claim is a de-escalation performed by omission, and it costs a hostile \
+            server nothing to omit a field. This is the live-process half of that acceptance.
+            """)
+        XCTAssertEqual(
+            try value("called"), "ok",
+            "The asserted MCP post-condition no longer carries the tool's own answer — without it "
+                + "the call is known to have been attempted, never to have completed.")
+    }
+
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
     /// probe never reported one.
     ///
@@ -1853,6 +2002,21 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-ACTIONS\t") {
             return String(line.dropFirst("PROBE-ACTIONS\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-MCP` line's payload — the MCP conversation's report — or `nil` when the probe
+    /// never reported one.
+    ///
+    /// The `PROBE-ACTIONS` parser shape, and needed for a sharper reason than its sibling:
+    /// `VoccaActions` is covered in the module list by the **audit** drive, so deleting the MCP
+    /// drive would leave the coverage cross-check entirely green. This accessor and its assertion
+    /// are the whole of what puts the protocol layer inside the invariant.
+    private func mcpPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-MCP\t") {
+            return String(line.dropFirst("PROBE-MCP\t".count))
         }
         return nil
     }

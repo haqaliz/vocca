@@ -1844,8 +1844,37 @@ set -euo pipefail
 # permitted rows naming one file, the structural minimum the seam's signatures force — the count
 # taken from the floor script's own parse in the ratchet commit.
 #
+# The protocol-core raise (2561 -> 2595; executed 2595) — the C13 slice-3 MCP protocol layer,
+# built with NO transport that touches the OS (the Q3 decision): `MCPProtocolTests` (13 — JSON-RPC
+# framing, id correlation by bounded forward scan, typed failures for malformed frames, and the
+# in-memory transport's request recording), `MCPSessionTests` (20 — initialize negotiation,
+# tools/list parsing, and the two fail-safe defaults: a tool with no readOnlyHint is NOT read-only
+# and a session that failed initialize is unusable, the refusal asserted to happen BEFORE the
+# request leaves with a perfectly good reply scripted behind it so the failure cannot be an
+# absence of anything to read), and one ZeroNetworkTests guard-the-guard for the new PROBE-MCP
+# post-condition. One hazard found and closed in code rather than in prose: JSONSerialization
+# collapses booleans and numbers into NSNumber and `as? Bool` accepts 1, so a server sending
+# `"readOnlyHint": 1` would have been read as claiming read-only — fail-safe defeated by a parser
+# detail rather than a missing check. CFBooleanGetTypeID undoes the collapse in exactly one place
+# — the count taken from the floor script's own parse in the ratchet commit.
+#
+# The mcp-provider raise (2595 -> 2617; executed 2617) — the C13 slice-3 provider aspect:
+# `ActionSeamTests` (+5 — `ActionInvocation.arguments` carried by default-nil, the 4096-byte bound
+# refused rather than truncated because truncated arguments are a different action, and equality
+# including it), `MCPProviderTests` (16 — discovery, concrete sentences quoting argument values,
+# server errors mapped to `.failed` rather than trapping, and THE LYING SERVER: a server declaring
+# `readOnlyHint: true` for a tool the local policy floors as destructive is confirmed rather than
+# auto-run, asserted by attempting the auto-run and requiring refusal BEFORE the wire, with its
+# counterfactual in the same test — the same lie under `policy: .none` does auto-run and does send
+# `tools/call`), the raw-arguments-absent-from-the-file pin in `ActionAuditStoreTests`, and one
+# `ActionSeamBoundaryTests` lint closing the fail-open default that the lying-server counterfactual
+# exposed: `ActionGate.submit`'s `policy` parameter no longer has one, so a caller who forgets a
+# floor no longer silently gets none. Swift cannot express "no default" in a type — a default is
+# not part of a function's type — so the pin is a scan over `Sources/` and `Tests/`, the Family B
+# precedent — the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2561
+MINIMUM_EXECUTED_TESTS=2617
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

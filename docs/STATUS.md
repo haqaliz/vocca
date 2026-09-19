@@ -10,6 +10,92 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `mcp-protocol` unit shipped 2026-09-20 — C13 slice 3: the MCP protocol layer and
+`MCPProvider`, built with **no transport that touches the OS**; no gate passes.**
+`feat/mcp-protocol/aliz`. Three aspects. Floor **2617** (executed 2617).
+
+**Q3 was decided as "no transport in this slice"** — and the reasoning changed once slice 2
+shipped. The substance of MCP is not the pipe: it is JSON-RPC framing, `initialize` negotiation,
+`tools/list` discovery, schema mapping, and whether a server's self-declared annotations may be
+trusted. All of it is buildable behind an `MCPTransport` seam with an **in-memory**
+implementation that makes zero syscalls and therefore runs honestly inside the interposer. That
+leaves stdio as its own slice where **D2 is the entire conversation** rather than a footnote
+beneath a half-built protocol layer.
+
+**What shipped, per aspect.** *protocol-core* (2561 → 2595): `MCPTransport` (send/receive, never
+a pipe — no file descriptors, no PIDs, no endpoints), `InMemoryMCPTransport`, JSON-RPC framing
+with id correlation by bounded forward scan, `MCPSession`, `MCPToolDescriptor`, and a new
+`PROBE-MCP` drive. Two fail-safe defaults pinned: **a tool with no `readOnlyHint` is NOT
+read-only** (absent means unsafe — the common case in real servers), and **a session that failed
+`initialize` is unusable**, with the refusal asserted to happen *before the request leaves* and a
+perfectly good reply scripted behind it so the failure cannot be an absence of anything to read.
+*mcp-provider* (2595 → 2617): `ActionInvocation.arguments`, `MCPProvider`, the lying-server test,
+and the fail-open default it exposed. *record* (this entry).
+
+**F1 — a safety-gate bypass by parser detail, found and closed.** `JSONSerialization` collapses
+JSON booleans and numbers into `NSNumber`, and `as? Bool` succeeds for `1`. A server sending
+`"readOnlyHint": 1` would have been read as **claiming read-only** — the fail-safe defeated not
+by a missing check but by a **type confusion underneath a check that looked correct**.
+`CFBooleanGetTypeID()` undoes the collapse in exactly one place; `1`, `"true"` and `null` are all
+asserted to be non-claims. This is the first point in the tree where **untrusted input reaches a
+safety decision**, and the damage came from a parsing library's convenience rather than from an
+omission.
+
+**F2 — the fail-open policy default, found by the lying-server test's own counterfactual.**
+`ActionGate.submit`'s parameters were inconsistent: `enablement` had no default (the caller must
+say), `approval` defaulted to `.withheld` (restrictive), and `policy` defaulted to **`.none`** —
+the only default that *granted* rather than withheld. With no floor, a lying server's
+`readOnlyHint: true` stands and auto-runs a destructive tool, making slice 1's escalate-only rule
+**inert unless someone remembered to pass a floor**. The default is removed; all 42 call sites
+now state `.none` explicitly where that is what they mean, so behaviour is byte-identical and
+only the ergonomics of forgetting changed. As the implementing agent put it: *`.none` was a
+security posture wearing the costume of a neutral default.*
+
+**`mode: .live` was examined and deliberately left alone.** The distinguishing question is not
+"does it have a default" but **"does the default grant anything the caller did not ask for"**.
+`policy: .none` removed a floor; `mode: .live` removes nothing — a live submission still faces
+enablement, the policy and the confirmation, in that order. The reasoning is recorded in the
+gate's doc comment, not only in this entry.
+
+**A claim sharpened rather than repeated.** "Raw arguments are never persisted" was imprecise.
+The **rendered sentence** is persisted and now quotes argument values, because C13 requires the
+confirmation to be concrete. The honest property is therefore: **the raw blob is never persisted;
+the approved sentence is** — what lands on disk is what a human was shown, not whatever a server
+supplied. Pinned by a distinctive argument string asserted absent from the encoded bytes and from
+the decoded entries, vacuity-guarded.
+
+**Two limits recorded, not fixed.**
+- **F3 — the module-coverage cross-check cannot see the MCP drive's removal.** `VoccaActions` is
+  already covered via the audit drive, so deleting `PROBE-MCP` leaves the cross-check green. The
+  structural check that catches an *undriven module* cannot catch an *undriven layer within a
+  driven module*; the guard-the-guard making a weakened assertion a visible edit is the available
+  mitigation.
+- **Swift cannot express "this parameter has no default" in a type** — a default is not part of a
+  function's type, so an unapplied-reference pin is blind to it. The `policy` pin is therefore a
+  scan over `Sources/` and `Tests/` (the Family B precedent, where a forging call *compiles* and
+  a scan catches it), with its marker assembled so the file is not exempt from its own scan.
+
+**Measured (recorded, never gated):** **nothing was measured.** The only figures are test counts:
+**2617** executed (`N == E`). No percentage exists.
+
+**The honesty block:**
+- **No gate passes.** The seventh unit built ahead of the uncleared gates.
+- **No transport exists.** Nothing spawns, connects or dials. `PROBE-MCP` proves the *protocol
+  layer* reaches no network name and proves **nothing** about a future stdio transport — that is
+  **D2**, and it is unchanged by this unit.
+- **`MCPTransport` has ONE implementation.** Guardrail 7 is **unmet for that seam**; the in-memory
+  transport is real but is the only one. The stdio slice is what would prove it.
+- **R8 remains mitigated in structure, never measured.** Nothing is wired; nothing executes in a
+  shipped configuration.
+- **No surface, no composition-root wiring.** The G5 pin was **not** re-anchored; all three
+  digests unchanged.
+- **The local policy is load-bearing and is supplied by a caller that does not yet exist.** With
+  `.none`, a server's claim stands. The wiring slice must choose a real floor.
+- **No SMOKE rows.** Steps still stop at 143.
+- Floor **2617** (executed 2617).
+
+---
+
 **The `local-data-provider` unit shipped 2026-09-19 — C13 slice 2: the second real
 `ActionProvider`, closing guardrail 7 — and the seam went `async` because that provider could
 not be written otherwise; no gate passes.** `feat/local-data-provider/aliz`.

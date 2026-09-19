@@ -273,6 +273,28 @@ public enum ActionDecision: Sendable, Equatable {
 /// alternative. R8's "Fatal (trust)" failure is closed by the type system and a lint rather than by
 /// discipline.
 ///
+/// ## No parameter of ``submit(_:to:enablement:policy:approval:mode:)`` grants by omission
+///
+/// Three of its arguments decide how far an action may go, and **none of them may be acquired by
+/// not typing it**. `enablement` has never had a default. `approval` defaults to
+/// ``ActionApproval/withheld``, because a caller that forgot to ask has not asked. `policy` had
+/// defaulted to ``ActionRadiusPolicy/none`` until `mcp-provider` (2026-09-20), and that default
+/// was the odd one out: it *granted*. With no floor, a provider's own blast-radius claim stands —
+/// so an MCP server declaring `readOnlyHint: true` for a tool that deletes things auto-ran it,
+/// and the only thing the caller had done wrong was omit an argument.
+///
+/// That made the escalate-only rule opt-in by omission, which is the opposite of what it is for:
+/// the rule exists *because* provider claims are untrusted, and a protection that applies only
+/// when someone remembers to ask for it protects the callers who were never going to be the
+/// problem. ``ActionRadiusPolicy/none`` remains a legitimate answer — trusting a server is a real
+/// configuration — but it is now a choice read in review rather than an absence nobody sees. The
+/// absence of the default is pinned by a lint, because Swift cannot express it in a type.
+///
+/// `mode` keeps its default, and the asymmetry is the point: ``Mode/live`` is what a submission
+/// *is*, and ``Mode/dryRun`` is the special request. A default that grants nothing extra — a live
+/// submission still faces enablement, the policy and the confirmation — is not the same kind of
+/// default as one that removes a floor.
+///
 /// ## The order of the checks, and why it is this order
 ///
 /// 1. **Enablement, before anything is asked of the provider.** A disabled tool is declined without
@@ -314,7 +336,10 @@ public enum ActionGate {
     ///     only once the tool is known to be enabled.
     ///   - enablement: Which tools may act. No default: a caller must say, and default off is what
     ///     they should usually say.
-    ///   - policy: The local floors under the provider's claim. Escalate-only.
+    ///   - policy: The local floors under the provider's claim. Escalate-only. **No default,
+    ///     for the same reason `enablement` has none** — a floor the caller did not choose is not
+    ///     a floor. ``ActionRadiusPolicy/none`` is a legitimate answer and means the provider's
+    ///     claim stands unraised; it is simply one that has to be said out loud.
     ///   - approval: Whether a human said yes to **this** invocation. Defaults to
     ///     ``ActionApproval/withheld`` — a caller that forgot to ask has not asked.
     ///   - mode: Live or dry-run. Defaults to live, because a caller that means to rehearse says so.
@@ -324,7 +349,7 @@ public enum ActionGate {
         _ invocation: ActionInvocation,
         to provider: some ActionProvider,
         enablement: ActionEnablement,
-        policy: ActionRadiusPolicy = .none,
+        policy: ActionRadiusPolicy,
         approval: ActionApproval = .withheld,
         mode: Mode = .live
     ) async -> ActionDecision {

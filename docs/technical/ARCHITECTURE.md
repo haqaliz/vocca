@@ -151,7 +151,12 @@ Sources/
   VoccaContext/              # P4 — ContextProvider — SHIPPED (context-provider, 2026-09-18):
                              #   the AX adapter + its per-seam AX/Secure Input permits, the
                              #   consent store (bundle IDs only, the never-read gate)
-  VoccaActions/              # P4 — ActionProvider — PARTIAL (action-safety-spine, 2026-09-19):
+  VoccaActions/              # P4 — ActionProvider — PARTIAL (mcp-protocol, 2026-09-20):
+                             #   the audit store, AuditActionProvider, and the MCP protocol layer
+                             #   (MCPTransport, MCPSession, MCPProvider) — with NO transport that
+                             #   touches the OS. Nothing spawns, connects or dials; the stdio
+                             #   transport is a later slice where D2 is the whole conversation
+                             #   (earlier: action-safety-spine, 2026-09-19):
                              #   the append-only audit store only (one file per event, ordinal
                              #   names, monotonic Duration instants). The seam, the vocabulary
                              #   and the gate live in VoccaCore/Actions/; the MCP client is a

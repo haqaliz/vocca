@@ -1,120 +1,114 @@
-# Card: feat/local-data-provider
+# Card: feat/mcp-protocol
 
-> Inline brief — no GitHub issue (`gh issue list` is empty). Source: the founder's
-> instruction on 2026-09-19 to close guardrail 7 before building the MCP client, and the
-> `action-safety-spine` unit record (STATUS head entry, deviation **D3**).
+> Inline brief — no GitHub issue (`gh issue list` is empty). Source: the founder's "go ahead"
+> on 2026-09-19 delegating the **Q3 transport decision**, plus the `action-safety-spine` and
+> `local-data-provider` unit records.
 
-## ⚠️ Scope change, 2026-09-19 — the seam failed its first real test
+## Q3, decided — **no transport in this slice** (implementer's call, delegated)
 
-Attempting the provider revealed that **the shipped seam cannot accommodate it**, and the
-finding is worth more than the provider.
+The options were *stdio-only with the D2 blindness recorded* versus *no transport at all*.
+**No transport**, and the reasoning changed once slice 2 shipped:
 
-`ActionProvider.describe` and `invoke` are **synchronous and non-throwing**. C12's
-`AccessibilityContext` satisfies a synchronous witness because AX is a synchronous C API — its
-`nonisolated` witness never awaits. The audit store is an **actor** with `async throws` methods,
-and **a nonisolated synchronous function cannot await an actor.** There is no way to write the
-provider against the shipped contract.
+"No transport" no longer means "nothing useful". The substance of MCP is not the pipe — it is
+JSON-RPC framing, `initialize` negotiation, `tools/list` discovery, schema → invocation mapping,
+and whether a server's self-declared annotations may be trusted. **All of it is buildable and
+fully testable behind an `MCPTransport` seam with an in-memory implementation**, which makes
+zero syscalls and therefore runs honestly inside the zero-network interposer.
 
-This is not specific to the provider chosen. It applies to any provider whose work is
-asynchronous — MCP over stdio, file I/O, subprocess, anything with latency. Slice 1 even
-predicted the shape of the problem (`ActionProvider.swift` records that MCP adapters "will need
-the C12 D1 route"), but the D1 route only works when the underlying work is *synchronous*, and
-for MCP it will not be.
+That leaves the stdio transport as its own small slice where **D2 is the entire conversation**
+rather than a footnote beneath a half-built protocol layer — and it sets `MCPTransport` up to
+satisfy guardrail 7 properly when the second (stdio) implementation lands.
 
-**Guardrail 7 did exactly what it exists to do.** The first honest test of the seam failed it,
-at the cheapest possible moment: two call sites, no wiring, no surface.
+Same shape as slice 1: machinery before the risky part.
 
-**Both operations go async**, not just `invoke`. C13 requires the confirmation to state what will
-happen *in concrete terms* — "clear the audit log, 12 entries, permanently" — and that count
-requires a read. A synchronous `describe` would force vague copy, which is the specific failure
-C13 names ("send this message to #general" rather than "execute slack_post").
+## ⚠️ The central risk — the vocabulary may not survive contact, again
 
-What is **not** lost: failure stays a **returned value** (`async` without `throws`), so slice 1's
-property that an omitted `catch` cannot silently drop an audit record survives verbatim.
+`ActionInvocation` is **deliberately just two identifiers** (`providerID`, `toolID`). Its own doc
+comment says so:
 
-Rejected alternatives: a synchronous audit reader (a second unserialized I/O path onto the one
-file whose value is being trustworthy), and choosing a different synchronous provider (closing
-guardrail 7 by picking an implementation that fits the seam instead of testing it — the
-guardrail made ceremonial).
+> *"Arguments, a payload and a schema all belong to the intent layer that is explicitly out of
+> this unit's scope."*
 
-## Brief
+**MCP's `tools/call` takes a name *and* an `arguments` object.** So an MCP tool call cannot be
+expressed by the current vocabulary.
 
-Ship the **second real `ActionProvider`**, closing guardrail 7 for the Actions seam.
+This is the same class of discovery as slice 2's async finding, and it must be **surfaced, not
+pre-decided**. The candidate resolutions, none chosen here:
 
-`action-safety-spine` (C13 slice 1, merged as `397bfd1`) shipped the seam, the gate, the audit
-store and the transport lint — but recorded **D3: guardrail 7 unmet**. `NullActionProvider` is
-the shipped default, not a second implementation, so `ActionProvider` is still *an assertion*
-by the repo's own doctrine:
+1. **Extend `ActionInvocation` with arguments.** Honest, but it changes the seam a third time and
+   pushes content into a type the audit log and the gate both read — which interacts with the
+   PRD §5 decision that raw arguments are *not* persisted.
+2. **Keep arguments inside the MCP provider**, keyed to a pending invocation. The gate never sees
+   them; `describe` renders them into the concrete sentence (the provider holds them, so it can).
+   Cost: the provider becomes stateful, with a keying and lifetime problem that smells racy.
+3. **A distinct argument-carrying type** that the intent layer owns and the provider consumes,
+   leaving `ActionInvocation` untouched.
 
-> **A seam with one implementation is not a seam; it's an assertion.**
-> — `CAPABILITY_ROADMAP.md`, guardrail 7
+**Whichever is chosen must not quietly undo two shipped properties:** raw arguments are not
+persisted (PRD §5), and the confirmation sentence must stay concrete (C13).
 
-`ARCHITECTURE.md`'s seam row currently reads `MCPProvider` **PENDING**, `ShellProvider`
-**PENDING**.
+## What ships
 
-## What ships: `AuditActionProvider`
+- **`MCPTransport` seam** — send/receive JSON-RPC frames. No process, no socket.
+- **`InMemoryMCPTransport`** — a real, scriptable implementation for tests and the probe.
+- **The protocol layer** — JSON-RPC 2.0 framing, `initialize`, `tools/list`, `tools/call`,
+  error mapping.
+- **`MCPProvider`** conforming to `ActionProvider` (now `async`, which is why slice 2 had to
+  happen first).
 
-A real provider over the audit store that already lives in `VoccaActions`:
+## The `readOnlyHint` question — slice 1 already answered it
 
-| Tool | Blast radius | Behaviour |
-|---|---|---|
-| `audit.count` | `readOnly` | How many entries the audit log holds |
-| `audit.clear` | `destructive` | Clears the audit log — irreversible |
+MCP servers declare their own tool annotations (`readOnlyHint` and friends). `action-safety-spine`
+recorded, before MCP existed, that **the blast radius is the provider's own claim and nothing
+verifies it**, so local policy may only ever *escalate*, never de-escalate.
 
-## Why this provider (implementer's call — see "Decisions I own")
-
-It must be **genuinely real** (or guardrail 7 stays unmet), **safe** (or it contradicts the
-spine's premise that the gate ships before anything can execute), and need **no transport**
-(or it walks straight into D2).
-
-**The module boundary decided it.** `VoccaActions` declares exactly `["VoccaCore"]`, asserted
-by *equality* (`VoccaActionsTargetTests`), and `ModuleBoundaryTests` rule 3 forbids an adapter
-importing any Vocca module other than `VoccaCore`. So a provider in `VoccaActions` **cannot**
-read `VoccaUsage`, `VoccaInject` or anything else. The audit store is already in `VoccaActions`,
-so it is the one real capability reachable without either a boundary violation or an injection
-layer this slice does not need.
-
-Rejected:
-- **`ShellProvider`** — the highest blast radius in the roadmap; building it in the slice whose
-  premise is "safety before capability" is self-contradictory.
-- **A clipboard provider** — would race `VoccaInject`'s existing save→set→paste→restore
-  clipboard hygiene.
-- **A usage-ledger provider** — requires crossing the module boundary above, so it needs
-  capability protocols in `VoccaCore` plus composition-root wiring. Deferred; it is the natural
-  third provider once a wiring slice exists.
-
-## The design question this unit must pin, not hand-wave
-
-**Clearing the audit log is itself an auditable action.** Order determines whether the system is
-tamper-evident:
-
-- Record the clear **before** clearing → the clear erases its own trace; the log looks untouched.
-- Record the clear **after** clearing → the log reads "cleared", surviving as ordinal 1.
-
-**The second is correct** and must be asserted, not assumed: after `audit.clear`, the log is not
-empty — it contains exactly the record of its own clearing.
-
-## Acceptance (test-first)
-
-1. `AuditActionProvider` exposes exactly two tools, with the declared blast radii.
-2. `audit.count` returns the real entry count, driven against a real store over a temp directory.
-3. `audit.clear` empties the log **and leaves exactly one entry: the record of the clear.**
-4. `audit.clear` is refused through the gate without a confirmation — the real-provider version
-   of slice 1's load-bearing test, which until now only ran against a stub.
-5. `audit.count` runs directly (read-only path) with an enabled tool and no token.
-6. Dry-run of `audit.clear` leaves the log **byte-identical** — the strongest available form of
-   "zero side effects", and only assertable now that a real provider exists.
-7. The transport prohibition lint still passes — the provider names no transport.
-8. Guardrail 7: `ARCHITECTURE.md`'s seam row moves off PENDING for this implementation, and D3
-   is amended rather than deleted.
-
-## Decisions I own (flagged, delegated by the founder)
-
-- The choice of provider and its two tools.
-- The record-after-clear ordering.
-Both are cheap to override; neither was a founder decision.
+MCP makes that concrete: a server's `readOnlyHint` is **untrusted input to a safety decision**.
+It may raise our floor, never lower it. The rule was written in anticipation of exactly this;
+this slice is where it earns its keep — and where it must be exercised against a *lying* server
+in tests, not merely a well-behaved one.
 
 ## Out of scope
 
-The MCP client and any transport; `ShellProvider`; the intent layer; any user-visible surface;
-`AppBootstrap` wiring (so the G5 pin stays untouched); the usage-ledger provider (N3).
+**Any transport that touches the OS** — no stdio, no subprocess, no socket (that is the next
+slice, where D2 is confronted directly). The intent layer. Any user-visible surface.
+`AppBootstrap` wiring, so the G5 pin stays untouched. `ShellProvider`.
+
+## Constraints carried in
+
+- `VoccaActions` declares exactly `["VoccaCore"]` — asserted by equality. Foundation **is**
+  available here (unlike `VoccaCore`), which is how the audit store uses `Data`/`URL`.
+- **The transport prohibition lint forbids `URLSession`, `NW*`, `Network`, `Process`,
+  `posix_spawn`, `NSTask`, `system` inside `VoccaActions`.** An in-memory transport names none of
+  them; if this slice trips that lint, that is a **genuine finding**, not a reason to widen it.
+- The action-family lint costs **five permitted rows per real provider** — expected, recorded.
+- No gate passes. This will be the seventh unit built ahead of the uncleared gates.
+
+---
+
+## Findings from `protocol-core` (2026-09-20)
+
+**F1 — a safety-gate bypass by parser detail, found and closed.** `JSONSerialization` collapses
+JSON booleans and numbers into `NSNumber`, and `as? Bool` succeeds for `1`. A server sending
+`"readOnlyHint": 1` would therefore have been read as **claiming read-only** — defeating the
+fail-safe default not by a missing check but by a type confusion underneath a check that looked
+correct. `CFBooleanGetTypeID()` undoes the collapse in exactly one place (`JSONRPC.swift:48-50`),
+and `1`, `"true"` and `null` are all asserted to be non-claims.
+
+This is the first place in the tree where **untrusted input reaches a safety decision**, and the
+class of bug is worth carrying into the stdio slice: a real server is hostile input, and the
+damage here came from a parsing library's convenience rather than from anything the code omitted.
+
+**F2 — the module-coverage cross-check cannot see the MCP drive's removal.** `VoccaActions` is
+already in the probe's module coverage list via the audit drive, so **deleting the `PROBE-MCP`
+drive would leave the cross-check green.** The accessor and its assertion are the only thing
+holding the protocol layer inside the zero-network invariant — the structural check that catches
+an *undriven module* cannot catch an *undriven layer within a driven module*.
+
+Recorded rather than fixed: the guard-the-guard makes weakening the assertion a visible edit,
+which is the available mitigation. Worth knowing before the stdio slice adds the layer that most
+needs watching.
+
+**F3 — the seam is send/receive, not request/response.** A single exchange operation cannot
+express out-of-order correlation; making correlation real code required a bounded forward scan,
+which also supplied the untrusted-peer bound (`maxFramesScanned = 8`). The plan's framing was
+wrong and the implementation's is better.

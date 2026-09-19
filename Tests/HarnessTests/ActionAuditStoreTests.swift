@@ -102,30 +102,38 @@ final class ActionAuditStoreTests: XCTestCase {
         let store = FileSystemActionAuditStore(directory: directory)
 
         let submissions: [(ActionInvocation, ActionDecision)] = [
-            (listFiles, await ActionGate.submit(listFiles, to: readOnly, enablement: enabled)),
+            (
+                listFiles,
+                await ActionGate.submit(listFiles, to: readOnly, enablement: enabled, policy: .none)
+            ),
             (
                 deleteDownloads,
                 await ActionGate.submit(
-                    deleteDownloads, to: destructive, enablement: enabled, approval: .granted)
+                    deleteDownloads, to: destructive, enablement: enabled, policy: .none,
+                    approval: .granted)
             ),
             (
                 sendMessage,
                 await ActionGate.submit(
-                    sendMessage, to: outward, enablement: enabled, approval: .granted)
-            ),
-            (
-                deleteDownloads,
-                await ActionGate.submit(deleteDownloads, to: destructive, enablement: enabled)
+                    sendMessage, to: outward, enablement: enabled, policy: .none,
+                    approval: .granted)
             ),
             (
                 deleteDownloads,
                 await ActionGate.submit(
-                    deleteDownloads, to: destructive, enablement: enabled, approval: .granted,
+                    deleteDownloads, to: destructive, enablement: enabled, policy: .none)
+            ),
+            (
+                deleteDownloads,
+                await ActionGate.submit(
+                    deleteDownloads, to: destructive, enablement: enabled, policy: .none,
+                    approval: .granted,
                     mode: .dryRun)
             ),
             (
                 listFiles,
-                await ActionGate.submit(listFiles, to: readOnly, enablement: ActionEnablement())
+                await ActionGate.submit(
+                    listFiles, to: readOnly, enablement: ActionEnablement(), policy: .none)
             ),
         ]
 
@@ -658,11 +666,12 @@ final class ActionAuditStoreTests: XCTestCase {
         let enabled = ActionEnablement([invocation])
         let store = FileSystemActionAuditStore(directory: directory)
 
-        let refused = await ActionGate.submit(invocation, to: provider, enablement: enabled)
+        let refused = await ActionGate.submit(
+            invocation, to: provider, enablement: enabled, policy: .none)
         let failed = await ActionGate.submit(
-            invocation, to: provider, enablement: enabled, approval: .granted)
+            invocation, to: provider, enablement: enabled, policy: .none, approval: .granted)
         let declined = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement())
+            invocation, to: provider, enablement: ActionEnablement(), policy: .none)
         for (index, decision) in [refused, failed, declined].enumerated() {
             _ = try await store.record(invocation, decision: decision, at: .seconds(index))
         }
@@ -707,7 +716,7 @@ final class ActionAuditStoreTests: XCTestCase {
         let store = FileSystemActionAuditStore(directory: directory)
 
         let decision = await ActionGate.submit(
-            invocation, to: provider, enablement: ActionEnablement())
+            invocation, to: provider, enablement: ActionEnablement(), policy: .none)
         _ = try await store.record(invocation, decision: decision, at: .seconds(1))
 
         XCTAssertEqual(
@@ -811,6 +820,84 @@ final class ActionAuditStoreTests: XCTestCase {
         XCTAssertEqual(
             fallback.path, "/tmp/home/Library/Application Support/Vocca/actions",
             "and the fallback is the same location reached the long way, not a different one")
+    }
+
+    // MARK: - 12. Raw arguments never reach the file (`mcp-provider`)
+
+    /// **A distinctive argument string carried on the invocation does not appear in the file
+    /// bytes** — PRD §5's no-raw-arguments decision, re-asserted now that it is *reachable* to
+    /// break.
+    ///
+    /// Until `mcp-provider`, this property held because there was nothing to persist:
+    /// ``ActionInvocation`` was two identifiers, so "raw arguments are not persisted" was a
+    /// statement about a field that did not exist. ``ActionAuditEntry`` takes a whole invocation,
+    /// so the arguments field is now reachable from the entry, and the promise has to be asserted
+    /// rather than inherited.
+    ///
+    /// The assertion is on **bytes read back off the disk**, not on the entry value: the entry's
+    /// key-set pin says which keys exist, and this says that the payload did not travel inside one
+    /// of them — a summary that interpolated the arguments would pass the key-set pin and fail
+    /// here, which is exactly the failure worth catching.
+    ///
+    /// Both halves of the log's writing path are driven: an invoked decision whose sentence *does*
+    /// carry the tool name, and a decline whose entry carries only the bounded reason key.
+    func testRawArgumentTextNeverReachesTheAuditFileBytes() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let distinctive = "wallet-seed-hunter2-do-not-persist"
+        let invocation = try XCTUnwrap(
+            ActionInvocation(
+                providerID: "dev.vocca.mcp", toolID: "send-message",
+                arguments: ##"{"secret":"\##(distinctive)"}"##),
+            "the invocation under test must construct")
+        let carried = try XCTUnwrap(
+            invocation.arguments,
+            "vacuity guard: the invocation must genuinely carry argument text, or this test "
+                + "proves only that a nil field does not serialise")
+        XCTAssertTrue(
+            carried.contains(distinctive),
+            "vacuity guard: the distinctive string really is on the invocation before anything "
+                + "is recorded")
+
+        let store = FileSystemActionAuditStore(directory: directory)
+        _ = try await store.record(
+            invocation,
+            decision: .invoked(
+                summary: ActionSummary(
+                    sentence: "Run the MCP tool 'send-message'.", blastRadius: .outwardFacing),
+                outcome: .succeeded),
+            at: .seconds(1))
+        _ = try await store.record(
+            invocation, decision: .declined(.toolNotEnabled), at: .seconds(2))
+
+        let names = committedFileNames(in: directory)
+        XCTAssertEqual(
+            names.count, 2,
+            "vacuity guard: both entries were committed, so the scan below reads real files")
+
+        for name in names {
+            let bytes = try Data(contentsOf: directory.appendingPathComponent(name))
+            let text = String(decoding: bytes, as: UTF8.self)
+            XCTAssertFalse(text.isEmpty, "vacuity guard: \(name) is not empty")
+            XCTAssertFalse(
+                text.contains(distinctive),
+                """
+                raw tool arguments reached the audit file in \(name): \(text)
+                PRD §5 records that the entry holds the rendered summary and not the arguments. \
+                If this fails, the defect is the persistence, never this assertion — the sentence \
+                is a bounded rendering a person was asked to approve, while arguments are \
+                arbitrary text an intent layer built against an untrusted server's schema.
+                """)
+        }
+
+        let reloaded = await store.load()
+        XCTAssertEqual(reloaded.count, 2, "both entries reload")
+        for entry in reloaded {
+            XCTAssertFalse(
+                entry.summary.contains(distinctive),
+                "nor does the payload survive a round trip through the decoder")
+        }
     }
 
     // MARK: - Helpers
