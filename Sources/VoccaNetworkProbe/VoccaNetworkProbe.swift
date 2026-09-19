@@ -359,6 +359,18 @@ struct VoccaNetworkProbe {
         let actionAudit = exerciseActionAudit()
         print("PROBE-ACTIONS\t\(actionAudit.report)")
 
+        // `VoccaActions`' *other* real work — the MCP protocol layer — run rather than referenced.
+        // The module coverage entry is satisfied by the audit drive above, which is precisely why
+        // this one is needed: an entry says the module was reached, never that this half of it
+        // ran, and the audit store's round trip says nothing about framing, negotiation,
+        // discovery or annotation reading. A whole conversation is driven here over the shipped
+        // `InMemoryMCPTransport` — initialize, tools/list, tools/call — which makes zero syscalls
+        // by construction. It proves the protocol layer reaches no network name; it proves
+        // NOTHING about a future stdio transport, which is D2 and invisible to this interposer.
+        // See `MCPSessionDrive.swift`.
+        let mcp = exerciseMCPSession()
+        print("PROBE-MCP\t\(mcp.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -373,6 +385,7 @@ struct VoccaNetworkProbe {
             converse.moduleWitness,
             context.moduleWitness,
             actionAudit.moduleWitness,
+            mcp.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be
