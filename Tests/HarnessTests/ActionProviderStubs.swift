@@ -256,6 +256,96 @@ final class RecordingActionProvider: ActionProvider {
     var reportedViolationCount: Int { log.withLock { $0.reportedViolations } }
 }
 
+// MARK: - The suspending stub
+
+/// A provider whose work is **genuinely asynchronous**: an `actor` whose every operation
+/// suspends before it answers (`async-seam`, 2026-09-19).
+///
+/// ``RecordingActionProvider`` is a `final class` whose bodies never suspend, so it would
+/// witness a synchronous seam just as happily — it cannot demonstrate what this aspect added.
+/// This one can, and the demonstration is its own existence: an actor's isolated methods are
+/// reachable only through an `await`, so under the previous synchronous contract **there was no
+/// way to write this conformance at all**. That is not a hypothetical about some future adapter;
+/// it is exactly what stopped the second real provider — one backed by the audit store, itself
+/// an actor — from being written, which is the finding this aspect exists to act on.
+///
+/// The suspension is real rather than spelled: each operation `await`s `Task.yield()` and counts
+/// the hop, so ``suspensionCount`` is evidence that a suspension happened rather than a claim
+/// that one could.
+///
+/// There is no fail-if-invoked mode here. The acting counter is actor state read after the fact,
+/// which is what the refusal-under-suspension assertion needs; ``RecordingActionProvider`` keeps
+/// the mode that fails at the moment of the violation, and the refusal legs that want it use it.
+actor SuspendingActionProvider: ActionProvider {
+
+    /// The tools this provider serves. `nonisolated` because the seam's requirement is, and
+    /// because an immutable list of `String` has no state to protect.
+    nonisolated let toolIDs: [String]
+
+    private let describedRadius: BlastRadius
+    private let outcome: ActionOutcome
+
+    private var log: [RecordedActionCall] = []
+    private var suspensions = 0
+
+    /// - Parameters:
+    ///   - toolIDs: What the provider claims to serve.
+    ///   - describedRadius: The radius every ``describe(_:)`` reports. Defaults to
+    ///     ``BlastRadius/destructive`` — the side that must be stopped is the side a caller that
+    ///     forgot to choose should get.
+    ///   - outcome: What ``invoke(_:confirmation:)`` returns once it is reached.
+    init(
+        toolIDs: [String] = ["suspending-tool"],
+        describedRadius: BlastRadius = .destructive,
+        outcome: ActionOutcome = .succeeded
+    ) {
+        self.toolIDs = toolIDs
+        self.describedRadius = describedRadius
+        self.outcome = outcome
+    }
+
+    // MARK: The seam
+
+    /// Suspends, then renders the sentence. Still pure: it touches nothing outside its own log.
+    func describe(_ invocation: ActionInvocation) async -> ActionSummary {
+        await Task.yield()
+        suspensions += 1
+        log.append(.describe(invocation))
+        return ActionSummary(
+            sentence: "Suspending stub would run \(invocation.toolID) on \(invocation.providerID).",
+            blastRadius: describedRadius)
+    }
+
+    /// Suspends, then acts — the acting half, reachable only with a token the gate minted.
+    func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) async
+        -> ActionOutcome
+    {
+        await Task.yield()
+        suspensions += 1
+        log.append(.invoke(invocation))
+        return outcome
+    }
+
+    // MARK: What a test reads
+
+    /// Every call, in the order they were made.
+    var calls: [RecordedActionCall] { log }
+
+    /// How many times the pure half was called.
+    var describeCount: Int {
+        log.filter { if case .describe = $0 { return true } else { return false } }.count
+    }
+
+    /// How many times the acting half was reached. **The number the refusal assertion reads.**
+    var invokeCount: Int {
+        log.filter { if case .invoke = $0 { return true } else { return false } }.count
+    }
+
+    /// How many times an operation actually suspended — one per call, and the evidence that
+    /// "asynchronous" here is behaviour rather than a keyword.
+    var suspensionCount: Int { suspensions }
+}
+
 // MARK: - The self-check
 
 /// The stub, measured against itself.

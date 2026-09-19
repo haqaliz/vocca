@@ -38,11 +38,13 @@ import XCTest
 /// - an `ActionOutcome` is `.succeeded` / `.failed(reasonKey:)` / `.notInvoked`, and the failure
 ///   carries a **reason key, never a message** — `VoccaCore` is Foundation-free and the audit
 ///   entry's byte-level pin has to stay satisfiable, which unbounded error text would break;
-/// - the seam splits a pure `describe` from the acting `invoke` (PRD M5a). `describe` is
-///   **synchronous and non-throwing**, pinned by use: the call below has no `try` and no
-///   `await`, so a later adapter that wants either has to change this signature in review
-///   rather than drift into it (the C12 D1 precedent — the adapter becomes an actor with a
-///   `nonisolated` witness, recorded);
+/// - the seam splits a pure `describe` from the acting `invoke` (PRD M5a). Both are
+///   **`async` and non-throwing**, pinned by use and by unapplied reference: the calls below
+///   carry `await` and no `try`, so adding `throws` to either breaks this file. `async` because
+///   a provider whose work is asynchronous — an actor-backed store, MCP over stdio, a
+///   subprocess — cannot be written against a synchronous witness at all; **not** `async
+///   throws`, because failure is a returned ``ActionOutcome`` that the audit log must record
+///   either way and that an omitted `catch` must not be able to drop (`async-seam`, 2026-09-19);
 /// - ``NullActionProvider`` exposes zero tools and serves nothing.
 ///
 /// ## The one place a test deliberately stops short
@@ -193,30 +195,41 @@ final class ActionSeamTests: XCTestCase {
 
     // MARK: - 5. The seam: a pure describe, an acting invoke
 
-    /// The seam declares both operations, and `describe` is **synchronous and non-throwing**.
+    /// The seam declares both operations, and both are **`async` and non-throwing**.
     ///
-    /// Pinned by use: the `describe` call below carries no `try` and no `await`, so adding
-    /// either to the protocol breaks this line. That is the C12 D1 posture expressed in the
-    /// type system rather than in prose — a `describe` that could fail or suspend would make
-    /// dry-run preview a thing the caller has to handle failures for, and PRD M5 needs it to be
-    /// the cheap, always-available rendering of what *would* happen.
+    /// Pinned by use *and* by unapplied reference. The `describe` call below carries `await`,
+    /// so a protocol that went back to synchronous would break it; both reference types below
+    /// spell `async` and omit `throws`, so adding `throws` to either operation breaks this line
+    /// too. The no-`throws` half is the load-bearing one: failure is a returned
+    /// ``ActionOutcome`` the audit log must record, and an error the caller can drop by
+    /// omitting a `catch` is an audit record that can go missing.
+    ///
+    /// Why both operations and not only the acting one: C13 requires the confirmation sentence
+    /// to be concrete — "clear the audit log, 12 entries, permanently" — and a count like that
+    /// is a read. A synchronous `describe` forces vague copy, which is the exact failure C13
+    /// names.
     ///
     /// `invoke` is pinned **by reference, not by call**: the unapplied method reference below
-    /// asserts its exact signature — invocation in, confirmation in, outcome out, no `throws`,
-    /// no `async` — without minting the confirmation this target deliberately cannot mint. See
+    /// asserts its exact signature — invocation in, confirmation in, outcome out, `async`, no
+    /// `throws` — without minting the confirmation this target deliberately cannot mint. See
     /// this suite's header.
-    func testTheSeamSplitsAPureDescribeFromAnActingInvoke() throws {
+    func testTheSeamSplitsAPureDescribeFromAnActingInvoke() async throws {
         func requireProvider(_ provider: any ActionProvider) -> any ActionProvider { provider }
 
         let provider = requireProvider(NullActionProvider())
         let invocation = try makeInvocation()
 
-        let summary: ActionSummary = provider.describe(invocation)
+        let summary: ActionSummary = await provider.describe(invocation)
         XCTAssertFalse(
             summary.sentence.isEmpty,
             "describe always renders a concrete sentence — including a refusal's")
 
-        let acting: (ActionInvocation, ActionConfirmation) -> ActionOutcome = provider.invoke
+        let describing: (ActionInvocation) async -> ActionSummary = provider.describe
+        XCTAssertNotNil(
+            describing,
+            "the pure half suspends and cannot fail — `async`, never `async throws`")
+
+        let acting: (ActionInvocation, ActionConfirmation) async -> ActionOutcome = provider.invoke
         XCTAssertNotNil(
             acting,
             "the only operation that acts takes a confirmation by value and returns an outcome")
@@ -248,20 +261,21 @@ final class ActionSeamTests: XCTestCase {
     ///
     /// The `invoke` half of this refusal is asserted in `confirmation-gate`, for the reason this
     /// suite's header records.
-    func testTheShippedDefaultRefusesEvenAReadOnlyInvocation() throws {
+    func testTheShippedDefaultRefusesEvenAReadOnlyInvocation() async throws {
         let provider: any ActionProvider = NullActionProvider()
         let readOnlyLooking = try makeInvocation(toolID: "read-clipboard")
         let otherTool = try makeInvocation(toolID: "delete-everything")
 
-        let summary = provider.describe(readOnlyLooking)
+        let summary = await provider.describe(readOnlyLooking)
 
         XCTAssertEqual(
             summary.blastRadius, .readOnly,
             "a refusal has no blast radius to speak of — nothing will happen, so nothing needs "
                 + "confirming")
         XCTAssertFalse(summary.sentence.isEmpty, "the refusal is still a concrete sentence")
+        let otherSummary = await provider.describe(otherTool)
         XCTAssertEqual(
-            summary, provider.describe(otherTool),
+            summary, otherSummary,
             "the default serves no tool, so every tool describes identically — the answer is "
                 + "about the provider, never about the tool it was handed")
         XCTAssertFalse(
