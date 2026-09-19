@@ -127,9 +127,19 @@ final class ModuleBoundaryTests: XCTestCase {
     /// types (`ContextProvider`, `ContextSnapshot`) live there — while the per-seam AX and Secure
     /// Input lints in `InjectionSeamBoundaryTests` confine the system surfaces to the adapter's
     /// two permitted files.
+    ///
+    /// `VoccaActions` joined in the `audit-log` aspect: it holds the local audit log the action
+    /// spine writes (`FileSystemActionAuditStore`), the module `ARCHITECTURE.md` reserves for the
+    /// P4 action layer. The move is what lets it import `VoccaCore` — the vocabulary it records
+    /// (`ActionInvocation`, `ActionDecision`, `ActionOutcome`, `BlastRadius`) lives there — while
+    /// the per-seam FileManager lint in `InjectionSeamBoundaryTests` keeps the file system
+    /// confined to the store's one adapter file, and `ActionSeamBoundaryTests`' family table keeps
+    /// every use of that vocabulary outside `VoccaCore` a reviewed row. It is a module rather than
+    /// a folder in `VoccaCore` because the core imports nothing at all — not even Foundation — and
+    /// a log is a file.
     private static let adapterModules: Set<String> = [
         "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio", "VoccaText", "VoccaUsage",
-        "VoccaSpeech", "VoccaContext",
+        "VoccaSpeech", "VoccaContext", "VoccaActions",
     ]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.

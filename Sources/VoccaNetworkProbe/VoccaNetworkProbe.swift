@@ -349,6 +349,16 @@ struct VoccaNetworkProbe {
         let context = exerciseContext()
         print("PROBE-CONTEXT\t\(context.report)")
 
+        // `VoccaActions`' real work, run rather than referenced — and, unlike every drive above,
+        // the *only* thing that puts its module inside this invariant: the audit store is wired
+        // into nothing, deliberately, so there is no other witness to fall back on. Its
+        // default-configuration surface is a round trip through real bytes: the shipped store
+        // over a fresh temporary directory, two entries committed, a second store reading them
+        // back, then a clear. No transport is reachable — the module names only Foundation,
+        // OSLog and VoccaCore, which `transport-prohibition` lints. See `ActionAuditDrive.swift`.
+        let actionAudit = exerciseActionAudit()
+        print("PROBE-ACTIONS\t\(actionAudit.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -362,6 +372,7 @@ struct VoccaNetworkProbe {
             VoccaUIPlaceholder.self,
             converse.moduleWitness,
             context.moduleWitness,
+            actionAudit.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be

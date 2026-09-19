@@ -151,7 +151,12 @@ Sources/
   VoccaContext/              # P4 — ContextProvider — SHIPPED (context-provider, 2026-09-18):
                              #   the AX adapter + its per-seam AX/Secure Input permits, the
                              #   consent store (bundle IDs only, the never-read gate)
-  VoccaActions/              # P4 — ActionProvider, MCP client
+  VoccaActions/              # P4 — ActionProvider — PARTIAL (action-safety-spine, 2026-09-19):
+                             #   the append-only audit store only (one file per event, ordinal
+                             #   names, monotonic Duration instants). The seam, the vocabulary
+                             #   and the gate live in VoccaCore/Actions/; the MCP client is a
+                             #   later slice and NO transport exists — a lint forbids every
+                             #   transport and subprocess family in this module (D2)
   VoccaBridge/               # RESERVED — a second C-ABI consumer (Kokoro, C9) would
                              #   claim it. C3's whisper bridge lives in VoccaASR/Whisper/
                              #   instead (see the §2 amendment). Amended `second-asr-engine`,
@@ -281,7 +286,31 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Reply generation | `ReplyGenerator` | `EchoReplyGenerator` (the shipped default — your words back byte-for-byte), `AcknowledgmentReplyGenerator` ("Vocca is listening.") — two deterministic locals (`reply-seam`, 2026-09-16); **C13's real agent slots in behind this seam** | **Yes** |
 | Mode (dictate/converse) | `SessionMode` + `SessionModeMachine` | the explicit state machine (`VoccaCore/Mode/`) — chord-keyed, no implicit switching, the injection path reachable only from the dictate state (type/assertion-enforced; `mode-machine`, 2026-09-16) | No — always local |
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` — **real since `context-provider` (2026-09-18)**: the seam in `VoccaCore/Context/` (`ContextSnapshot`, the sync non-throwing contract — D1), `NullContext` the shipped default (reads nothing), `AccessibilityContext` in `VoccaContext` behind its own per-seam AX and Secure Input permits (Secure Input refused first); the per-app consent gate (bundle-IDs-only store, the never-read decision) and the AND-gated BYOK payload field are the same unit's | **No — by design** |
-| Actions | `ActionProvider` | `MCPProvider`, `ShellProvider` | No |
+| Actions | `ActionProvider` | `NullActionProvider` (the shipped default — zero tools, refuses everything) since `action-safety-spine` (2026-09-19); `MCPProvider` **PENDING**, `ShellProvider` **PENDING** — deviation **D3**: the safety spine ships gated on safety rather than capability, so nothing executes yet. **Guardrail 7 is UNMET in this unit** — `NullActionProvider` is a shipped default, *not* a second implementation | No |
+
+> *Annotated (`action-safety-spine`, 2026-09-19) — the Actions row is the safety spine only.*
+> The seam, the plain-data vocabulary, `BlastRadius` and `ActionGate` live in
+> `VoccaCore/Actions/` (Foundation-free — Core's import allow-list is empty); the append-only
+> audit store lives in `VoccaActions/`. **Nothing executes:** `NullActionProvider` exposes zero
+> tools, and the gate is the only site that may mint an `ActionConfirmation` (its initializer is
+> `internal`, and a lint spanning `Sources/` **and** `Tests/` confines construction to
+> `ActionGate.swift`, so a forging test fails even though it would compile).
+>
+> Two trust boundaries are recorded rather than implied. **The blast radius is the provider's own
+> claim** and nothing verifies it, so local policy may only ever *escalate* it, never
+> de-escalate — a lying provider can therefore only cause the user to be asked more often than
+> necessary, never less. **`ActionApproval.granted` asserts a human approved and cannot verify
+> it** (N2); the guarantee actually delivered is narrower and is stated as such — there is
+> exactly one path to `invoke`, it runs through the gate, and the gate applies the policy.
+>
+> **Deviation D2 — the zero-network invariant is blind through a spawned child.** Measured, not
+> assumed: the interposer counts loopback as NETWORK on purpose, so an MCP server on `127.0.0.1`
+> is a violation and stdio is the only permitted transport — but a restricted child ignores
+> `DYLD_INSERT_LIBRARIES` *and purges it from the environment it passes on*, so
+> `/usr/bin/env node server.js`, any shell wrapper and any Apple platform binary are invisible.
+> The failure mode is a **green test while a child egresses**. This unit cannot fix that; it
+> ships the prohibition lint so reaching for a transport is a reviewed edit, and `PROBE-ACTIONS`
+> proves only that the audit store reaches no network name.
 
 > *Status (memory-order aspect, 2026-08-27): the strategy-memory row is real end to end.
 > `InjectionStrategyStore` and both implementations shipped in `store-seam`; the ladder now

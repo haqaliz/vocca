@@ -7,6 +7,37 @@ This file orients a coding agent working in this repository. Read it first.
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaUsage`, `VoccaBootstrap`.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`action-safety-spine` (C13 slice 1, shipped 2026-09-19):** the safety spine of Actions/MCP
+> ships as **machinery only** — the gate exists before anything can execute, which is the whole
+> point. `VoccaCore/Actions/` holds the `ActionProvider` seam with its **`describe`/`invoke`
+> split** (a pure `describe` renders the concrete sentence; only `invoke` acts — without the
+> split, "dry-run never touches the provider" and "the confirmation states concretely what will
+> happen" cannot both hold), the Foundation-free vocabulary, `BlastRadius`,
+> `ActionConfirmation` (`public struct`, **`internal` init**) and `ActionGate`; `VoccaActions/`
+> holds the append-only audit store (one file per event, ordinal names, monotonic `Duration`
+> instants, a byte-level pin whose one deliberate divergence is that **`summary` may carry
+> text**). **Nothing executes** — `NullActionProvider` exposes zero tools, and the gate is the
+> only site that may mint a confirmation (a lint spanning `Sources/` **and** `Tests/` confines
+> construction to `ActionGate.swift`, so a forging test fails even though it would compile). The
+> load-bearing acceptance holds: a destructive invocation without a token is refused **by
+> attempting the call**, not by observing that no prompt appeared. Two trust boundaries are
+> recorded rather than implied — **the blast radius is the provider's own claim**, so local
+> policy may only *escalate* it, never de-escalate (a lying provider can only cause the user to
+> be asked more often than necessary); and **`ActionApproval.granted` asserts a human approved
+> and cannot verify it** (N2). **Deviation D2, measured not assumed:** the zero-network
+> interposer counts loopback as NETWORK on purpose, so an MCP server on `127.0.0.1` is a
+> violation and stdio is the only permitted transport — but a restricted child ignores
+> `DYLD_INSERT_LIBRARIES` *and purges it from the environment it passes on*, so
+> `/usr/bin/env node server.js`, any shell wrapper and any Apple platform binary are **blind**.
+> The failure mode is a **green test while a child egresses**; the transport prohibition lint
+> makes reaching for a transport a reviewed edit, and `PROBE-ACTIONS` proves only that the audit
+> store reaches no network name. **No gate passes; guardrail 7 is unmet (D3 — `MCPProvider` and
+> `ShellProvider` both PENDING, and `NullActionProvider` is a shipped default rather than a
+> second implementation); R8 is mitigated in structure, never measured — nothing executes, so
+> there is nothing to count.** The G5 pin was **not** re-anchored: this slice wires nothing into
+> the composition root and all three digests are unchanged. No SMOKE rows (steps stop at 143) —
+> deliberate, since nothing executes. Test floor: **2551**.
+>
 > **`context-provider` (C12, shipped 2026-09-18):** the context half of the wedge is real —
 > the seam with two local implementations, the per-app consent gate, the visible indicator and
 > the one-action kill switch, the BYOK exclusion grant. The `ContextProvider` seam in
@@ -209,9 +240,11 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 1930 tests**, including the zero-network invariant (a `dyld`
-> interposer over `connect(2)`), module-boundary and per-seam lint, and the built-bundle
-> and entitlement contracts. CI runs three jobs; every `swift test` goes through
+> **`Tests/HarnessTests/`: 2551 tests**, including the zero-network invariant (a `dyld`
+> interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
+> `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
+> through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
+> lint, and the built-bundle and entitlement contracts. CI runs three jobs; every `swift test` goes through
 > `Scripts/test-with-floor.sh`, because `swift test` exits 0 when it discovers nothing.
 >
 > **The load-bearing caveat:** the `CGEvent` tap adapter is written and is executed by

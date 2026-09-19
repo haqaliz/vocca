@@ -1779,8 +1779,51 @@ set -euo pipefail
 # hand-off (0 new — the guard-the-guard renamed in place) — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The action-seam raise (2475 -> 2500; executed 2500) — the C13 slice-1 seam aspect
+# (`feat/action-safety-spine/aliz`): `ActionSeamTests` (8 — the vocabulary, the describe/invoke
+# split, and the NullActionProvider default), `ActionSeamBoundaryTests` (10 — the action-family
+# lint scanning `Sources/` alone because tests legitimately name the vocabulary, the
+# ActionConfirmation forgery guard scanning `Sources/` and `Tests/` both, three planted controls,
+# two comment-strip controls, and the scanning-nothing-is-a-failure guard), and
+# `ActionProviderStubsTests` (7 — the recording stub that gives the later dry-run and
+# reconstruction acceptances a non-empty domain, plus the self-checks that watch its
+# fail-if-invoked mode actually fail) — the count taken from the floor script's own parse in the
+# ratchet commit.
+#
+# The confirmation-gate raise (2500 -> 2517; executed 2517) — the C13 slice-1 gate aspect:
+# `ActionGateTests` (15 — the without-a-token refusal asserted by attempting the call, the
+# read-only direct path, dry-run invoking nothing, per-tool enablement declining before both
+# `describe` and `invoke`, per-invocation-only confirmation, refusal-distinguishable-from-failure,
+# and the escalate-only rule swept over `BlastRadius.allCases` squared) and two legs added to
+# `ActionSeamBoundaryTests` (the widened Family A rows and Family B's middle leg, which stopped
+# being vacuous the day `ActionGate.swift` became the tree's first token-minting site) — the count
+# taken from the floor script's own parse in the ratchet commit.
+#
+# The audit-log raise (2517 -> 2541; executed 2541) — the C13 slice-1 audit aspect, which is
+# also the unit's first module, manifest and filesystem work: `ActionAuditStoreTests` (19 — the
+# reconstruction round trip through a second store over the same directory, ordinals surviving a
+# reload, the temp-write/rename pair and `.tmp` invisibility, tolerant decode that never throws,
+# cap eviction on write, the byte-level pin and its decode round trip, the 1 KB summary bound at
+# the boundary and one byte over, refused-versus-failed, and the loud directory failure),
+# `VoccaActionsTargetTests` (4 — the manifest pins, dependencies asserted by equality), and one
+# `ZeroNetworkTests` guard-the-guard for the new PROBE-ACTIONS post-condition. The probe drive
+# itself was obliged rather than chosen: the manifest-equality assertion refuses to let a shipped
+# product target exist undriven — the count taken from the floor script's own parse in the
+# ratchet commit.
+#
+# The transport-prohibition raise (2541 -> 2551; executed 2551) — the C13 slice-1 lint aspect,
+# ten tests in `ActionTransportProhibitionTests` and no production code: the empty-permitted-set
+# prohibition over `Sources/VoccaActions/` for all seven transport and subprocess families, two
+# planted controls that watch every family fire, the comment-strip control over the file's own D2
+# rationale (the most transport-naming text in the repository — it must not trip its own lint),
+# the `FileSystem`-is-not-`system` trap pinned twice including against the real shipped seam file,
+# the deliberate decision that the `Process` prefix family catches prefixed words, and the
+# scanning-nothing-throws guard. The lint records why it cannot cover `VoccaCore/Actions/`: that
+# module's import allow-list is empty, so every forbidden family is already unreachable there —
+# the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2475
+MINIMUM_EXECUTED_TESTS=2551
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
