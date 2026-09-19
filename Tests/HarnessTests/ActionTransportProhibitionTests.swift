@@ -1,0 +1,489 @@
+// Copyright 2026 The Vocca Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import XCTest
+
+/// Raised when the prohibition cannot be evaluated meaningfully, so that scanning nothing is a
+/// failure rather than a pass.
+private enum ActionTransportTestError: Error, CustomStringConvertible {
+    case moduleDirectoryMissing(expectedAt: String)
+    case noSwiftFilesScanned(under: String)
+
+    var description: String {
+        switch self {
+        case .moduleDirectoryMissing(let expectedAt):
+            return """
+                The VoccaActions module directory does not exist at \(expectedAt). The transport \
+                prohibition is asserted by scanning that tree; if the module has moved or been \
+                renamed, this lint enforces nothing.
+                """
+        case .noSwiftFilesScanned(let under):
+            return """
+                No .swift files were found under \(under) — the prohibition was not evaluated \
+                against anything. That is the vacuous green this check exists to prevent, so it \
+                is a failure.
+                """
+        }
+    }
+}
+
+/// The transport prohibition over `VoccaActions` (`transport-prohibition`, deviation **D2**).
+///
+/// ## Why this exists — do not delete it as redundant
+///
+/// A reader who opens this file, sees a transport lint over a module that contains no transport,
+/// and concludes it is decoration will be reasoning correctly from incomplete facts. The missing
+/// facts are these, measured in this unit's Phase 2 dig and recorded as **D2**:
+///
+/// 1. **Vocca's permanent release blocker is a zero-network CI test driven by a `dyld`
+///    interposer**, and that interposer **counts loopback as NETWORK on purpose**
+///    (`Sources/CVoccaNetworkInterposer/interposer.c:69-73`: "Loopback counts as NETWORK on
+///    purpose … the opt-in local LLM lives on loopback, and the invariant is meant to catch it
+///    becoming reachable by default"). So an MCP server reached on `127.0.0.1` over HTTP/SSE is
+///    a **violation of the invariant**, not a local convenience. **Stdio is the only transport
+///    the invariant permits.**
+///
+/// 2. **But a stdio server is a spawned child, and the interposer cannot follow it.**
+///    `DYLD_INSERT_LIBRARIES` is stripped *and purged* from the environment of a restricted
+///    child, so `/usr/bin/env node server.js`, any `/bin/sh -c` wrapper, and any Apple platform
+///    binary run **blind**. One hop launders the insertion for the entire descendant tree.
+///
+/// 3. **Therefore the failure mode is a green test while a child egresses.** The `audit-log`
+///    aspect's `PROBE-ACTIONS` proves the audit *store* reaches no network name; it says nothing
+///    whatsoever about a transport spawned out from under it.
+///
+/// This lint **cannot fix that** — nothing at this layer can. What it does is make reaching for a
+/// transport or a subprocess a **reviewed edit** rather than an accident, so the false green
+/// cannot be introduced silently. The day someone needs `Process` here to speak stdio to an MCP
+/// server, they must come to this file and say so in a permitted-set entry, and the review that
+/// entry forces is the whole mechanism. Deleting the lint deletes the review.
+///
+/// ## Forbidden families
+///
+/// `URLSession`, `NW`, `Network`, `Process`, `posix_spawn`, `NSTask`, `system` — the two doors
+/// out of the process (a socket opened here, a child spawned to open one elsewhere), as
+/// identifier *prefix* families in the ``ModelDownloaderSeamTests`` shape.
+///
+/// The permitted set is **empty**: no file under `Sources/VoccaActions/` may name any of them.
+/// Note that an empty permitted set means the opposite of what it means in
+/// ``ModelDownloaderSeamTests``, where emptiness would be the vacuous green — there the permitted
+/// file must *prove* it still names `URLSession`. Here emptiness is the claim itself, so the
+/// vacuity is closed from the other side instead: the scanned file list is asserted non-empty,
+/// every scanned file is asserted to exist, and scanning nothing throws
+/// (``testScanningNothingFailsRatherThanPassing``).
+///
+/// ## Two traps this module makes likely, and how each is resolved
+///
+/// **(a) `system` is a substring of `FileSystem`.** This module ships
+/// `Audit/ActionAuditFileSystem.swift`, and `ActionAuditFileSystem` / `FileSystemActionAuditStore`
+/// run through all three of its files. A substring or case-insensitive match would fire on every
+/// one of them and the lint would be unusable on day one. The match is therefore anchored to an
+/// **identifier start** (`\b` before a family that begins with a word character) and is
+/// **case-sensitive**, so `FileSystem` — where `System` sits mid-identifier and capitalised — is
+/// not a sighting. That is asserted against a sample *and* against the shipped file itself, in
+/// ``testTheFileSystemFamilyIsNotASystemSighting`` and
+/// ``testTheShippedFileSystemSeamFileIsNotASighting``, rather than hoped for.
+///
+/// **(b) `Process` prefixes ordinary words.** `Processing` and `Processor` match the family and
+/// are **deliberately kept as sightings**. This is the same prefix-family shape that makes
+/// `URLSession` catch `URLSessionConfiguration`, and the asymmetry of the two errors decides it: a
+/// lint that misses `Process(` is worthless, while one that also flags `Processing` costs a
+/// rename. The decision is pinned by ``testTheProcessFamilyDeliberatelyCatchesPrefixedWords`` so
+/// that a future reader finds a recorded choice rather than an accident — and so that anyone
+/// narrowing the family has to delete an assertion that says why not to. Lowercase `processed` /
+/// `processing` are **not** sightings, because the families are case-sensitive; that is the
+/// bound on the false-positive cost, and it is pinned in the same test.
+///
+/// ## Why `VoccaCore/Actions/` is out of scope — resolved, do not re-open
+///
+/// The spec asked whether the prohibition should also cover the seam in `VoccaCore/Actions/`.
+/// **No, and the reason is structural rather than a judgement call.** `VoccaCore`'s import
+/// allow-list is **empty** (`Tests/HarnessTests/CoreBoundaryTests.swift:116`) — not even
+/// Foundation. `URLSession`, `Process` and `NSTask` are Foundation; `NW*` is Network.framework;
+/// `posix_spawn` and `system` are Darwin. Every forbidden family is unreachable there because
+/// `CoreBoundaryTests` already fails on *any* import at all, transitively. A second lint would
+/// assert something a strictly stronger check already guarantees, and would carry its own
+/// maintenance for no coverage. `Sources/VoccaNetworkProbe/` is out of scope too: its
+/// `ActionAuditDrive.swift` names the action vocabulary but is the probe, not the module.
+///
+/// ## What this lint does and does not see
+///
+/// It reads text with comments stripped, so a doc comment may name the families to explain what
+/// is forbidden — the comment you are reading now is the most transport-naming text in the
+/// repository and must not trip its own lint, which is asserted in
+/// ``testThisFilesOwnRationaleCommentDoesNotTripTheLint``. It is **not** string-literal aware
+/// (see ``SwiftSourceScanner``), so an identifier inside a literal would be reported; the planted
+/// samples below live in literals and are the reason this file is not itself in the scan root.
+/// Neither limit matters for the claim: a *type or call in code* cannot appear under
+/// `Sources/VoccaActions/` without a reviewed edit here.
+final class ActionTransportProhibitionTests: XCTestCase {
+
+    // MARK: - The prohibition
+
+    /// The module this lint governs, relative to `Sources/`.
+    private static let moduleDirectory = "VoccaActions"
+
+    /// The forbidden identifier families.
+    ///
+    /// Two doors out of the process, and both are closed: a socket opened here (`URLSession`,
+    /// `NW`, `Network`) and a child spawned to open one elsewhere (`Process`, `posix_spawn`,
+    /// `NSTask`, `system`) — the second being the one the interposer goes blind through, which is
+    /// the whole of D2 above.
+    private static let forbiddenFamilies = [
+        "URLSession", "NW", "Network", "Process", "posix_spawn", "NSTask", "system",
+    ]
+
+    /// Files permitted to name a forbidden family, relative to `Sources/`. **Empty, and that is
+    /// the claim** — see the type documentation for why emptiness here is not the vacuous green
+    /// it would be in ``ModelDownloaderSeamTests``.
+    ///
+    /// An entry added here is the reviewed edit this lint exists to force. Whoever adds one owes
+    /// the review an answer to D2: how the spawned transport stays observable when
+    /// `DYLD_INSERT_LIBRARIES` does not survive the hop.
+    private static let filesPermittedToNameATransport: Set<String> = []
+
+    /// Every occurrence of a forbidden family in `source`, comments removed first.
+    ///
+    /// A pure function over a string — never re-implemented per call site — so it can be run
+    /// against source that violates the rule, which is the only way to know it would catch one.
+    /// See ``testTheLintDetectsPlantedTransports``.
+    ///
+    /// The alternation is sorted **longest first** so that a family which is a prefix of another
+    /// cannot shadow it: without this, `NW` would be tried before `Network` and the reported
+    /// identifier would depend on table order rather than on the text.
+    static func transportIdentifiers(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let alternatives = forbiddenFamilies
+            .sorted { ($0.count, $0) > ($1.count, $1) }
+            .joined(separator: "|")
+        let pattern = "\\b(" + alternatives + ")[A-Za-z0-9_]*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    // MARK: - Roots
+
+    private func packageRoot() throws -> URL {
+        try PackageRootLocator.find(from: #filePath)
+    }
+
+    private func moduleRoot() throws -> URL {
+        try packageRoot()
+            .appendingPathComponent("Sources")
+            .appendingPathComponent(Self.moduleDirectory)
+    }
+
+    /// Every sighting under `root`, keyed by path relative to `root`, plus the files scanned.
+    ///
+    /// Throws rather than returning an empty dictionary when the directory is missing or holds no
+    /// Swift files: "no file names a transport" and "no file was read" are the same green and must
+    /// not be.
+    private func scan(under root: URL) throws -> (sightings: [String: [String]], scanned: [URL]) {
+        guard FileManager.default.fileExists(atPath: root.path) else {
+            throw ActionTransportTestError.moduleDirectoryMissing(expectedAt: root.path)
+        }
+        let files = SwiftSourceScanner.swiftFiles(under: root)
+        guard !files.isEmpty else {
+            throw ActionTransportTestError.noSwiftFilesScanned(under: root.path)
+        }
+
+        var byFile: [String: [String]] = [:]
+        for file in files {
+            let relative = String(file.path.dropFirst(root.path.count + 1))
+            let source = try String(contentsOf: file, encoding: .utf8)
+            let identifiers = Self.transportIdentifiers(inSource: source)
+            if !identifiers.isEmpty {
+                byFile[relative] = identifiers
+            }
+        }
+        return (byFile, files)
+    }
+
+    /// The prohibition itself: no file under `Sources/VoccaActions/` names any forbidden family,
+    /// the permitted set is empty, and the scan was not vacuous.
+    func testNoFileInVoccaActionsMayNameATransportOrSubprocessFamily() throws {
+        let root = try moduleRoot()
+        let result = try scan(under: root)
+
+        XCTAssertFalse(
+            result.scanned.isEmpty,
+            "the scanned file list must be non-empty — scanning no file passes 'no file names a "
+                + "transport' vacuously, which is the only way this lint can lie")
+        for file in result.scanned {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: file.path),
+                "every scanned file must exist — a file read out from under the scan passes "
+                    + "vacuously: \(file.path)")
+        }
+
+        XCTAssertTrue(
+            Self.filesPermittedToNameATransport.isEmpty,
+            """
+            the permitted set must stay empty: \(Self.filesPermittedToNameATransport.sorted()).
+            An entry here is a reviewed exception to the zero-network invariant's blind spot \
+            (D2), not a formatting change — say in review how the spawned transport stays \
+            observable when DYLD_INSERT_LIBRARIES does not survive the hop.
+            """)
+
+        let offenders = result.sightings.filter {
+            !Self.filesPermittedToNameATransport.contains($0.key)
+        }
+        XCTAssertTrue(
+            offenders.isEmpty,
+            """
+            a transport or subprocess family is named inside VoccaActions: \
+            \(offenders.mapValues { $0.sorted() }.sorted { $0.key < $1.key }).
+            Loopback counts as network in the interposer, and a spawned child runs outside it \
+            entirely — see this file's documentation for D2 before making this pass.
+            """)
+    }
+
+    /// The file that makes trap (a) live.
+    ///
+    /// Asserted to exist and to be scanned, because
+    /// ``testTheFileSystemFamilyIsNotASystemSighting`` is theatre if the `FileSystem`-named types
+    /// it defends against have been renamed away. A trap test must be watching something real.
+    func testTheFileSystemNamedSeamFileIsStillInTheScan() throws {
+        let root = try moduleRoot()
+        let result = try scan(under: root)
+        let relative = result.scanned.map { String($0.path.dropFirst(root.path.count + 1)) }
+        XCTAssertTrue(
+            relative.contains("Audit/ActionAuditFileSystem.swift"),
+            """
+            the FileSystem-named seam file is no longer in the scan: \(relative.sorted()).
+            The `system`-inside-`FileSystem` trap test defends against types that this file \
+            declares; if it has moved, re-point that test at wherever they live now rather than \
+            leaving it guarding nothing.
+            """)
+    }
+
+    /// Trap (a), against the shipped file rather than a sample: the real
+    /// `ActionAuditFileSystem.swift` must produce no sighting.
+    ///
+    /// The sample-based test below proves the detector's *rule*; this one proves the rule holds
+    /// against the actual text that motivated it, which is the claim a reviewer cares about.
+    func testTheShippedFileSystemSeamFileIsNotASighting() throws {
+        let url = try moduleRoot().appendingPathComponent("Audit/ActionAuditFileSystem.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(
+            source.contains("FileSystem"),
+            "the shipped file must still name FileSystem — otherwise this test watches nothing")
+        XCTAssertEqual(
+            Self.transportIdentifiers(inSource: source), [],
+            "the shipped FileSystem seam must not read as a `system` sighting")
+    }
+
+    // MARK: - Vacuity
+
+    /// Scanning nothing **fails**.
+    ///
+    /// The single most likely way for this lint to stop working is not a bad regex but a moved
+    /// module: rename `Sources/VoccaActions/` and a scan that returned an empty dictionary would
+    /// report "no file names a transport" forever. Both the missing directory and the
+    /// directory-with-no-Swift-files cases are therefore driven here and must throw.
+    func testScanningNothingFailsRatherThanPassing() throws {
+        let empty = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("vocca-transport-lint-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: empty) }
+
+        XCTAssertThrowsError(
+            try scan(under: empty),
+            "a directory with no Swift files must throw — an empty result is the vacuous green")
+
+        let missing = empty.appendingPathComponent("does-not-exist")
+        XCTAssertThrowsError(
+            try scan(under: missing),
+            "a missing module directory must throw — a moved module must break this lint loudly")
+    }
+
+    // MARK: - Planted controls
+
+    /// The lint's negative control: planted source is caught, and the exact identifiers are named.
+    ///
+    /// A lint that has only ever seen a clean tree is a lint nobody has watched work. Both doors
+    /// out of the process are planted so that **every** family is observed firing at least once:
+    /// the socket families here, the subprocess families in
+    /// ``testTheLintDetectsPlantedSubprocessFamilies``.
+    func testTheLintDetectsPlantedTransports() {
+        let source = """
+            import Foundation
+            import Network
+
+            struct Leak {
+                let client = URLSession.shared
+                var config: URLSessionConfiguration { .default }
+                let connection: NWConnection? = nil
+                func spawn() { _ = Process() }
+            }
+            """
+        XCTAssertEqual(
+            Self.transportIdentifiers(inSource: source),
+            ["Network", "URLSession", "URLSessionConfiguration", "NWConnection", "Process"],
+            """
+            the detector must find every planted family in order, including the prefix members \
+            (`URLSessionConfiguration`) the family rule exists to cover and the `NW` type that \
+            `Network` must not shadow.
+            """)
+    }
+
+    /// The other half of the planted control: the subprocess families, which are the ones D2 is
+    /// actually about — the interposer follows a socket and goes blind through a child.
+    func testTheLintDetectsPlantedSubprocessFamilies() {
+        let source = """
+            import Darwin
+
+            func run() {
+                var pid: pid_t = 0
+                _ = posix_spawn(&pid, "/bin/sh", nil, nil, nil, nil)
+                _ = NSTask()
+                _ = system("node server.js")
+            }
+            """
+        XCTAssertEqual(
+            Self.transportIdentifiers(inSource: source),
+            ["posix_spawn", "NSTask", "system"],
+            "every subprocess family must be watched firing — these are the D2 families")
+    }
+
+    // MARK: - Trap (a): `system` inside `FileSystem`
+
+    /// `FileSystem` is not a `system` sighting.
+    ///
+    /// The sample is the module's real vocabulary. A substring match or a case-insensitive one
+    /// would report four sightings here and the lint would have been disabled the day it landed;
+    /// the identifier-start anchor and case sensitivity are what make it usable, and this is the
+    /// test that says so out loud rather than leaving it to be rediscovered.
+    func testTheFileSystemFamilyIsNotASystemSighting() {
+        let source = """
+            import Foundation
+
+            public protocol ActionAuditFileSystem: Sendable {
+                func createDirectory(at path: String) throws
+            }
+
+            public struct FileSystemActionAuditStore {
+                private let fileSystem: any ActionAuditFileSystem
+            }
+            """
+        XCTAssertTrue(
+            source.contains("FileSystem"),
+            "the sample must still name FileSystem — otherwise this trap test watches nothing")
+        XCTAssertEqual(
+            Self.transportIdentifiers(inSource: source), [],
+            """
+            `system` must be matched only at an identifier start and case-sensitively: \
+            `FileSystem`, `ActionAuditFileSystem`, `FileSystemActionAuditStore` and `fileSystem` \
+            are the module's own vocabulary, not the C `system(3)` this family forbids.
+            """)
+    }
+
+    // MARK: - Trap (b): `Process` as a prefix of ordinary words
+
+    /// The recorded decision on trap (b): the `Process` family **is** a prefix family, and
+    /// `Processing` / `Processor` are sightings on purpose.
+    ///
+    /// Kept deliberately, not by oversight. `Process` catching `Processing` is the same rule that
+    /// makes `URLSession` catch `URLSessionConfiguration`, and the two possible errors are not
+    /// symmetric: missing `Process(` defeats the lint entirely, while flagging `Processing` costs
+    /// a rename and a permitted-set comment. Narrowing the family means deleting this assertion,
+    /// which is the point — the narrowing should have to argue with a recorded decision.
+    ///
+    /// The second half bounds the cost: the families are case-sensitive, so lowercase `processed`
+    /// and `processing` are not sightings and ordinary local names are untouched. `AudioProcessor`
+    /// is not a sighting either, because the match is anchored to an identifier start.
+    func testTheProcessFamilyDeliberatelyCatchesPrefixedWords() {
+        let flagged = """
+            struct Processor {
+                var state: Processing?
+                func spawn() { _ = Process() }
+            }
+            """
+        XCTAssertEqual(
+            Self.transportIdentifiers(inSource: flagged),
+            ["Processor", "Processing", "Process"],
+            """
+            the Process family is a prefix family on purpose — `Processing` and `Processor` are \
+            accepted false positives, because a lint that misses `Process(` is worthless while \
+            one that flags `Processing` costs a rename.
+            """)
+
+        let notFlagged = """
+            struct AudioProcessor {
+                func processed(_ frames: [Float]) -> [Float] { frames }
+                var processing = false
+            }
+            """
+        XCTAssertEqual(
+            Self.transportIdentifiers(inSource: notFlagged), [],
+            """
+            the false positive is bounded: the match is case-sensitive and anchored to an \
+            identifier start, so lowercase `processed` / `processing` and the mid-identifier \
+            `Processor` in `AudioProcessor` are not sightings.
+            """)
+    }
+
+    // MARK: - Comment-strip controls
+
+    /// A doc comment may name every forbidden family — which is what lets this file document what
+    /// it forbids, and lets the module document it too.
+    func testADocCommentNamingTheFamiliesDoesNotTripTheLint() {
+        let source = """
+            /// Forbidden here: `URLSession`, `NWConnection`, `Network`, `Process`,
+            /// `posix_spawn`, `NSTask` and `system` — an MCP server on 127.0.0.1 over HTTP/SSE
+            /// is a violation, and a spawned child is invisible to the interposer.
+            /* Block form too: URLSession, Process, posix_spawn. */
+            import Foundation
+            """
+        XCTAssertEqual(
+            Self.transportIdentifiers(inSource: source), [],
+            "comments must be stripped before the scan, in both line and block form")
+    }
+
+    /// The comment-strip control that is not hypothetical: **this file's own D2 rationale**.
+    ///
+    /// The type documentation above names `URLSession`, `Process`, `NSTask`, `posix_spawn` and
+    /// `127.0.0.1`, which makes it the most transport-naming prose in the repository. If the lint
+    /// tripped on its own explanation, the explanation would be the first thing deleted — and the
+    /// explanation is the deliverable. So the file's preamble (licence, rationale, imports, up to
+    /// the type declaration) is scanned and must be clean.
+    ///
+    /// The phrases are asserted **present first**, deliberately: a rationale that was trimmed
+    /// away would make "the preamble is clean" pass for the wrong reason, and this control would
+    /// stop watching exactly when the comment it guards had gone.
+    func testThisFilesOwnRationaleCommentDoesNotTripTheLint() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8)
+        guard let declaration = source.range(of: "final class ActionTransportProhibitionTests")
+        else {
+            return XCTFail("could not locate this suite's declaration — the preamble is undefined")
+        }
+        let preamble = String(source[source.startIndex..<declaration.lowerBound])
+
+        for phrase in ["URLSession", "Process", "NSTask", "posix_spawn", "127.0.0.1", "D2"] {
+            XCTAssertTrue(
+                preamble.contains(phrase),
+                """
+                the D2 rationale must still name \(phrase) — this control exists to prove the \
+                rationale can be written, and a trimmed rationale would make it pass vacuously. \
+                Restore the explanation rather than relaxing this assertion.
+                """)
+        }
+        XCTAssertEqual(
+            Self.transportIdentifiers(inSource: preamble), [],
+            "this file's own rationale comment must not trip the lint it explains")
+    }
+}
