@@ -48,12 +48,28 @@ import VoccaCore
 // real submissions; what only a live process can show is that writing those entries to disk
 // contacts nothing, and that is what this drive shows.
 //
+// ## What a green PROBE-ACTIONS does NOT prove
+//
+// It proves that **the audit store** reaches no network name: this store, writing these files,
+// under the interposer. It says nothing whatever about a transport the actions layer may later
+// acquire. Deviation **D2** measured the limit precisely — `DYLD_INSERT_LIBRARIES` is purged by a
+// restricted child, so a stdio MCP server spawned as a subprocess is invisible to the interposer
+// for its whole descendant tree, and the failure mode is a *green* suite while a child egresses.
+// That is why `transport-prohibition` (PRD M8) exists and why it is not made redundant by this
+// drive: the lint refuses the transport at review time, in the module, because this invariant
+// cannot see one at run time.
+//
 // ## The report, and where each field comes from
 //
 // `store=real recorded=2 reloaded=2 ordinals=1-2 decisions=confirmed,refused cleared=0` — every
 // field an effect of the run:
 //
 // - `store` — the shipped store's own type name, so a swapped-in double flips it.
+// - `store.location` / `store.isDefaultLocation` — where the drive wrote, the `UsageLedgerDrive`
+//   precedent and the standing promise that **no probe run writes to the founder's real
+//   `~/Library/Application Support/Vocca/`**. A drive that quietly took the shipped location
+//   would fold probe entries into a real install's audit log, and these two fields are what make
+//   that an asserted fact rather than a comment.
 // - `recorded` — how many commits the store answered without throwing.
 // - `reloaded` — how many entries the **second** store found on disk. The equality with
 //   `recorded` is the round trip; without it the drive proves the store can be called.
@@ -127,6 +143,15 @@ extension VoccaNetworkProbe {
             .appendingPathComponent("vocca-probe-actions-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
 
+        // Where a shipped install would have written, resolved the way the app resolves it — so
+        // `isDefaultLocation` is a comparison against the real location rather than against a
+        // path written out here.
+        let defaultLocation = FileSystemActionAuditStore.defaultDirectory(
+            applicationSupport: FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first,
+            home: FileManager.default.homeDirectoryForCurrentUser)
+
         let store = FileSystemActionAuditStore(directory: directory)
         var recorded = 0
         if let invocation = ActionInvocation(providerID: "dev.vocca.probe", toolID: "probe-tool") {
@@ -153,6 +178,8 @@ extension VoccaNetworkProbe {
         return ActionAuditDrive(
             report: [
                 "store=\(storeName.contains("FileSystemActionAuditStore") ? "real" : "other")",
+                "store.location=\(directory.path.hasPrefix(FileManager.default.temporaryDirectory.path) ? "temporary" : "elsewhere")",
+                "store.isDefaultLocation=\(directory == defaultLocation)",
                 "recorded=\(recorded)",
                 "reloaded=\(reloaded.count)",
                 "ordinals=\(ordinals.first ?? 0)-\(ordinals.last ?? 0)",

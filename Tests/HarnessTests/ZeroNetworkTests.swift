@@ -457,8 +457,26 @@ final class ZeroNetworkTests: XCTestCase {
     /// egress (`audit-log/spec.md`'s 2026-09-19 amendment). A store that was constructed and
     /// discarded would satisfy the coverage list while never touching the file system, which is
     /// the half of `VoccaActions` that could egress at all.
-    private static let expectedActionAuditLifecycle =
-        "store=real recorded=2 reloaded=2 ordinals=1-2 decisions=confirmed,refused cleared=0"
+    ///
+    /// `store.location` and `store.isDefaultLocation` are the `expectedUsageLedgerLifecycle`
+    /// promise, restated for this module: **no probe run writes to the founder's real
+    /// `~/Library/Application Support/Vocca/actions/`**. A drive that quietly took the shipped
+    /// location would fold probe entries into a real install's audit log — the one file whose
+    /// whole value is that it records what actually happened.
+    private static let expectedActionAuditLifecycle = [
+        "store=real",
+        // Where the drive wrote — the two halves of the temp-directory promise.
+        "store.location=temporary",
+        "store.isDefaultLocation=false",
+        // The round trip: two entries committed, two read back off the disk by a second store,
+        // their ordinals rebuilt from the directory and both decisions intact.
+        "recorded=2",
+        "reloaded=2",
+        "ordinals=1-2",
+        "decisions=confirmed,refused",
+        // And nothing left behind on the machine that ran it.
+        "cleared=0",
+    ].joined(separator: " ")
 
     /// The only modules the probe is not required to drive.
     ///
@@ -1734,6 +1752,15 @@ final class ZeroNetworkTests: XCTestCase {
             Int(try value("cleared")) ?? -1, 0,
             "The asserted audit post-condition no longer requires the cleared directory — the "
                 + "drive would be leaving its entries on the machine that ran it.")
+        XCTAssertEqual(
+            try value("store.location"), "temporary",
+            "The asserted audit post-condition no longer requires the temporary directory — a "
+                + "probe run must never write an audit entry where a real install keeps its own.")
+        XCTAssertEqual(
+            try value("store.isDefaultLocation"), "false",
+            "The asserted audit post-condition no longer refuses the shipped location. Without "
+                + "this the drive could point at ~/Library/Application Support/Vocca/actions and "
+                + "fold probe entries into the founder's real audit log.")
     }
 
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
