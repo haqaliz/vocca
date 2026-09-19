@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "VoccaInject", targets: ["VoccaInject"]),
         .library(name: "VoccaSpeech", targets: ["VoccaSpeech"]),
         .library(name: "VoccaContext", targets: ["VoccaContext"]),
+        .library(name: "VoccaActions", targets: ["VoccaActions"]),
         .library(name: "VoccaUI", targets: ["VoccaUI"]),
         .library(name: "VoccaUsage", targets: ["VoccaUsage"]),
         // The app's composition root. It is a package module rather than a file in the Xcode app
@@ -133,6 +134,22 @@ let package = Package(
             dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // An adapter, not a leaf: it holds the local audit log the action spine writes (the
+        // `audit-log` aspect's store), over the vocabulary VoccaCore owns — the module
+        // ARCHITECTURE.md reserves for P4 actions. So it depends on VoccaCore and VoccaCore does
+        // not depend on it. See ModuleBoundaryTests' rule 3 for why the arrow points this way and
+        // what still constrains it. The FileManager surface is confined to one file by the
+        // per-seam lint, and the action vocabulary it names is a reviewed row in
+        // ActionSeamBoundaryTests' family table.
+        //
+        // The dependency list is exactly ["VoccaCore"] and is asserted by equality
+        // (VoccaActionsTargetTests): one extra edge here is an adapter pointed at another adapter,
+        // which is the shape the boundary rules exist to refuse.
+        .target(
+            name: "VoccaActions",
+            dependencies: ["VoccaCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "VoccaUI",
             dependencies: ["VoccaCore"],
@@ -197,7 +214,12 @@ let package = Package(
             // Depending on the probe is what makes `swift test` build it. Without this the
             // binary only appears after a separate `swift build`, and the zero-network tests
             // would fail on a clean checkout.
-            dependencies: ["VoccaNetworkProbe"],
+            //
+            // VoccaActions is named explicitly because nothing else in the package depends on it
+            // yet: the `audit-log` aspect wires nothing into the composition root, which is what
+            // keeps the G5 digest pin untouched. Without this edge the module would not be built
+            // by `swift test` at all, and its suite would fail to compile rather than run.
+            dependencies: ["VoccaNetworkProbe", "VoccaActions"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

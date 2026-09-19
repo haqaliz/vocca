@@ -212,8 +212,9 @@ final class ActionAuditStoreTests: XCTestCase {
             fourth.id, 4,
             "the ordinal continues from what is on disk — a counter rebuilt from the directory, "
                 + "not one that restarts with the process")
+        let ordinals = await second.list()
         XCTAssertEqual(
-            await second.list(), [1, 2, 3, 4],
+            ordinals, [1, 2, 3, 4],
             "the ordinals are contiguous and ascending, which is what makes oldest-first eviction "
                 + "a comparison of integers and nothing else")
         XCTAssertEqual(
@@ -268,8 +269,10 @@ final class ActionAuditStoreTests: XCTestCase {
                 + "mean anything")
 
         let reader = FileSystemActionAuditStore(directory: directory)
-        XCTAssertEqual(await reader.list(), [1], "a .tmp file is not an entry")
-        XCTAssertEqual(await reader.load().count, 1, "and it is not loaded")
+        let listed = await reader.list()
+        let loaded = await reader.load()
+        XCTAssertEqual(listed, [1], "a .tmp file is not an entry")
+        XCTAssertEqual(loaded.count, 1, "and it is not loaded")
         let next = try await reader.record(
             invocation, decision: Self.ranReadOnly(invocation), at: .seconds(2))
         XCTAssertEqual(
@@ -378,7 +381,8 @@ final class ActionAuditStoreTests: XCTestCase {
             itself. The cap is enforced at the moment of writing, so it bounds the file system \
             rather than bounding what a reader chooses to return.
             """)
-        XCTAssertEqual(await store.load().map(\.id), [3, 4, 5], "and the reader agrees")
+        let surviving = await store.load().map(\.id)
+        XCTAssertEqual(surviving, [3, 4, 5], "and the reader agrees")
     }
 
     /// Clearing empties the directory of entries.
@@ -396,8 +400,9 @@ final class ActionAuditStoreTests: XCTestCase {
 
         try await store.clear()
 
+        let remaining = await store.load()
         XCTAssertEqual(committedFileNames(in: directory), [], "the entries are gone from disk")
-        XCTAssertEqual(await store.load(), [], "and the log reads empty")
+        XCTAssertEqual(remaining, [], "and the log reads empty")
     }
 
     // MARK: - 6. The byte-level pin
@@ -468,13 +473,20 @@ final class ActionAuditStoreTests: XCTestCase {
             Set((object["outcome"] as? [String: Any])?.keys ?? [:].keys), ["kind", "reasonKey"],
             "the outcome's own keys are pinned for the same reason the top level's are")
 
+        // The sentence is asserted on the bytes with a slash-free fragment and on the decoded
+        // value in full: `JSONEncoder` escapes a forward slash (`~\/Downloads`), which is the
+        // format's business and not the pin's. Reaching for `.withoutEscapingSlashes` to make a
+        // substring match would be changing what every user's file looks like to suit a test.
         XCTAssertTrue(
-            text.contains("Delete 3 files in ~/Downloads."),
+            text.contains("Delete 3 files in"),
             """
             the summary carries its text, and this assertion is here to say so deliberately. \
             Every other byte pin in this tree forbids text; this one requires it, because the \
             sentence is the record of what the user was asked. Bytes: \(text)
             """)
+        XCTAssertEqual(
+            object["summary"] as? String, "Delete 3 files in ~/Downloads.",
+            "and it survives the format intact — the escaping is JSON's, not a truncation")
 
         XCTAssertNil(
             text.range(of: "[0-9]:[0-9]", options: .regularExpression),
@@ -582,8 +594,7 @@ final class ActionAuditStoreTests: XCTestCase {
     ///
     /// The obvious implementation — cut the byte buffer at 1024 — splits a multi-byte character
     /// whenever one straddles the boundary, and the file it writes is then not valid UTF-8 at all.
-    func testTruncationNeverSplitsACharacter() throws {
-        let invocation = try makeInvocation(toolID: "delete-downloads")
+    func testTruncationNeverSplitsACharacter() {
         // Three-byte characters: 342 of them is 1026 bytes, so the 1024-byte boundary falls one
         // byte into the 342nd character — the split this test exists to refuse.
         let straddling = String(repeating: "あ", count: 342)
@@ -620,7 +631,8 @@ final class ActionAuditStoreTests: XCTestCase {
                     sentence: String(repeating: "b", count: 4096), blastRadius: .readOnly)),
             at: .seconds(1))
 
-        let reloaded = try XCTUnwrap(await store.load().first)
+        let entries = await store.load()
+        let reloaded = try XCTUnwrap(entries.first)
         XCTAssertEqual(
             reloaded.summary.utf8.count, ActionAuditEntry.maximumSummaryUTF8Bytes,
             "the bound is applied before the bytes are written, so an unbounded provider cannot "
@@ -702,7 +714,8 @@ final class ActionAuditStoreTests: XCTestCase {
             provider.describeCount, 0,
             "vacuity guard: the provider was never asked what the tool would do")
 
-        let entry = try XCTUnwrap(await store.load().first)
+        let recorded = await store.load()
+        let entry = try XCTUnwrap(recorded.first)
         XCTAssertNil(
             entry.blastRadius,
             "nothing classified this action, so the entry classifies nothing — an invented radius "
@@ -737,7 +750,8 @@ final class ActionAuditStoreTests: XCTestCase {
 
         XCTAssertEqual(
             lying.describeCount, 1, "vacuity guard: the provider really did make its claim")
-        let entry = try XCTUnwrap(await store.load().first)
+        let recorded = await store.load()
+        let entry = try XCTUnwrap(recorded.first)
         XCTAssertEqual(
             entry.blastRadius, .outwardFacing,
             "the entry records the radius the gate acted on. Recording the claim the gate had "

@@ -115,6 +115,12 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Actions/ActionInvocation.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
+                // The `audit-log` aspect's reviewed widening — the arrival this table's header
+                // anticipated. The entry is attributed to the invocation that produced it, and
+                // the store's `record` takes one; both are the audit log reading the vocabulary,
+                // never a second place deciding with it.
+                "VoccaActions/Audit/ActionAuditEntry.swift",
+                "VoccaActions/Audit/FileSystemActionAuditStore.swift",
             ]
         ),
         (
@@ -133,6 +139,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Actions/ActionOutcome.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
+                // The `audit-log` aspect's reviewed widening: the entry records the outcome and
+                // owns its persisted vocabulary, which is why the mapping is in the module that
+                // owns the file rather than as a conformance on the core's enum.
+                "VoccaActions/Audit/ActionAuditEntry.swift",
             ]
         ),
         (
@@ -150,6 +160,12 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Actions/ActionGate.swift",
                 "VoccaCore/Actions/BlastRadius.swift",
                 "VoccaCore/Actions/ActionSummary.swift",
+                // The `audit-log` aspect's reviewed widening: the entry records the **effective**
+                // radius and maps it to the persisted vocabulary. It reads
+                // `requiresConfirmation` — the core's single branch point — rather than
+                // re-deriving the rule, so this row admits a reader of the classification, never
+                // a second classifier.
+                "VoccaActions/Audit/ActionAuditEntry.swift",
             ]
         ),
         (name: "NullActionProvider", permitted: ["VoccaCore/Actions/NullActionProvider.swift"]),
