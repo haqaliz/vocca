@@ -2,12 +2,38 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-19).** The skeleton exists; **the product does not.**
+> **Status (2026-09-20).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`mcp-protocol` (C13 slice 3, shipped 2026-09-20):** the MCP protocol layer ships with **no
+> transport that touches the OS** — the Q3 decision, and the same shape as slice 1. `MCPTransport`
+> (send/receive frames, never a pipe: no file descriptors, no PIDs, no endpoints),
+> `InMemoryMCPTransport`, JSON-RPC framing with bounded id correlation, `MCPSession`, and
+> `MCPProvider` behind the (now async) `ActionProvider`. **Nothing spawns, connects or dials**;
+> `PROBE-MCP` drives the protocol layer inside the interposer. `ActionInvocation` gained
+> `arguments` (JSON text, bounded 4096 bytes, refused rather than truncated — truncated arguments
+> are a different action); `VoccaCore` cannot parse JSON, so the type **admits it cannot validate
+> its own contents** rather than implying a guarantee. Two fail-safe defaults are pinned: a tool
+> with **no `readOnlyHint` is not read-only** (absent means unsafe), and a session that failed
+> `initialize` is unusable. **F1 — a safety-gate bypass by parser detail:** `JSONSerialization`
+> collapses booleans and numbers into `NSNumber` and `as? Bool` accepts `1`, so
+> `"readOnlyHint": 1` would have read as *claiming* read-only — the fail-safe defeated by a type
+> confusion beneath a check that looked correct; `CFBooleanGetTypeID()` undoes it in one place.
+> **F2 — a fail-open default, exposed by the lying-server test's own counterfactual:**
+> `ActionGate.submit`'s `policy` defaulted to `.none`, the only one of its four defaults that
+> *granted* rather than withheld, leaving slice 1's escalate-only rule inert unless a caller
+> remembered a floor. The default is removed; 42 call sites now say `.none` explicitly, behaviour
+> byte-identical. `mode: .live` was examined and left — the test is not "has a default" but
+> **"does the default grant anything the caller did not ask for"**. A claim also got sharpened:
+> **the raw argument blob is never persisted; the approved sentence is** — what reaches disk is
+> what a human was shown, not what a server supplied. **No gate passes** (seventh unit ahead of
+> the uncleared gates); **`MCPTransport` has one implementation, so guardrail 7 is unmet for that
+> seam**; **D2 is unchanged** — `PROBE-MCP` proves nothing about a future stdio transport; nothing
+> is wired, G5 not re-anchored, no SMOKE rows. Test floor: **2617**.
 >
 > **`local-data-provider` (C13 slice 2, shipped 2026-09-19):** the second real `ActionProvider`
 > ships and **guardrail 7 is met** — but the finding is worth more than the provider. Attempting
@@ -268,7 +294,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2561 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 2617 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
