@@ -1172,7 +1172,15 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// consent seam's, added by the `consent-store` aspect: the same adapter shape again —
     /// load, atomic set/save — with every decision (version tolerance, bundle-ID validation
     /// skips, the consent cap) above it in the headless store tests. It is the only file in
-    /// its module, which is the cleanest form the rule takes.
+    /// its module, which is the cleanest form the rule takes. `ActionAuditFileSystem` is the
+    /// actions seam's, added by the `audit-log` aspect: the same adapter shape once more —
+    /// directory creation, listing, the atomic temp-write→`replaceItemAt` commit, reads and
+    /// idempotent removal — with every decision (the next ordinal, oldest-first eviction, the
+    /// skip-loudly tolerance, and whether a failure is loud or swallowed) above it in
+    /// `FileSystemActionAuditStore` over the injected seam. An audit log whose eviction or
+    /// ordinal arithmetic lived below the seam would be the one decision in this module that no
+    /// headless run could ever reach — and it is the decision that can silently overwrite the
+    /// record of what an action did.
     ///
     /// **The family is scoped per module, and that is a correction to the plan, not a
     /// weakening of it.** `FileManager` is already named in three `VoccaASR` files
@@ -1190,14 +1198,16 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         "strategy": ["Memory/PersistentInjectionStrategyStore.swift"],
         "usage": ["PersistentUsageStore.swift"],
         "consent": ["Consent/PersistentConsentStore.swift"],
+        "actions": ["Audit/ActionAuditFileSystem.swift"],
     ]
 
     /// The module root each FileManager seam scans, keyed by the same seam names as
     /// ``filesPermittedToNameFileManagerIdentifiersBySeam``. The table's paths are
     /// module-relative, so each row needs its own root: the journal and strategy rows scan
     /// `VoccaInject`, the dictionary and config rows scan `VoccaText`, the usage row scans
-    /// `VoccaUsage`, and the consent row scans `VoccaContext` — the per-seam claim actually
-    /// reaches the module that owns each seam, and stops at it.
+    /// `VoccaUsage`, the consent row scans `VoccaContext`, and the actions row scans
+    /// `VoccaActions` — the per-seam claim actually reaches the module that owns each seam, and
+    /// stops at it.
     private static let fileManagerSeamModuleRoots: [String: String] = [
         "journal": "VoccaInject",
         "dictionary": "VoccaText",
@@ -1205,6 +1215,7 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         "strategy": "VoccaInject",
         "usage": "VoccaUsage",
         "consent": "VoccaContext",
+        "actions": "VoccaActions",
     ]
 
     /// The FileManager table flattened — every permitted file in every seam. The module-wide
@@ -1328,21 +1339,22 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         }
     }
 
-    /// **The FileManager seam table names exactly the six shipped seams** — the `store-seam`
-    /// aspect's S15 pin, widened twice: `journal` (VoccaInject), `dictionary` (VoccaText),
+    /// **The FileManager seam table names exactly the seven shipped seams** — the `store-seam`
+    /// aspect's S15 pin, widened three times: `journal` (VoccaInject), `dictionary` (VoccaText),
     /// `config` (VoccaText), the strategy store the `store-seam` aspect adds (VoccaInject), the
-    /// usage ledger the `usage-store` aspect adds (VoccaUsage), and the consent store the
-    /// `consent-store` aspect adds (VoccaContext). An exact-set pin, so a seam
+    /// usage ledger the `usage-store` aspect adds (VoccaUsage), the consent store the
+    /// `consent-store` aspect adds (VoccaContext), and the audit log the `audit-log` aspect adds
+    /// (VoccaActions). An exact-set pin, so a seam
     /// that moves without its row — or a row that appears without a seam — fails here rather
-    /// than in the review. Widening it is the deliberate, reviewable act of admitting a sixth
+    /// than in the review. Widening it is the deliberate, reviewable act of admitting a seventh
     /// place in this tree where the file system is touched at all.
-    func testTheFileManagerSeamTableNamesExactlyTheSixShippedSeams() {
+    func testTheFileManagerSeamTableNamesExactlyTheSevenShippedSeams() {
         XCTAssertEqual(
             Set(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys),
-            ["journal", "dictionary", "config", "strategy", "usage", "consent"],
+            ["journal", "dictionary", "config", "strategy", "usage", "consent", "actions"],
             """
-            The FileManager seam table must name exactly the six shipped seams: journal, \
-            dictionary, config, strategy, usage, consent. Got \
+            The FileManager seam table must name exactly the seven shipped seams: journal, \
+            dictionary, config, strategy, usage, consent, actions. Got \
             \(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted().joined(separator: ", ")). \
             A seam whose adapter moved without its row, or a row without a seam, is a leak the \
             other pins cannot see.
