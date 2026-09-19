@@ -9,6 +9,32 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`local-data-provider` (C13 slice 2, shipped 2026-09-19):** the second real `ActionProvider`
+> ships and **guardrail 7 is met** — but the finding is worth more than the provider. Attempting
+> it revealed the shipped seam **could not accommodate it**: `describe`/`invoke` were synchronous,
+> the audit store is an **actor**, and a `nonisolated` synchronous witness cannot await an actor.
+> C12's `AccessibilityContext` satisfies a synchronous witness only because AX is a synchronous C
+> API; for file I/O, MCP over stdio or a subprocess it will not be. **Guardrail 7 found this on
+> its first real exercise — which is exactly what "a seam with one implementation is an assertion"
+> is for** — and at the cheapest moment: two call sites, no wiring, no surface. So the seam is now
+> `describe(_:) async -> ActionSummary` / `invoke(_:confirmation:) async -> ActionOutcome`;
+> **`async`, never `async throws`**, so failure stays a returned value and an omitted `catch`
+> still cannot drop an audit record (now pinned by unapplied references, so adding `throws` breaks
+> the file). Both operations are async for C13's own reason, not MCP's: the confirmation must say
+> *"Permanently delete 12 entries from the action audit log. This cannot be undone."*, and that
+> count requires a read. **`AuditActionProvider`** (`VoccaActions/Providers/`) is an actor over the
+> real store — `audit.count` read-only, `audit.clear` destructive — and is genuinely real: real
+> temp directories, counts read from disk, `clear()` removing real files, dry-run asserted by
+> comparing raw file **bytes**. **Clearing the audit log is itself auditable, and the record is
+> written *after* the clear**, so the log is never empty afterwards; a counterfactual test pins the
+> wrong ordering. Two honest limits recorded about the lints: Family A grows **five rows per real
+> provider** (the seam's signatures force it), and the lint **under-reports** — leading-dot
+> literals mean `AuditActionProvider` uses blast radii while naming none, so *"no row, therefore no
+> use" is unsound for every text-scan lint in this repository*. **No gate passes** (sixth unit
+> ahead of the uncleared gates); R8 is still mitigated in structure, never measured — nothing is
+> wired, so nothing executes in a shipped configuration; **D2 stands untouched** (no transport was
+> added). G5 not re-anchored. No SMOKE rows. Test floor: **2561**.
+>
 > **`action-safety-spine` (C13 slice 1, shipped 2026-09-19):** the safety spine of Actions/MCP
 > ships as **machinery only** — the gate exists before anything can execute, which is the whole
 > point. `VoccaCore/Actions/` holds the `ActionProvider` seam with its **`describe`/`invoke`
@@ -242,7 +268,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2551 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 2561 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
