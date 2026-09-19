@@ -204,8 +204,8 @@ let package = Package(
             name: "VoccaNetworkProbe",
             dependencies: [
                 "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR",
-                "VoccaText", "VoccaInject", "VoccaSpeech", "VoccaContext", "VoccaUI",
-                "VoccaUsage", "VoccaBootstrap",
+                "VoccaText", "VoccaInject", "VoccaSpeech", "VoccaContext", "VoccaActions",
+                "VoccaUI", "VoccaUsage", "VoccaBootstrap",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

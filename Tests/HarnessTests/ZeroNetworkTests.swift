@@ -444,6 +444,22 @@ final class ZeroNetworkTests: XCTestCase {
     private static let expectedContextLifecycle =
         "provider=real reads=0 consents=0 indicator=unlit resolves=2 revoke=no"
 
+    /// **The audit log's post-condition** (PROBE-ACTIONS): the verbatim report of the
+    /// `VoccaActions` store's default work — the real store over a fresh temporary directory,
+    /// two entries recorded as real decisions, both read back by a **second** store
+    /// over the same directory with their ordinals and their decisions intact, and the directory
+    /// left empty. Asserted whole, as one line — the `expectedContextLifecycle` shape. This is
+    /// deliberately **not** a golden string to be regenerated when it fails:
+    /// ``testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes`` reads
+    /// it back and refuses a version that no longer describes a round trip.
+    ///
+    /// The drive exists because creating a module obliges this unit to prove the module does not
+    /// egress (`audit-log/spec.md`'s 2026-09-19 amendment). A store that was constructed and
+    /// discarded would satisfy the coverage list while never touching the file system, which is
+    /// the half of `VoccaActions` that could egress at all.
+    private static let expectedActionAuditLifecycle =
+        "store=real recorded=2 reloaded=2 ordinals=1-2 decisions=confirmed,refused cleared=0"
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -877,6 +893,31 @@ final class ZeroNetworkTests: XCTestCase {
             the unthrown kill — the shape of the composed default work (M11). Do not fix this \
             by deleting the call, and do not fix it by pasting in whatever the probe now \
             prints — see testTheAssertedContextPostConditionStillDescribesTheNullContextDefault.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The audit log's post-condition. The twelfth effect-not-reference check, and the one
+        // that pins the `VoccaActions` module's **file I/O** rather than its existence: the real
+        // store over a fresh temporary directory, two entries committed, a second store over
+        // the same directory reading them back, and the directory cleared. Every field is a fact the drive can only produce by writing and reading real
+        // bytes — `reloaded` and `decisions` come from the second store's own answer, so a drive
+        // that constructed a store and discarded it cannot report them.
+        //
+        // Deleting the drive removes the line from the probe's output entirely, so the
+        // comparison fails against nil rather than quietly covering less.
+        XCTAssertEqual(
+            try XCTUnwrap(actionAuditPayload(of: observation)),
+            Self.expectedActionAuditLifecycle,
+            """
+            The probe did not report driving the action audit log's default work.
+              expected: \(Self.expectedActionAuditLifecycle)
+              observed: \(actionAuditPayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseActionAudit() was not called on the \
+            default-configuration path — in which case VoccaActions' file I/O is outside this \
+            invariant, and a module that writes files is exactly what this invariant exists to \
+            watch — or the store no longer behaves as written. Do not fix this by deleting the \
+            call, and do not fix it by pasting in whatever the probe now prints — see \
+            testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes.
             \(observation.diagnosticSummary)
             """)
 
@@ -1648,6 +1689,53 @@ final class ZeroNetworkTests: XCTestCase {
                 + "default work could be reporting reads that stopped because of a revoke.")
     }
 
+    /// **Guards the guard.** ``expectedActionAuditLifecycle`` must keep describing a **round trip
+    /// through real bytes**: the real store (not some in-memory stand-in), at least one entry
+    /// recorded, every recorded entry read back by a second store, both gate decisions surviving
+    /// the file, and the directory left clear.
+    ///
+    /// The field that carries the weight is `reloaded`. A drive that recorded entries and never
+    /// read them back would prove the store can be *called*, not that it wrote anything a reader
+    /// can find — and `VoccaActions`' whole exposure to this invariant is its file I/O. A
+    /// weakened constant (`recorded=0`, or `reloaded` dropped) would still satisfy the verbatim
+    /// comparison above while the drive covered nothing.
+    func testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes() throws {
+        let fields = try Self.parseFields(of: Self.expectedActionAuditLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("store"), "real",
+            "The asserted audit post-condition no longer names the real store — the drive could "
+                + "be reporting a test double, which would put none of VoccaActions inside this "
+                + "invariant.")
+        let recorded = Int(try value("recorded")) ?? 0
+        XCTAssertGreaterThanOrEqual(
+            recorded, 1,
+            "The asserted audit post-condition recorded nothing — a store that wrote no entry "
+                + "proves nothing about the module's file I/O.")
+        XCTAssertEqual(
+            Int(try value("reloaded")) ?? -1, recorded,
+            "The asserted audit post-condition no longer reads back everything it wrote. That "
+                + "equality is the round trip: without it the drive proves the store can be "
+                + "called, never that real bytes reached a real directory.")
+        XCTAssertEqual(
+            try value("decisions"), "confirmed,refused",
+            "The asserted audit post-condition no longer carries both a confirmed and a refused "
+                + "decision through the file — the R8 distinction the log exists for could be "
+                + "lost in the bytes and this line would not notice.")
+        XCTAssertEqual(
+            Int(try value("cleared")) ?? -1, 0,
+            "The asserted audit post-condition no longer requires the cleared directory — the "
+                + "drive would be leaving its entries on the machine that ran it.")
+    }
+
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
     /// probe never reported one.
     ///
@@ -1722,6 +1810,22 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-CONTEXT\t") {
             return String(line.dropFirst("PROBE-CONTEXT\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-ACTIONS` line's payload — the audit store's round-trip report — or `nil` when
+    /// the probe never reported one.
+    ///
+    /// The `PROBE-CONTEXT` parser shape: the line exists only when `exerciseActionAudit()` ran on
+    /// the default-configuration path, so its absence is a missing drive rather than an empty
+    /// report. Unlike its siblings, `VoccaActions` has no other witness at all — the module is
+    /// wired into nothing, deliberately — so this accessor and the coverage list are together the
+    /// whole of what puts the module inside the invariant.
+    private func actionAuditPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-ACTIONS\t") {
+            return String(line.dropFirst("PROBE-ACTIONS\t".count))
         }
         return nil
     }

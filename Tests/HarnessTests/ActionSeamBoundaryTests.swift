@@ -121,6 +121,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // never a second place deciding with it.
                 "VoccaActions/Audit/ActionAuditEntry.swift",
                 "VoccaActions/Audit/FileSystemActionAuditStore.swift",
+                // The probe's audit drive, which must name an invocation to record one. It is
+                // the narrowest widening available: the drive deliberately does NOT conform to
+                // `ActionProvider`, which would have put four more families — `ActionConfirmation`
+                // among them — into a file whose subject is the file system, not the seam.
+                "VoccaNetworkProbe/ActionAuditDrive.swift",
             ]
         ),
         (
@@ -130,6 +135,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Actions/ActionSummary.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
+                // The probe's audit drive again, for the same reason: the decisions it records
+                // carry a summary, and a decision without one cannot be built. See the
+                // ActionInvocation row for why the drive stops short of the seam itself.
+                "VoccaNetworkProbe/ActionAuditDrive.swift",
             ]
         ),
         (
