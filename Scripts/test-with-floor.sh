@@ -1799,8 +1799,20 @@ set -euo pipefail
 # being vacuous the day `ActionGate.swift` became the tree's first token-minting site) — the count
 # taken from the floor script's own parse in the ratchet commit.
 #
+# The audit-log raise (2517 -> 2541; executed 2541) — the C13 slice-1 audit aspect, which is
+# also the unit's first module, manifest and filesystem work: `ActionAuditStoreTests` (19 — the
+# reconstruction round trip through a second store over the same directory, ordinals surviving a
+# reload, the temp-write/rename pair and `.tmp` invisibility, tolerant decode that never throws,
+# cap eviction on write, the byte-level pin and its decode round trip, the 1 KB summary bound at
+# the boundary and one byte over, refused-versus-failed, and the loud directory failure),
+# `VoccaActionsTargetTests` (4 — the manifest pins, dependencies asserted by equality), and one
+# `ZeroNetworkTests` guard-the-guard for the new PROBE-ACTIONS post-condition. The probe drive
+# itself was obliged rather than chosen: the manifest-equality assertion refuses to let a shipped
+# product target exist undriven — the count taken from the floor script's own parse in the
+# ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2517
+MINIMUM_EXECUTED_TESTS=2541
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
