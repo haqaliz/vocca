@@ -62,6 +62,39 @@ UI; persisted enablement (N1); any transport.
    one byte over it.
 8. Module boundary rule 3: `VoccaActions`' imports ∩ Vocca module names − `VoccaCore` = ∅.
 
+## Amendment (2026-09-19) — the probe drive belongs here
+
+**A planning gap, recorded rather than quietly absorbed.** Neither the PRD's decomposition nor
+this spec anticipated that *creating a module* obliges the unit to drive it from the
+zero-network probe.
+
+`ZeroNetworkTests.testDefaultConfigurationMakesZeroNetworkConnections` (`:889`) asserts the
+probe's reported module set **equals** every drivable target in the manifest. Adding the
+`VoccaActions` product therefore fails it with `never driven by the probe: ["VoccaActions"]`.
+It cannot be excluded: `justifiedExclusions()` (`:455`) refuses any target the manifest ships as
+a product.
+
+So this aspect also ships:
+
+- `Sources/VoccaNetworkProbe/ActionAuditDrive.swift` — exercises the **real** store into a fresh
+  temp directory, writing entries and reading them back (a construct-and-discard drive proves
+  nothing about the store's file I/O), reporting a `PROBE-ACTIONS` line
+- the `VoccaActions` edge on the `VoccaNetworkProbe` target
+- the matching post-condition pin in `ZeroNetworkTests`
+
+**It drives the store directly, not through `AppBootstrap`** — this aspect still wires nothing
+into the composition root, so the G5 digest pin stays untouched. `VoccaNetworkProbe` is not one
+of the three pinned files.
+
+The decomposition rule this establishes for future units: **the aspect that creates a module
+owns that module's probe drive.** There was no "zero-network aspect" to hand it to, and leaving
+the suite red across an aspect boundary is not an option.
+
+Worth stating because it bears on the unit's thesis: the invariant is working exactly as
+designed here — refusing to let a new module exist without proving it does not egress. That is
+the same machinery **D2** records as going blind through a spawned child, which is why
+`transport-prohibition` matters.
+
 ## Dependencies
 
 `action-seam`.
