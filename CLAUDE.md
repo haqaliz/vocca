@@ -2,9 +2,11 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-18).** The skeleton exists; **the product does not.**
-> A Swift 6 package with ten modules — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
-> `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaUI`, `VoccaUsage`, `VoccaBootstrap`.
+> **Status (2026-09-19).** The skeleton exists; **the product does not.**
+> A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
+> `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
+> `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
+> drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
 > **`action-safety-spine` (C13 slice 1, shipped 2026-09-19):** the safety spine of Actions/MCP
