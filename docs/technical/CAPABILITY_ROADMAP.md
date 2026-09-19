@@ -397,6 +397,38 @@ passes; the fourth unit built ahead of the uncleared P2/P3 gates under the recor
 
 **Dependencies:** C10, C11, C12.
 
+*(Amended by the `action-safety-spine` unit, 2026-09-19: **slice 1 of C13 shipped — the safety
+spine, machinery only.** This capability's own sequencing ("it ships gated on safety rather than
+on capability") was taken literally: the gate exists before anything can execute. Shipped: the
+`ActionProvider` seam in `VoccaCore/Actions/` with the **`describe`/`invoke` split** — a pure
+`describe` renders the concrete sentence, only `invoke` acts, and without that split "dry-run
+never touches the provider" and "the confirmation states concretely what will happen" are
+contradictory requirements; the Foundation-free vocabulary (Core's import allow-list is empty);
+`ActionGate` as a pure value, with the **structural refusal asserted by attempting the call**,
+the read-only direct path, dry-run, per-tool enablement declining **before** any provider call,
+and per-invocation-only confirmation; the append-only audit store in the new **`VoccaActions`**
+module (one file per event, ordinal names, monotonic `Duration` instants — append-only by
+directory, because nothing in this repository appends to a file); and the transport prohibition
+lint.
+
+**What is NOT built:** the MCP client, any transport, `ShellProvider`, the intent layer,
+reply-text rendering, any user-visible surface, and any composition-root wiring. **Guardrail 7 is
+unmet (D3)** — `NullActionProvider` is a shipped default, not a second implementation, so the
+seam is still an assertion. **R8 is mitigated in structure, never measured**: nothing executes,
+so no "zero unintended actions" number exists and none may be quoted. No gate passes.
+
+Three findings the later slices inherit rather than rediscover. **The blast radius is the
+provider's own claim** and nothing verifies it, so local policy may only *escalate* it, never
+de-escalate — a lying provider can then only cause the user to be asked more often than
+necessary. **An approval asserts a human said yes and cannot verify it** (N2); what is actually
+guaranteed is narrower — there is exactly one path to `invoke` and it runs through the gate.
+And **deviation D2**: the zero-network invariant counts loopback as NETWORK on purpose, so an MCP
+server on `127.0.0.1` is a violation and stdio is the only permitted transport — but a restricted
+child ignores `DYLD_INSERT_LIBRARIES` *and purges it from the environment it passes on*, so
+`/usr/bin/env node server.js`, any shell wrapper and any Apple platform binary are **blind**. The
+failure mode is a **green test while a child egresses**, which is why the prohibition lint ships
+now rather than with the transport. Test floor: **2551**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+
