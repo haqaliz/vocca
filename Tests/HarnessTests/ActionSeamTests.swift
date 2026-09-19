@@ -309,4 +309,120 @@ final class ActionSeamTests: XCTestCase {
 
         XCTAssertEqual(crossing(), "dev.vocca.stub/tick|readOnly|true|true|0")
     }
+
+    // MARK: - 9. Arguments: the opaque JSON text an invocation may carry (`mcp-provider`)
+
+    /// An invocation carries **optional argument text**, and carries none by default.
+    ///
+    /// MCP's `tools/call` takes a name *and* an arguments object, so the two-identifier
+    /// vocabulary could not express one at all (`mcp-protocol` card, "the vocabulary may not
+    /// survive contact"). The field is a `String` because `VoccaCore` imports nothing — there is
+    /// no `Data` and no JSON type to hold here — and it defaults to `nil` so every construction
+    /// site written before MCP existed keeps compiling and keeps meaning what it meant.
+    func testAnInvocationCarriesOptionalArgumentTextAndCarriesNoneByDefault() throws {
+        let plain = try makeInvocation(providerID: "dev.vocca.mcp", toolID: "send-message")
+        XCTAssertNil(
+            plain.arguments,
+            "absent is the default — a caller that says nothing about arguments has not supplied "
+                + "any, and the field is purely additive to every site that predates it")
+
+        let payload = ##"{"channel":"#general","text":"ship it"}"##
+        let carrying = try XCTUnwrap(
+            ActionInvocation(
+                providerID: "dev.vocca.mcp", toolID: "send-message", arguments: payload),
+            "an invocation carrying well-formed argument text must construct")
+        XCTAssertEqual(
+            carrying.arguments, payload,
+            "the text is carried verbatim — `VoccaCore` cannot parse it, so it cannot normalise "
+                + "it either, and a value the core rewrote would not be the value the user was "
+                + "asked about")
+    }
+
+    /// **Absence has one spelling.** Empty argument text is refused at construction, the same way
+    /// an empty identifier is.
+    ///
+    /// Not JSON validation — the core has nothing to validate with — but the same emptiness rule
+    /// the identifiers already carry: two representations of "no arguments" would be two things
+    /// every downstream consumer has to treat alike, which is the shape in which one of them
+    /// eventually does not.
+    func testEmptyArgumentTextIsRefusedSoAbsenceHasOneSpelling() {
+        XCTAssertNil(
+            ActionInvocation(providerID: "dev.vocca.mcp", toolID: "send-message", arguments: ""),
+            "empty argument text is not 'no arguments' spelled a second way — it is refused, so "
+                + "`nil` is the only way to say an invocation carries none")
+    }
+
+    /// Equality **includes** the arguments: two invocations of the same tool with different
+    /// argument text are different invocations.
+    ///
+    /// Load-bearing rather than incidental. ``ActionEnablement`` membership and the gate's
+    /// per-invocation reasoning are both by whole ``ActionInvocation``, so an equality that
+    /// ignored arguments would let one enabled call authorise a different call to the same tool.
+    func testEqualityDistinguishesInvocationsByTheirArgumentText() throws {
+        let toGeneral = try XCTUnwrap(
+            ActionInvocation(
+                providerID: "dev.vocca.mcp", toolID: "send-message",
+                arguments: ##"{"channel":"#general"}"##))
+        let toIncidents = try XCTUnwrap(
+            ActionInvocation(
+                providerID: "dev.vocca.mcp", toolID: "send-message",
+                arguments: ##"{"channel":"#incidents"}"##))
+        let bare = try makeInvocation(providerID: "dev.vocca.mcp", toolID: "send-message")
+
+        XCTAssertNotEqual(
+            toGeneral, toIncidents,
+            "same tool, different arguments, different action — an equality blind to the payload "
+                + "would let an enablement for one message authorise another")
+        XCTAssertNotEqual(
+            toGeneral, bare,
+            "carrying arguments is not the same invocation as carrying none")
+        XCTAssertEqual(
+            toGeneral,
+            ActionInvocation(
+                providerID: "dev.vocca.mcp", toolID: "send-message",
+                arguments: ##"{"channel":"#general"}"##),
+            "equality is by value throughout, arguments included")
+    }
+
+    /// The bound is enforced **at construction**, at the boundary and one byte over.
+    ///
+    /// An unbounded blob travelling through the gate is a needless liability even though nothing
+    /// persists it: it reaches a confirmation sentence a person is asked to read, and it is text
+    /// chosen by an intent layer over an untrusted server's schema.
+    ///
+    /// **Refusal, not truncation** — and the difference matters more here than it does for
+    /// ``ActionAuditEntry``'s summary, which truncates. A truncated *sentence* is a shorter
+    /// account of the same action; truncated *arguments* are a different action, quietly. The
+    /// bound is measured in UTF-8 bytes, so a multi-byte payload is bounded by the same number of
+    /// bytes rather than by a larger number of characters.
+    func testArgumentTextIsBoundedAtTheBoundaryAndRefusedOneByteOver() throws {
+        let bound = ActionInvocation.maximumArgumentsUTF8Bytes
+        XCTAssertGreaterThan(bound, 0, "vacuity guard: the bound must be a real number of bytes")
+
+        let atBound = String(repeating: "a", count: bound)
+        XCTAssertEqual(atBound.utf8.count, bound, "vacuity guard: the payload is exactly the bound")
+        let accepted = try XCTUnwrap(
+            ActionInvocation(
+                providerID: "dev.vocca.mcp", toolID: "send-message", arguments: atBound),
+            "argument text of exactly the bound is accepted — the boundary is inclusive")
+        XCTAssertEqual(accepted.arguments?.utf8.count, bound)
+
+        let overBound = String(repeating: "a", count: bound + 1)
+        XCTAssertNil(
+            ActionInvocation(
+                providerID: "dev.vocca.mcp", toolID: "send-message", arguments: overBound),
+            "one byte over is refused at construction — truncating arguments would run a "
+                + "different action from the one that was asked for")
+
+        let multiByte = String(repeating: "\u{00e9}", count: bound / 2 + 1)
+        XCTAssertEqual(
+            multiByte.utf8.count, bound + 2,
+            "vacuity guard: the multi-byte payload really is over the bound in BYTES while being "
+                + "well under it in characters")
+        XCTAssertNil(
+            ActionInvocation(
+                providerID: "dev.vocca.mcp", toolID: "send-message", arguments: multiByte),
+            "the bound is bytes, not characters — a payload under the bound in characters and "
+                + "over it in bytes is still over it")
+    }
 }
