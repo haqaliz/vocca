@@ -81,6 +81,29 @@ private enum ActionSeamTestError: Error, CustomStringConvertible {
 /// renamed away or its initializer quietly made `public` — so it is anchored, not assumed, by
 /// ``testTheConfirmationInitializerStaysUnforgeableOutsideTheModule``.
 ///
+/// ## Family A grows by **five rows per real provider**, and that is expected
+///
+/// A provider implementing ``ActionProvider`` from outside `VoccaCore/Actions/` costs **five**
+/// permitted-set rows, not one — and the seam's own signatures are what force it. The conformance
+/// names `ActionProvider`; `describe` names `ActionInvocation` and returns `ActionSummary`;
+/// `invoke` takes an `ActionConfirmation` and returns an `ActionOutcome`. Swift has no spelling
+/// that omits a parameter or a return type, so there is no way to write a conformance that names
+/// fewer. The `ActionInvocation` row below already anticipated this in its note about the probe's
+/// audit drive, which deliberately stops short of conforming for exactly this reason.
+///
+/// So five rows naming **one new file** is one reviewed widening, not five decisions, and it is
+/// the lint working rather than being worked around. `audit-provider`'s `AuditActionProvider` is
+/// the first of them. **A later provider author should add their five rows and carry on** rather
+/// than stopping to ask whether the count means something has gone wrong.
+///
+/// **The known next move, recorded and deliberately not taken:** if a third provider makes the
+/// enumerated sets unwieldy, the alternative is to permit a blessed directory —
+/// `Sources/VoccaActions/Providers/` — by rule instead of enumerating files. The trade is the
+/// reason it is not taken now: a directory rule permits **any** file dropped into it, so the
+/// per-file review that is the whole mechanism here would be replaced by a per-directory one. Two
+/// providers do not yet justify that, and the decision should be made in review when a third
+/// arrives, not inherited from a tidying edit.
+///
 /// ## What this lint does and does not see
 ///
 /// It reads text with comments stripped, so a doc comment may name the families — and describe the
@@ -90,6 +113,19 @@ private enum ActionSeamTestError: Error, CustomStringConvertible {
 /// ``constructionMarker`` rather than written out verbatim. Both are deliberate trade-offs of a
 /// text scan; what matters is that a *construction in code* cannot appear without a reviewed edit
 /// to the tables below.
+///
+/// **It also under-reports, and `audit-provider` is where that first became load-bearing.**
+/// `AuditActionProvider` classifies both of its tools by blast radius — one read-only, one
+/// destructive — and yet has **no `BlastRadius` row**, because it writes the radii as leading-dot
+/// literals (`blastRadius: .destructive`) and the scan sees only spelled identifiers. That is
+/// idiomatic Swift and was left as it is; what must not happen is the absence of the row being
+/// read as evidence that the provider does not use radii. It uses them; the lint cannot see it.
+///
+/// The general form: **a permitted set is a list of files that *name* a family, never a list of
+/// the files that *use* one.** Every text-scan lint in this repository has that gap, and inferring
+/// "no row, therefore no use" from any of them is unsound. What the tables do enforce — a
+/// *declaration or a spelled reference* cannot move somewhere CI cannot see — is unaffected, and
+/// is the claim these tests actually make.
 final class ActionSeamBoundaryTests: XCTestCase {
 
     // MARK: - Family A: the action vocabulary
@@ -106,6 +142,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Actions/ActionGate.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
+                // `audit-provider`'s reviewed widening — the second real implementation
+                // behind the seam, and one of the five rows the conformance costs. See the
+                // type documentation for why a provider outside VoccaCore/Actions/ names
+                // five families and why that is one widening rather than five.
+                "VoccaActions/Providers/AuditActionProvider.swift",
             ]
         ),
         (
@@ -126,6 +167,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // `ActionProvider`, which would have put four more families — `ActionConfirmation`
                 // among them — into a file whose subject is the file system, not the seam.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
+                // `audit-provider`'s reviewed widening — the second real implementation
+                // behind the seam, and one of the five rows the conformance costs. See the
+                // type documentation for why a provider outside VoccaCore/Actions/ names
+                // five families and why that is one widening rather than five.
+                "VoccaActions/Providers/AuditActionProvider.swift",
             ]
         ),
         (
@@ -139,6 +185,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // carry a summary, and a decision without one cannot be built. See the
                 // ActionInvocation row for why the drive stops short of the seam itself.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
+                // `audit-provider`'s reviewed widening — the second real implementation
+                // behind the seam, and one of the five rows the conformance costs. See the
+                // type documentation for why a provider outside VoccaCore/Actions/ names
+                // five families and why that is one widening rather than five.
+                "VoccaActions/Providers/AuditActionProvider.swift",
             ]
         ),
         (
@@ -152,6 +203,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // owns its persisted vocabulary, which is why the mapping is in the module that
                 // owns the file rather than as a conformance on the core's enum.
                 "VoccaActions/Audit/ActionAuditEntry.swift",
+                // `audit-provider`'s reviewed widening — the second real implementation
+                // behind the seam, and one of the five rows the conformance costs. See the
+                // type documentation for why a provider outside VoccaCore/Actions/ names
+                // five families and why that is one widening rather than five.
+                "VoccaActions/Providers/AuditActionProvider.swift",
             ]
         ),
         (
@@ -161,6 +217,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Actions/ActionConfirmation.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
+                // `audit-provider`: the provider NAMES the token in `invoke`'s signature and
+                // never constructs one — Family B below is the check that says so, and it is
+                // unchanged by this widening.
+                "VoccaActions/Providers/AuditActionProvider.swift",
             ]
         ),
         (
