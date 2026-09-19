@@ -1822,8 +1822,19 @@ set -euo pipefail
 # module's import allow-list is empty, so every forbidden family is already unreachable there —
 # the count taken from the floor script's own parse in the ratchet commit.
 #
+# The async-seam raise (2551 -> 2553; executed 2553) — the C13 slice-2 contract change. Only two
+# tests, because a signature change adds none on its own and the aspect refused to be a pure
+# refactor: `testAProviderThatGenuinelySuspendsIsDrivenThroughTheGate` drives an actor-backed
+# provider whose conformance was literally unwritable under the synchronous seam (the capability
+# the change exists to add, asserted rather than described — both halves count their suspension
+# hop, and the configured outcome is a failure so "the outcome survives the suspension" does not
+# rest on a plausible default), and `testASuspendingProviderIsStillRefusedWithoutAConfirmation`
+# submits eight concurrent destructive invocations with no token and requires all eight refused
+# with `invokeCount == 0`, so the refusal did not become a race — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2551
+MINIMUM_EXECUTED_TESTS=2553
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
