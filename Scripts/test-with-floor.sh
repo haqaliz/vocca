@@ -1833,8 +1833,19 @@ set -euo pipefail
 # with `invokeCount == 0`, so the refusal did not become a race — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The audit-provider raise (2553 -> 2561; executed 2561) — the C13 slice-2 provider aspect, which
+# closes guardrail 7 for the Actions seam: `AuditActionProviderTests` (8 — the two-tool sweep with
+# its declared radii, the real count read from disk, the concrete summaries that name it, the
+# clear-leaves-its-own-record property with its counterfactual, the without-a-token refusal run
+# against a REAL provider rather than a stub for the first time, the byte-identical dry-run, the
+# read-only direct path, and the unknown tool). The provider is genuinely real — a real
+# FileSystemActionAuditStore over real temp directories, `clear()` removing real files — which is
+# what makes closing the guardrail honest rather than clerical. The family lint gained five
+# permitted rows naming one file, the structural minimum the seam's signatures force — the count
+# taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2553
+MINIMUM_EXECUTED_TESTS=2561
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
