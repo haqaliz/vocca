@@ -1811,8 +1811,19 @@ set -euo pipefail
 # product target exist undriven — the count taken from the floor script's own parse in the
 # ratchet commit.
 #
+# The transport-prohibition raise (2541 -> 2551; executed 2551) — the C13 slice-1 lint aspect,
+# ten tests in `ActionTransportProhibitionTests` and no production code: the empty-permitted-set
+# prohibition over `Sources/VoccaActions/` for all seven transport and subprocess families, two
+# planted controls that watch every family fire, the comment-strip control over the file's own D2
+# rationale (the most transport-naming text in the repository — it must not trip its own lint),
+# the `FileSystem`-is-not-`system` trap pinned twice including against the real shipped seam file,
+# the deliberate decision that the `Process` prefix family catches prefixed words, and the
+# scanning-nothing-throws guard. The lint records why it cannot cover `VoccaCore/Actions/`: that
+# module's import allow-list is empty, so every forbidden family is already unreachable there —
+# the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2541
+MINIMUM_EXECUTED_TESTS=2551
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
