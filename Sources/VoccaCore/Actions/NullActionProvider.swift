@@ -49,7 +49,10 @@ public struct NullActionProvider: ActionProvider {
     /// The radius is ``BlastRadius/readOnly``: nothing will happen, so there is nothing to
     /// confirm. Describing an unserved tool never traps — the shipped default is safe to call
     /// with anything, including a tool id no provider has ever heard of.
-    public func describe(_ invocation: ActionInvocation) -> ActionSummary {
+    /// It is `async` because the seam is, and it suspends nowhere: the default has nothing to
+    /// await. A provider that genuinely does — the reason the seam is asynchronous at all — is a
+    /// later aspect's.
+    public func describe(_ invocation: ActionInvocation) async -> ActionSummary {
         ActionSummary(
             sentence: "Vocca has no action provider that can do this. Nothing will happen.",
             blastRadius: .readOnly)
@@ -61,7 +64,7 @@ public struct NullActionProvider: ActionProvider {
     /// never ran at all, and the audit log's one real question is which of those happened.
     public func invoke(
         _ invocation: ActionInvocation, confirmation: ActionConfirmation
-    ) -> ActionOutcome {
+    ) async -> ActionOutcome {
         .notInvoked
     }
 }

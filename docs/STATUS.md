@@ -10,6 +10,86 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `local-data-provider` unit shipped 2026-09-19 — C13 slice 2: the second real
+`ActionProvider`, closing guardrail 7 — and the seam went `async` because that provider could
+not be written otherwise; no gate passes.** `feat/local-data-provider/aliz`.
+Three aspects. Floor **2561** (executed 2561).
+
+**The finding is worth more than the provider.** Attempting the second implementation revealed
+the shipped seam could not accommodate it. `describe`/`invoke` were **synchronous**; the audit
+store is an **actor** with `async throws` methods; **a `nonisolated` synchronous witness cannot
+await an actor.** C12's `AccessibilityContext` satisfies a synchronous witness only because AX
+is a synchronous C API. Slice 1 predicted the *shape* of the problem — `ActionProvider.swift`
+records that MCP adapters "will need the C12 D1 route" — but the D1 route works only where the
+underlying work is synchronous, and for MCP it will not be. **Guardrail 7 found this on its first
+real exercise, which is exactly what it exists for**, and found it at the cheapest possible
+moment: two call sites, no wiring, no surface. The compiler stated it directly — *"type
+`SuspendingActionProvider` does not conform to protocol `ActionProvider`."*
+
+**What shipped, per aspect.** *async-seam* (64b5a99, e1c86d0, 24a7e04, c751494; 2551 → 2553):
+both seam operations became `async` — **never `async throws`**, so failure stays a returned value
+and an omitted `catch` still cannot drop an audit record; that property is now pinned by unapplied
+references, so adding `throws` breaks the file. `ActionGate.submit` became `async`. Only **two**
+tests were added, deliberately — a signature change adds none by itself, and the aspect refused
+to be a pure refactor: an actor-backed provider (unwritable before) driven through the gate with
+its suspension hops counted and a *failure* outcome configured so success cannot rest on a
+plausible default, and eight concurrent no-token destructive submissions all refused with
+`invokeCount == 0`, so the refusal did not become a race. **Every slice-1 acceptance survives
+unchanged** — including the never-read ordering, whose guard is still the first statement in
+`submit`, before the first `await`. *audit-provider* (2a91899, cbb2bb8, b6776eb; 2553 → 2561):
+**`AuditActionProvider`** — an actor over the real store, `audit.count` (read-only) and
+`audit.clear` (destructive). Genuinely real: a real `FileSystemActionAuditStore` over real temp
+directories, counts read from disk, `clear()` removing real files, dry-run asserted by comparing
+raw file **bytes** before and after. Two acceptances became expressible for the first time
+because a real provider finally existed: the without-a-token refusal run against something that
+would actually delete a file, and the byte-identical dry-run. *record* (this entry).
+
+**The module boundary chose the provider, not preference.** `VoccaActions` declares exactly
+`["VoccaCore"]`, asserted by equality, and `ModuleBoundaryTests` rule 3 forbids an adapter
+importing any other Vocca module — so a provider here cannot read `VoccaUsage`. The audit store
+was the one real capability reachable without a boundary violation. `ShellProvider` was rejected
+(the highest blast radius in the roadmap, in the slice whose premise is safety-before-capability)
+and a clipboard provider was rejected (it would race `VoccaInject`'s clipboard hygiene).
+
+**Clearing the audit log is itself an auditable action.** The record is written **after** the
+clear, so the log is never empty afterwards — it holds exactly the record of its own clearing.
+A log an action can silently empty is not an audit log. The wrong ordering is pinned by a
+**counterfactual** test asserting that record-then-clear leaves the log empty, so the property
+cannot be "simplified" away unnoticed.
+
+**Two honest limits recorded about the lints themselves.**
+- **Family A grows by five rows per real provider**, and the seam's signatures force it: the
+  conformance names `ActionProvider`, `describe` names `ActionInvocation` and `ActionSummary`,
+  `invoke` names `ActionConfirmation` and `ActionOutcome`, and no Swift spelling omits a parameter
+  or return type. Five rows naming **one** file is one reviewed widening. The known next move, if
+  a third provider makes the sets unwieldy, is permitting a blessed `Providers/` directory by
+  rule — **not taken**, because a directory rule would pass any file dropped into it.
+- **The lint under-reports, and this is the first place it is load-bearing.**
+  `AuditActionProvider` classifies both tools by blast radius yet has **no `BlastRadius` row**,
+  because it writes radii as leading-dot literals (`.destructive`) and a text scan sees only
+  spelled identifiers. The general form, now recorded in the lint: *a permitted set is a list of
+  files that **name** a family, never a list of the files that **use** one* — so "no row,
+  therefore no use" is unsound for every text-scan lint in this repository.
+
+**Measured (recorded, never gated):** **nothing was measured in this unit.** The only figures are
+test counts: **2561** executed through the floor script (`N == E`). No percentage exists.
+
+**The honesty block:**
+- **No gate passes.** The sixth unit built ahead of the uncleared gates.
+- **Guardrail 7 is now MET for `ActionProvider`** — two real implementations, one of which does
+  real file I/O. **D3 is amended, not deleted:** `MCPProvider` and `ShellProvider` remain PENDING,
+  and the seam's *hosted-tier* claim is untouched (it remains "No — by design").
+- **R8 is still mitigated in structure, never measured.** A provider now executes in *tests*;
+  nothing executes in a shipped configuration, because nothing is wired.
+- **Still no user-visible surface and no composition-root wiring.** The G5 pin was **not**
+  re-anchored; all three digests are unchanged.
+- **D2 stands untouched.** The zero-network blind spot through spawned children is unaffected by
+  this unit — no transport was added, and the prohibition lint is green and unmodified.
+- **No SMOKE rows.** Steps still stop at 143. Nothing executes for a founder to observe.
+- Floor **2561** (executed 2561).
+
+---
+
 **The `action-safety-spine` unit shipped 2026-09-19 — C13 slice 1: the safety spine of
 Actions/MCP, machinery-only, over a stub provider; nothing executes; no gate passes.**
 `feat/action-safety-spine/aliz`.

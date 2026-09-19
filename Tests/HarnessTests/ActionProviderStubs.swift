@@ -78,9 +78,12 @@ enum RecordedActionCall: Sendable, Equatable {
 /// double that deleted files to prove it can delete files would be a worse test double, and the
 /// counter is what the assertions actually read.
 ///
-/// A `final class` with immutable, `Sendable` storage and a `Mutex` for the log: the seam is
-/// `Sendable` and both operations are synchronous, so an `actor` could not witness them without
-/// the `nonisolated` dance, and `@unchecked Sendable` is not a thing this house writes.
+/// A `final class` with immutable, `Sendable` storage and a `Mutex` for the log, kept that way
+/// after the seam went `async` (`async-seam`): this stub's work genuinely *is* synchronous, so a
+/// `Mutex` says so and the counters stay readable without an `await` from the many assertions
+/// that read them. An `actor` would be the honest shape for a stub whose work suspends, and
+/// ``SuspendingActionProvider`` below is exactly that — the two are kept apart so each one
+/// witnesses what it actually is. `@unchecked Sendable` remains not a thing this house writes.
 final class RecordingActionProvider: ActionProvider {
 
     /// What happens when the acting operation is reached.
@@ -166,7 +169,7 @@ final class RecordingActionProvider: ActionProvider {
     ///
     /// The sentence names the tool so that an audit assertion can tell two descriptions apart;
     /// the stub is not trying to be plausible prose, it is trying to be distinguishable.
-    func describe(_ invocation: ActionInvocation) -> ActionSummary {
+    func describe(_ invocation: ActionInvocation) async -> ActionSummary {
         log.withLock { $0.calls.append(.describe(invocation)) }
         return ActionSummary(
             sentence: "Stub would run \(invocation.toolID) on \(invocation.providerID).",
@@ -175,7 +178,13 @@ final class RecordingActionProvider: ActionProvider {
 
     /// The acting half of the seam. Forwards to ``execute(_:)`` once the type system has
     /// established that a confirmation exists.
-    func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) -> ActionOutcome
+    ///
+    /// `async` because the seam is; it suspends nowhere, which keeps ``execute(_:)`` — the body
+    /// the self-check watches — synchronous and directly callable. The forwarding line stays a
+    /// single expression with no logic of its own, so what the self-check watches is still what
+    /// a real invocation runs.
+    func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) async
+        -> ActionOutcome
     {
         execute(invocation)
     }
@@ -256,6 +265,96 @@ final class RecordingActionProvider: ActionProvider {
     var reportedViolationCount: Int { log.withLock { $0.reportedViolations } }
 }
 
+// MARK: - The suspending stub
+
+/// A provider whose work is **genuinely asynchronous**: an `actor` whose every operation
+/// suspends before it answers (`async-seam`, 2026-09-19).
+///
+/// ``RecordingActionProvider`` is a `final class` whose bodies never suspend, so it would
+/// witness a synchronous seam just as happily — it cannot demonstrate what this aspect added.
+/// This one can, and the demonstration is its own existence: an actor's isolated methods are
+/// reachable only through an `await`, so under the previous synchronous contract **there was no
+/// way to write this conformance at all**. That is not a hypothetical about some future adapter;
+/// it is exactly what stopped the second real provider — one backed by the audit store, itself
+/// an actor — from being written, which is the finding this aspect exists to act on.
+///
+/// The suspension is real rather than spelled: each operation `await`s `Task.yield()` and counts
+/// the hop, so ``suspensionCount`` is evidence that a suspension happened rather than a claim
+/// that one could.
+///
+/// There is no fail-if-invoked mode here. The acting counter is actor state read after the fact,
+/// which is what the refusal-under-suspension assertion needs; ``RecordingActionProvider`` keeps
+/// the mode that fails at the moment of the violation, and the refusal legs that want it use it.
+actor SuspendingActionProvider: ActionProvider {
+
+    /// The tools this provider serves. `nonisolated` because the seam's requirement is, and
+    /// because an immutable list of `String` has no state to protect.
+    nonisolated let toolIDs: [String]
+
+    private let describedRadius: BlastRadius
+    private let outcome: ActionOutcome
+
+    private var log: [RecordedActionCall] = []
+    private var suspensions = 0
+
+    /// - Parameters:
+    ///   - toolIDs: What the provider claims to serve.
+    ///   - describedRadius: The radius every ``describe(_:)`` reports. Defaults to
+    ///     ``BlastRadius/destructive`` — the side that must be stopped is the side a caller that
+    ///     forgot to choose should get.
+    ///   - outcome: What ``invoke(_:confirmation:)`` returns once it is reached.
+    init(
+        toolIDs: [String] = ["suspending-tool"],
+        describedRadius: BlastRadius = .destructive,
+        outcome: ActionOutcome = .succeeded
+    ) {
+        self.toolIDs = toolIDs
+        self.describedRadius = describedRadius
+        self.outcome = outcome
+    }
+
+    // MARK: The seam
+
+    /// Suspends, then renders the sentence. Still pure: it touches nothing outside its own log.
+    func describe(_ invocation: ActionInvocation) async -> ActionSummary {
+        await Task.yield()
+        suspensions += 1
+        log.append(.describe(invocation))
+        return ActionSummary(
+            sentence: "Suspending stub would run \(invocation.toolID) on \(invocation.providerID).",
+            blastRadius: describedRadius)
+    }
+
+    /// Suspends, then acts — the acting half, reachable only with a token the gate minted.
+    func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) async
+        -> ActionOutcome
+    {
+        await Task.yield()
+        suspensions += 1
+        log.append(.invoke(invocation))
+        return outcome
+    }
+
+    // MARK: What a test reads
+
+    /// Every call, in the order they were made.
+    var calls: [RecordedActionCall] { log }
+
+    /// How many times the pure half was called.
+    var describeCount: Int {
+        log.filter { if case .describe = $0 { return true } else { return false } }.count
+    }
+
+    /// How many times the acting half was reached. **The number the refusal assertion reads.**
+    var invokeCount: Int {
+        log.filter { if case .invoke = $0 { return true } else { return false } }.count
+    }
+
+    /// How many times an operation actually suspended — one per call, and the evidence that
+    /// "asynchronous" here is behaviour rather than a keyword.
+    var suspensionCount: Int { suspensions }
+}
+
 // MARK: - The self-check
 
 /// The stub, measured against itself.
@@ -299,14 +398,14 @@ final class ActionProviderStubsTests: XCTestCase {
     /// counter, "describe may be called, invoke must not be" would be inexpressible and the
     /// acceptance would quietly become "the provider was never touched" — a different, and
     /// wrong, assertion.
-    func testTheStubRecordsDescribeAndInvokeSeparatelyAndInOrder() throws {
+    func testTheStubRecordsDescribeAndInvokeSeparatelyAndInOrder() async throws {
         let first = try makeInvocation(toolID: "list-files")
         let second = try makeInvocation(toolID: "delete-downloads")
         let provider = RecordingActionProvider(toolIDs: ["list-files", "delete-downloads"])
 
-        _ = provider.describe(first)
+        _ = await provider.describe(first)
         _ = provider.execute(second)
-        _ = provider.describe(second)
+        _ = await provider.describe(second)
 
         XCTAssertEqual(
             provider.calls, [.describe(first), .invoke(second), .describe(second)],
@@ -324,12 +423,12 @@ final class ActionProviderStubsTests: XCTestCase {
     /// The rehearsal of `confirmation-gate`'s acceptance against the instrument that will make
     /// it, run here so the instrument is known to be capable of reporting a non-zero count (the
     /// test above) before a later suite reads zero from it and calls that evidence.
-    func testDescribingNeverExecutesAnything() throws {
+    func testDescribingNeverExecutesAnything() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider()
 
         for _ in 0..<5 {
-            _ = provider.describe(invocation)
+            _ = await provider.describe(invocation)
         }
 
         XCTAssertEqual(provider.describeCount, 5, "every preview was recorded")
@@ -369,7 +468,7 @@ final class ActionProviderStubsTests: XCTestCase {
     ///
     /// Read through the existential, because that is how the gate and the audit log will hold it:
     /// a stub that only worked as its concrete type would not exercise the seam at all.
-    func testTheStubIsAGenuineProviderBehindTheSeam() throws {
+    func testTheStubIsAGenuineProviderBehindTheSeam() async throws {
         let invocation = try makeInvocation(toolID: "delete-downloads")
         let concrete = RecordingActionProvider(
             toolIDs: ["delete-downloads"], describedRadius: .outwardFacing)
@@ -377,7 +476,7 @@ final class ActionProviderStubsTests: XCTestCase {
 
         XCTAssertEqual(provider.toolIDs, ["delete-downloads"], "it serves a tool, unlike the default")
 
-        let summary = provider.describe(invocation)
+        let summary = await provider.describe(invocation)
         XCTAssertEqual(
             summary.blastRadius, .outwardFacing,
             "the radius is the caller's to choose — the gate branches on exactly this value")
@@ -433,14 +532,14 @@ final class ActionProviderStubsTests: XCTestCase {
     ///
     /// Without this leg the mode would be useless to the acceptance it exists for: a dry-run
     /// calls `describe`, and a stub that fired on the preview would fail every correct dry-run.
-    func testTheFailIfInvokedModeDoesNotFireOnDescribe() throws {
+    func testTheFailIfInvokedModeDoesNotFireOnDescribe() async throws {
         let invocation = try makeInvocation()
         let recorder = ViolationRecorder()
         let provider = RecordingActionProvider(
             behavior: .failsTheTestIfInvoked, reportFailure: recorder.reporter)
 
         for _ in 0..<3 {
-            _ = provider.describe(invocation)
+            _ = await provider.describe(invocation)
         }
 
         XCTAssertEqual(

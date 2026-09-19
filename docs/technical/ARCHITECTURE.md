@@ -286,7 +286,38 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Reply generation | `ReplyGenerator` | `EchoReplyGenerator` (the shipped default — your words back byte-for-byte), `AcknowledgmentReplyGenerator` ("Vocca is listening.") — two deterministic locals (`reply-seam`, 2026-09-16); **C13's real agent slots in behind this seam** | **Yes** |
 | Mode (dictate/converse) | `SessionMode` + `SessionModeMachine` | the explicit state machine (`VoccaCore/Mode/`) — chord-keyed, no implicit switching, the injection path reachable only from the dictate state (type/assertion-enforced; `mode-machine`, 2026-09-16) | No — always local |
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` — **real since `context-provider` (2026-09-18)**: the seam in `VoccaCore/Context/` (`ContextSnapshot`, the sync non-throwing contract — D1), `NullContext` the shipped default (reads nothing), `AccessibilityContext` in `VoccaContext` behind its own per-seam AX and Secure Input permits (Secure Input refused first); the per-app consent gate (bundle-IDs-only store, the never-read decision) and the AND-gated BYOK payload field are the same unit's | **No — by design** |
-| Actions | `ActionProvider` | `NullActionProvider` (the shipped default — zero tools, refuses everything) since `action-safety-spine` (2026-09-19); `MCPProvider` **PENDING**, `ShellProvider` **PENDING** — deviation **D3**: the safety spine ships gated on safety rather than capability, so nothing executes yet. **Guardrail 7 is UNMET in this unit** — `NullActionProvider` is a shipped default, *not* a second implementation | No |
+| Actions | `ActionProvider` | `NullActionProvider` (the shipped default — zero tools, refuses everything) and **`AuditActionProvider`** (`VoccaActions/Providers/` — an actor over the real audit store: `audit.count` read-only, `audit.clear` destructive) — **real since `local-data-provider` (2026-09-19); guardrail 7 MET**. `MCPProvider` and `ShellProvider` remain PENDING. The seam is **`async`** — see the annotation below, which is the reason | No |
+
+> *Annotated (`local-data-provider`, 2026-09-19) — **the seam is `async` because its first real
+> implementation could not be written otherwise**, and that is guardrail 7 doing its job.*
+> `action-safety-spine` shipped `describe`/`invoke` as **synchronous**, which C12's
+> `AccessibilityContext` can satisfy only because AX is a synchronous C API — its `nonisolated`
+> witness never awaits. The audit store is an **actor** with `async throws` methods, and a
+> `nonisolated` synchronous function cannot await an actor, so `AuditActionProvider` was
+> **unwritable** against the shipped contract. The compiler said so directly: *"type
+> `SuspendingActionProvider` does not conform to protocol `ActionProvider`."*
+>
+> This is not specific to one provider. It applies to any provider whose work is asynchronous —
+> MCP over stdio, file I/O, a subprocess. The seam therefore became
+> `func describe(_:) async -> ActionSummary` and
+> `func invoke(_:confirmation:) async -> ActionOutcome`. **`async`, never `async throws`**:
+> failure stays a *returned* value so an omitted `catch` cannot silently drop an audit record —
+> the property `action-safety-spine` built deliberately, preserved verbatim and now pinned by
+> unapplied references so adding `throws` breaks the file.
+>
+> **Both** operations are async, and the reason is C13's own concreteness requirement rather than
+> anticipation of MCP: the confirmation must say *"Permanently delete 12 entries from the action
+> audit log. This cannot be undone."* — and that count requires a read. A synchronous `describe`
+> forces vague copy, the exact failure C13 names.
+>
+> **The cost of finding it here versus later:** two call sites and two new tests. Inside the MCP
+> slice it would have meant redesigning the gate underneath a half-built transport.
+>
+> One property worth knowing about the audit log: **clearing it is itself an auditable action, and
+> the record is written *after* the clear**, so the log is never empty afterwards — it holds
+> exactly the record of its own clearing. A log an action can silently empty is not an audit log.
+> The wrong ordering is pinned by a counterfactual test, so the property cannot be "simplified"
+> away unnoticed.
 
 > *Annotated (`action-safety-spine`, 2026-09-19) — the Actions row is the safety spine only.*
 > The seam, the plain-data vocabulary, `BlastRadius` and `ActionGate` live in

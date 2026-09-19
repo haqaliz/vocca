@@ -86,13 +86,13 @@ final class ActionGateTests: XCTestCase {
     /// Note what is *not* asserted: nothing here observes that a prompt did not appear. There is no
     /// prompt in this aspect at all. The refusal is a value returned by a call that was actually
     /// made.
-    func testADestructiveInvocationWithoutAConfirmationIsRefused() throws {
+    func testADestructiveInvocationWithoutAConfirmationIsRefused() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(
             toolIDs: ["delete-downloads"], describedRadius: .destructive,
             behavior: .failsTheTestIfInvoked)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: ActionEnablement([invocation]))
 
         XCTAssertEqual(
@@ -120,18 +120,18 @@ final class ActionGateTests: XCTestCase {
     /// same way it records a tool that errored could not answer it. So the refusal is its own
     /// decision value carrying no ``ActionOutcome`` at all, while a provider that tried and failed
     /// comes back as a genuine invocation whose outcome is the failure.
-    func testARefusalIsDistinguishableFromAProviderFailure() throws {
+    func testARefusalIsDistinguishableFromAProviderFailure() async throws {
         let invocation = try makeInvocation()
         let enablement = ActionEnablement([invocation])
 
         let refusing = RecordingActionProvider(
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
-        let refused = ActionGate.submit(invocation, to: refusing, enablement: enablement)
+        let refused = await ActionGate.submit(invocation, to: refusing, enablement: enablement)
 
         let failing = RecordingActionProvider(
             toolIDs: ["delete-downloads"],
             behavior: .executes(.failed(reasonKey: "stub.diskFull")))
-        let failed = ActionGate.submit(
+        let failed = await ActionGate.submit(
             invocation, to: failing, enablement: enablement, approval: .granted)
 
         XCTAssertNil(
@@ -157,7 +157,7 @@ final class ActionGateTests: XCTestCase {
     /// Pinned so that PRD C4's open decision — collapse the two cases or let them diverge — has to
     /// be a visible edit to this test rather than a behaviour that drifted apart while nobody was
     /// reading. Both legs are driven: refused without a confirmation, invoked with one.
-    func testOutwardFacingBehavesExactlyAsDestructive() throws {
+    func testOutwardFacingBehavesExactlyAsDestructive() async throws {
         let invocation = try makeInvocation(toolID: "send-message")
         let enablement = ActionEnablement([invocation])
 
@@ -165,7 +165,7 @@ final class ActionGateTests: XCTestCase {
             let refusing = RecordingActionProvider(
                 toolIDs: ["send-message"], describedRadius: radius,
                 behavior: .failsTheTestIfInvoked)
-            let refused = ActionGate.submit(invocation, to: refusing, enablement: enablement)
+            let refused = await ActionGate.submit(invocation, to: refusing, enablement: enablement)
             XCTAssertFalse(
                 refused.reachedTheProvider,
                 "\(radius) must be refused without a confirmation, exactly like the other")
@@ -173,7 +173,7 @@ final class ActionGateTests: XCTestCase {
 
             let running = RecordingActionProvider(
                 toolIDs: ["send-message"], describedRadius: radius)
-            let ran = ActionGate.submit(
+            let ran = await ActionGate.submit(
                 invocation, to: running, enablement: enablement, approval: .granted)
             XCTAssertEqual(
                 ran.outcome, .succeeded,
@@ -189,12 +189,12 @@ final class ActionGateTests: XCTestCase {
     /// The claim is narrower than "the provider was not touched" — a preview that could not render
     /// the sentence would have nothing to preview, so `describe` is expected. The stub logs the two
     /// operations separately precisely so this is expressible (`action-seam` PRD M10).
-    func testADryRunDescribesAndInvokesNothing() throws {
+    func testADryRunDescribesAndInvokesNothing() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: ActionEnablement([invocation]),
             mode: .dryRun)
 
@@ -217,12 +217,12 @@ final class ActionGateTests: XCTestCase {
     /// Without this leg, "dry-run invokes nothing" would hold only for the path that was refused
     /// anyway, and a preview of an already-approved action would quietly perform it — the exact
     /// shape of an unintended destructive run.
-    func testADryRunDoesNotActEvenWhenApprovalWasGranted() throws {
+    func testADryRunDoesNotActEvenWhenApprovalWasGranted() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: ActionEnablement([invocation]),
             approval: .granted, mode: .dryRun)
 
@@ -243,12 +243,12 @@ final class ActionGateTests: XCTestCase {
     /// provider and throwing the answer away would pass a naive "it did not run" check while
     /// having asked a tool nobody enabled what it would do. The stub's call log is asserted empty,
     /// which is the only assertion that can tell the two apart.
-    func testADisabledToolIsDeclinedBeforeDescribeAndBeforeInvoke() throws {
+    func testADisabledToolIsDeclinedBeforeDescribeAndBeforeInvoke() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: .none, approval: .granted)
 
         XCTAssertEqual(
@@ -265,13 +265,13 @@ final class ActionGateTests: XCTestCase {
 
     /// An **unknown** tool — one no enablement set ever mentioned — is declined exactly like a
     /// disabled one. Default off means absent is off.
-    func testAnUnknownToolIsDeclinedLikeADisabledOne() throws {
+    func testAnUnknownToolIsDeclinedLikeADisabledOne() async throws {
         let known = try makeInvocation(toolID: "list-files")
         let unknown = try makeInvocation(toolID: "delete-downloads")
         let provider = RecordingActionProvider(
             toolIDs: ["list-files", "delete-downloads"], behavior: .failsTheTestIfInvoked)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             unknown, to: provider, enablement: ActionEnablement([known]), approval: .granted)
 
         XCTAssertEqual(
@@ -303,12 +303,12 @@ final class ActionGateTests: XCTestCase {
     /// A preview looks harmless, which is exactly why the ordering has to be pinned: if dry-run
     /// were checked first, a disabled tool could be asked what it would do by anyone who asked
     /// politely.
-    func testADryRunOfADisabledToolIsDeclinedBeforeDescribe() throws {
+    func testADryRunOfADisabledToolIsDeclinedBeforeDescribe() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: .none, mode: .dryRun)
 
         XCTAssertEqual(decision, .declined(.toolNotEnabled))
@@ -322,18 +322,18 @@ final class ActionGateTests: XCTestCase {
     ///
     /// The gate owns no state (enablement is passed in), so this is a statement about the gate
     /// reading the set it was handed on every call rather than remembering an earlier one.
-    func testEnablingThenDisablingRefusesTheNextInvocation() throws {
+    func testEnablingThenDisablingRefusesTheNextInvocation() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(toolIDs: ["delete-downloads"])
         let enabled = ActionEnablement().enabling(invocation)
 
-        let first = ActionGate.submit(
+        let first = await ActionGate.submit(
             invocation, to: provider, enablement: enabled, approval: .granted)
         XCTAssertEqual(first.outcome, .succeeded, "the enabled tool ran once")
         XCTAssertEqual(provider.invokeCount, 1)
 
         let disabled = enabled.disabling(invocation)
-        let second = ActionGate.submit(
+        let second = await ActionGate.submit(
             invocation, to: provider, enablement: disabled, approval: .granted)
 
         XCTAssertEqual(
@@ -351,17 +351,17 @@ final class ActionGateTests: XCTestCase {
     /// PRD M4a — no "don't ask me again", no per-tool and no per-session carry-over. Asserted by
     /// running the same tool twice, granting only the first: the second must come back refused
     /// with the acting half untouched.
-    func testConfirmingOnceDoesNotConfirmTwice() throws {
+    func testConfirmingOnceDoesNotConfirmTwice() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(toolIDs: ["delete-downloads"])
         let enablement = ActionEnablement([invocation])
 
-        let first = ActionGate.submit(
+        let first = await ActionGate.submit(
             invocation, to: provider, enablement: enablement, approval: .granted)
         XCTAssertEqual(first.outcome, .succeeded)
         XCTAssertEqual(provider.invokeCount, 1)
 
-        let second = ActionGate.submit(invocation, to: provider, enablement: enablement)
+        let second = await ActionGate.submit(invocation, to: provider, enablement: enablement)
 
         XCTAssertFalse(
             second.reachedTheProvider,
@@ -380,12 +380,12 @@ final class ActionGateTests: XCTestCase {
     /// is the one radius ``BlastRadius/requiresConfirmation`` lets through, and this is the call
     /// that proves the gate is not simply refusing everything — which is the failure mode a suite of
     /// refusal tests alone would happily pass.
-    func testAReadOnlyInvocationOfAnEnabledToolRunsWithoutAConfirmation() throws {
+    func testAReadOnlyInvocationOfAnEnabledToolRunsWithoutAConfirmation() async throws {
         let invocation = try makeInvocation(toolID: "list-files")
         let provider = RecordingActionProvider(
             toolIDs: ["list-files"], describedRadius: .readOnly)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: ActionEnablement([invocation]))
 
         XCTAssertEqual(
@@ -403,11 +403,11 @@ final class ActionGateTests: XCTestCase {
 
     /// "May run directly" is a statement about **permission**, never a promise the provider will
     /// serve the call: the shipped default is reached through the gate and still does nothing.
-    func testTheShippedDefaultIsReachedAndStillDoesNothing() throws {
+    func testTheShippedDefaultIsReachedAndStillDoesNothing() async throws {
         let invocation = try XCTUnwrap(
             ActionInvocation(providerID: "dev.vocca.null", toolID: "noop"))
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: NullActionProvider(),
             enablement: ActionEnablement([invocation]), approval: .granted)
 
@@ -430,7 +430,7 @@ final class ActionGateTests: XCTestCase {
     /// submitted with no confirmation, exactly as a read-only action legitimately would be — and
     /// required to come back refused. A gate that read the provider's claim and stopped there would
     /// invoke here, and the stub would fail the test at the invocation.
-    func testAReadOnlyClaimIsConfirmedWhenLocalPolicyMarksTheToolDestructive() throws {
+    func testAReadOnlyClaimIsConfirmedWhenLocalPolicyMarksTheToolDestructive() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(
             toolIDs: ["delete-downloads"], describedRadius: .readOnly,
@@ -439,7 +439,7 @@ final class ActionGateTests: XCTestCase {
             ActionRadiusPolicy.Floor(invocation: invocation, radius: .destructive)
         ])
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: ActionEnablement([invocation]), policy: policy)
 
         XCTAssertEqual(
@@ -527,7 +527,7 @@ final class ActionGateTests: XCTestCase {
     ///
     /// The negative sweep above proves this of the policy in isolation; this proves it of the gate,
     /// which is where a de-escalation would actually cause harm.
-    func testAReadOnlyFloorCannotLowerADestructiveClaimAtTheGate() throws {
+    func testAReadOnlyFloorCannotLowerADestructiveClaimAtTheGate() async throws {
         let invocation = try makeInvocation()
         let provider = RecordingActionProvider(
             toolIDs: ["delete-downloads"], describedRadius: .destructive,
@@ -536,7 +536,7 @@ final class ActionGateTests: XCTestCase {
             ActionRadiusPolicy.Floor(invocation: invocation, radius: .readOnly)
         ])
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: ActionEnablement([invocation]), policy: policy)
 
         XCTAssertFalse(
@@ -544,5 +544,106 @@ final class ActionGateTests: XCTestCase {
             "a local policy is a floor, never a ceiling — the destructive claim is the thing that "
                 + "stands")
         XCTAssertEqual(provider.invokeCount, 0)
+    }
+
+    // MARK: - 8. A provider whose work is genuinely asynchronous (`async-seam`)
+
+    /// **A provider that genuinely suspends can be driven through the gate** — the capability
+    /// this aspect exists to add, asserted directly rather than inferred from a signature.
+    ///
+    /// ``SuspendingActionProvider`` is an `actor`: its isolated operations are reachable only
+    /// through an `await`, so under the previous synchronous seam this conformance could not be
+    /// written at all — which is precisely why a second real provider, backed by the audit store
+    /// (itself an actor), could not be written either. Both halves are exercised: the gate
+    /// awaits `describe` for the sentence it branches on, and awaits `invoke` for the outcome it
+    /// reports, and the suspension count says the suspensions actually happened rather than
+    /// merely being spelled.
+    ///
+    /// The configured outcome is a *failure*, deliberately: a suspending provider that could
+    /// only succeed would leave "the outcome survives the suspension" resting on the one value
+    /// a dropped result might plausibly default to.
+    func testAProviderThatGenuinelySuspendsIsDrivenThroughTheGate() async throws {
+        let invocation = try makeInvocation()
+        let provider = SuspendingActionProvider(
+            toolIDs: ["delete-downloads"], describedRadius: .destructive,
+            outcome: .failed(reasonKey: "suspending.diskFull"))
+
+        let decision = await ActionGate.submit(
+            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            approval: .granted)
+
+        XCTAssertEqual(
+            decision,
+            .invoked(
+                summary: ActionSummary(
+                    sentence: "Suspending stub would run delete-downloads on dev.vocca.stub.",
+                    blastRadius: .destructive),
+                outcome: .failed(reasonKey: "suspending.diskFull")),
+            "the gate awaited both halves of an actor-backed provider and reported what each "
+                + "returned — the whole of what the asynchronous seam buys")
+        let describeCount = await provider.describeCount
+        let invokeCount = await provider.invokeCount
+        let suspensionCount = await provider.suspensionCount
+        XCTAssertEqual(describeCount, 1, "the sentence came from the provider, once")
+        XCTAssertEqual(invokeCount, 1, "and the acting half really was reached")
+        XCTAssertEqual(
+            suspensionCount, 2,
+            "both operations genuinely suspended — 'asynchronous' here is behaviour, not a "
+                + "keyword a synchronous body could have worn")
+    }
+
+    /// **Suspension does not turn the refusal into a race.**
+    ///
+    /// The load-bearing refusal, re-asserted against a provider that suspends inside the gate's
+    /// own call, and against eight submissions in flight at once. A gate that had become
+    /// re-entrant across its suspension points — deciding on state observed before an `await`
+    /// and acting on it after — would show up here as an acting count above zero. The refusal is
+    /// still made by *attempting the call*: each submission is a destructive invocation of an
+    /// enabled tool with no approval, exactly the bypass C13 requires to be denied.
+    ///
+    /// `describeCount` is asserted at eight rather than ignored: it is the vacuity guard. Eight
+    /// submissions that never reached the provider at all would report an invoke count of zero
+    /// for the wrong reason.
+    func testASuspendingProviderIsStillRefusedWithoutAConfirmation() async throws {
+        let invocation = try makeInvocation()
+        let provider = SuspendingActionProvider(
+            toolIDs: ["delete-downloads"], describedRadius: .destructive)
+        let enablement = ActionEnablement([invocation])
+        let submissions = 8
+
+        let decisions = await withTaskGroup(of: ActionDecision.self) { group in
+            for _ in 0..<submissions {
+                group.addTask {
+                    await ActionGate.submit(invocation, to: provider, enablement: enablement)
+                }
+            }
+            var collected: [ActionDecision] = []
+            for await decision in group {
+                collected.append(decision)
+            }
+            return collected
+        }
+
+        let refusal = ActionDecision.confirmationRequired(
+            ActionSummary(
+                sentence: "Suspending stub would run delete-downloads on dev.vocca.stub.",
+                blastRadius: .destructive))
+        XCTAssertEqual(decisions.count, submissions, "every submission came back")
+        XCTAssertEqual(
+            decisions, Array(repeating: refusal, count: submissions),
+            "every one of them was refused, carrying the sentence a human would be shown — the "
+                + "refusal is a property of each decision, not of there having been only one in "
+                + "flight")
+
+        let invokeCount = await provider.invokeCount
+        let describeCount = await provider.describeCount
+        XCTAssertEqual(
+            invokeCount, 0,
+            "the number C13's acceptance reads, unchanged by the provider suspending inside the "
+                + "gate's own call")
+        XCTAssertEqual(
+            describeCount, submissions,
+            "vacuity guard: the provider really was asked what each one would do — a zero read "
+                + "from a provider nothing ever reached would be evidence of nothing")
     }
 }
