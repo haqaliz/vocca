@@ -285,6 +285,15 @@ public enum ActionDecision: Sendable, Equatable {
 ///    granted; otherwise previewing an already-approved action would perform it.
 /// 4. **Confirmation, last.** ``BlastRadius/requiresConfirmation`` is the one branch point, read
 ///    from the effective radius.
+///
+/// ## The suspension changes none of that
+///
+/// ``submit(_:to:_:_:_:)`` is `async` because the seam it calls is (`async-seam`, 2026-09-19).
+/// The order above is unchanged and so is the never-read property: the enablement guard runs
+/// before the first `await`, so a disabled tool is declined without the gate ever suspending into
+/// the provider. The gate still owns no state — everything it decides on arrives as an argument
+/// and lives in a local — so two submissions in flight at once are two independent decisions with
+/// nothing observable between them, which is what keeps the refusal from becoming a race.
 public enum ActionGate {
 
     /// Whether a submission may act, or is only rehearsing.
@@ -318,14 +327,15 @@ public enum ActionGate {
         policy: ActionRadiusPolicy = .none,
         approval: ActionApproval = .withheld,
         mode: Mode = .live
-    ) -> ActionDecision {
-        // 1. Never-read: an unenabled tool is not asked what it would do.
+    ) async -> ActionDecision {
+        // 1. Never-read: an unenabled tool is not asked what it would do. Before the first
+        //    `await` — the gate does not suspend into a provider it has already declined.
         guard enablement.isEnabled(invocation) else {
             return .declined(.toolNotEnabled)
         }
 
         // 2. The provider's sentence, with the radius the gate will actually act on.
-        let described = provider.describe(invocation)
+        let described = await provider.describe(invocation)
         let summary = ActionSummary(
             sentence: described.sentence,
             blastRadius: policy.effectiveRadius(
@@ -345,6 +355,6 @@ public enum ActionGate {
 
         return .invoked(
             summary: summary,
-            outcome: provider.invoke(invocation, confirmation: ActionConfirmation()))
+            outcome: await provider.invoke(invocation, confirmation: ActionConfirmation()))
     }
 }

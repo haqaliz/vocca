@@ -33,18 +33,28 @@
 /// "Zero side effects" is therefore scoped precisely: it means `invoke` is called zero times,
 /// which is a thing a test can assert by counting.
 ///
-/// ## Synchronous and non-throwing, deliberately
+/// ## `async`, and deliberately **not** `async throws`
 ///
-/// Both operations are synchronous and non-throwing, the C12 D1 posture carried forward.
+/// Both operations are `async` (`async-seam`, 2026-09-19). They were synchronous, on the C12 D1
+/// posture — an adapter whose work was asynchronous would become an `actor` and conform through a
+/// `nonisolated` witness. That route works only where the underlying work is *synchronous*, as
+/// the Accessibility C API is. **A `nonisolated` synchronous witness cannot await an actor**, so
+/// for a provider backed by the audit store — an actor with `async throws` methods — or by MCP
+/// over stdio, file I/O or a subprocess, there was no conformance to write at all. The first
+/// honest attempt at a second provider failed against the contract rather than against its own
+/// design, which is what changed the shape here.
+///
+/// Both operations, not only the acting one: a confirmation has to say what will happen **in
+/// concrete terms** — "clear the audit log, 12 entries, permanently" — and a count like that is a
+/// read. A synchronous ``describe(_:)`` forces vague copy, which is the specific failure C13
+/// names.
+///
+/// **Not `async throws`, and that is load-bearing.** Failure stays a *returned value*:
 /// `describe` cannot fail — an unknown tool is described as a refusal, never as an error (see
-/// ``NullActionProvider``) — and `invoke` returns its failure as an ``ActionOutcome`` value,
-/// which the audit log must record either way and which therefore must not be droppable by
-/// omitting a `catch`.
-///
-/// An adapter whose real work is asynchronous — an MCP client, a subprocess — takes the C12
-/// route rather than changing this signature: it becomes an `actor` and conforms through a
-/// `nonisolated` witness, and the deviation is recorded where the adapter lives. Changing the
-/// shape here is a reviewed decision about every provider at once.
+/// ``NullActionProvider``) — and `invoke` returns its failure as an ``ActionOutcome`` the audit
+/// log must record either way. An error is droppable by omitting a `catch`; an audit record must
+/// not be. Adding `throws` here would destroy that property, so it is a reviewed decision about
+/// every provider at once rather than a convenience at one call site.
 ///
 /// ## What ships behind it
 ///
@@ -69,7 +79,7 @@ public protocol ActionProvider: Sendable {
     ///
     /// - Parameter invocation: The provider and tool being asked about.
     /// - Returns: The concrete sentence and the blast radius the gate branches on.
-    func describe(_ invocation: ActionInvocation) -> ActionSummary
+    func describe(_ invocation: ActionInvocation) async -> ActionSummary
 
     /// Performs the action. **The only operation that acts.**
     ///
@@ -81,5 +91,6 @@ public protocol ActionProvider: Sendable {
     ///   attempt was made and failed, or ``ActionOutcome/notInvoked`` when the provider never
     ///   acted at all. A provider that declines must return `.notInvoked` rather than a
     ///   failure: the audit log distinguishes "tried and failed" from "never ran".
-    func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) -> ActionOutcome
+    func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) async
+        -> ActionOutcome
 }
