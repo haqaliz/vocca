@@ -166,6 +166,25 @@ cheaply reversible: the entry is versioned, and adding a bounded raw-argument fi
 an additive change that **fails the key-set byte-pin loudly on the day it is added**, which
 is exactly what that pin is for.
 
+### Addendum (2026-09-19) — a declined action has no radius and no sentence
+
+Shipped by `audit-log` and accepted: for a `.declined` decision the entry carries
+`blastRadius: null` and puts the gate's **bounded decline key** in `summary`.
+
+The reasoning, which is a consequence of the never-read property rather than a choice: a
+disabled tool is declined **before `describe` is ever called**, so the provider never spoke.
+There is no sentence and no radius to record. `null` is the honest value; synthesising a radius
+would record a classification nobody made, which is precisely the kind of fabricated-provenance
+entry an audit log exists to avoid.
+
+Key-set equality is unaffected — the key is present with a null value, so the byte pin still
+fails on the day a *new* field appears.
+
+**Noted for the MCP slice:** this mildly overloads `summary`, which otherwise holds a
+human-facing sentence and here holds a machine-readable key. Acceptable while the only two
+producers are the gate and a provider; if a third kind of entry appears, split the field rather
+than overloading it further.
+
 **The entry gets its own byte-level pin** (the `PersistentConsentStoreTests.swift:469`
 pattern): exact key-set equality, and no `HH:MM` / ISO-8601 / Zulu / epoch-shaped values —
 while permitting `summary`, since a summary with no content would defeat the log's purpose.
