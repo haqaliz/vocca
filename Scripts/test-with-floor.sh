@@ -1844,8 +1844,22 @@ set -euo pipefail
 # permitted rows naming one file, the structural minimum the seam's signatures force — the count
 # taken from the floor script's own parse in the ratchet commit.
 #
+# The protocol-core raise (2561 -> 2595; executed 2595) — the C13 slice-3 MCP protocol layer,
+# built with NO transport that touches the OS (the Q3 decision): `MCPProtocolTests` (13 — JSON-RPC
+# framing, id correlation by bounded forward scan, typed failures for malformed frames, and the
+# in-memory transport's request recording), `MCPSessionTests` (20 — initialize negotiation,
+# tools/list parsing, and the two fail-safe defaults: a tool with no readOnlyHint is NOT read-only
+# and a session that failed initialize is unusable, the refusal asserted to happen BEFORE the
+# request leaves with a perfectly good reply scripted behind it so the failure cannot be an
+# absence of anything to read), and one ZeroNetworkTests guard-the-guard for the new PROBE-MCP
+# post-condition. One hazard found and closed in code rather than in prose: JSONSerialization
+# collapses booleans and numbers into NSNumber and `as? Bool` accepts 1, so a server sending
+# `"readOnlyHint": 1` would have been read as claiming read-only — fail-safe defeated by a parser
+# detail rather than a missing check. CFBooleanGetTypeID undoes the collapse in exactly one place
+# — the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2561
+MINIMUM_EXECUTED_TESTS=2595
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

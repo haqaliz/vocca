@@ -82,3 +82,33 @@ slice, where D2 is confronted directly). The intent layer. Any user-visible surf
   them; if this slice trips that lint, that is a **genuine finding**, not a reason to widen it.
 - The action-family lint costs **five permitted rows per real provider** — expected, recorded.
 - No gate passes. This will be the seventh unit built ahead of the uncleared gates.
+
+---
+
+## Findings from `protocol-core` (2026-09-20)
+
+**F1 — a safety-gate bypass by parser detail, found and closed.** `JSONSerialization` collapses
+JSON booleans and numbers into `NSNumber`, and `as? Bool` succeeds for `1`. A server sending
+`"readOnlyHint": 1` would therefore have been read as **claiming read-only** — defeating the
+fail-safe default not by a missing check but by a type confusion underneath a check that looked
+correct. `CFBooleanGetTypeID()` undoes the collapse in exactly one place (`JSONRPC.swift:48-50`),
+and `1`, `"true"` and `null` are all asserted to be non-claims.
+
+This is the first place in the tree where **untrusted input reaches a safety decision**, and the
+class of bug is worth carrying into the stdio slice: a real server is hostile input, and the
+damage here came from a parsing library's convenience rather than from anything the code omitted.
+
+**F2 — the module-coverage cross-check cannot see the MCP drive's removal.** `VoccaActions` is
+already in the probe's module coverage list via the audit drive, so **deleting the `PROBE-MCP`
+drive would leave the cross-check green.** The accessor and its assertion are the only thing
+holding the protocol layer inside the zero-network invariant — the structural check that catches
+an *undriven module* cannot catch an *undriven layer within a driven module*.
+
+Recorded rather than fixed: the guard-the-guard makes weakening the assertion a visible edit,
+which is the available mitigation. Worth knowing before the stdio slice adds the layer that most
+needs watching.
+
+**F3 — the seam is send/receive, not request/response.** A single exchange operation cannot
+express out-of-order correlation; making correlation real code required a bounded forward scan,
+which also supplied the untrusted-peer bound (`maxFramesScanned = 8`). The plan's framing was
+wrong and the implementation's is better.
