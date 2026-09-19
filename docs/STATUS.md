@@ -10,6 +10,98 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `action-safety-spine` unit shipped 2026-09-19 — C13 slice 1: the safety spine of
+Actions/MCP, machinery-only, over a stub provider; nothing executes; no gate passes.**
+`feat/action-safety-spine/aliz`.
+Five aspects: the `ActionProvider` seam and its Foundation-free vocabulary, the `ActionGate`
+with the structural refusal and the escalate-only policy, the `VoccaActions` module with the
+append-only audit store and its byte-level pin, the transport prohibition lint, and this record.
+**No MCP wire, no transport, no intent layer, no real tool execution, no user-visible surface,
+and nothing wired into the composition root.** SMOKE steps stop at 143 and this unit adds
+**none** — nothing executes, so there is no real-machine observation for the founder to make.
+Floor **2551** (executed 2551).
+
+**What shipped, per aspect.** *action-seam* (7b104de, f5ad683, d1db69d, b0b168f, c7f6497,
+a23b9ca; 2475 → 2500): `VoccaCore/Actions/` — `ActionProvider` with the **`describe`/`invoke`
+split** (a pure, side-effect-free `describe` renders the concrete sentence; only `invoke` acts —
+without the split, "dry-run never touches the provider" and "the confirmation states concretely
+what will happen" are contradictory requirements), `ActionInvocation`, `ActionSummary`,
+`ActionOutcome` (failure is a *returned* value with a reason key, so an omitted `catch` cannot
+drop an audit record), `BlastRadius`, `ActionConfirmation` (`public struct`, **`internal`
+init**), and `NullActionProvider`. All Foundation-free — Core's import allow-list is empty. The
+action-family seam lint plus the **forgery guard** spanning `Sources/` and `Tests/`, with planted
+and comment-strip controls. `RecordingActionProvider` and its self-checks — the non-empty domain
+the later dry-run and reconstruction acceptances need. *confirmation-gate* (efa3344, 0513693,
+b0856b8, 20021d3, b6b54cc; 2500 → 2517): `ActionGate`, a pure value — the without-a-token refusal
+asserted **by attempting the call**, the read-only direct path, dry-run invoking nothing, per-tool
+enablement declining **before `describe` and before `invoke`**, per-invocation-only confirmation,
+refusal distinguishable from failure, and the escalate-only policy written so it returns one of
+its two arguments and never a third, making de-escalation unreachable rather than merely
+forbidden. The reviewed lint widening that admitted `ActionGate.swift` as the tree's single
+permitted minting site. *audit-log* (e26f1dc, 8b8c430, 370f00f, f5fc431, 978436f, 64934d9;
+2517 → 2541): the **`VoccaActions`** target (deps exactly `["VoccaCore"]`, asserted by equality),
+`ActionAuditEntry` and the append-only store — **one file per event**, zero-padded ordinal,
+`.tmp` mid-commit, `replaceItemAt` rename-over, tolerant decode that never throws, eviction on
+write; the instant as **monotonic `Duration` components, never a wall clock**; the byte-level pin
+with its one deliberate divergence from its ancestors (**`summary` may carry text** — a summary
+with no content would defeat the log's purpose); and `PROBE-ACTIONS`, which was **obliged rather
+than chosen** (the manifest-equality assertion refuses to let a shipped product target exist
+undriven). *transport-prohibition* (ad431f6, 78267e2; 2541 → 2551): the empty-permitted-set lint
+over `Sources/VoccaActions/` for all seven transport and subprocess families, carrying the **D2**
+rationale it exists to preserve. *record* (this entry).
+
+**The G5 pin was NOT re-anchored — stated as a positive claim.** This unit wires nothing into
+the composition root, so `AppBootstrap.swift` was never edited and all three digests are
+unchanged, verified by computation:
+`SessionMachine.swift 1baeb2de2c45149746468bfef49862a08279008d3d2f305be892122d5727537e`,
+`DictationPipeline.swift ce70ca10c15914d6960f07e53da8571a5fa9ec1fb58b8f0051ef051f16c07a84`,
+`AppBootstrap.swift 464b0d5a0e63b69dda8e72ca9ee793ff189e0d70094491c5bfde2c53e0328aff`.
+C11 and C12 each re-anchored twice; keeping this slice unwired avoided the ritual entirely.
+
+**Deviations and follow-ons recorded.**
+- **D2 — the zero-network invariant is blind through a spawned child.** Measured empirically in
+  the dig, not read: the interposer counts **loopback as NETWORK on purpose**
+  (`interposer.c:69-73`), so an MCP server on `127.0.0.1` over HTTP/SSE is a violation and stdio
+  is the only permitted transport. But a *restricted* child ignores `DYLD_INSERT_LIBRARIES` **and
+  purges `DYLD_*` from the environment it passes on**, laundering the insertion for the whole
+  descendant tree. Measured: direct absolute-path spawn of a locally built binary → SEEN; `node`
+  carrying the dyld-env entitlement → SEEN; `/usr/bin/python3`, `/usr/bin/curl`, `/usr/bin/tar`,
+  any `/bin/sh -c` wrapper, and `#!/usr/bin/env node` → **BLIND**. **The failure mode is a green
+  test while a child egresses** — a false green in the permanent release blocker. This unit
+  cannot fix it; the prohibition lint makes reaching for a transport a reviewed edit.
+- **D3 — guardrail 7 is unmet.** `MCPProvider` and `ShellProvider` are both PENDING;
+  `NullActionProvider` is a shipped default, **not** a second implementation. The
+  `ParakeetEOU` Branch B precedent. No test enforces the doctrine, so this is an honesty
+  obligation.
+- **N1 — persisted per-tool enablement**, in-memory in this slice: no tools exist to enable yet,
+  so persisting an empty set would be premature.
+- **N2 — an approval asserts a human said yes; it cannot verify it.** `ActionApproval` is
+  payload-free and defaults to `.withheld`, so *"don't ask me again" has no representation in the
+  type* — but `.granted` is publicly constructible. The tightening, once a surface exists, is to
+  bind an approval to the exact invocation and sentence shown.
+- **A decomposition rule, learned the hard way:** the aspect that creates a module owns that
+  module's probe drive. The plan missed it and the implementing agent stopped on it.
+
+**Measured (recorded, never gated):** **nothing was measured in this unit, and no number below is
+a claim about behaviour on a real machine.** The only figures are test counts: the suite executed
+**2551** through the floor script (`N == E`). No percentage exists, and none may be quoted.
+
+**The honesty block:**
+- **No P2/P3/P4 gate passes.** This is the **fifth unit built ahead of the uncleared gates** under
+  the recorded posture; every record says "No gate passes", and this one does.
+- **R8 is mitigated in structure, not measured.** No "zero unintended actions" number exists and
+  none may be quoted — **nothing executes**, so there is nothing to count.
+- **The seam is not proven.** Guardrail 7 is unmet (D3). The pluggable claim for `ActionProvider`
+  is an assertion until a second real implementation ships.
+- **The P3 gate's conversational leg remains open.** This slice ships no agent; `EchoReplyGenerator`
+  is still the shipped stand-in.
+- **`PROBE-ACTIONS` proves less than it may appear to.** It proves the audit store reaches no
+  network name. It says nothing about a transport a later slice may spawn — see D2.
+- **No SMOKE rows.** Steps stop at 143. Deliberate, not an omission.
+- Floor **2551** (executed 2551).
+
+---
+
 **The `context-provider` unit shipped 2026-09-18 — C12's context half of the wedge: the seam
 with two local implementations, the per-app consent gate, the visible indicator and the
 one-action kill switch, the BYOK exclusion grant; the privacy claim is auditable rather than
