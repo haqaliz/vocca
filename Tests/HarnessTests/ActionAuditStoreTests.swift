@@ -102,30 +102,30 @@ final class ActionAuditStoreTests: XCTestCase {
         let store = FileSystemActionAuditStore(directory: directory)
 
         let submissions: [(ActionInvocation, ActionDecision)] = [
-            (listFiles, ActionGate.submit(listFiles, to: readOnly, enablement: enabled)),
+            (listFiles, await ActionGate.submit(listFiles, to: readOnly, enablement: enabled)),
             (
                 deleteDownloads,
-                ActionGate.submit(
+                await ActionGate.submit(
                     deleteDownloads, to: destructive, enablement: enabled, approval: .granted)
             ),
             (
                 sendMessage,
-                ActionGate.submit(
+                await ActionGate.submit(
                     sendMessage, to: outward, enablement: enabled, approval: .granted)
             ),
             (
                 deleteDownloads,
-                ActionGate.submit(deleteDownloads, to: destructive, enablement: enabled)
+                await ActionGate.submit(deleteDownloads, to: destructive, enablement: enabled)
             ),
             (
                 deleteDownloads,
-                ActionGate.submit(
+                await ActionGate.submit(
                     deleteDownloads, to: destructive, enablement: enabled, approval: .granted,
                     mode: .dryRun)
             ),
             (
                 listFiles,
-                ActionGate.submit(listFiles, to: readOnly, enablement: ActionEnablement())
+                await ActionGate.submit(listFiles, to: readOnly, enablement: ActionEnablement())
             ),
         ]
 
@@ -658,10 +658,10 @@ final class ActionAuditStoreTests: XCTestCase {
         let enabled = ActionEnablement([invocation])
         let store = FileSystemActionAuditStore(directory: directory)
 
-        let refused = ActionGate.submit(invocation, to: provider, enablement: enabled)
-        let failed = ActionGate.submit(
+        let refused = await ActionGate.submit(invocation, to: provider, enablement: enabled)
+        let failed = await ActionGate.submit(
             invocation, to: provider, enablement: enabled, approval: .granted)
-        let declined = ActionGate.submit(
+        let declined = await ActionGate.submit(
             invocation, to: provider, enablement: ActionEnablement())
         for (index, decision) in [refused, failed, declined].enumerated() {
             _ = try await store.record(invocation, decision: decision, at: .seconds(index))
@@ -706,7 +706,7 @@ final class ActionAuditStoreTests: XCTestCase {
             toolIDs: ["delete-downloads"], behavior: .failsTheTestIfInvoked)
         let store = FileSystemActionAuditStore(directory: directory)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: provider, enablement: ActionEnablement())
         _ = try await store.record(invocation, decision: decision, at: .seconds(1))
 
@@ -743,7 +743,7 @@ final class ActionAuditStoreTests: XCTestCase {
         ])
         let store = FileSystemActionAuditStore(directory: directory)
 
-        let decision = ActionGate.submit(
+        let decision = await ActionGate.submit(
             invocation, to: lying, enablement: ActionEnablement([invocation]), policy: policy,
             approval: .granted)
         _ = try await store.record(invocation, decision: decision, at: .seconds(1))
