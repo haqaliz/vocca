@@ -85,7 +85,7 @@ final class StdioMCPTransportTests: XCTestCase {
         readTimeout: Duration = .seconds(5),
         pollInterval: Duration = .milliseconds(1),
         maxFrameBytes: Int = StdioMCPTransport.Configuration.defaultMaxFrameBytes,
-        clock: (any MonotonicClock)? = nil,
+        clock: (any MonotonicClock & Sendable)? = nil,
         sleeper: (any StdioPollSleeper)? = nil,
         body: (StdioMCPTransport) async throws -> Void
     ) async throws {
@@ -271,14 +271,17 @@ final class StdioMCPTransportTests: XCTestCase {
     func testAChildThatExitsMidExchangeYieldsATypedFailureRatherThanAHang() async throws {
         try await withChild(Self.echoingChild) { transport in
             let payload = self.frame("{\"id\":1}")
-            XCTAssertNil(await transport.send(payload), "the first frame must leave")
+            let sent = await transport.send(payload)
+            XCTAssertNil(sent, "the first frame must leave")
+            let echoed = await transport.receive()
             XCTAssertEqual(
-                await transport.receive(), .success(payload),
+                echoed, .success(payload),
                 "the child must be alive and echoing before it is killed — otherwise this test "
                     + "stages nothing")
 
+            let identifier = await transport.childProcessIdentifier
             let pid = try XCTUnwrap(
-                await transport.childProcessIdentifier, "a started transport must have a child")
+                identifier, "a started transport must have a child")
             XCTAssertEqual(kill(pid, SIGKILL), 0, "the fixture child must be killable")
 
             let afterDeath = await transport.receive()
@@ -398,8 +401,9 @@ final class StdioMCPTransportTests: XCTestCase {
     func testAFrameLargerThanTheBoundIsRefusedAndTheRefusalIsTerminal() async throws {
         try await withChild(Self.echoingChild, maxFrameBytes: 64) { transport in
             let oversize = Data(repeating: UInt8(ascii: "a"), count: 4096)
+            let sent = await transport.send(oversize)
             XCTAssertNil(
-                await transport.send(oversize),
+                sent,
                 "the outbound frame is ours and is not capped — the cap is on the peer's reply")
 
             let received = await transport.receive()
@@ -417,12 +421,14 @@ final class StdioMCPTransportTests: XCTestCase {
                 "the refused bytes must be dropped, not kept — a bound that caps growth but "
                     + "retains what it refused has only moved the leak")
 
+            let asked_again = await transport.receive()
             XCTAssertEqual(
-                await transport.receive(), .failure(.peerUnavailable),
+                asked_again, .failure(.peerUnavailable),
                 "the refusal is terminal: a peer we stopped reading from is not a peer we may "
                     + "resume trusting by asking again")
+            let sentAfterRefusal = await transport.send(self.frame("{}"))
             XCTAssertEqual(
-                await transport.send(self.frame("{}")), .peerUnavailable,
+                sentAfterRefusal, .peerUnavailable,
                 "and terminal in both directions")
         }
     }
@@ -443,10 +449,12 @@ final class StdioMCPTransportTests: XCTestCase {
             configuration: configuration,
             clock: ContinuousStdioClock(),
             sleeper: TaskStdioPollSleeper())
-        XCTAssertNil(await transport.start(), "the fixture child must launch")
+        let launchFailure = await transport.start()
+        XCTAssertNil(launchFailure, "the fixture child must launch")
 
+        let identifier = await transport.childProcessIdentifier
         let pid = try XCTUnwrap(
-            await transport.childProcessIdentifier, "a started transport must have a child")
+            identifier, "a started transport must have a child")
         XCTAssertEqual(
             kill(pid, 0), 0, "the child must be alive before teardown — otherwise this test "
                 + "asserts nothing about teardown")
@@ -475,8 +483,9 @@ final class StdioMCPTransportTests: XCTestCase {
         try await withChild(Self.silentChild, arguments: ["300"]) { transport in
             await transport.shutdown()
             await transport.shutdown()
+            let identifier = await transport.childProcessIdentifier
             XCTAssertNil(
-                await transport.childProcessIdentifier,
+                identifier,
                 "a shut-down transport holds no child — and the helper is about to call shutdown "
                     + "a third time")
         }

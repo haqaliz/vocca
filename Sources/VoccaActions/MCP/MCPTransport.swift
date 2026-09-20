@@ -54,7 +54,33 @@ import Foundation
 /// matching a response to its request is done by **id**, above this seam, by
 /// ``JSONRPCResponse/answers(_:)``. A seam that promised "the reply to this request" would be
 /// promising something no real peer guarantees.
+///
+/// ## The one thing the seam does say about the machine: ``spawnsSubprocess``
+///
+/// The vocabulary rule above has exactly one exception, and it is deliberate. A conformer that
+/// starts a child process starts it **on the user's machine**, and D2 says plainly that nothing in
+/// this process can see what that child then does. A composition root has to be able to fold that
+/// fact — into a badge, into a refusal, into a sentence shown before anything runs — and a fact it
+/// can only learn by starting the child arrives too late to decide anything with.
+///
+/// So the declaration is a **value**, defaulting to `false`, exactly as
+/// ``CleanupProvider/requiresNetwork`` is (`CleanupProvider.swift:29-33`): a conformer that starts
+/// nothing stays silent and is quiet by construction, and a conformer that starts something has to
+/// say so in code rather than in a comment somebody must remember to read. Note what this is
+/// *not*: it is not a guarantee about the child's behaviour, because no such guarantee is
+/// obtainable. It is a declaration that a child exists at all.
 public protocol MCPTransport: Sendable {
+
+    /// Whether using this transport starts a child process on the user's machine.
+    ///
+    /// `false` by default (see the extension). A conformer that spawns declares `true`, and the
+    /// composition root folds it — the ``CleanupProvider/requiresNetwork`` shape, for the same
+    /// reason: the user is owed the fact at the point of use.
+    ///
+    /// Readable without starting anything, and **nonisolated** so that an actor conformer answers
+    /// it without a suspension. A declaration a caller must `await` is a declaration a caller will
+    /// route around.
+    var spawnsSubprocess: Bool { get }
 
     /// Hands one frame to the peer.
     ///
@@ -67,6 +93,17 @@ public protocol MCPTransport: Sendable {
     /// - Returns: The frame's bytes — **unvalidated**; everything about their shape is decided
     ///   above this seam — or the reason there is nothing to take.
     func receive() async -> Result<Data, MCPTransportFailure>
+}
+
+extension MCPTransport {
+
+    /// The quiet default: a transport that does not declare ``spawnsSubprocess`` starts nothing.
+    ///
+    /// The same construction as ``CleanupProvider/requiresNetwork``'s offline default, and it
+    /// carries the same weight. ``InMemoryMCPTransport`` stays silent here on purpose: it appends
+    /// to an array and removes from one, so its `false` is a structural fact rather than a
+    /// promise, and the default is where a structural fact belongs.
+    public var spawnsSubprocess: Bool { false }
 }
 
 /// What a transport cannot do.
