@@ -10,6 +10,72 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `stdio-transport` unit shipped 2026-09-21 — C13 slice 4: `StdioMCPTransport`, the second
+`MCPTransport` implementation (guardrail 7 met for that seam), and **the answer to D2**; no gate
+passes.** `feat/stdio-transport/aliz`. Floor **2629** (executed 2629).
+
+**D2 is answered, not solved — and the answer is a narrowed claim, not a better mechanism.**
+The transport prohibition lint's doc comment had said since slice 1 that whoever adds a permitted
+entry *"owes the review an answer to D2"*. The honest answer: **the child is not observable, and
+no mitigation makes an arbitrary child observable.** A restricted child ignores
+`DYLD_INSERT_LIBRARIES` **and purges `DYLD_*` from the environment it passes on**, so one hop
+launders the insertion for the whole descendant tree.
+
+So the claim changed shape, following the **BYOK precedent** — BYOK is not an exception to the
+zero-network test, it is *unreachable* by it. No MCP server is configured out of the box, so the
+**default configuration cannot create a child**: the probe never reaches a spawn, and there is no
+blind child to be blind about. `spawnsSubprocess` is a declared **value** (the analogue of
+`requiresNetwork`), so a composition root folds a fact rather than remembering a comment.
+
+**The deliverable that matters most is a sentence.** The project's central promise now reads
+*"the default configuration makes zero network calls **and spawns no child process**"* in
+`CLAUDE.md` and `README.md` — and `README.md` now states the limit plainly for users: Vocca's
+network check watches its own process and **cannot see inside a program Vocca starts on your
+behalf**, so configuring an MCP server is trust extended to that server's author, not a guarantee
+we can make. The docs stop letting the interposer's reputation imply coverage it does not have.
+
+**The lint's permitted set went from empty to exactly one** —
+`VoccaActions/MCP/StdioMCPTransport.swift` — with the D2 answer in its comment. `Process(`
+appears in exactly one file in the module. **Leg (b) — every permitted file *does* name the
+family — stopped being vacuous for the first time since the lint shipped.**
+
+**Four of the seven acceptances concern a hostile child on purpose**, because a spawned peer is
+*less* trustworthy than an in-memory one: exit mid-exchange yields a typed failure; an
+unresponsive child hits a bounded **injected-clock** timeout, asserted with a wait-count so a
+spin loop cannot pass it; a flooding child is bounded; and **no orphan survives teardown**,
+asserted on the real pid with `kill(pid, 0) == -1 && errno == ESRCH` — **ESRCH specifically,
+because a zombie answers `kill(pid, 0)` successfully.**
+
+**Two defects found by the acceptances rather than by review.** `Process.waitUntilExit()`
+**deadlocks** here — it spins the calling thread's runloop — and hung the suite; teardown now
+polls `kill(pid, 0)` bounded, then SIGKILLs. And the frame cap **missed a complete oversize
+frame** whose delimiter arrived in the same read.
+
+**A scope deviation, recorded:** the card put "any change to the seam" out of scope, but
+`spawnsSubprocess` had to become an `MCPTransport` requirement (defaulting to `false`). It is
+additive and a default keeps every call site compiling, but it *is* a seam change and is named
+rather than slipped in.
+
+**Measured (recorded, never gated):** **nothing was measured.** Test counts only: **2629**
+executed (`N == E`).
+
+**The honesty block:**
+- **No gate passes.** The eighth unit built ahead of the uncleared gates.
+- **Guardrail 7 is now MET for `MCPTransport`** — two real implementations, one of which spawns
+  a real process.
+- **D2 is answered, not eliminated.** The blindness is permanent. What changed is that the
+  default configuration cannot create a blind child, and the documentation now says where the
+  claim stops.
+- **Nothing is wired.** No composition root, no surface, no server configuration — so nothing
+  spawns in a shipped configuration today. The G5 pin was **not** re-anchored; all three digests
+  unchanged.
+- **The test suite is itself an instance of D2**: it drives `/bin/cat` and `/bin/sleep`, Apple
+  platform binaries, which are blind to the interposer.
+- **No SMOKE rows.** Steps still stop at 143.
+- Floor **2629** (executed 2629).
+
+---
+
 **The `mcp-protocol` unit shipped 2026-09-20 — C13 slice 3: the MCP protocol layer and
 `MCPProvider`, built with **no transport that touches the OS**; no gate passes.**
 `feat/mcp-protocol/aliz`. Three aspects. Floor **2617** (executed 2617).

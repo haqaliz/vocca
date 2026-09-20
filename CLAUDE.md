@@ -2,12 +2,33 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-20).** The skeleton exists; **the product does not.**
+> **Status (2026-09-21).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`stdio-transport` (C13 slice 4, shipped 2026-09-21):** `StdioMCPTransport` ships as the
+> second `MCPTransport` implementation — **guardrail 7 met for that seam** — and with it **the
+> answer to D2**, which the transport lint had demanded since slice 1. The answer is a *narrowed
+> claim*, not a better mechanism: the child is **not observable** and no mitigation makes an
+> arbitrary child observable, so — following the BYOK precedent of being *unreachable* rather
+> than *excepted* — **no server is configured out of the box and the default configuration
+> cannot create a child**. `spawnsSubprocess` is a declared value (the analogue of
+> `requiresNetwork`). **The promise narrowed in writing:** the default configuration makes zero
+> network calls **and spawns no child process**, and `README.md` now states the limit for users —
+> Vocca's check watches its own process and **cannot see inside a program Vocca starts on your
+> behalf**, so configuring an MCP server is trust extended to that server's author. The lint's
+> permitted set went from empty to **exactly one** file, and its leg (b) stopped being vacuous
+> for the first time. Four of seven acceptances concern a hostile child: typed failure on
+> mid-exchange exit, a bounded injected-clock timeout with a wait-count so a spin loop cannot
+> pass, a bounded flood, and **no orphan** — asserted `kill(pid, 0) == -1 && errno == ESRCH`,
+> ESRCH specifically because a **zombie answers `kill(pid, 0)` successfully**. Two defects the
+> acceptances found: `Process.waitUntilExit()` **deadlocks** here and hung the suite, and the
+> frame cap missed a complete oversize frame. **No gate passes** (eighth unit ahead of the
+> uncleared gates); nothing is wired, so nothing spawns in a shipped configuration; G5 not
+> re-anchored; no SMOKE rows. Test floor: **2629**.
 >
 > **`mcp-protocol` (C13 slice 3, shipped 2026-09-20):** the MCP protocol layer ships with **no
 > transport that touches the OS** — the Q3 decision, and the same shape as slice 1. `MCPTransport`
@@ -294,7 +315,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2617 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 2629 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
@@ -415,7 +436,8 @@ Decided in the planning session after a research pass on current local macOS ASR
 - **License:** **Apache-2.0** (patent grant matters for system-level input injection).
 
 **Two invariants govern everything:** a transcript is never lost, and the default
-configuration makes zero network calls (asserted by a CI test that is a permanent release
+configuration makes zero network calls **and spawns no child process** (asserted by a CI test
+that is a permanent release
 blocker).
 
 ---
