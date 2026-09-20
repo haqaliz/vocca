@@ -1873,8 +1873,23 @@ set -euo pipefail
 # not part of a function's type — so the pin is a scan over `Sources/` and `Tests/`, the Family B
 # precedent — the count taken from the floor script's own parse in the ratchet commit.
 #
+# The stdio-transport raise (2617 -> 2629; executed 2629) — the C13 slice-4 transport aspect, the
+# second `MCPTransport` implementation and therefore guardrail 7 met for that seam:
+# `StdioMCPTransportTests` (12). Four of the seven acceptances concern a HOSTILE child on purpose
+# — a spawned peer is less trustworthy than an in-memory one, not more: exit mid-exchange yields a
+# typed failure, an unresponsive child hits a bounded injected-clock timeout (asserted with a
+# wait-count so a spin loop cannot pass it), a flooding child is bounded, and no orphan survives
+# teardown — the last asserted on the real pid with `kill(pid, 0) == -1 && errno == ESRCH`, ESRCH
+# specifically because a ZOMBIE answers `kill(pid, 0)` successfully. Two more carry the D2 answer
+# as tests rather than prose: nothing under `Sources/` outside the transport file names the type,
+# and construction spawns nothing until `start()`. Two defects were found by the acceptances
+# rather than by review: `Process.waitUntilExit()` DEADLOCKS here (it spins the calling thread's
+# runloop) and hung the suite, so teardown polls `kill(pid, 0)` bounded then SIGKILLs; and the
+# frame cap missed a COMPLETE oversize frame whose delimiter arrived in the same read — the count
+# taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2617
+MINIMUM_EXECUTED_TESTS=2629
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

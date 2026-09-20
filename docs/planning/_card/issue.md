@@ -1,114 +1,90 @@
-# Card: feat/mcp-protocol
+# Card: feat/stdio-transport
 
-> Inline brief — no GitHub issue (`gh issue list` is empty). Source: the founder's "go ahead"
-> on 2026-09-19 delegating the **Q3 transport decision**, plus the `action-safety-spine` and
-> `local-data-provider` unit records.
+> Inline brief — no GitHub issue. Source: the founder's "continue until done" on 2026-09-21,
+> and the `mcp-protocol` unit record (Q3, deviation **D2**).
 
-## Q3, decided — **no transport in this slice** (implementer's call, delegated)
+## The unit
 
-The options were *stdio-only with the D2 blindness recorded* versus *no transport at all*.
-**No transport**, and the reasoning changed once slice 2 shipped:
+Ship `StdioMCPTransport` — the second `MCPTransport` implementation, closing **guardrail 7**
+for that seam — and, in doing so, answer **D2**.
 
-"No transport" no longer means "nothing useful". The substance of MCP is not the pipe — it is
-JSON-RPC framing, `initialize` negotiation, `tools/list` discovery, schema → invocation mapping,
-and whether a server's self-declared annotations may be trusted. **All of it is buildable and
-fully testable behind an `MCPTransport` seam with an in-memory implementation**, which makes
-zero syscalls and therefore runs honestly inside the zero-network interposer.
+## ⚠️ This unit must answer D2 before it may exist
 
-That leaves the stdio transport as its own small slice where **D2 is the entire conversation**
-rather than a footnote beneath a half-built protocol layer — and it sets `MCPTransport` up to
-satisfy guardrail 7 properly when the second (stdio) implementation lands.
+The transport prohibition lint forbids `Process` (and `URLSession`, `NW*`, `Network`,
+`posix_spawn`, `NSTask`, `system`) inside `VoccaActions`, with an **empty** permitted set. Its
+doc comment states the price of an entry:
 
-Same shape as slice 1: machinery before the risky part.
+> *"An entry added here is the reviewed edit this lint exists to force. Whoever adds one owes
+> the review an answer to D2: how the spawned transport stays observable when
+> `DYLD_INSERT_LIBRARIES` does not survive the hop."*
 
-## ⚠️ The central risk — the vocabulary may not survive contact, again
+**The honest answer is that it does not stay observable.** Measured in the C13 slice-1 dig:
+a restricted child ignores `DYLD_INSERT_LIBRARIES` *and purges `DYLD_*` from the environment it
+passes on*, so `/usr/bin/env node server.js`, any shell wrapper, and any Apple platform binary
+are **blind** to the interposer. One hop launders the insertion for the whole descendant tree.
+No mitigation makes an arbitrary child observable.
 
-`ActionInvocation` is **deliberately just two identifiers** (`providerID`, `toolID`). Its own doc
-comment says so:
+So the answer cannot be "we observe it". It has to be a different claim.
 
-> *"Arguments, a payload and a schema all belong to the intent layer that is explicitly out of
-> this unit's scope."*
+## The answer — the BYOK precedent, applied (implementer's call)
 
-**MCP's `tools/call` takes a name *and* an `arguments` object.** So an MCP tool call cannot be
-expressed by the current vocabulary.
+Vocca already has a component that egresses and yet leaves the invariant honest:
+`BYOKCleanupProvider`. It is not an *exception* to the zero-network test — it is **unreachable**
+in the default configuration. It is constructed at exactly one site behind a `case .byok:`
+requiring a persisted config block and a dialable endpoint that do not exist by default, so
+`PROBE-*` never reaches it; it declares `requiresNetwork = true` rather than inheriting the
+offline default; and that flag folds once at launch into a **structurally non-dismissable**
+egress badge.
 
-This is the same class of discovery as slice 2's async finding, and it must be **surfaced, not
-pre-decided**. The candidate resolutions, none chosen here:
+`StdioMCPTransport` takes the same shape:
 
-1. **Extend `ActionInvocation` with arguments.** Honest, but it changes the seam a third time and
-   pushes content into a type the audit log and the gate both read — which interacts with the
-   PRD §5 decision that raw arguments are *not* persisted.
-2. **Keep arguments inside the MCP provider**, keyed to a pending invocation. The gate never sees
-   them; `describe` renders them into the concrete sentence (the provider holds them, so it can).
-   Cost: the provider becomes stateful, with a keying and lifetime problem that smells racy.
-3. **A distinct argument-carrying type** that the intent layer owns and the provider consumes,
-   leaving `ActionInvocation` untouched.
+1. **Unreachable by default.** No server is configured out of the box, so the default
+   configuration **spawns nothing**. The probe never reaches a spawn, and the zero-network
+   assertion stays true *and verifiable* — because there is no child to be blind to.
+2. **Declares what it is.** The transport declares `spawnsSubprocess = true`, the analogue of
+   `requiresNetwork`, so the fact is a value the composition root can fold rather than a comment
+   someone has to remember.
+3. **Badged at the point of use.** A configured stdio server is visible, on the same footing as
+   the egress badge. *(The badge's surface is a later wiring slice — this unit ships the
+   declaration and the fold-ready value, not the pixels.)*
+4. **The claim is narrowed, in writing, everywhere it appears.** Today: *"the default
+   configuration makes zero network calls."* After this unit it must also say: **and spawns no
+   child process** — and, where a child *is* configured, that **Vocca cannot observe what that
+   child does on the network.** That sentence is the deliverable. A user enabling an MCP server
+   is extending trust to that server's author, and the docs must say so plainly rather than
+   implying our interposer still covers them.
 
-**Whichever is chosen must not quietly undo two shipped properties:** raw arguments are not
-persisted (PRD §5), and the confirmation sentence must stay concrete (C13).
+## The lint entry, and what it costs
 
-## What ships
+`StdioMCPTransport.swift` becomes the **single** permitted file naming `Process`. The permitted
+set goes from empty to exactly one, with the D2 answer above written into the entry's comment.
 
-- **`MCPTransport` seam** — send/receive JSON-RPC frames. No process, no socket.
-- **`InMemoryMCPTransport`** — a real, scriptable implementation for tests and the probe.
-- **The protocol layer** — JSON-RPC 2.0 framing, `initialize`, `tools/list`, `tools/call`,
-  error mapping.
-- **`MCPProvider`** conforming to `ActionProvider` (now `async`, which is why slice 2 had to
-  happen first).
+**If more than one file needs to name `Process`, stop** — the spawn must be confined to one file
+or the confinement is meaningless.
 
-## The `readOnlyHint` question — slice 1 already answered it
+## Acceptance (test-first)
 
-MCP servers declare their own tool annotations (`readOnlyHint` and friends). `action-safety-spine`
-recorded, before MCP existed, that **the blast radius is the provider's own claim and nothing
-verifies it**, so local policy may only ever *escalate*, never de-escalate.
-
-MCP makes that concrete: a server's `readOnlyHint` is **untrusted input to a safety decision**.
-It may raise our floor, never lower it. The rule was written in anticipation of exactly this;
-this slice is where it earns its keep — and where it must be exercised against a *lying* server
-in tests, not merely a well-behaved one.
+1. `StdioMCPTransport` conforms to `MCPTransport` — the second implementation; **guardrail 7 met
+   for that seam**.
+2. **The default configuration spawns nothing** — asserted, not assumed. No server configured ⇒
+   no process created.
+3. Framing over a pipe: a JSON-RPC frame written and read back across a real child process.
+4. **A child that dies mid-exchange yields a typed failure**, never a hang and never a trap.
+5. **A child that never responds hits a bounded timeout** — an unresponsive server must not wedge
+   the caller forever.
+6. **A child that floods output is bounded** — no unbounded read from a hostile peer.
+7. The process is terminated on teardown; **no orphan survives the transport.**
+8. `spawnsSubprocess == true` on stdio, `false` on the in-memory transport.
 
 ## Out of scope
 
-**Any transport that touches the OS** — no stdio, no subprocess, no socket (that is the next
-slice, where D2 is confronted directly). The intent layer. Any user-visible surface.
-`AppBootstrap` wiring, so the G5 pin stays untouched. `ShellProvider`.
+The wiring slice (composition root, the badge's pixels, server configuration UI). The intent
+layer. `ShellProvider`. Any change to the gate or the seam.
 
-## Constraints carried in
+## Honest posture
 
-- `VoccaActions` declares exactly `["VoccaCore"]` — asserted by equality. Foundation **is**
-  available here (unlike `VoccaCore`), which is how the audit store uses `Data`/`URL`.
-- **The transport prohibition lint forbids `URLSession`, `NW*`, `Network`, `Process`,
-  `posix_spawn`, `NSTask`, `system` inside `VoccaActions`.** An in-memory transport names none of
-  them; if this slice trips that lint, that is a **genuine finding**, not a reason to widen it.
-- The action-family lint costs **five permitted rows per real provider** — expected, recorded.
-- No gate passes. This will be the seventh unit built ahead of the uncleared gates.
-
----
-
-## Findings from `protocol-core` (2026-09-20)
-
-**F1 — a safety-gate bypass by parser detail, found and closed.** `JSONSerialization` collapses
-JSON booleans and numbers into `NSNumber`, and `as? Bool` succeeds for `1`. A server sending
-`"readOnlyHint": 1` would therefore have been read as **claiming read-only** — defeating the
-fail-safe default not by a missing check but by a type confusion underneath a check that looked
-correct. `CFBooleanGetTypeID()` undoes the collapse in exactly one place (`JSONRPC.swift:48-50`),
-and `1`, `"true"` and `null` are all asserted to be non-claims.
-
-This is the first place in the tree where **untrusted input reaches a safety decision**, and the
-class of bug is worth carrying into the stdio slice: a real server is hostile input, and the
-damage here came from a parsing library's convenience rather than from anything the code omitted.
-
-**F2 — the module-coverage cross-check cannot see the MCP drive's removal.** `VoccaActions` is
-already in the probe's module coverage list via the audit drive, so **deleting the `PROBE-MCP`
-drive would leave the cross-check green.** The accessor and its assertion are the only thing
-holding the protocol layer inside the zero-network invariant — the structural check that catches
-an *undriven module* cannot catch an *undriven layer within a driven module*.
-
-Recorded rather than fixed: the guard-the-guard makes weakening the assertion a visible edit,
-which is the available mitigation. Worth knowing before the stdio slice adds the layer that most
-needs watching.
-
-**F3 — the seam is send/receive, not request/response.** A single exchange operation cannot
-express out-of-order correlation; making correlation real code required a bounded forward scan,
-which also supplied the untrusted-peer bound (`maxFramesScanned = 8`). The plan's framing was
-wrong and the implementation's is better.
+- **This is the seventh-plus unit ahead of the uncleared gates; no gate passes.**
+- **Guardrail 7 becomes met for `MCPTransport`** — two real implementations.
+- **D2 is answered, not solved.** The blindness is real and permanent; what changes is that the
+  default configuration cannot create a blind child, and the documentation stops implying
+  coverage it does not have.

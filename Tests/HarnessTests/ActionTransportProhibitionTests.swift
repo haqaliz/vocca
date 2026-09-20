@@ -69,17 +69,35 @@ private enum ActionTransportTestError: Error, CustomStringConvertible {
 /// server, they must come to this file and say so in a permitted-set entry, and the review that
 /// entry forces is the whole mechanism. Deleting the lint deletes the review.
 ///
+/// ## That day came: `stdio-transport`, 2026-09-21
+///
+/// The permitted set holds exactly one entry, and the review it forced produced an answer that is
+/// worth reading before the code. **The honest answer to D2 is that the child does not stay
+/// observable.** It cannot be made to. The claim had to change instead, and the shape it changed
+/// into is `BYOKCleanupProvider`'s: BYOK is not an *exception* to the zero-network test, it is
+/// **unreachable in the default configuration** — so the test stays true *and verifiable* rather
+/// than true-with-a-footnote. The transport takes the same shape. See the entry's own comment on
+/// ``filesPermittedToNameATransport``, which is where the answer lives.
+///
 /// ## Forbidden families
 ///
 /// `URLSession`, `NW`, `Network`, `Process`, `posix_spawn`, `NSTask`, `system` — the two doors
 /// out of the process (a socket opened here, a child spawned to open one elsewhere), as
 /// identifier *prefix* families in the ``ModelDownloaderSeamTests`` shape.
 ///
-/// The permitted set is **empty**: no file under `Sources/VoccaActions/` may name any of them.
-/// Note that an empty permitted set means the opposite of what it means in
-/// ``ModelDownloaderSeamTests``, where emptiness would be the vacuous green — there the permitted
-/// file must *prove* it still names `URLSession`. Here emptiness is the claim itself, so the
-/// vacuity is closed from the other side instead: the scanned file list is asserted non-empty,
+/// Exactly **one** file under `Sources/VoccaActions/` may name any of them — the stdio transport,
+/// and nothing else. The prohibition therefore has three legs now, where an empty permitted set
+/// needed only one:
+///
+/// - **(a)** no *unpermitted* file names a family;
+/// - **(b)** every *permitted* file **does** name one — which stopped being vacuous the day the
+///   set gained its first entry, and is the ``ModelDownloaderSeamTests`` leg: a permitted file
+///   that no longer names `Process` means the spawn moved somewhere this lint cannot see, and the
+///   one-sided check "nothing else names it" would pass while the confinement was gone;
+/// - **(c)** every permitted path exists and was actually scanned — a permitted entry pointing at
+///   a deleted or moved file permits nothing and hides that it permits nothing.
+///
+/// The vacuity is closed from the other side as well: the scanned file list is asserted non-empty,
 /// every scanned file is asserted to exist, and scanning nothing throws
 /// (``testScanningNothingFailsRatherThanPassing``).
 ///
@@ -144,14 +162,44 @@ final class ActionTransportProhibitionTests: XCTestCase {
         "URLSession", "NW", "Network", "Process", "posix_spawn", "NSTask", "system",
     ]
 
-    /// Files permitted to name a forbidden family, relative to `Sources/`. **Empty, and that is
-    /// the claim** — see the type documentation for why emptiness here is not the vacuous green
-    /// it would be in ``ModelDownloaderSeamTests``.
+    /// Files permitted to name a forbidden family, relative to `Sources/`. **Exactly one**, and
+    /// the entry is the reviewed edit this lint exists to force.
     ///
-    /// An entry added here is the reviewed edit this lint exists to force. Whoever adds one owes
-    /// the review an answer to D2: how the spawned transport stays observable when
-    /// `DYLD_INSERT_LIBRARIES` does not survive the hop.
-    private static let filesPermittedToNameATransport: Set<String> = []
+    /// ## The answer to D2, which this entry owes the review
+    ///
+    /// The question was: *how does the spawned transport stay observable when
+    /// `DYLD_INSERT_LIBRARIES` does not survive the hop?*
+    ///
+    /// **It does not. The child is not observable, and no mitigation makes it so.** Measured in
+    /// the C13 slice-1 dig: a restricted child ignores `DYLD_INSERT_LIBRARIES` *and purges
+    /// `DYLD_*` from the environment it passes on*, so `/usr/bin/env node server.js`, any shell
+    /// wrapper and any Apple platform binary are **blind** to the interposer. One hop launders the
+    /// insertion for the entire descendant tree. There is nothing to add here that would change
+    /// that, and an answer claiming otherwise would be claiming something measurably false.
+    ///
+    /// **So the claim is not "we watch it" — it is that the DEFAULT CONFIGURATION CANNOT CREATE
+    /// ONE.** No server is configured out of the box, so the probe never reaches a spawn and the
+    /// zero-network assertion stays true *and verifiable*: there is no child for it to be blind
+    /// to. The transport declares `spawnsSubprocess = true` so a composition root folds the fact
+    /// rather than remembering it, constructing it spawns nothing, and
+    /// `StdioMCPTransportTests.testNothingOutsideTheTransportFileConstructsTheStdioTransport`
+    /// asserts that nothing under `Sources/` outside the transport's own file names the type. A
+    /// *configured* server is a trust the user extends to **that server's author**, stated in the
+    /// docs rather than implied away.
+    ///
+    /// This is the `BYOKCleanupProvider` precedent, and it is the reason this entry is admissible
+    /// at all: **BYOK is not an exception to the zero-network test — it is unreachable by
+    /// default.** A sentence that survives a `PROBE-*` run because the code path was never reached
+    /// is worth more than a sentence that survives because an exception was written for it.
+    ///
+    /// ## What a second entry would cost
+    ///
+    /// The spawn must stay confined to one file or the confinement means nothing: two files that
+    /// may each spawn are two places the review has to be repeated and one place it will not be.
+    /// A second entry is not a formatting change.
+    private static let filesPermittedToNameATransport: Set<String> = [
+        "VoccaActions/MCP/StdioMCPTransport.swift"
+    ]
 
     /// Every occurrence of a forbidden family in `source`, comments removed first.
     ///
@@ -181,10 +229,24 @@ final class ActionTransportProhibitionTests: XCTestCase {
         try PackageRootLocator.find(from: #filePath)
     }
 
+    private func sourcesRoot() throws -> URL {
+        try packageRoot().appendingPathComponent("Sources")
+    }
+
     private func moduleRoot() throws -> URL {
-        try packageRoot()
-            .appendingPathComponent("Sources")
-            .appendingPathComponent(Self.moduleDirectory)
+        try sourcesRoot().appendingPathComponent(Self.moduleDirectory)
+    }
+
+    /// A scanned file's path as the permitted set spells it: **relative to `Sources/`**, so an
+    /// entry reads `VoccaActions/MCP/…` and says which module it permits.
+    ///
+    /// Module-relative keys would have read `MCP/…`, which names a directory that exists in more
+    /// than one module and would make a permitted entry ambiguous the day a second module grew a
+    /// transport lint of its own.
+    private func relativeToSources(_ file: URL) throws -> String {
+        let sources = try sourcesRoot().path
+        guard file.path.hasPrefix(sources + "/") else { return file.path }
+        return String(file.path.dropFirst(sources.count + 1))
     }
 
     /// Every sighting under `root`, keyed by path relative to `root`, plus the files scanned.
@@ -203,7 +265,7 @@ final class ActionTransportProhibitionTests: XCTestCase {
 
         var byFile: [String: [String]] = [:]
         for file in files {
-            let relative = String(file.path.dropFirst(root.path.count + 1))
+            let relative = try relativeToSources(file)
             let source = try String(contentsOf: file, encoding: .utf8)
             let identifiers = Self.transportIdentifiers(inSource: source)
             if !identifiers.isEmpty {
@@ -213,8 +275,14 @@ final class ActionTransportProhibitionTests: XCTestCase {
         return (byFile, files)
     }
 
-    /// The prohibition itself: no file under `Sources/VoccaActions/` names any forbidden family,
-    /// the permitted set is empty, and the scan was not vacuous.
+    /// The prohibition itself, in three legs: no unpermitted file names a forbidden family, every
+    /// permitted file still does, every permitted path is real — and the scan was not vacuous.
+    ///
+    /// Legs (a) and (b) are independent claims and neither is sufficient alone, which is the same
+    /// reasoning ``ModelDownloaderSeamTests`` records: "nothing else names `Process`" passes if
+    /// the permitted file lost its implementation too (a spawn that moved, invisibly), and "the
+    /// permitted file names `Process`" passes if three files do (a confinement that has sprung a
+    /// leak).
     func testNoFileInVoccaActionsMayNameATransportOrSubprocessFamily() throws {
         let root = try moduleRoot()
         let result = try scan(under: root)
@@ -230,26 +298,51 @@ final class ActionTransportProhibitionTests: XCTestCase {
                     + "vacuously: \(file.path)")
         }
 
-        XCTAssertTrue(
-            Self.filesPermittedToNameATransport.isEmpty,
-            """
-            the permitted set must stay empty: \(Self.filesPermittedToNameATransport.sorted()).
-            An entry here is a reviewed exception to the zero-network invariant's blind spot \
-            (D2), not a formatting change — say in review how the spawned transport stays \
-            observable when DYLD_INSERT_LIBRARIES does not survive the hop.
-            """)
+        let permitted = Self.filesPermittedToNameATransport
 
-        let offenders = result.sightings.filter {
-            !Self.filesPermittedToNameATransport.contains($0.key)
-        }
+        // Leg (a): nothing outside the permitted set names a family.
+        let offenders = result.sightings.filter { !permitted.contains($0.key) }
         XCTAssertTrue(
             offenders.isEmpty,
             """
             a transport or subprocess family is named inside VoccaActions: \
             \(offenders.mapValues { $0.sorted() }.sorted { $0.key < $1.key }).
             Loopback counts as network in the interposer, and a spawned child runs outside it \
-            entirely — see this file's documentation for D2 before making this pass.
+            entirely — see this file's documentation for D2 before making this pass. Widening \
+            the permitted set is a reviewed edit that owes the review an answer to D2, not a \
+            formatting change; there is exactly one entry, and the spawn must stay confined to \
+            one file or the confinement means nothing.
             """)
+
+        // Leg (b): every permitted file still names one. Vacuous until the set gained its first
+        // entry; the whole point of the entry is that this leg now watches something.
+        for file in permitted.sorted() {
+            XCTAssertFalse(
+                result.sightings[file]?.isEmpty ?? true,
+                """
+                \(file) is permitted to name a transport or subprocess family and names none. \
+                Either the spawn moved somewhere this lint cannot see — which is the failure this \
+                permission exists to make visible — or the permission has outlived its reason and \
+                should be removed rather than kept as a standing exception.
+                """)
+        }
+
+        // Leg (c): every permitted path is real and was actually scanned. A permission pointing
+        // at a moved file permits nothing, and hides that it permits nothing.
+        let scannedRelative = Set(try result.scanned.map { try relativeToSources($0) })
+        for file in permitted.sorted() {
+            XCTAssertTrue(
+                scannedRelative.contains(file),
+                """
+                the permitted path \(file) was not among the scanned files. A permitted entry \
+                that names nothing real is an exception nobody can find and nobody reviews.
+                """)
+        }
+
+        XCTAssertEqual(
+            result.sightings.count, permitted.count,
+            "exactly the permitted set may name a transport or subprocess family, got "
+                + "\(result.sightings.keys.sorted())")
     }
 
     /// The file that makes trap (a) live.
@@ -260,9 +353,9 @@ final class ActionTransportProhibitionTests: XCTestCase {
     func testTheFileSystemNamedSeamFileIsStillInTheScan() throws {
         let root = try moduleRoot()
         let result = try scan(under: root)
-        let relative = result.scanned.map { String($0.path.dropFirst(root.path.count + 1)) }
+        let relative = try result.scanned.map { try relativeToSources($0) }
         XCTAssertTrue(
-            relative.contains("Audit/ActionAuditFileSystem.swift"),
+            relative.contains("VoccaActions/Audit/ActionAuditFileSystem.swift"),
             """
             the FileSystem-named seam file is no longer in the scan: \(relative.sorted()).
             The `system`-inside-`FileSystem` trap test defends against types that this file \

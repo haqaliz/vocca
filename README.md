@@ -186,7 +186,8 @@ pins.
 
 ## Principles
 
-- **Local-first, literally.** The default configuration makes **zero network calls** asserted by a CI test that is a permanent release blocker. Any egress is opt-in and badged at the moment it happens.
+- **Local-first, literally.** The default configuration makes **zero network calls and spawns no child process** asserted by a CI test that is a permanent release blocker. Any egress is opt-in and badged at the moment it happens.
+- **Where that claim stops, stated plainly.** Vocca's network check works by watching its own process. It **cannot see inside a program Vocca starts on your behalf** — macOS strips the mechanism that would let it. So if you configure an MCP server, **Vocca cannot observe what that server does on the network**, and enabling one is trust you extend to that server's author, not a guarantee we can make for you. The default install configures none, which is why the claim above holds.
 - **A transcript is never lost.** Every failure path ends with your text recoverable and copyable.
 - **Everything pluggable.** ASR, cleanup, TTS, and actions each sit behind an interface with **two real implementations shipped** because a seam with one implementation is an assertion, not a seam.
 - **The local core is never crippled.** A future hosted tier may only ever be *added* to a seam. Nothing local gets removed, degraded, or feature-gated to sell it.
