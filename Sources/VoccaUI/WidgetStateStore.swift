@@ -86,6 +86,41 @@ public final class WidgetStateStore: ObservableObject {
             state, action: .contextChanged(signal), now: clock.now)
     }
 
+    /// The wiring's confirmation-card fold (`confirmation-card`, the `setContext` shape) — the
+    /// gate's `confirmationRequired` sentence plus the provider/tool identity and the
+    /// invocation's generation token. One card at a time: a presentation replaces the current
+    /// card. The only paths that change ``confirmation`` are this, ``confirmActionConfirmation(_:)``
+    /// and ``dismissActionConfirmation()`` — no timer and no projection can.
+    public func presentActionConfirmation(_ signal: WidgetConfirmationSignal) {
+        state = WidgetStateReducer.reduce(
+            state, action: .confirmation(signal), now: clock.now)
+    }
+
+    /// The wiring's confirm fold: accepts the confirm iff the signal's generation is the current
+    /// card's — the stale-card guard (spec acceptance 4), so a confirm for an already-replaced
+    /// card is refused here and the wiring makes no gate call. An accepted confirm clears the
+    /// card in the same fold (explicit confirm clears, exactly as dismiss/decline do); the
+    /// wiring then submits to the executor with the sentence it showed, and re-presents a fresh
+    /// card on a mismatch (the PRD review's re-prompt default).
+    ///
+    /// - Returns: `true` when the confirm was accepted (generation matched and the card cleared);
+    ///   `false` when refused — a stale signal, or no card at all.
+    @discardableResult
+    public func confirmActionConfirmation(_ signal: WidgetConfirmationSignal) -> Bool {
+        guard state.confirmation?.signal.generation == signal.generation else { return false }
+        state = WidgetStateReducer.reduce(
+            state, action: .confirmationDismissed, now: clock.now)
+        return true
+    }
+
+    /// The explicit clear — dismiss and decline both land here (the wiring records the refused
+    /// decision before calling it). The only fold that clears a presented card without
+    /// confirming it.
+    public func dismissActionConfirmation() {
+        state = WidgetStateReducer.reduce(
+            state, action: .confirmationDismissed, now: clock.now)
+    }
+
     /// The widget-streaming sink's fold — one streaming partial from the pipeline's widget-only
     /// sink (``PartialTranscriptSink``), folded into the reducer's bounded partial state.
     ///

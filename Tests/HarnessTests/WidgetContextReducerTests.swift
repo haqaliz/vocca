@@ -129,10 +129,11 @@ final class WidgetContextReducerTests: XCTestCase {
     // MARK: - The closed set
 
     /// **The closed-set pin (D1)** — `WidgetAction` is exactly
-    /// `{projection, timerFired, partial, egressChanged, contextChanged}`: an exhaustive switch
-    /// without a `default:` over the five cases, so a sixth case breaks this test at compile
-    /// time before it can hide a transition no signal can carry (the `SessionEffect`
-    /// discipline).
+    /// `{projection, timerFired, partial, egressChanged, contextChanged, confirmation,
+    /// confirmationDismissed}`: an exhaustive switch without a `default:` over the seven cases,
+    /// so an eighth case breaks this test at compile time before it can hide a transition no
+    /// signal can carry (the `SessionEffect` discipline; the two confirmation cases grew the set
+    /// with `confirmation-card`, whose own closed-set test pins the same seven).
     func testTheActionSetStaysClosed() {
         let actions: [WidgetAction] = [
             .projection(.noChange),
@@ -141,6 +142,10 @@ final class WidgetContextReducerTests: XCTestCase {
             .egressChanged(.none),
             .contextChanged(
                 .init(consentActive: false, secureInputActive: false, appName: nil)),
+            .confirmation(
+                .init(sentence: "Permanently delete 12 entries.", providerID: "audit",
+                      toolID: "clear", generation: 1)),
+            .confirmationDismissed,
         ]
         for action in actions {
             switch action {
@@ -149,9 +154,11 @@ final class WidgetContextReducerTests: XCTestCase {
             case .partial: break
             case .egressChanged: break
             case .contextChanged: break
+            case .confirmation: break
+            case .confirmationDismissed: break
             }
         }
-        XCTAssertEqual(actions.count, 5, "the set stays exactly the five closed cases")
+        XCTAssertEqual(actions.count, 7, "the set stays exactly the seven closed cases")
     }
 
     // MARK: - The store fold

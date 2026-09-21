@@ -87,6 +87,15 @@ public struct WidgetReducerState: Equatable, Sendable {
     /// (`WidgetContextState` documents why).
     public var context: WidgetContextState
 
+    /// The confirmation card's state (`confirmation-card`): `nil` unless the gate's
+    /// `confirmationRequired` sentence is showing. Presented and cleared by explicit folds only
+    /// — ``WidgetAction/confirmation(_:)`` sets it (one card at a time, a presentation replaces
+    /// the current card), ``WidgetAction/confirmationDismissed`` ends it (dismiss/decline/confirm
+    /// all fold the same clear), and no timer and no projection adoption can clear it:
+    /// `adopting(_:)` and the notice branch carry it forward exactly as they carry the egress
+    /// and context badges (`WidgetConfirmationState` documents why). Per-invocation only (M4a).
+    public var confirmation: WidgetConfirmationState?
+
     /// The newest streaming partial (`widget-streaming` S3): provisional ASR text (`isFinal ==
     /// false`), stored so the view can render it during RECORDING/TRANSCRIBING. Bounded to
     /// ``WidgetTiming/maxPartialCharacters`` characters — truncation is the reducer's answer —
@@ -104,7 +113,8 @@ public struct WidgetReducerState: Equatable, Sendable {
         state: WidgetState = .idle,
         ceiling: Duration = SessionCeiling.default,
         egress: WidgetEgressState = .none,
-        context: WidgetContextState = .off
+        context: WidgetContextState = .off,
+        confirmation: WidgetConfirmationState? = nil
     ) {
         self.state = state
         self.ceiling = ceiling
@@ -116,6 +126,7 @@ public struct WidgetReducerState: Equatable, Sendable {
         self.notice = nil
         self.egress = egress
         self.context = context
+        self.confirmation = confirmation
         self.partialText = nil
     }
 }
@@ -145,11 +156,12 @@ public enum WidgetTimer: Equatable, Sendable, CaseIterable {
 /// **The set is closed**: the Core projection's verdict on one machine effect or pipeline event
 /// (``WidgetAction/projection(_:)``), a due timer (``WidgetAction/timerFired(_:)``), a streaming
 /// partial from the pipeline's widget-only sink (``WidgetAction/partial(_:)``), the wiring's
-/// egress fold (``WidgetAction/egressChanged(_:)``), and the wiring's context fold
-/// (``WidgetAction/contextChanged(_:)``). There is no other input, so the
-/// exhaustive switch in ``WidgetStateReducer`` cannot hide a transition no action can carry — and
-/// the fold's `now` is consulted only by the timer action, which is the structural pin on "no
-/// time-based transition without a clock event".
+/// egress fold (``WidgetAction/egressChanged(_:)``), the wiring's context fold
+/// (``WidgetAction/contextChanged(_:)``), and the wiring's confirmation-card folds
+/// (``WidgetAction/confirmation(_:)``, ``WidgetAction/confirmationDismissed``). There is no other
+/// input, so the exhaustive switch in ``WidgetStateReducer`` cannot hide a transition no action
+/// can carry — and the fold's `now` is consulted only by the timer action, which is the
+/// structural pin on "no time-based transition without a clock event".
 public enum WidgetAction: Equatable, Sendable {
     /// The Core projection's verdict — ``WidgetProjection/project(effect:targetAppName:)`` or
     /// ``WidgetProjection/project(event:)`` folded by the composition root, exactly as produced.
@@ -167,6 +179,15 @@ public enum WidgetAction: Equatable, Sendable {
     /// the focused app's name) folded at every context resolution. The only action that touches
     /// ``WidgetReducerState/context``; the badge rules live in the reducer (D2).
     case contextChanged(WidgetContextSignal)
+    /// The wiring's confirmation-card fold (`confirmation-card`) — the gate's
+    /// `confirmationRequired` sentence plus the provider/tool identity and the invocation's
+    /// generation token, folded when the gate asks the human. Presenting replaces the current
+    /// card (one at a time — per invocation); only ``WidgetAction/confirmationDismissed`` clears
+    /// it: no timer and no projection can.
+    case confirmation(WidgetConfirmationSignal)
+    /// The explicit clear — dismiss/decline/confirm all end the card here. The only fold that
+    /// clears ``WidgetReducerState/confirmation``; a card has no timer and no other writer.
+    case confirmationDismissed
 }
 
 /// The plan's constants (`widget-live-states` Task 2's times and `widget-streaming` S3's partial
@@ -239,10 +260,11 @@ public enum WidgetStateReducer {
                 // session notice, so the new state carries it forward (WidgetEgressState), and
                 // the context badge is per-fold non-dismissable and must survive it too
                 // (WidgetContextState — the badge is derived from a folded fact, not the
-                // session).
+                // session). The confirmation card is presented-and-cleared by explicit folds
+                // only, so it survives the notice the same way (WidgetConfirmationState).
                 var next = WidgetReducerState(
                     state: .idle, ceiling: state.ceiling, egress: state.egress,
-                    context: state.context)
+                    context: state.context, confirmation: state.confirmation)
                 next.notice = notice
                 return next
             }
@@ -278,6 +300,20 @@ public enum WidgetStateReducer {
             guard state.state == .recording || state.state == .transcribing else { return state }
             var next = state
             next.partialText = String(partial.prefix(WidgetTiming.maxPartialCharacters))
+            return next
+        case .confirmation(let signal):
+            // Present/replace: one card at a time, per invocation — the new signal's generation
+            // is the current card's, so a stale confirm can never match it (the store's refusal
+            // is acceptance 4). No timer and no projection clears a card; only the explicit
+            // dismissed fold below does.
+            var next = state
+            next.confirmation = WidgetConfirmationState(signal: signal)
+            return next
+        case .confirmationDismissed:
+            // The explicit clear — dismiss, decline and confirm all fold it; the semantic
+            // difference between the three lives in the wiring's executor call, not here.
+            var next = state
+            next.confirmation = nil
             return next
         }
     }

@@ -107,4 +107,24 @@ public enum WidgetCopy {
         case .speaking: return converseSpeakingLabel
         }
     }
+
+    // MARK: - The confirmation card (confirmation-card M4a/M5a)
+
+    /// The card's heading (`confirmation-card`): the actions surface's section word — the card is
+    /// one of this widget's surfaces, and the heading says which before the identity line names
+    /// whose tool it is. The sentence itself is the provider's own words rendered verbatim (M5a)
+    /// and has no copy row here.
+    public static let confirmationHeading = "Actions"
+
+    /// The card's identity line: which provider's tool the sentence belongs to, for the heading.
+    /// Rendered from the two plain strings the wiring folds — `VoccaUI` names no provider type.
+    public static func confirmationProviderLabel(providerID: String, toolID: String) -> String {
+        "\(providerID) · \(toolID)"
+    }
+
+    /// The card's confirm button — the only route to `invoke` in the shipped configuration.
+    public static let confirmationConfirmButton = "Confirm"
+
+    /// The card's decline button — the refused decision, recorded by the wiring's executor call.
+    public static let confirmationDeclineButton = "Decline"
 }

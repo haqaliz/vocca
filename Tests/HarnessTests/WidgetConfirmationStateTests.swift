@@ -211,7 +211,7 @@ final class WidgetConfirmationStateTests: XCTestCase {
     /// one — scanned over the sources themselves (the `SettingsCopyTests` shape), comments
     /// stripped, so a row added later breaks this test rather than shipping silently.
     func testNoAskAgainStateExistsInTheReducerOrTheType() throws {
-        let root = PackageRootLocator.find(from: #filePath)
+        let root = try PackageRootLocator.find(from: #filePath)
         for relativePath in [
             "Sources/VoccaUI/WidgetStateReducer.swift",
             "Sources/VoccaUI/WidgetConfirmationState.swift",
