@@ -117,8 +117,9 @@ final class ActionConfigStoreTests: XCTestCase {
         let reloaded = await store.load()
 
         XCTAssertEqual(reloaded, config, "the reloaded config is exactly what was saved")
+        let secondLoad = await store.load()
         XCTAssertEqual(
-            try await store.load(), reloaded,
+            secondLoad, reloaded,
             "and a second load over the same directory agrees with the first — the file, never "
                 + "a held value, is the store's memory")
         let unchangedBytes = try XCTUnwrap(
@@ -214,8 +215,9 @@ final class ActionConfigStoreTests: XCTestCase {
         XCTAssertTrue(
             reloaded.enablement.contains(makeRow(toolID: "tool-that-server-a-no-longer-lists")),
             "and the stale row is the one that survives intact")
+        let staleEnablement = await ActionConfigStore(directory: directory).loadEnablement()
         XCTAssertTrue(
-            await ActionConfigStore(directory: directory).loadEnablement().isEnabled(
+            staleEnablement.isEnabled(
                 try makeInvocation(toolID: "tool-that-server-a-no-longer-lists")),
             "a stale tool stays enabled while its row exists — re-enabling a tool a server "
                 + "lists again must not require the user to re-enable it")
@@ -539,8 +541,9 @@ final class ActionConfigStoreTests: XCTestCase {
             enablement: [])
         let store = ActionConfigStore(directory: directory)
         try await store.save(eight)
+        let reloadedEight = await store.load()
         XCTAssertEqual(
-            (try? await store.load())?.servers.count, 8,
+            reloadedEight.servers.count, 8,
             "vacuity guard: exactly eight servers save and reload — the cap is inclusive")
 
         let nine = ActionConfig(
@@ -554,10 +557,10 @@ final class ActionConfigStoreTests: XCTestCase {
                 error, .tooManyServers(9),
                 "the refusal names the count, so the caller can tell the user what was refused")
         }
-        XCTAssertNil(
-            fileBytes(in: directory),
-            "nothing was written by the refused save — the refusal is before the file system, "
-                + "and the directory may not even exist")
+        XCTAssertEqual(
+            fileBytes(in: directory), try ActionConfigStore.encode(eight),
+            "the refused save left the previously committed file byte-identical — the refusal "
+                + "happens before the file system is touched")
     }
 
     /// **More than 512 enablement rows are refused loudly, and the 512th saves** — the
@@ -571,8 +574,9 @@ final class ActionConfigStoreTests: XCTestCase {
             enablement: (1...512).map { makeRow(toolID: "tool-\($0)") })
         let store = ActionConfigStore(directory: directory)
         try await store.save(atTheCap)
+        let reloadedAtTheCap = await store.load()
         XCTAssertEqual(
-            (try? await store.load())?.enablement.count, 512,
+            reloadedAtTheCap.enablement.count, 512,
             "vacuity guard: exactly 512 rows save and reload — the cap is inclusive")
 
         let oneOver = ActionConfig(
@@ -586,7 +590,10 @@ final class ActionConfigStoreTests: XCTestCase {
                 error, .tooManyEnablementRows(513),
                 "the refusal names the count, so the caller can tell the user what was refused")
         }
-        XCTAssertNil(fileBytes(in: directory), "and nothing was written by the refused save")
+        XCTAssertEqual(
+            fileBytes(in: directory), try ActionConfigStore.encode(atTheCap),
+            "and the refused save left the previously committed file byte-identical — the "
+                + "refusal happens before the file system is touched")
     }
 
     /// **An empty `executablePath` is refused at save** — a server without a path is not a

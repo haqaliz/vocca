@@ -182,6 +182,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `enablement-store`'s reviewed widening — the config store maps its persisted
+                // enablement rows to membership by constructing an ActionInvocation per row
+                // (arguments always nil). It reads the vocabulary to build the gate's input;
+                // it never decides with it.
+                "VoccaActions/Config/ActionConfigStore.swift",
             ]
         ),
         (
