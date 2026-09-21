@@ -152,6 +152,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `executor`'s reviewed widening — the one caller of the gate in the shipped
+                // configuration. The generic constraint is the seam itself: the executor is
+                // per-provider by construction, holding the concrete provider it submits to.
+                // It names the family to hold a member of it, never to decide with it.
+                "VoccaActions/ActionExecutor.swift",
             ]
         ),
         (
@@ -187,6 +192,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // (arguments always nil). It reads the vocabulary to build the gate's input;
                 // it never decides with it.
                 "VoccaActions/Config/ActionConfigStore.swift",
+                // `executor`'s reviewed widening — the one caller of the gate in the shipped
+                // configuration. Its `submit` forwards the invocation to the gate and then to
+                // the store's `record`; it names the type to move it, never to decide with it.
+                "VoccaActions/ActionExecutor.swift",
             ]
         ),
         (
