@@ -172,16 +172,21 @@ public struct ActionRadiusPolicy: Sendable, Equatable {
 ///
 /// A closed enum with a bounded ``reasonKey``, so the audit log records a key and never a message:
 /// `VoccaCore` imports nothing to build one from, and an entry that is byte-pinned cannot carry
-/// free-form text. One case today; a second is a reviewed edit here rather than a string invented
+/// free-form text. Two cases today; a third is a reviewed edit here rather than a string invented
 /// at a call site.
 public enum ActionDeclineReason: Sendable, Equatable {
     /// The tool is not in the enablement set. Default off means **absent is off**.
     case toolNotEnabled
 
+    /// A granted approval was bound to a sentence the gate no longer renders (`sentence-binding`,
+    /// C13 slice 5). The approval cannot be replayed against a different action.
+    case approvedSentenceMismatch
+
     /// The bounded key an audit entry records.
     public var reasonKey: String {
         switch self {
         case .toolNotEnabled: return "gate.toolNotEnabled"
+        case .approvedSentenceMismatch: return "gate.approvedSentenceMismatch"
         }
     }
 }
@@ -305,7 +310,13 @@ public enum ActionDecision: Sendable, Equatable {
 ///    raised by ``ActionRadiusPolicy`` and never lowered by it.
 /// 3. **Mode, before the approval is read.** A dry-run does not act even when an approval was
 ///    granted; otherwise previewing an already-approved action would perform it.
-/// 4. **Confirmation, last.** ``BlastRadius/requiresConfirmation`` is the one branch point, read
+/// 4. **The sentence binding, when the approval names one.** ``ActionApproval/granted`` with a
+///    non-nil ``submit(_:to:enablement:policy:approval:mode:approvedSentence:)/approvedSentence``
+///    is an approval bound to exactly that sentence, and the gate refuses it the moment its own
+///    freshly-rendered sentence differs (`sentence-binding`, C13 slice 5). This is read before the
+///    confirmation branch because it applies at every radius — the caller chose the binding, and
+///    the binding is the caller's contract with the human, not the radius's.
+/// 5. **Confirmation, last.** ``BlastRadius/requiresConfirmation`` is the one branch point, read
 ///    from the effective radius.
 ///
 /// ## The suspension changes none of that
@@ -342,6 +353,11 @@ public enum ActionGate {
     ///     claim stands unraised; it is simply one that has to be said out loud.
     ///   - approval: Whether a human said yes to **this** invocation. Defaults to
     ///     ``ActionApproval/withheld`` — a caller that forgot to ask has not asked.
+    ///   - approvedSentence: The exact sentence the human was shown when they approved, or `nil`
+    ///     for no binding. With a non-nil value and ``ActionApproval/granted``, the gate refuses
+    ///     the moment its own freshly-rendered sentence differs — the approval cannot be replayed
+    ///     against a different action. `nil` grants nothing: the gate decides exactly as it did
+    ///     before this parameter existed.
     ///   - mode: Live or dry-run. Defaults to live, because a caller that means to rehearse says so.
     /// - Returns: The decision. Only ``ActionDecision/invoked(summary:outcome:)`` reached the
     ///   provider.
@@ -351,6 +367,7 @@ public enum ActionGate {
         enablement: ActionEnablement,
         policy: ActionRadiusPolicy,
         approval: ActionApproval = .withheld,
+        approvedSentence: String? = nil,
         mode: Mode = .live
     ) async -> ActionDecision {
         // 1. Never-read: an unenabled tool is not asked what it would do. Before the first
@@ -371,7 +388,15 @@ public enum ActionGate {
             return .previewed(summary)
         }
 
-        // 4. The one branch point, read from the effective radius.
+        // 4. The sentence binding: a granted approval that names a sentence is bound to it. The
+        //    comparison is against the decision's own summary — the sentence this submission
+        //    would act on — so no provider call is added. Withheld approvals carry no binding;
+        //    the existing confirmation path decides them.
+        if approval == .granted, let approvedSentence, approvedSentence != summary.sentence {
+            return .declined(.approvedSentenceMismatch)
+        }
+
+        // 5. The one branch point, read from the effective radius.
         if summary.blastRadius.requiresConfirmation {
             guard case .granted = approval else {
                 return .confirmationRequired(summary)
