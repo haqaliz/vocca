@@ -56,6 +56,17 @@ public final class LiveWidget {
     /// `AppBootstrap`'s construction compiles unchanged; the panel's `apply` diff drives it.
     private let soundPlayer: any WidgetSoundPlaying
 
+    /// The confirmation card's actions — supplied by the action wiring after construction (the
+    /// `partialSink.store` shape): the wiring fills this slot in `configure`, and the panel —
+    /// constructed lazily on the first card fold, which needs a user's arm and therefore comes
+    /// after `configure` — captures them as its Confirm/Decline buttons' closures. The panel's
+    /// button closures are synchronous, so the async wrap happens here. `nil` only before the
+    /// wiring has filled the slot — every headless harness.
+    public var confirmationActions: (
+        confirm: @Sendable @MainActor () async -> Void,
+        decline: @Sendable @MainActor () async -> Void
+    )?
+
     /// The window, once it exists. `nil` until the first non-IDLE state or terminal notice —
     /// the laziness that keeps `configure` window-free.
     public private(set) var presentedPanel: WidgetPanel?
@@ -99,7 +110,26 @@ public final class LiveWidget {
     private func presentIfNeeded(_ state: WidgetReducerState) {
         guard state.state != .idle || state.notice != nil || state.confirmation != nil else { return }
         guard presentedPanel == nil else { return }
-        presentedPanel = WidgetPanel(
-            store: store, levelSource: level, soundPlayer: soundPlayer)
+        if let confirmationActions {
+            // The wiring's card actions, wrapped into the panel's synchronous button seam. The
+            // weak capture keeps the panel from extending the live widget's lifetime.
+            presentedPanel = WidgetPanel(
+                store: store, levelSource: level, soundPlayer: soundPlayer,
+                onConfirmAction: { [weak self] in
+                    Task { @MainActor in
+                        guard let actions = self?.confirmationActions else { return }
+                        await actions.confirm()
+                    }
+                },
+                onDeclineAction: { [weak self] in
+                    Task { @MainActor in
+                        guard let actions = self?.confirmationActions else { return }
+                        await actions.decline()
+                    }
+                })
+        } else {
+            presentedPanel = WidgetPanel(
+                store: store, levelSource: level, soundPlayer: soundPlayer)
+        }
     }
 }

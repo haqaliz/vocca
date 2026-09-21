@@ -186,6 +186,7 @@ let package = Package(
                 "VoccaText",
                 "VoccaSpeech",
                 "VoccaContext",
+                "VoccaActions",
                 "VoccaUI",
                 "VoccaUsage",
             ],

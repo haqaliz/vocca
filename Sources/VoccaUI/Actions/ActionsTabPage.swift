@@ -273,12 +273,16 @@ struct ActionsTabPage: View {
     /// The arm path's whole: fold `.armRequested`, and emit the card signal **only** when the
     /// folded state is `awaitingConfirmation`. A refused arm — a disabled or absent tool —
     /// leaves the state untouched, so no signal can be emitted from it (the M7 never-read rule
-    /// at the surface). The gate itself is never called here.
+    /// at the surface). The gate itself is never called here; the `armAction` binding is the
+    /// wiring's half (`wiring` aspect's close of the seam the actions-tab left at the signal):
+    /// the fold gated the arm on an enabled row, and the binding performs the gate submission
+    /// and presents the card.
     private func arm(_ row: ActionsToolRow) {
         let next = ActionsTabReducer.reduce(
             state, .armRequested(providerID: row.providerID, toolID: row.toolID))
         state = next
         if case .awaitingConfirmation = next.arm {
+            Task { try? await bindings.armAction(row.providerID, row.toolID) }
             bindings.confirmationPresented()
         }
     }

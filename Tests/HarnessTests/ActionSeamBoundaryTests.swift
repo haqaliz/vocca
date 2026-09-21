@@ -162,6 +162,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // drive's header records the cost: five rows for one conformance, and this is
                 // the fifth.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
+                // `wiring`'s reviewed widening — the action recipe is generic over the seam
+                // (`ActionWiring<Provider: ActionProvider>`), so the constraint itself is a
+                // sighting: the composition drives `ActionProvider` + `ActionGate` and nothing
+                // else (the PRD's persona-3 rule, structural rather than stated).
+                "VoccaBootstrap/ActionWiring.swift",
             ]
         ),
         (
@@ -204,6 +209,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // configuration. Its `submit` forwards the invocation to the gate and then to
                 // the store's `record`; it names the type to move it, never to decide with it.
                 "VoccaActions/ActionExecutor.swift",
+                // `wiring`'s reviewed widening — the recipe builds invocations from the
+                // surface's provider/tool identifiers (the arm, confirm and decline paths all
+                // construct one to submit). It reads the vocabulary to build the gate's input;
+                // it never decides with it.
+                "VoccaBootstrap/ActionWiring.swift",
             ]
         ),
         (
@@ -227,6 +237,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `wiring`'s reviewed widening — the recipe reads the gate's summaries (the
+                // arm's card sentence, the preview's dry-run answer, the mismatch re-prompt)
+                // to present and re-present. It reads the rendered words to show them; it
+                // never decides with them.
+                "VoccaBootstrap/ActionWiring.swift",
             ]
         ),
         (

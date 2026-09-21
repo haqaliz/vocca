@@ -65,9 +65,10 @@ final class ActionWiringTests: XCTestCase {
         try await harness.wiring.arm(Self.providerID, Self.toolID)
         let card = harness.root.widgetStore.state.confirmation?.signal
         XCTAssertEqual(
-            card?.sentence, clearSentence(entries: 2),
-            "the card carries the gate's sentence verbatim — the exact sentence the wiring will "
-                + "bind the confirm to")
+            card?.sentence, clearSentence(entries: 3),
+            "the card carries the current sentence — the arm re-renders after its own record "
+                + "(the record lands between the gate's describe and the card, so the shown "
+                + "sentence must be the post-record count the confirm's own render will match)")
         XCTAssertEqual(card?.providerID, Self.providerID)
         XCTAssertEqual(card?.toolID, Self.toolID)
 
@@ -85,7 +86,7 @@ final class ActionWiringTests: XCTestCase {
         XCTAssertEqual(entry.decision, .confirmed, "the invoked action reconstructs as confirmed")
         XCTAssertEqual(entry.providerID, Self.providerID)
         XCTAssertEqual(entry.toolID, Self.toolID)
-        XCTAssertEqual(entry.summary, clearSentence(entries: 2))
+        XCTAssertEqual(entry.summary, clearSentence(entries: 3))
     }
 
     // MARK: - Acceptance 2: the binding mismatch re-presents a fresh card
@@ -104,9 +105,9 @@ final class ActionWiringTests: XCTestCase {
         try await harness.wiring.arm(Self.providerID, Self.toolID)
         XCTAssertEqual(
             harness.root.widgetStore.state.confirmation?.signal.sentence,
-            clearSentence(entries: 2))
+            clearSentence(entries: 3))
 
-        // The sentence drifts: a third entry lands before the human answers.
+        // The sentence drifts: a fourth entry lands before the human answers.
         try await harness.seedEntries(1)
 
         await harness.wiring.confirm()
@@ -119,15 +120,16 @@ final class ActionWiringTests: XCTestCase {
 
         let freshCard = harness.root.widgetStore.state.confirmation?.signal
         XCTAssertEqual(
-            freshCard?.sentence, clearSentence(entries: 3),
+            freshCard?.sentence, clearSentence(entries: 5),
             "the wiring re-presents a fresh card with the gate's current sentence — the binding "
-                + "refusal is a re-prompt, never a dead end")
+                + "refusal is a re-prompt, never a dead end, and the re-prompt is a render, so "
+                + "its own record cannot move the count the sentence names")
 
         await harness.wiring.confirm()
         let reloaded = await harness.auditStore.load()
         XCTAssertEqual(reloaded.count, 1, "the fresh confirm invoked the clear")
         XCTAssertEqual(reloaded.first?.decision, .confirmed)
-        XCTAssertEqual(reloaded.first?.summary, clearSentence(entries: 3))
+        XCTAssertEqual(reloaded.first?.summary, clearSentence(entries: 5))
     }
 
     // MARK: - Acceptance 3: arming while a session is in flight is refused
@@ -155,8 +157,9 @@ final class ActionWiringTests: XCTestCase {
             "no card may appear mid-session — the confirmation cannot land on a dictation")
         let reloaded = await harness.auditStore.load()
         XCTAssertEqual(
-            reloaded.count, 0,
-            "the refused arm records nothing — the gate was never reached")
+            reloaded.count, 2,
+            "the refused arm records nothing beyond the two seeded entries — the gate was "
+                + "never reached")
     }
 
     // MARK: - The decline path
@@ -245,9 +248,11 @@ final class ActionWiringTests: XCTestCase {
 
         XCTAssertNil(harness.root.widgetStore.state.confirmation)
         let reloaded = await harness.auditStore.load()
-        XCTAssertEqual(reloaded.count, 1)
         XCTAssertEqual(
-            reloaded.first?.summary, "gate.toolNotEnabled",
+            reloaded.count, 3,
+            "two seeded entries plus the declined arm's own record")
+        XCTAssertEqual(
+            reloaded.last?.summary, "gate.toolNotEnabled",
             "the unenabled tool is declined before any describe — the M7 never-read rule, "
                 + "recorded with its bounded key")
     }
@@ -319,7 +324,7 @@ private final class ActionWiringHarness {
     let holdToTalkSource: RecordingAudioSource
     let toggleSource: RecordingAudioSource
 
-    init(sessionActive: @escaping () -> Bool = { false }) {
+    init(sessionActive: @escaping @Sendable @MainActor () -> Bool = { false }) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vocca-action-wiring-\(UUID().uuidString)")
         let configStore = ActionConfigStore(
