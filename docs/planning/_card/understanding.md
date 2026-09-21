@@ -1,257 +1,108 @@
-# Understanding — `action-safety-spine` (C13 slice 1)
+# Understanding: action-surface-wiring (C13 slice 5)
+
+> Phase 2 output — written after the agent-team dig over the four C13 slice records and the
+> shipped code, at the `stdio-transport` tip (`d872309`). Sources cited inline.
+
+## What this work really is
+
+C13's machinery is complete and *unusable*: `ActionGate` (spine), the audit store + real
+`AuditActionProvider` (slice 2), `MCPProvider` + protocol + in-memory transport (slice 3), and
+`StdioMCPTransport` (slice 4). Every record since slice 1 ends with the same sentence:
+**"nothing is wired"** (`docs/STATUS.md:69-70`). This slice builds the surface that makes the
+machinery reachable by a human, and the wiring that makes it reachable by the app.
+
+## What must ship (per the card, `docs/planning/_card/issue.md`)
+
+1. **Persisted per-tool enablement store** — N1's deferral is now due: "the persisted store
+   (file, tolerant decode, byte-pin, permit rows, the `PersistentConsentStore` shape) lands
+   with the slice that introduces real tools to enable" (`action-safety-spine/prd.md:295-297`).
+   Real tools exist. `ActionEnablement` is a pure value (`ActionGate.swift:54-93`); nothing
+   persists it. Default off; absent is off; declined **before any provider call, including
+   before `describe`** (`confirmation-gate/spec.md:27-29`). Per-tool, never wholesale
+   (`CAPABILITY_ROADMAP.md:387`).
+2. **Confirmation prompt** — renders the provider's `describe` sentence as the only route to
+   `invoke` in a shipped configuration (card). Contract: per-invocation only, no "don't ask me
+   again" — it "has no representation in the type" (`prd.md:280-282`, M4a). The sentence is
+   the entire content of the prompt (M5a). Read-only runs directly, no prompt (M3). The
+   approval is constructed by the UI layer — that is where "the human saw the sentence" is
+   asserted (`prd.md:288`, N2).
+3. **Minimal server-configuration surface** — copy honoring D2: configuring a server is trust
+   extended to its author (`README.md:190` commits this copy already). Default configuration
+   must still spawn no child (card acceptance 3). Storage and placement are unspecified in the
+   files — a decision this unit makes (see open questions).
+4. **Additive composition-root wiring** — the C11/C12 recipe: `ActionWiring.swift`-style recipe
+   in `VoccaBootstrap/`, nullable root slots on `DictationLoopRoot`, composition in
+   `AppBootstrap.configure`, probe drive, expected-lifecycle constant, guard-the-guard test,
+   wiring-family lint, **G5 re-anchor of `AppBootstrap.swift` only** — dictation digests
+   (`SessionMachine.swift`, `DictationPipeline.swift`) unchanged
+   (`TurnTakingComposedAcceptanceTests.swift:317-347`).
+5. **First action-path SMOKE rows** — steps ≥144 (arm → confirm → invoke → audit row
+   reconstructs). The "reserving numbers nobody could run" caution (`record/spec.md:58-60`) no
+   longer applies: a surface now executes.
+
+## Binding decisions inherited (not negotiable in the PRD)
+
+- **M4a** — per-invocation confirmation; no "don't ask again" affordance may exist in the UI.
+- **M7** — enablement default off, declined before `describe`; absent is off.
+- **N2** — `.granted` asserts a human approved, cannot verify it; must be stated in the unit
+  record (card caveat). The tightening reserved for "when a surface exists" (`prd.md:290-293`):
+  bind the approval to the exact invocation and sentence shown — **this slice is that moment;
+  whether the binding ships here is a PRD decision**.
+- **Escalate-only blast radius** — the UI may never de-escalate a provider's claim; a
+  provider under-declaring must still confirm (`confirmation-gate/spec.md:31-57`).
+- **Raw arguments never persisted; the approved sentence is** — the prompt and the audit
+  record must show the same rendered sentence (`mcp-protocol` record, `STATUS.md:126-131`).
+- **D2** — server config is trust extended to the server's author; no spawned child in the
+  default configuration; `Process` may be named only in
+  `VoccaActions/MCP/StdioMCPTransport.swift` (the transport prohibition lint's exactly-one
+  permitted entry, `ActionTransportProhibitionTests.swift:200-202`). If config UI code would
+  spawn, STOP AND REPORT (`stdio-transport/transport/plan_20260921.md:26-27`).
+- **The wiring must choose a real policy floor** — handed forward explicitly:
+  "the wiring slice must choose a real floor" (`STATUS.md:158-159`); F2 removed `.none` as a
+  default; 42 call sites say `.none` explicitly. The composition root is the first caller
+  that may legitimately supply a named floor.
+- **`spawnsSubprocess` is a declared value** a composition root folds into a fact (badge),
+  the `requiresNetwork` analogue (`STATUS.md:27-28`).
+
+## Open questions the PRD must decide (not addressed in files)
+
+1. **Where does the confirmation prompt live?** The widget "never takes focus"; a confirmation
+   needs a human. No prose describes the prompt's shape anywhere (`record/spec.md:62` excluded
+   all UI). Candidate shapes: widget-panel sheet, menu-bar-driven, dedicated alert. This is the
+   slice's biggest design decision. The widget cannot show a raw server-supplied sentence in a
+   focus-stealing alert without the widget's own state machine (reducer row) knowing about it —
+   the C12 precedent is a reducer row, never a wiring courtesy (`WidgetStateReducer.swift`).
+2. **Where does server configuration live?** Settings tabs today: general/speech/cleanup/
+   dictionary/apps/usage (`SettingsTab.swift:29`). No Actions tab; `PRODUCT_SPEC.md` says
+   nothing about actions (`_card/understanding.md:196-199`). New tab vs. section in an existing
+   tab. Storage file shape (the `PersistentConsentStore` shape: JSON, tolerant decode, byte-pin)
+   — one file for enablement+servers or two? N1 commits only to the enablement store's shape.
+3. **The policy floor**: what the wiring supplies to `ActionGate.submit`. Candidates: floor
+   `.none` (server claim stands) vs. a named floor (e.g. outwardFacing always confirms —
+   the §8 escape-valve discussion warned this must not be first-thought-about in the MCP
+   slice; it was not decided there, `prd.md:338-344`).
+4. **N2's binding** (see above): ship the sentence-binding (e.g. submit compares the sentence
+   shown) or record it as deferred with the N2 limit stated?
+5. **Scope cuts confirmed**: no intent layer (utterance → tool call; card doesn't include it;
+   the "not confident" ask path is C13's remaining machinery, `CAPABILITY_ROADMAP.md:388`),
+   no `ShellProvider`, no coding-agent handoff, no reply-text rendering. The confirmation
+   prompt is for *machine-initiated* actions this slice can already produce (the gate's
+   `.confirmationRequired`), so the intent layer is not a dependency of the surface.
+6. **Who is the first configured server?** The card requires a server-configuration *surface*
+   but nothing says a server must be configured by default (D2 forbids it). The demonstrable
+   end-to-end path can run over `AuditActionProvider` (real, safe, zero-spawn) — the Q1
+   answer (`_card/understanding.md:228-235`) — plus `MCPProvider` over `InMemoryMCPTransport`
+   for the full MCP surface in the probe.
+
+## Risk the slice mitigates (not retires)
+
+R8 (destructive action the user didn't intend): this is the first human-in-the-loop safety
+surface; the "zero unintended actions" P4 gate (`ROADMAP.md:250`) becomes enforceable only
+after this slice. The prompt is the enforcement point, and its honesty limit (N2) is
+structural, recorded in the unit record per the card.
 
-Written after the Phase 2 dig (four parallel agents over the seam conventions, the
-zero-network invariant, the persistence precedents, and the doc reservations).
-This is the note the PRD interview starts from. Nothing here is a decision.
+## Layer / phase placement
 
----
-
-## 1. What the work is really asking
-
-Build the **safety spine** of C13 (Actions and MCP, P4) — the part C13's own entry says
-ships first: *"it ships gated on safety rather than on capability."*
-
-The docs already commit to the shape in two places, so this is not an invention:
-
-- `CLAUDE.md:327` — "**Actions:** MCP for the action/agent layer, gated on confirmation +
-  a local audit log."
-- `README.md:205` — "| Actions | MCP | The action layer, gated on confirmation and an audit log |"
-
-`ARCHITECTURE.md` reserves the slot on paper and nothing more:
-
-```
-  VoccaActions/              # P4 — ActionProvider, MCP client
-```
-
-and the seam table's last row:
-
-```
-| Actions | `ActionProvider` | `MCPProvider`, `ShellProvider` | No |
-```
-
-**`grep -rn "ActionProvider\|VoccaActions\|MCP" Sources/ Package.swift` returns zero hits.**
-Entirely greenfield; there is no legacy to reconcile.
-
----
-
-## 2. The finding that decides the architecture
-
-### Loopback is not an exemption
-
-`Sources/CVoccaNetworkInterposer/interposer.c:69-73` counts **loopback as NETWORK on
-purpose** — the opt-in local LLM lives on loopback, and the invariant exists to catch it
-becoming reachable by default. The shim interposes **eight** entry points, not just
-`connect(2)`: `connect`, `connectx` (the path URLSession and Network.framework actually
-take), `sendto`, `sendmsg`, `getaddrinfo`, `getnameinfo`, `gethostbyname`, `socket`.
-
-> An MCP server on `127.0.0.1` over HTTP/SSE is a **zero-network violation**, not a local
-> convenience. Stdio is not the *preferable* transport; it is the only transport the
-> invariant permits at all.
-
-### But a stdio child is BLIND to the interposer — and that is worse
-
-The interposer is delivered by `DYLD_INSERT_LIBRARIES` into a spawned child. Measured
-empirically on this machine (the agent built a minimal `connect`-only interposer with the
-same `__DATA,__interpose` technique plus a `LOADED\t<pid>` constructor, and a `posix_spawn`
-parent passing `environ` unchanged — what Foundation's `Process` does):
-
-| Spawn shape | Interposer sees it? |
-|---|---|
-| Locally built ad-hoc binary, direct absolute-path spawn | **SEEN** |
-| `node` (nvm, Developer ID, hardened runtime, *carries* `com.apple.security.cs.allow-dyld-environment-variables`) | **SEEN** |
-| `/usr/bin/python3`, `/usr/bin/curl`, `/usr/bin/tar` | **BLIND** |
-| `/bin/sh -c ./child` (same child that was seen directly) | **BLIND** |
-| `./server.js` with `#!/usr/bin/env node` | **BLIND** |
-
-Three rules compose: the env var *is* inherited; a **restricted** child (Apple platform
-binary, or hardened-runtime without the dyld-env entitlement) ignores it; and — the killer —
-a restricted child **purges `DYLD_*` from the environment it passes on**, so one hop through
-any Apple platform binary launders the insertion permanently for the entire descendant tree.
-
-**Therefore `/usr/bin/env node some-server.js` — the single most common way an MCP server is
-launched — is blind. Any shell wrapper is blind.**
-
-> The danger is not that stdio MCP *fails* the zero-network test. It is that the test stays
-> **green while a child egresses**. That is a false green in the repository's permanent
-> release blocker.
-
-**Consequence for this slice:** the safety spine must **spawn nothing**. And it should ship
-the lint that makes a future transport a deliberate, reviewed act rather than an accident.
-
----
-
-## 3. What the tree already gives us
-
-### The store idiom (three parts, repeated verbatim)
-
-`PersistentConsentStore`, `PersistentUsageStore`, `PersistentInjectionStrategyStore` are the
-same file shape: a `*FileSystem` protocol seam (5-6 ops, no decisions), one `FileManager`
-implementation, and an actor that decides. `persist()` is copy-paste identical: create
-directory → encode with `.sortedKeys` → temp-write `<name>.json.tmp` → `replaceItemAt`
-rename-over → throw on any failure so the caller knows the file was not updated. Decode is
-`static`, pure, **never throws**, and takes an injected `onInvalidElement` callback so
-"fails loudly" is asserted rather than hoped.
-
-### Append-only already has a shape — and it is not append I/O
-
-**Nothing in this repo appends to a file.** Every writer is whole-file temp-write→rename.
-But `FileSystemJournalStore` (`Sources/VoccaInject/Journal/`) writes **one file per event**,
-named by a zero-padded 8-digit ordinal (`00000001.json`) so lexicographic order *is* numeric
-order, with a `.tmp` suffix mid-commit that is "never readable, never listable," and
-idempotent removal. Append-only-by-directory is the established shape.
-
-### Content and time on disk are already precedented
-
-An early framing of this unit — "the audit log would be the first content-bearing,
-time-bearing file in Vocca" — **is false**, and correcting it shrinks the problem.
-`JournalEntry` (`Sources/VoccaInject/Journal/JournalStore.swift:32`) already persists:
-
-- `text: String` — *"The undelivered text, exactly as the ladder received it — never rewritten"* (whole transcripts)
-- `targetAppName: String?`
-- `capturedAtSeconds` / `capturedAtAttoseconds` — the instant as **monotonic `Duration`
-  components, never a wall clock**, because *"a wall-clock reading would lie across an NTP
-  step or a daylight-saving change."*
-
-That is precisely how an entry gets ordering and elapsed-time without a timestamp.
-
-### The byte-level pins are file-scoped, not global
-
-Exactly two exist — `PersistentConsentStoreTests.swift:469` and
-`PersistentUsageStoreTests.swift:390`. Each asserts on encoder output that the file carries
-no free text, no `HH:MM`, no ISO-8601, no Zulu suffix, no epoch-looking integer, **and** an
-exact key-set equality that "fails on the day" anyone adds a field. Rationale: *"anything
-finer than a bundle ID reconstructs when a user granted what."*
-
-They bind their own two files. They do not forbid an audit log — but the audit log must
-answer to their *reasoning*, and the journal shows how.
-
-### Prohibition lint machinery exists and fits
-
-`ModelDownloaderSeamTests.swift:72` holds a permitted-file set plus a forbidden identifier
-prefix list, walks `Sources/`, strips comments via `SwiftSourceScanner.stripComments`, and
-regex-matches the prefix family so `URLSessionConfiguration` is covered by construction. It
-asserts **both directions** — no unlisted file names it, *and* every permitted file still
-does — because a one-sided check passes vacuously once the implementation moves. A planted
-control (`:162`) runs the detector against a deliberately violating sample and requires a
-hit; a comment control (`:180`) proves doc comments don't trip it. `:190` is an
-**empty-permitted-set** variant scoped to one family, with the file list asserted non-empty
-and each file asserted to exist so a rename cannot make it vacuous — exactly the shape for
-"no file in `VoccaActions` may name a transport."
-
-**Caveat: there is no lint on `Network.framework`/`NW*` and none on `Process` today.** This
-unit would be adding both — closing a real existing gap.
-
-### The one existing subprocess
-
-`TarballExtractor.swift:91` spawns `/usr/bin/tar`, deliberately kept off the probe's path
-with a comment saying so. Precedent for "a subprocess the probe does not reach" — and, per
-§2, `/usr/bin/tar` is one of the **blind** cases.
-
-### BYOK is the model for a sanctioned-egress provider
-
-Not an exception — *unreachable*. `rules` is the default; `BYOKCleanupProvider` is
-constructed at exactly one site (`CleanupResolver.swift:239`) behind a `case .byok:` needing
-a persisted config block and a dialable endpoint, so the default-configuration probe never
-reaches it. Its socket lives in a lint-permitted transport file, it declares
-`requiresNetwork = true` rather than inheriting the offline default, and that flag folds
-once at launch into a structurally non-dismissable egress badge.
-
----
-
-### `VoccaCore` imports nothing — not even Foundation
-
-`CoreBoundaryTests.swift:116` enforces an **empty** import allow-list for `VoccaCore`. The
-`ActionProvider` protocol and its vocabulary must therefore be Foundation-free: no `Data`,
-no `URL`, no `Date`. This is a hard constraint on the seam's type design, and it is a second
-reason the audit log's instant must be a monotonic `Duration` rather than a timestamp.
-
-The division follows from it: `VoccaCore/Actions/` owns the protocol, the plain-data
-vocabulary, the pure gate logic and the trivial default; `VoccaActions/` owns the
-system-touching conformances (the audit-log store, and later `MCPProvider` / `ShellProvider`)
-and imports `VoccaCore` and no other Vocca module.
-
-### The G5 pin is NOT tripped by an unwired unit
-
-The pin lives in `TurnTakingComposedAcceptanceTests.swift:311-347` and hashes exactly three
-paths: `SessionMachine.swift`, `DictationPipeline.swift`, `AppBootstrap.swift`. A unit that
-adds a new module, new sources, new tests and `Package.swift` entries **without modifying
-`AppBootstrap.swift` leaves all three digests intact and never touches the pin.** C11 and C12
-each re-anchored only in their wiring aspect. Keeping the safety spine unwired defers the
-re-anchor to a later unit entirely — a real argument for machinery-only scope.
-
-### Permit files are test constants, and no subprocess family exists
-
-Mechanically a `private static let … : [String: Set<String>]` **inside a test file** — seam
-name → the one source path permitted to name a system-API identifier family. No file on
-disk. Doctrine (`InjectionSeamBoundaryTests.swift:75`): *a decision that names the system is
-a decision CI cannot reach.* File I/O needs rows in both `:1186` and `:1201`. **Subprocesses
-have no family at all** — `Process(` appears once tree-wide, unlinted. A `ShellProvider`
-would establish a new family rather than amend one.
-
-### The two-implementation doctrine is doctrine only
-
-**No test enforces it.** A recorded `PENDING` row is therefore viable without fighting CI —
-the `ParakeetEOU` Branch B precedent.
-
-### PRODUCT_SPEC says nothing about actions
-
-No confirmation UI, no action surface, no widget action state; "C13" does not appear in the
-file. There is no copy to honor and none to contradict — but also no design to inherit.
-
-> **Doc drift noted:** `docs/planning/dual-mode/prd.md:205` cites `PRODUCT_SPEC.md:379` as
-> the deferred reply-text rendering. Line 379 is now a §9 Sound table row
-> (`| Delivered | softer, higher tick |`). The citation has drifted; the deferral itself
-> still stands, the line number does not.
-
----
-
-## 4. Conventions this unit must follow
-
-- **RED-first commit sequence**, per C12: tests against a module that does not exist, then
-  the target. Module directory and the `Package.swift` target land in the *same* commit.
-- `Package.swift` target deps are asserted by **equality, not containment**.
-  `swiftSettings: [.swiftLanguageMode(.v6)]` on every target, no exceptions.
-- CI runs three jobs under **strict concurrency where any warning fails**.
-- Floor at `Scripts/test-with-floor.sh:1783` (`MINIMUM_EXECUTED_TESTS=2475`), ratcheted in
-  its own commit with a ledger comment paragraph.
-- The `ARCHITECTURE.md` reservation comment becomes
-  `# P4 — ActionProvider — SHIPPED (<unit-slug>, <date>):` + indented lines naming what is
-  actually in the directory. A wrong reservation is annotated, never deleted.
-- A seam-table row must declare ≥2 named implementations, or `PENDING` **with a reason**
-  (the `ParakeetEOU` Branch B precedent).
-- Baseline verified: `Scripts/test-with-floor.sh` exits 0 in this worktree.
-
----
-
-## 5. Open questions for the PRD interview
-
-**Q1 — The two-implementation doctrine vs. "no real tool execution."**
-Guardrail 7: *"A seam with one implementation is not a seam; it's an assertion."* The
-reserved row names `MCPProvider` and `ShellProvider`. But this slice is explicitly
-*no MCP wire, no real execution* — and `ShellProvider` is the highest-blast-radius component
-in the roadmap. So what ships behind `ActionProvider` here? Candidates: a `NullActionProvider`
-(shipped default, exposes zero tools, refuses everything) plus something real-but-safe; or a
-recorded `PENDING` row with a reason, per the `ParakeetEOU` precedent. **This is the biggest
-open scope question.**
-
-**Q2 — Audit log retention and payload bound.**
-The recovery journal holds content *evictably* (it is a recovery buffer, purged on delivery).
-An audit log exists to be *retained* for reconstruction, and its payload is tool arguments
-that may carry arbitrary user text. Whole arguments, or bounded/shape-only? What retention
-cap, and is it clearable? Does it get a byte-pin of its own that forbids everything except
-the named fields?
-
-**Q3 — Does the spine ship a user-visible surface at all?**
-C12 shipped seam + wiring + UI in one unit. C10 shipped machinery with *no* surface. A
-confirmation gate is inherently user-visible, but there is nothing to confirm until a real
-provider exists. Machinery-only, or a surface?
-
-**Q4 — Is the transport prohibition lint in scope?**
-Given §2, the strongest structural guard is a lint forbidding `URLSession`, `NW*`,
-`Network`, and `Process` inside `VoccaActions`, so a transport cannot be added without a
-reviewed edit. Argument for: it converts the blind-spot into a guard *before* the MCP client
-exists. Argument against: it is not in C13's stated acceptance.
-
-**Q5 — How is the blind-spot recorded?**
-It cannot be fixed by this unit and must not be silently inherited by the next. A recorded
-deviation (the `D1` precedent) naming the false-green risk, so the MCP slice starts from it?
+Actions layer (P4), continuing C13. Local-only; no cloud, no egress; the MCP server surface
+is BYOK-shaped (user configures their own server) and inherits the D2 copy. Does not touch
+capture/ASR/cleanup/injection/TTS; the dictation path stays byte-for-byte pinned.
