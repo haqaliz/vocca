@@ -10,6 +10,113 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `action-surface-wiring` unit shipped 2026-09-21 — C13 slice 5: the Actions surface —
+the first human-in-the-loop safety surface, composed and probe-driven; the "nothing is
+wired" sentence retires; no gate passes.** `feat/action-surface-wiring/aliz`.
+Six aspects. Floor **2710** (executed 2710).
+
+**What shipped, per aspect.**
+*sentence-binding* — N2's tightening, reserved since slice 1 for "when a surface exists":
+`ActionGate.submit` gained the additive `approvedSentence: String? = nil`. A granted
+approval binds to the exact sentence the human was shown; a drift between show and confirm
+is refused **by attempting the call** — `.declined(.approvedSentenceMismatch)`, the
+provider's `invoke` called zero times, the new bounded key spelled
+`gate.approvedSentenceMismatch`. `nil` keeps every existing call site byte-identical (the
+F2 precedent: `nil` grants nothing), and withheld beats mismatch (existing behaviour
+pinned, unchanged).
+*enablement-store* — the N1 deferral's redemption: **`ActionConfigStore`** (actor,
+`VoccaActions/Config/`) persists **`action-config.json`** under
+`<applicationSupport>/Vocca/` — `servers` (`[{id, name, executablePath, arguments}]`,
+absolute paths, the `StdioMCPTransport.Configuration` contract — no PATH lookup; cap 8)
+and `enablement` rows (providerID/toolID only — membership by whole `ActionInvocation`,
+**no arguments ever**; cap 512). Tolerant decode: a corrupt file loads as **empty** with a
+loud log, never a throw; unknown keys refused (the byte-pin); atomic tmp+rename writes;
+`MCPServerConfiguration` value type; stale tool rows survive; **absent is off**; two store
+instances over one directory see the same config.
+*executor* — **`ActionExecutor`** (actor, `VoccaActions/`): the **one caller of
+`ActionGate.submit` in the shipped configuration**, and the only complete gate→audit round
+trip the probe and the surface share. Every decision is recorded —
+`autoRanReadOnly` / `confirmed` / `refused` (incl. `toolNotEnabled` and
+`approvedSentenceMismatch`) / `dryRun` — the full `ActionAuditDecision` vocabulary,
+reconstructable from the entry fields by a second store instance. A recording failure
+never throws through: the decision stands, `auditRecorded == false`, logged loudly. The
+executor always supplies the sentence the caller showed — the binding's caller-side
+obligation, live in its own path.
+*confirmation-card* — **`WidgetConfirmationState`** in `VoccaUI`: the sentence, the
+provider/tool identity, and a generation token so a stale card cannot confirm after the
+state moved on. The reducer row (`WidgetAction.confirmation`): the card survives every
+adoption and every timer — cleared only by explicit confirm/decline/dismiss, one card at a
+time; `WidgetStateStore` entry points (`presentActionConfirmation` /
+`dismissActionConfirmation`); the panel card with Confirm/Decline buttons, sentence
+verbatim, copy pinned. **M4a: no "don't ask again" state exists anywhere in the reducer or
+the type.**
+*actions-tab* — `SettingsTab.actions` (the enumeration-driven sidebar): `ActionsTabState`
+reducer (server rows, discovery states `idle/discovering/succeeded/failed`, per-tool
+enablement rows **default off**, arm `idle/awaitingConfirmation`, preview), `ActionsTabPage`
++ `ActionsTabCopy` with the **D2 copy exact-in-spirit** — *"Configuring a server is trust
+extended to its author, not a guarantee we can make."* — and `SettingsBindings` gaining
+claim-nothing defaults. VoccaUI stays `["VoccaCore"]`-only.
+*wiring* — **`ActionWiring.swift`** in `VoccaBootstrap` (`composeActionWiring`, the
+C11/C12 additive recipe): the executor over the real `FileSystemActionAuditStore` and the
+injected provider, the config store as composition parameter, and the policy floor
+**`.none`, recorded as a decision** — named in code and doc (the F2 lesson: the F1/F2
+fail-safes already confirm anything without a genuine `readOnlyHint`, so a stricter floor
+would break M3's read-only-runs-directly). The arm path **re-renders the sentence after
+the record** — measured on the real `AuditActionProvider`, whose sentence names the count:
+a card rendered from the executor's record would be one entry behind the truth the moment
+the record lands, and the first confirm would mismatch forever; the re-render is a read,
+never a decision. The confirm binds to exactly the card's sentence; a mismatch is refused
+by attempting the call and re-presented as a **fresh card** — a render, not a decision
+(the mismatch cascade, measured). Decline records the refused decision — the audit log is
+the honest history of an action stopped for want of a yes. Arm while a session is in
+flight is refused (`ActionWiringError.sessionInFlight`, the C11 in-flight refusal). The
+composed default reports **`servers=0`, `spawnsSubprocess=false`** into the probe line
+(the `requiresNetwork` analogue). Root slots on `DictationLoopRoot` (nullable, defaulted —
+the converse/context precedent); `AppBootstrap.configure` composes additively;
+`PROBE-ACTION-SURFACE` drives the composed default inside the zero-network interposer with
+its guard-the-guard; the wiring-family lint (the `ContextWiringSeamBoundaryTests` shape).
+**G5 re-anchored exactly once, deliberately**: `AppBootstrap.swift`
+`464b0d5a…` → `aa12c723…` — computed, never edited-to-match; `SessionMachine.swift` and
+`DictationPipeline.swift` digests unchanged, asserted by the pin.
+
+**Measured (recorded, never gated):** **nothing was measured.** The only figures are test
+counts: **2710** executed through the floor script (`N == E`). No percentage exists, and
+none may be quoted.
+
+**The honesty block:**
+- **No gate passes.** The ninth unit built ahead of the uncleared gates.
+- **N2's limit, stated on the surface's own record:** an approval asserts a human said yes
+  and **cannot verify it**. What the sentence binding narrows is what an approval can be
+  *replayed against* — the confirm binds to the exact sentence the card showed, and a
+  drift between show and confirm is refused by attempting the call. The *seeing* is
+  asserted by the UI layer: the card renders what the reducer carries, and CI asserts the
+  reducer row — never the pixels.
+- **R8 is mitigated, not retired.** Every decision is recorded — the confirm, the decline,
+  the dry-run, the refusals. But "zero unintended actions" stays unmeasurable: nothing
+  executes for a founder to observe yet (SMOKE 145 is the first real observation —
+  recorded, never gated).
+- **D2, carried onto the surface.** Discovery is explicit user action by design (R4 — the
+  spawn is the trust the user extends, refused-by-absence in the default configuration);
+  in this slice the composed wiring cannot even do that: discovery answers a bounded
+  `.failed("discovery.unwired")` refusal because no transport is wired — so the default
+  configuration cannot create a child **and no surface action can either**. The Actions
+  tab's copy says where the claim stops: *"Configuring a server is trust extended to its
+  author, not a guarantee we can make."*
+- **The `.none` policy floor is a decision, not an unexamined default** — recorded in the
+  wiring's documentation: the F1/F2 fail-safes already confirm anything without a genuine
+  `readOnlyHint`; a stricter floor would break M3.
+- **The rendered card is executed by nothing in CI** — SwiftUI, the tap-adapter precedent.
+  CI asserts the reducer row, the store folds, the copy pins and the wiring closures;
+  SMOKE 145/147 observe the rendered surface.
+- **"Nothing is wired" retires.** The surface is composed and probe-driven; the probe runs
+  the composed default inside the interposer. What remains unwired is the *transport* —
+  by decision, and the copy says so.
+- **No SMOKE rows executed.** Steps 144-147 are **written and runnable** — recorded, never
+  gated, executed by nothing in CI.
+- Floor **2710** (executed 2710).
+
+---
+
 **The `stdio-transport` unit shipped 2026-09-21 — C13 slice 4: `StdioMCPTransport`, the second
 `MCPTransport` implementation (guardrail 7 met for that seam), and **the answer to D2**; no gate
 passes.** `feat/stdio-transport/aliz`. Floor **2629** (executed 2629).

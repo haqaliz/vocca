@@ -429,6 +429,32 @@ child ignores `DYLD_INSERT_LIBRARIES` *and purges it from the environment it pas
 failure mode is a **green test while a child egresses**, which is why the prohibition lint ships
 now rather than with the transport. Test floor: **2551**.)*
 
+*(Amended by the `action-surface-wiring` unit, 2026-09-21: **slice 5 of C13 shipped — the
+Actions surface** — and "nothing is wired" retires from the C13 record. The
+human-in-the-loop surface is real and composed, driven by `PROBE-ACTION-SURFACE` inside the
+zero-network interposer: the **sentence binding** (N2's tightening — a granted approval
+binds to the exact sentence shown; a drift is refused by attempting the call), the
+persisted config store (**`action-config.json`** — servers + enablement, byte-pinned,
+tolerant, absent is off, no arguments ever), the **`ActionExecutor`** (the gate's one
+caller in the shipped configuration; every decision recorded — confirmed, refused,
+dry-run), the widget **confirmation card** (reducer row, generation-tokened, no "don't ask
+again" state anywhere), the **Actions tab** (enablement rows default off; the D2 copy on
+the surface), and the additive `AppBootstrap` composition (`ActionWiring.swift`) with the
+policy floor **`.none`, recorded as a decision** (F1/F2 fail-safes already confirm absent
+claims; a stricter floor breaks M3), the in-flight arm refusal, the re-render-after-record
+card, the mismatch re-prompt, and discovery answered by a bounded `discovery.unwired`
+refusal — no transport is wired, so the default configuration cannot create a child and no
+surface action can either, and the copy says where the claim stops. G5 re-anchored once,
+deliberately (`464b0d5a…` → `aa12c723…`; dictation digests unchanged).
+
+**What is still NOT built — the remaining C13 machinery:** the **intent layer**
+(utterance → tool call, including the "not confident" path that asks rather than guesses),
+**`ShellProvider`** (the highest blast radius in the roadmap), **coding-agent handoff**, and
+**reply rendering**. The "don't ask again" / time-boxed-trust question — the §8 escape-valve
+shapes (`prd.md:338-344`) — is flagged as the *next* slice's conversation (M4a binds this
+slice). No gate passes; SMOKE 144-147 written and runnable, recorded never gated. Test
+floor: **2710**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

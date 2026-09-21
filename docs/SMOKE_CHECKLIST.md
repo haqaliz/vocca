@@ -3141,6 +3141,106 @@ a row means anything. **No context-accuracy percentage is quoted until a real ru
 
 ---
 
+## 22. Actions surface — `action-surface-wiring`
+
+Nothing in this section runs in CI. The gate's structural refusal, the executor's
+every-decision recording, the store's byte-pin and the wiring closures are proven headlessly
+and structurally (inside the zero-network interposer, with `servers=0`,
+`spawnsSubprocess=false`); the **rendered** card and tab are SwiftUI — executed by nothing
+in CI (the tap-adapter precedent), so CI asserts the reducer row, the store folds, the copy
+pins and the wiring closures, and these four rows are the founder's machine producing the
+first real observations of the C13 surface — recorded, never gated, each under **rule 1**:
+the state must actually have been entered before a row means anything. **No action-safety
+percentage is quoted until a real run exists (step 145)** — nothing below may be read as a
+gate pass.
+
+144. **The Actions tab and the D2 copy (C13 slice 5, recorded — never gated).**
+
+    *Gesture:* open Settings → Actions (the sidebar's **Actions** row). Verify the D2 copy
+    sits on the surface — "Configuring a server is trust extended to its author, not a
+    guarantee we can make." (`ActionsTabCopy`) — that **no server is configured** (the
+    servers list is empty) and **no tool is enabled** (every enablement row is off; absent
+    is off). Then attempt "Discover tools" on any row and verify the surface's answer is the
+    bounded refusal (the composed wiring answers `discovery.unwired` — no transport is
+    wired) — **nothing spawns, no child is created**, from any surface action.
+
+    *Verify the state was entered:* the Actions tab really opened (a sidebar row that was
+    never visited proves nothing), the D2 copy really read off the rendered page, and
+    discovery really attempted.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **D2 copy present, zero
+    servers, zero enabled tools, discovery refused without spawning** — the narrowed
+    promise observed on the real surface.
+
+    *Failure:* a missing D2 copy, a server configured by default, a tool enabled out of the
+    box, or a discovery attempt that spawns anything.
+
+145. **The arm → confirm → invoke → audit round trip through the real surface (C13 slice 5,
+    recorded — never gated).**
+
+    *Gesture:* with the app running and the widget live, arm a destructive tool from the
+    Actions tab — `audit.clear` (its sentence names the count: "Permanently delete N
+    entries from the action audit log. This cannot be undone.") — observe the **widget
+    panel card** appear with the sentence, press **Confirm** on the rendered surface, then
+    open the audit artifact (`<applicationSupport>/Vocca/action-audit/` — one file per
+    event, ordinal names) and reconstruct the decision from the entry fields: the confirmed
+    invocation, the provider/tool ids, and the sentence. The clear was ordered and its own
+    record follows it — the log is never empty.
+
+    *Verify the state was entered:* the card really rendered (the founder observed it), the
+    Confirm press really happened on the rendered surface (not a scripted call), and the
+    audit rows were really read off disk.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **arm → card → confirm →
+    invoked → reconstructable audit row** — the R8 every-decision rule observed on the real
+    surface.
+
+    *Void — not fail — if:* no card appeared (an arm that never reached the surface proves
+    nothing — rule 1).
+
+    *Failure:* an invoke without a card, a confirm that records nothing, or an audit log
+    that cannot reconstruct the decision.
+
+146. **Enablement survives relaunch (C13 slice 5, recorded — never gated).**
+
+    *Gesture:* flip one tool's enablement row on in the Actions tab (rows are off by
+    default), quit and relaunch Vocca, reopen Settings → Actions, and verify the row is
+    still on and that an unflipped row is still off. Then open the artifact
+    (`action-config.json` — servers + enablement only) and verify the shape by eye: no
+    transcript text, no sentence, no arguments reach the file (the byte-level pin).
+
+    *Verify the state was entered:* the row was really flipped between the two launches
+    (the store's answer observed to change), and the relaunch really happened.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **enablement survived the
+    relaunch, absent stayed off** — N1's persistence observed on the real surface.
+
+    *Failure:* a flipped row that does not survive, a tool enabled that was never flipped
+    (a default that grants), or a shape violation in the file.
+
+147. **The widget card shows the gate's sentence verbatim before invoke (C13 slice 5,
+    recorded — never gated).**
+
+    *Gesture:* arm the same destructive tool again; before pressing anything, read the
+    card's sentence off the **rendered** widget and compare it to the gate's own render
+    (the count sentence — the card must match it exactly), and verify the card carries no
+    "don't ask again" / "remember" affordance anywhere (M4a). Then press Confirm and verify
+    the executed action is exactly the shown one — a drift between show and confirm is
+    refused by attempting the call (`gate.approvedSentenceMismatch`) and re-presented as a
+    fresh card with the current sentence (the re-prompt is a render, never a decision).
+
+    *Verify the state was entered:* the card was really read off the rendered surface
+    before any confirm, and the confirm really followed the read.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **the card showed the
+    gate's sentence verbatim, no ask-again affordance, and the confirm bound to exactly
+    that sentence** — N2's narrowing observed on the real surface.
+
+    *Failure:* a card whose sentence differs from the gate's render, any "don't ask again"
+    affordance, or a confirm that executes a sentence the human never saw.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here
