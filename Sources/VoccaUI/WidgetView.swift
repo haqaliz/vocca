@@ -48,6 +48,11 @@ import VoccaCore
 /// vocabulary (`WidgetProjection.swift`): a terminal notice rendered over IDLE — the machine said
 /// the microphone did not open, and the pill says so instead of letting the press appear to do
 /// nothing at all.
+///
+/// The confirmation card (`confirmation-card`) is the second addition: a presented card
+/// replaces the pill — the gate's sentence needs the card's room, and a human decision needs
+/// buttons. A terminal notice still wins over it (the notice is the machine's answer; the card
+/// is carried in the state and returns when the notice clears).
 @MainActor
 public struct WidgetView: View {
 
@@ -56,13 +61,37 @@ public struct WidgetView: View {
     /// The input level the RECORDING waveform draws — the seam ``LiveLevelSource``, the real
     /// conformance injected by the composition root.
     public let level: any LiveLevelSource
+    /// The confirmation card's Confirm closure — wiring-supplied (the ``MenuBarItem``
+    /// closure-seam precedent), defaulted to a no-op so existing construction sites compile
+    /// unchanged. `VoccaUI` never names a provider or the gate: this is the seam, and the
+    /// store's generation check is the guard on the confirm side.
+    public let onConfirmAction: @Sendable () -> Void
+    /// The confirmation card's Decline closure — wiring-supplied, defaulted to a no-op.
+    public let onDeclineAction: @Sendable () -> Void
 
-    public init(store: WidgetStateStore, level: any LiveLevelSource) {
+    public init(
+        store: WidgetStateStore,
+        level: any LiveLevelSource,
+        onConfirmAction: @Sendable @escaping () -> Void = {},
+        onDeclineAction: @Sendable @escaping () -> Void = {}
+    ) {
         self.store = store
         self.level = level
+        self.onConfirmAction = onConfirmAction
+        self.onDeclineAction = onDeclineAction
     }
 
     public var body: some View {
+        if let confirmation = store.state.confirmation, store.state.notice == nil {
+            confirmationCard(confirmation)
+        } else {
+            pillBody
+        }
+    }
+
+    /// The pill's chrome — the capsule (or notched pill) body the five states and the notice
+    /// render in.
+    private var pillBody: some View {
         content
             .font(VoccaTheme.Text.panel)
             .foregroundStyle(isFilled ? Color.white : Color.primary)
@@ -76,6 +105,44 @@ public struct WidgetView: View {
             .overlay(pillOutline)
             .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
             .opacity(panelOpacity)
+    }
+
+    /// The confirmation card (`confirmation-card`): the gate's sentence verbatim, the
+    /// provider/tool identity in the heading, and the Confirm/Decline buttons wired to the
+    /// wiring-supplied closures. Rendered instead of the pill — a human decision gets the
+    /// card's room. Executed by nothing in CI, exactly like the rest of this file: the copy
+    /// is pinned (`WidgetConfirmationStateTests`), the sentence's verbatim carry is the
+    /// reducer's contract, and the stale guard is the store's.
+    @ViewBuilder
+    private func confirmationCard(_ confirmation: WidgetConfirmationState) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(WidgetCopy.confirmationHeading)
+                    .font(VoccaTheme.Text.sectionHeader)
+                    .foregroundStyle(.secondary)
+                Text(WidgetCopy.confirmationProviderLabel(
+                    providerID: confirmation.signal.providerID,
+                    toolID: confirmation.signal.toolID))
+                    .font(VoccaTheme.Text.panel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Text(confirmation.signal.sentence)
+                .font(VoccaTheme.Text.body)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button(WidgetCopy.confirmationDeclineButton, action: onDeclineAction)
+                Button(WidgetCopy.confirmationConfirmButton, action: onConfirmAction)
+            }
+            .font(VoccaTheme.Text.body)
+        }
+        .padding(VoccaTheme.Panel.horizontalPadding)
+        .frame(minWidth: 260)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
     }
 
     /// The pill's fill, drawn in the state's shape: the capsule for the dictation states, the

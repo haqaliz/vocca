@@ -93,9 +93,11 @@ public final class LiveWidget {
     ///
     /// The panel's own store observation does the showing from then on; the two guards are what
     /// make the creation lazy — an IDLE store with no notice (the state `configure` leaves) is a
-    /// no-op, and an existing panel is one.
+    /// no-op, and an existing panel is one. A presented confirmation card counts as something to
+    /// show (`confirmation-card`): the card usually arrives over IDLE, so without this leg the
+    /// window would never be created for it.
     private func presentIfNeeded(_ state: WidgetReducerState) {
-        guard state.state != .idle || state.notice != nil else { return }
+        guard state.state != .idle || state.notice != nil || state.confirmation != nil else { return }
         guard presentedPanel == nil else { return }
         presentedPanel = WidgetPanel(
             store: store, levelSource: level, soundPlayer: soundPlayer)
