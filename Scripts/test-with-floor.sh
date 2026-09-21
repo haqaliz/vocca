@@ -1888,8 +1888,31 @@ set -euo pipefail
 # frame cap missed a COMPLETE oversize frame whose delimiter arrived in the same read — the count
 # taken from the floor script's own parse in the ratchet commit.
 #
+# The action-surface-wiring raise (2629 -> 2710; executed 2710) — the C13 slice-5 surface
+# aspect, the six aspects of the first human-in-the-loop Actions surface:
+# `ActionGateSentenceBindingTests` (the additive `approvedSentence` parameter — a granted
+# approval whose sentence differs from the gate's render is refused by attempting the call
+# with the provider's invoke called zero times, the matching sentence proceeds, `nil` is
+# byte-identical to today, and withheld beats mismatch), `ActionConfigStoreTests` (the
+# `action-config.json` store — servers + enablement round trips, tolerant decode, unknown
+# keys refused, atomic writes, the caps, absent-is-off, and no sentence or arguments can
+# reach the file), `ActionExecutorTests` (every gate decision class recorded and
+# reconstructable from the entry fields, a recording failure yields `auditRecorded ==
+# false` without throwing through, the sentence binding live in the executor's path,
+# dry-run reaches invoke zero times), `WidgetConfirmationStateTests` (the card reducer row
+# — the sentence verbatim, the card surviving every adoption and every timer, generation-
+# stale confirm refusals, one card at a time, no "don't ask again" state anywhere),
+# `ActionsTabTests` (the tab enumeration, the reducer's server/discovery/enablement/arm
+# rows, default-off, the D2 copy pin), `ActionWiringTests` (the composed default reports
+# `servers=0` and `spawnsSubprocess=false`, the arm -> card -> confirm -> invoke -> audit
+# round trip, the re-render-after-record card, the mismatch re-prompt, and the declined
+# arm and decline both recorded), the `ZeroNetworkTests` PROBE-ACTION-SURFACE
+# guard-the-guard and the composed fact lines, and the `ActionWiringSeamBoundaryTests`
+# wiring-family lint — the count taken from the floor script's own parse in the ratchet
+# commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2629
+MINIMUM_EXECUTED_TESTS=2710
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
