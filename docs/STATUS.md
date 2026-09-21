@@ -115,6 +115,20 @@ none may be quoted.
   gated, executed by nothing in CI.
 - Floor **2710** (executed 2710).
 
+**Post-merge addendum (2026-09-21, CI findings).** The branch's first CI run failed the
+strict-concurrency build on three warnings: two unused bindings this unit introduced
+(`LiveWidget.confirmationActions`, `ActionAuditDrive.invocation`), and one **pre-existing
+since 2026-09-19** — `PersistentConsentStoreTests.swift:333`'s unused `set(_:consented:)`
+result, emitted by a newer Xcode 26.x compiler, which had been reddening every master CI
+run since PR #40. All three fixed in one commit (the consent-test fix heals master CI; the
+next master run is the first green since 2026-09-19). The two remaining bundle failures
+were **machine-load flakes in audio tests this unit never touched** — the overrun-under-
+contention assertion in `AudioRingBufferTests` (Debug, one run) and the frame-quantized
+ramp in `PlaybackOfflineRenderTests` (Release, the other run); each passed in the sibling
+config and on re-run, and all eight checks are green. Both tests are recorded here as
+candidates for a deterministic fix in a later session (the audio path is digest-pinned
+territory, out of this unit's scope).
+
 ---
 
 **The `stdio-transport` unit shipped 2026-09-21 — C13 slice 4: `StdioMCPTransport`, the second
