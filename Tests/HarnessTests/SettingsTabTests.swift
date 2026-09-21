@@ -18,7 +18,8 @@ import XCTest
 
 /// **The settings window's tabs** — the first test this enum has ever had, added because the
 /// Apps tab is the first case appended to it since the window shipped, and updated for Usage,
-/// the sixth (`daily-use-ledger/usage-tab/spec.md` E1).
+/// the sixth (`daily-use-ledger/usage-tab/spec.md` E1), and Actions, the seventh
+/// (`action-surface-wiring/actions-tab`).
 ///
 /// `SettingsView` iterates `allCases` and switches exhaustively over them, so a case that exists
 /// gets a tab and a page or the build fails. What the compiler cannot check is the part a user
@@ -26,15 +27,16 @@ import XCTest
 /// case was not silently dropped while another was added.
 final class SettingsTabTests: XCTestCase {
 
-    /// Six tabs: the four the window shipped with, Apps, and Usage.
-    func testAllCasesAreTheSixShippedTabs() {
+    /// Seven tabs: the four the window shipped with, Apps, Actions, and Usage.
+    func testAllCasesAreTheSevenShippedTabs() {
         XCTAssertEqual(
-            SettingsTab.allCases, [.general, .speech, .cleanup, .dictionary, .apps, .usage],
+            SettingsTab.allCases,
+            [.general, .speech, .cleanup, .dictionary, .apps, .actions, .usage],
             """
             The settings window's tabs changed. Each one is a thing a user can decide about, so \
             adding or removing one is a product decision — and the order is the order they read \
             in: how you start, who hears you, what happens to the text, which words Vocca gets \
-            wrong, where it all ends up, and how it went.
+            wrong, where it all ends up, what may act on your behalf, and how it went.
             """)
     }
 
@@ -52,6 +54,15 @@ final class SettingsTabTests: XCTestCase {
         XCTAssertEqual(SettingsTab.usage.title, "Usage")
         XCTAssertEqual(SettingsTab.usage.symbolName, "calendar")
         XCTAssertEqual(SettingsTab.usage.id, "usage")
+    }
+
+    /// The Actions tab's own label and symbol. `bolt` rather than a network glyph: the tab is
+    /// about what may act on this machine, and a cloud-shaped picture would be the
+    /// analytics-tab mistake in reverse.
+    func testTheActionsTabIsLabelledAndSymbolled() {
+        XCTAssertEqual(SettingsTab.actions.title, "Actions")
+        XCTAssertEqual(SettingsTab.actions.symbolName, "bolt")
+        XCTAssertEqual(SettingsTab.actions.id, "actions")
     }
 
     /// Every tab has a non-empty title and symbol, and no two share either. A duplicate symbol

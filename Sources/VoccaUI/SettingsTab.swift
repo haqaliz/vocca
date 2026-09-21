@@ -16,13 +16,13 @@ import VoccaCore
 
 /// The settings window's tabs, and the words on them.
 ///
-/// Five tabs because there are five things a user can decide: how they start a dictation, which
-/// engine hears them, what happens to the text afterwards, which words Vocca gets wrong, and how
-/// it types into a given application. Every one of these has been editable since the day it
-/// shipped — by hand, in JSON, in Application Support. This window is the same settings with a
-/// surface on them.
+/// Six tabs because there are six things a user can decide: how they start a dictation, which
+/// engine hears them, what happens to the text afterwards, which words Vocca gets wrong, how
+/// it types into a given application, and which server tools may act on their behalf. Every one
+/// of these has been editable since the day it shipped — by hand, in JSON, in Application
+/// Support. This window is the same settings with a surface on them.
 ///
-/// **Usage is the sixth, and it is not a decision.** It changes nothing: it is the screen a user
+/// **Usage is the seventh, and it is not a decision.** It changes nothing: it is the screen a user
 /// opens to see what Vocca has recorded about them, which is what makes `PRODUCT_SPEC.md` §12's
 /// *"Metrics are local and inspectable"* something checkable rather than a claim. It reads last
 /// because it is the only tab about what already happened.
@@ -38,6 +38,9 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
     case dictionary
     /// What Vocca learned about typing into each application, and the user's own pins over it.
     case apps
+    /// The servers whose tools may act, and the tools the user enables — one at a time, off by
+    /// default, and armed only through the confirmation card.
+    case actions
     /// What Vocca has recorded about its own use — the ledger, and the button that empties it.
     case usage
 
@@ -51,6 +54,7 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
         case .cleanup: return "Cleanup"
         case .dictionary: return "Dictionary"
         case .apps: return "Apps"
+        case .actions: return "Actions"
         case .usage: return "Usage"
         }
     }
@@ -63,6 +67,9 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
         case .cleanup: return "wand.and.stars"
         case .dictionary: return "character.book.closed"
         case .apps: return "square.grid.2x2"
+        // `bolt` rather than a network glyph: the tab is about what may act on this machine,
+        // and a cloud-shaped picture would be the analytics-tab mistake in reverse.
+        case .actions: return "bolt"
         // `calendar` rather than a chart glyph: this tab is a ledger of days, and a bar chart is
         // the picture of exactly the analytics dashboard `PRODUCT_SPEC.md` §12 says the product
         // does not have.
