@@ -233,9 +233,9 @@ extension VoccaNetworkProbe {
         let servers = await wiring.loadConfig().servers.count
         var mismatch = "no"
         var binding = "refused"
-        if let invocation = ActionInvocation(
+        if ActionInvocation(
             providerID: AuditActionProvider.providerID,
-            toolID: AuditActionProvider.clearToolID)
+            toolID: AuditActionProvider.clearToolID) != nil
         {
             try? await wiring.setToolEnabled(
                 AuditActionProvider.providerID, AuditActionProvider.clearToolID, true)

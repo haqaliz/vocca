@@ -110,7 +110,7 @@ public final class LiveWidget {
     private func presentIfNeeded(_ state: WidgetReducerState) {
         guard state.state != .idle || state.notice != nil || state.confirmation != nil else { return }
         guard presentedPanel == nil else { return }
-        if let confirmationActions {
+        if confirmationActions != nil {
             // The wiring's card actions, wrapped into the panel's synchronous button seam. The
             // weak capture keeps the panel from extending the live widget's lifetime.
             presentedPanel = WidgetPanel(
