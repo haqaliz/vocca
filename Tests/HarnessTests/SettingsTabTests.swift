@@ -78,4 +78,33 @@ final class SettingsTabTests: XCTestCase {
             Set(SettingsTab.allCases.map(\.id)).count, SettingsTab.allCases.count,
             "Two tabs share an identity — the TabView's selection would be ambiguous.")
     }
+
+    // MARK: - The row and the page
+
+    /// **"A case that exists gets a row and a page"** — the property this file's header states.
+    /// The compiler enforces the page half (`SettingsView.page(for:)` switches exhaustively),
+    /// and the sidebar half follows from `allCases`; what nothing enforces is the *coupling*
+    /// being the intended one — that the Actions tab renders the Actions page rather than
+    /// sharing another tab's. That is a scan over `SettingsView.swift`, the
+    /// `HotkeySurfaceAgreementTests` shape.
+    func testTheActionsCaseRendersTheActionsPage() throws {
+        let view = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaUI/SettingsView.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            view.contains("case .actions: ActionsTabPage(bindings: bindings)"),
+            "The Actions case no longer renders ActionsTabPage — a case that exists must get "
+                + "its own page, not another tab's.")
+    }
+
+    /// The mapping scan is not vacuous: a page mapping that fell back to another tab's page
+    /// would pass a scan looking for the wrong fragment.
+    func testThePageMappingScanRejectsABorrowedPage() {
+        let planted = "case .actions: AppsSettingsPage(bindings: bindings)"
+        XCTAssertFalse(
+            planted.contains("case .actions: ActionsTabPage"),
+            "the scan would pass an Actions case rendering another tab's page — it is looking "
+                + "for the wrong thing")
+    }
 }

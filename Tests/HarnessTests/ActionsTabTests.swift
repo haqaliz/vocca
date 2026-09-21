@@ -375,19 +375,19 @@ final class ActionsTabTests: XCTestCase {
             "no server is claimed and no enablement is claimed — with nothing behind the page, "
                 + "the empty state is the only true thing it can say")
 
-        let discovery = await bindings.discoverTools(forServerID: "s1")
+        let discovery = await bindings.discoverTools("s1")
         XCTAssertEqual(
             discovery, .succeeded([]),
             "an un-wired discovery claims no tools — the empty answer, never a failure nobody "
                 + "reported and never a tool list nobody listed")
 
-        let sentence = await bindings.previewAction(providerID: "s1", toolID: "list")
+        let sentence = await bindings.previewAction("s1", "list")
         XCTAssertNil(
             sentence, "an un-wired preview claims no sentence — a surface must not invent one")
 
         try? await bindings.saveActionsConfig(.empty)
-        try? await bindings.setToolEnabled(providerID: "s1", toolID: "list", enabled: true)
-        try? await bindings.armAction(providerID: "s1", toolID: "list")
+        try? await bindings.setToolEnabled("s1", "list", true)
+        try? await bindings.armAction("s1", "list")
         bindings.confirmationPresented()
         bindings.confirmationDismissed()
         // Nothing to assert but that each returned: the point is that the defaults change
@@ -460,6 +460,25 @@ final class ActionsTabTests: XCTestCase {
         XCTAssertTrue(
             page.contains("confirmationPresented()"),
             "the page emits the card signal — that is the whole of its arm path")
+    }
+
+    /// The arm-path scan is not vacuous: a page that folded `.armRequested` but never emitted
+    /// the card signal — an arm that the wiring could never observe — would pass a scan looking
+    /// for the wrong fragment.
+    func testTheArmPathScanRejectsAFoldWithNoSignal() {
+        let planted = """
+            private func arm(_ row: ActionsToolRow) {
+                state = ActionsTabReducer.reduce(state, .armRequested(providerID: row.providerID, \
+            toolID: row.toolID))
+            }
+            """
+        XCTAssertTrue(
+            planted.contains(".armRequested"),
+            "the planted page is the fold-without-signal shape — the check below is what "
+                + "rejects it")
+        XCTAssertFalse(
+            planted.contains("confirmationPresented()"),
+            "the scan would pass an arm that never signals — the wiring's card could never appear")
     }
 
     // MARK: - Fixtures
