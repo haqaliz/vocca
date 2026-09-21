@@ -20,6 +20,24 @@ import VoccaCore
 /// `action-config.json`, under `<applicationSupport>/Vocca/` (`enablement-store` spec, PRD R1 +
 /// R4).
 ///
+/// ## The N1 lineage — where this store came from
+///
+/// `action-safety-spine` (C13 slice 1) deferred persisted per-tool enablement to "the slice
+/// that introduces real tools to enable" (`action-safety-spine/prd.md:295-297`), and the
+/// deferral is what this store lands: real tools exist (`MCPProvider`, `AuditActionProvider`),
+/// and nothing persisted enablement or server configuration. Without it, M7's default-off is
+/// forgettable every launch — the enablement set would have to be rebuilt by hand each run —
+/// and a server configuration cannot exist at all.
+///
+/// ## What this file is not
+///
+/// It is not the audit log: it holds no sentence, no decision and no outcome, because it is not
+/// a record of what a human approved — it is a record of what may act. **The raw argument blob
+/// is never persisted**, the `ActionAuditEntry` precedent held from the other direction: the
+/// audit log keeps the rendered sentence and never the wire dump, while this file keeps neither
+/// — the enablement row is two identifiers, and the byte-pin in `ActionConfigStoreTests`
+/// asserts that no transcript text, sentence or raw tool argument can reach the bytes.
+///
 /// ## The file is the memory
 ///
 /// The store is deliberately **stateless**: ``load()`` and ``loadEnablement()`` read the file
@@ -120,9 +138,13 @@ public actor ActionConfigStore {
     /// Each row maps to exactly one ``ActionInvocation`` with **no arguments — always `nil`**:
     /// enablement is a fact about membership, and tool-call arguments travel only at call time.
     /// A row whose identifiers cannot construct an invocation (an empty id in a hand-edited
-    /// file) is skipped rather than fatal — the same tolerance the row's staleness gets, for
-    /// the same reason: the file is user-visible and hand-editable, and one bad row must never
-    /// cost the rest of the enablement.
+    /// file) is skipped rather than fatal — the same tolerance stale tool rows get, for the
+    /// same reason: the file is user-visible and hand-editable, and one bad row must never
+    /// cost the rest of the enablement. **Stale tool ids are tolerated, never pruned**: a tool
+    /// a server no longer lists keeps its row, because this store is not the discoverer of
+    /// tools (the Actions-tab aspect owns discovery) and a row for a tool that has temporarily
+    /// vanished must survive the round trip — re-enabling a tool a server lists again must not
+    /// require the user to re-enable it.
     public func loadEnablement() async -> ActionEnablement {
         let rows = await load().enablement
         var invocations: [ActionInvocation] = []
