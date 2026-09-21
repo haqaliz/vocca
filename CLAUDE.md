@@ -9,6 +9,33 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`action-surface-wiring` (C13 slice 5, shipped 2026-09-21):** the Actions surface — the
+> first human-in-the-loop safety surface — is real and composed. The sentence binding
+> (`ActionGate.submit`'s additive `approvedSentence`): a grant is refused by attempting the
+> call if the sentence differs from what the card showed (`gate.approvedSentenceMismatch`).
+> `ActionConfigStore` persists **`action-config.json`** (servers + enablement rows,
+> byte-pinned, tolerant decode, absent is off, no arguments ever). `ActionExecutor` is the
+> one caller of the gate in the shipped configuration, recording **every** decision
+> (`autoRanReadOnly`/`confirmed`/`refused`/`dryRun`) with `auditRecorded` honesty. The
+> widget confirmation card is a reducer row (generation-tokened, survives every adoption
+> and timer, no "don't ask again" state anywhere — M4a); the Actions tab
+> (`SettingsTab.actions`, enablement default off) carries the D2 copy exact-in-spirit —
+> *"Configuring a server is trust extended to its author, not a guarantee we can make."*
+> The `AppBootstrap` composition (`ActionWiring.swift`, additive, probe-safe) supplies the
+> policy floor **`.none`, recorded as a decision** (F1/F2 already confirm absent claims; a
+> stricter floor breaks M3), the in-flight arm refusal, the re-render-after-record card
+> (measured on the real `AuditActionProvider` — a card one entry behind the record would
+> mismatch forever), the mismatch re-prompt, and discovery answered by a bounded
+> `discovery.unwired` refusal — no transport is wired, so the default configuration cannot
+> create a child and no surface action can either. `PROBE-ACTION-SURFACE` drives the
+> composed default (`servers=0`, `spawnsSubprocess=false`) inside the zero-network
+> interposer; the G5 pin was deliberately re-anchored once (`464b0d5a…` → `aa12c723…`,
+> dictation digests unchanged). **No gate passes** (ninth unit ahead of the uncleared
+> gates); N2's limit is stated on the surface's own record — the binding narrows what an
+> approval can be replayed against, the seeing is asserted by the UI layer; R8 mitigated,
+> not retired; the rendered card is executed by nothing in CI. SMOKE 144-147 are **written
+> and runnable** — recorded, never gated. Test floor: **2710**.
+>
 > **`stdio-transport` (C13 slice 4, shipped 2026-09-21):** `StdioMCPTransport` ships as the
 > second `MCPTransport` implementation — **guardrail 7 met for that seam** — and with it **the
 > answer to D2**, which the transport lint had demanded since slice 1. The answer is a *narrowed

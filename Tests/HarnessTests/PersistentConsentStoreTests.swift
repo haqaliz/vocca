@@ -329,7 +329,7 @@ final class PersistentConsentStoreTests: XCTestCase {
     func testAStrayTempFileFromACrashIsNeverRead() async throws {
         let directory = Self.tempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        try await PersistentConsentStore(directory: directory)
+_ = try await PersistentConsentStore(directory: directory)
             .set("com.example.app", consented: true)
         try "torn write, never renamed".write(
             to: directory.appendingPathComponent("context-consent.json.tmp"), atomically: true,

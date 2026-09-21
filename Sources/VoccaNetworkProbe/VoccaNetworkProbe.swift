@@ -351,11 +351,13 @@ struct VoccaNetworkProbe {
 
         // `VoccaActions`' real work, run rather than referenced — and, unlike every drive above,
         // the *only* thing that puts its module inside this invariant: the audit store is wired
-        // into nothing, deliberately, so there is no other witness to fall back on. Its
-        // default-configuration surface is a round trip through real bytes: the shipped store
-        // over a fresh temporary directory, two entries committed, a second store reading them
-        // back, then a clear. No transport is reachable — the module names only Foundation,
-        // OSLog and VoccaCore, which `transport-prohibition` lints. See `ActionAuditDrive.swift`.
+        // into nothing except the composition this drive drives. Its default-configuration
+        // surface is the **composed action recipe** (`wiring` aspect): the real
+        // `AuditActionProvider` over a fresh temporary audit store, arm `audit.clear`, the
+        // binding-mismatch re-prompt, confirm, the real clear running, the reconstruct, and the
+        // composed default's facts (`servers=0`, `spawnsSubprocess=false`). No transport is
+        // reachable — the module names only Foundation, OSLog and VoccaCore, which
+        // `transport-prohibition` lints. See `ActionAuditDrive.swift`.
         let actionAudit = exerciseActionAudit()
         print("PROBE-ACTIONS\t\(actionAudit.report)")
 

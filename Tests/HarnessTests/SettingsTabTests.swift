@@ -18,7 +18,8 @@ import XCTest
 
 /// **The settings window's tabs** — the first test this enum has ever had, added because the
 /// Apps tab is the first case appended to it since the window shipped, and updated for Usage,
-/// the sixth (`daily-use-ledger/usage-tab/spec.md` E1).
+/// the sixth (`daily-use-ledger/usage-tab/spec.md` E1), and Actions, the seventh
+/// (`action-surface-wiring/actions-tab`).
 ///
 /// `SettingsView` iterates `allCases` and switches exhaustively over them, so a case that exists
 /// gets a tab and a page or the build fails. What the compiler cannot check is the part a user
@@ -26,15 +27,16 @@ import XCTest
 /// case was not silently dropped while another was added.
 final class SettingsTabTests: XCTestCase {
 
-    /// Six tabs: the four the window shipped with, Apps, and Usage.
-    func testAllCasesAreTheSixShippedTabs() {
+    /// Seven tabs: the four the window shipped with, Apps, Actions, and Usage.
+    func testAllCasesAreTheSevenShippedTabs() {
         XCTAssertEqual(
-            SettingsTab.allCases, [.general, .speech, .cleanup, .dictionary, .apps, .usage],
+            SettingsTab.allCases,
+            [.general, .speech, .cleanup, .dictionary, .apps, .actions, .usage],
             """
             The settings window's tabs changed. Each one is a thing a user can decide about, so \
             adding or removing one is a product decision — and the order is the order they read \
             in: how you start, who hears you, what happens to the text, which words Vocca gets \
-            wrong, where it all ends up, and how it went.
+            wrong, where it all ends up, what may act on your behalf, and how it went.
             """)
     }
 
@@ -54,6 +56,15 @@ final class SettingsTabTests: XCTestCase {
         XCTAssertEqual(SettingsTab.usage.id, "usage")
     }
 
+    /// The Actions tab's own label and symbol. `bolt` rather than a network glyph: the tab is
+    /// about what may act on this machine, and a cloud-shaped picture would be the
+    /// analytics-tab mistake in reverse.
+    func testTheActionsTabIsLabelledAndSymbolled() {
+        XCTAssertEqual(SettingsTab.actions.title, "Actions")
+        XCTAssertEqual(SettingsTab.actions.symbolName, "bolt")
+        XCTAssertEqual(SettingsTab.actions.id, "actions")
+    }
+
     /// Every tab has a non-empty title and symbol, and no two share either. A duplicate symbol
     /// gives two tabs the same picture, which is the one thing a user navigates by.
     func testEveryTabHasADistinctTitleAndSymbol() {
@@ -66,5 +77,34 @@ final class SettingsTabTests: XCTestCase {
         XCTAssertEqual(
             Set(SettingsTab.allCases.map(\.id)).count, SettingsTab.allCases.count,
             "Two tabs share an identity — the TabView's selection would be ambiguous.")
+    }
+
+    // MARK: - The row and the page
+
+    /// **"A case that exists gets a row and a page"** — the property this file's header states.
+    /// The compiler enforces the page half (`SettingsView.page(for:)` switches exhaustively),
+    /// and the sidebar half follows from `allCases`; what nothing enforces is the *coupling*
+    /// being the intended one — that the Actions tab renders the Actions page rather than
+    /// sharing another tab's. That is a scan over `SettingsView.swift`, the
+    /// `HotkeySurfaceAgreementTests` shape.
+    func testTheActionsCaseRendersTheActionsPage() throws {
+        let view = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaUI/SettingsView.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            view.contains("case .actions: ActionsTabPage(bindings: bindings)"),
+            "The Actions case no longer renders ActionsTabPage — a case that exists must get "
+                + "its own page, not another tab's.")
+    }
+
+    /// The mapping scan is not vacuous: a page mapping that fell back to another tab's page
+    /// would pass a scan looking for the wrong fragment.
+    func testThePageMappingScanRejectsABorrowedPage() {
+        let planted = "case .actions: AppsSettingsPage(bindings: bindings)"
+        XCTAssertFalse(
+            planted.contains("case .actions: ActionsTabPage"),
+            "the scan would pass an Actions case rendering another tab's page — it is looking "
+                + "for the wrong thing")
     }
 }

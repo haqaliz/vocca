@@ -16,6 +16,7 @@ import AppKit
 import Combine
 import OSLog
 import Synchronization
+import VoccaActions
 import VoccaASR
 import VoccaAudio
 import VoccaContext
@@ -637,6 +638,49 @@ public enum AppBootstrap {
         Task { @MainActor in
             _ = await contextWiring.resolve(nil)
         }
+
+        // The action composition (C13 slice 5, R7 — the C11/C12 additive shape, one more recipe
+        // + the root slots above): the executor over the real audit store, the config store over
+        // the shipped directory, the real `AuditActionProvider` (the one provider that exists
+        // without a configured server — the MCP provider is discovered per server, a later
+        // slice's wiring), the in-flight refusal reading the root's machines and the converse
+        // loop **live** (a closure — read lazily at arm time, never at composition), and the
+        // card/tab closures. Probe-safe by construction: nothing here spawns, reads or starts —
+        // the stores are read at call time, the executor's construction is I/O-free, and the
+        // composed default declares `spawnsSubprocess = false` (the D2 narrowed promise, the
+        // `requiresNetwork` analogue).
+        let actionConfigStore = ActionConfigStore(
+            directory: ActionConfigStore.defaultDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask).first,
+                home: FileManager.default.homeDirectoryForCurrentUser))
+        let actionAuditStore = FileSystemActionAuditStore(
+            directory: FileSystemActionAuditStore.defaultDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask).first,
+                home: FileManager.default.homeDirectoryForCurrentUser))
+        let actionWiring = AppBootstrap.composeActionWiring(
+            configStore: actionConfigStore,
+            auditStore: actionAuditStore,
+            provider: AuditActionProvider(store: actionAuditStore),
+            sessionActive: { [weak root] in
+                guard let root else { return false }
+                return root.holdToTalk.machine.state != .idle
+                    || root.toggle.machine.state != .idle
+                    // `nil` — a composition whose converse wiring has not composed yet — is
+                    // quiet: there is no session a card could interrupt (the `isQuiet` shape).
+                    || (root.converseDriver.map { $0.loop.state != .idle } ?? false)
+            },
+            root: root)
+        root.actionWiring = actionWiring
+        root.actionExecutor = actionWiring.executor
+        root.actionConfigStore = actionConfigStore
+        root.actionConfirm = actionWiring.confirm
+        root.actionDecline = actionWiring.decline
+        // The card's buttons, reached through the live widget's slot — filled now, read at the
+        // panel's first construction, which needs a user's arm and therefore comes after
+        // `configure` (the `partialSink.store` shape).
+        root.liveWidget.confirmationActions = (actionWiring.confirm, actionWiring.decline)
 
         return root
     }
@@ -1473,6 +1517,35 @@ public final class DictationLoopRoot {
     /// bindings' safe direction).
     public var contextConsentStore: (any ConsentStore)?
 
+    // MARK: - The action surface (C13 slice 5, action-surface-wiring)
+
+    /// **The composed action wiring** (`wiring` aspect): the executor over the real audit store,
+    /// the config store, the card closures and the actions-tab bindings — composed by
+    /// `configure` through the probe-safe recipe (`composeActionWiring`; construction only,
+    /// nothing spawns, reads or starts). `nil` only in a composition that built no action
+    /// wiring — every headless harness in the suite.
+    public var actionWiring: ActionWiring<AuditActionProvider>?
+
+    /// The executor the wiring submits through — the one caller of ``ActionGate`` in the
+    /// shipped configuration, over the real audit store and the real `AuditActionProvider`.
+    /// `nil` only in a composition that built no action wiring.
+    public var actionExecutor: ActionExecutor<AuditActionProvider>?
+
+    /// The config store the wiring reads and writes — the same `action-config.json` the Actions
+    /// tab edits, reached back from `configure` (the ``modelStore`` precedent). `nil` only in a
+    /// composition that built no action wiring.
+    public var actionConfigStore: ActionConfigStore?
+
+    /// The confirmation card's Confirm closure — the wiring's, read by the widget panel through
+    /// the live widget's slot (`confirmationActions`). `nil` only in a composition that built no
+    /// action wiring.
+    public var actionConfirm: (@Sendable @MainActor () async -> Void)?
+
+    /// The confirmation card's Decline closure — the wiring's, read by the widget panel through
+    /// the live widget's slot (`confirmationActions`). `nil` only in a composition that built no
+    /// action wiring.
+    public var actionDecline: (@Sendable @MainActor () async -> Void)?
+
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
     /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
@@ -1735,6 +1808,44 @@ public final class DictationLoopRoot {
                     // download blocks anything; the root drops the rest.
                     downloadActivityChanged: { [weak self] tier, isRunning in
                         self?.engineDownloadChanged(tier: tier, isRunning: isRunning)
+                    },
+                    // MARK: Actions (C13, action-surface-wiring)
+                    //
+                    // The tab's closures are the wiring's own (`actionWiring` above): the config
+                    // draft maps one way — the store's `action-config.json` into the tab's plain
+                    // model — and the arm path is the wiring's half, behind the card. `nil`
+                    // wiring claims nothing and changes nothing (the headless default), exactly
+                    // as the tab's own defaults do.
+                    loadActionsConfig: { [weak self] in
+                        await self?.actionWiring?.loadConfig() ?? .empty
+                    },
+                    saveActionsConfig: { [weak self] draft in
+                        guard let wiring = self?.actionWiring else { return }
+                        try await wiring.saveConfig(draft)
+                    },
+                    discoverTools: { [weak self] serverID in
+                        await self?.actionWiring?.discoverTools(serverID)
+                            ?? .failed("discovery.unwired")
+                    },
+                    setToolEnabled: { [weak self] providerID, toolID, enabled in
+                        guard let wiring = self?.actionWiring else { return }
+                        try await wiring.setToolEnabled(providerID, toolID, enabled)
+                    },
+                    armAction: { [weak self] providerID, toolID in
+                        guard let wiring = self?.actionWiring else { return }
+                        try await wiring.arm(providerID, toolID)
+                    },
+                    previewAction: { [weak self] providerID, toolID in
+                        await self?.actionWiring?.preview(providerID, toolID)
+                    },
+                    // The card-lifecycle signals: the page's own arm() fires the presented one
+                    // after its fold (the surface's optimistic half), the wiring's confirm and
+                    // decline fire it from the card's side — one channel, both directions.
+                    confirmationPresented: { [weak self] in
+                        self?.actionWiring?.confirmationPresented()
+                    },
+                    confirmationDismissed: { [weak self] in
+                        self?.actionWiring?.confirmationDismissed()
                     }))
         }
         settingsWindow?.show()

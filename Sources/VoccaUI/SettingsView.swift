@@ -200,6 +200,35 @@ public struct SettingsBindings {
     /// of an engine nobody selected as a reason dictation is unavailable.
     public var downloadActivityChanged: (EngineTier, Bool) -> Void
 
+    // MARK: - Actions (C13, action-surface-wiring)
+
+    /// The configured servers and persisted enablement as the Actions tab reads them — the
+    /// tab's own plain model, mapped by the wiring from the store's `action-config.json`. The
+    /// empty draft is the honest first-launch answer: no server is configured out of the box,
+    /// and the default configuration cannot create a child (the D2 narrowed promise).
+    public var loadActionsConfig: () async -> ActionsConfigDraft
+    /// Writes the whole draft back — servers and enablement in one save, so what the table
+    /// shows and what the file holds cannot drift. Throws what the store throws: a server the
+    /// user believes configured must be configured.
+    public var saveActionsConfig: (ActionsConfigDraft) async throws -> Void
+    /// Discovers the tools of one server — the explicit, user-initiated spawn
+    /// (`action-surface-wiring` D2). The answer is the tab's own model: the tool rows, or the
+    /// bounded failure key.
+    public var discoverTools: (String) async -> ActionsDiscoveryResult
+    /// Flips one tool's enablement row. Persisted as membership; absent is off (PRD M7).
+    public var setToolEnabled: (String, String, Bool) async throws -> Void
+    /// Runs the armed action through the gate — the wiring's half of the arm path, behind the
+    /// confirmation card. The tab itself never calls this; it emits `awaitingConfirmation` and
+    /// ``confirmationPresented()`` and stops.
+    public var armAction: (String, String) async throws -> Void
+    /// Renders the provider's sentence for one tool, without acting — the dry-run half of the
+    /// seam. `nil` when nothing can be said.
+    public var previewAction: (String, String) async -> String?
+    /// The wiring's signal that the confirmation card appeared — the arm path's observable half.
+    public var confirmationPresented: () -> Void
+    /// The wiring's signal that the confirmation card went away.
+    public var confirmationDismissed: () -> Void
+
     public init(
         isToggleMode: @escaping () -> Bool,
         setToggleMode: @escaping (Bool) -> Void,
@@ -268,7 +297,22 @@ public struct SettingsBindings {
         makeDownloadSession: @escaping (EngineTier) -> (any ModelDownloadSession)? = { _ in nil },
         removeModel: @escaping (EngineTier) async throws -> Void = { _ in },
         isSessionInFlight: @escaping () -> Bool = { false },
-        downloadActivityChanged: @escaping (EngineTier, Bool) -> Void = { _, _ in }
+        downloadActivityChanged: @escaping (EngineTier, Bool) -> Void = { _, _ in },
+        // The Actions defaults claim **nothing** and change **nothing**, for the reason the
+        // usage defaults do. An empty config renders the honest "nothing configured" (which is
+        // the fresh-install truth and the safe direction — no server is configured out of the
+        // box), an un-wired discovery claims no tools, an un-wired preview claims no sentence,
+        // and saves, enablement flips, gate arms and card signals that go nowhere change
+        // nothing. A default that reported a discovery or an arm nothing performed would let
+        // the page tell a user something happened when it did not.
+        loadActionsConfig: @escaping () async -> ActionsConfigDraft = { .empty },
+        saveActionsConfig: @escaping (ActionsConfigDraft) async throws -> Void = { _ in },
+        discoverTools: @escaping (String) async -> ActionsDiscoveryResult = { _ in .succeeded([]) },
+        setToolEnabled: @escaping (String, String, Bool) async throws -> Void = { _, _, _ in },
+        armAction: @escaping (String, String) async throws -> Void = { _, _ in },
+        previewAction: @escaping (String, String) async -> String? = { _, _ in nil },
+        confirmationPresented: @escaping () -> Void = {},
+        confirmationDismissed: @escaping () -> Void = {}
     ) {
         self.isToggleMode = isToggleMode
         self.setToggleMode = setToggleMode
@@ -306,6 +350,14 @@ public struct SettingsBindings {
         self.removeModel = removeModel
         self.isSessionInFlight = isSessionInFlight
         self.downloadActivityChanged = downloadActivityChanged
+        self.loadActionsConfig = loadActionsConfig
+        self.saveActionsConfig = saveActionsConfig
+        self.discoverTools = discoverTools
+        self.setToolEnabled = setToolEnabled
+        self.armAction = armAction
+        self.previewAction = previewAction
+        self.confirmationPresented = confirmationPresented
+        self.confirmationDismissed = confirmationDismissed
     }
 }
 
@@ -363,6 +415,7 @@ public struct SettingsView: View {
             CleanupSettingsPage(bindings: bindings, openDictionary: { self.selection = .dictionary })
         case .dictionary: DictionarySettingsPage(bindings: bindings)
         case .apps: AppsSettingsPage(bindings: bindings)
+        case .actions: ActionsTabPage(bindings: bindings)
         case .usage: UsageSettingsPage(bindings: bindings)
         }
     }

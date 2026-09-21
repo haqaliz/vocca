@@ -152,6 +152,21 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `executor`'s reviewed widening — the one caller of the gate in the shipped
+                // configuration. The generic constraint is the seam itself: the executor is
+                // per-provider by construction, holding the concrete provider it submits to.
+                // It names the family to hold a member of it, never to decide with it.
+                "VoccaActions/ActionExecutor.swift",
+                // `executor`'s reviewed widening — the probe now drives the executor, which
+                // needs a seam to submit to, so the probe owns a provider of its own. The
+                // drive's header records the cost: five rows for one conformance, and this is
+                // the fifth.
+                "VoccaNetworkProbe/ActionAuditDrive.swift",
+                // `wiring`'s reviewed widening — the action recipe is generic over the seam
+                // (`ActionWiring<Provider: ActionProvider>`), so the constraint itself is a
+                // sighting: the composition drives `ActionProvider` + `ActionGate` and nothing
+                // else (the PRD's persona-3 rule, structural rather than stated).
+                "VoccaBootstrap/ActionWiring.swift",
             ]
         ),
         (
@@ -167,10 +182,13 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // never a second place deciding with it.
                 "VoccaActions/Audit/ActionAuditEntry.swift",
                 "VoccaActions/Audit/FileSystemActionAuditStore.swift",
-                // The probe's audit drive, which must name an invocation to record one. It is
-                // the narrowest widening available: the drive deliberately does NOT conform to
-                // `ActionProvider`, which would have put four more families — `ActionConfirmation`
-                // among them — into a file whose subject is the file system, not the seam.
+                // The probe's audit drive, which must name an invocation to submit one through
+                // the executor. The `executor` aspect reversed the drive's earlier trade (it
+                // used to build decisions directly, and this comment used to record why it
+                // deliberately did NOT conform to the seam): the drive now owns a
+                // `ProbeActionProvider` and submits through the gate's one caller, so it names
+                // the families its conformance's signatures force — five of them, recorded in
+                // this table.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
                 // `audit-provider`'s reviewed widening — the second real implementation
                 // behind the seam, and one of the five rows the conformance costs. See the
@@ -182,6 +200,20 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `enablement-store`'s reviewed widening — the config store maps its persisted
+                // enablement rows to membership by constructing an ActionInvocation per row
+                // (arguments always nil). It reads the vocabulary to build the gate's input;
+                // it never decides with it.
+                "VoccaActions/Config/ActionConfigStore.swift",
+                // `executor`'s reviewed widening — the one caller of the gate in the shipped
+                // configuration. Its `submit` forwards the invocation to the gate and then to
+                // the store's `record`; it names the type to move it, never to decide with it.
+                "VoccaActions/ActionExecutor.swift",
+                // `wiring`'s reviewed widening — the recipe builds invocations from the
+                // surface's provider/tool identifiers (the arm, confirm and decline paths all
+                // construct one to submit). It reads the vocabulary to build the gate's input;
+                // it never decides with it.
+                "VoccaBootstrap/ActionWiring.swift",
             ]
         ),
         (
@@ -191,9 +223,9 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Actions/ActionSummary.swift",
                 "VoccaCore/Actions/ActionProvider.swift",
                 "VoccaCore/Actions/NullActionProvider.swift",
-                // The probe's audit drive again, for the same reason: the decisions it records
-                // carry a summary, and a decision without one cannot be built. See the
-                // ActionInvocation row for why the drive stops short of the seam itself.
+                // The probe's audit drive again, for the same reason: the decisions it submits
+                // through the executor carry a summary, and its `ProbeActionProvider` renders
+                // one. See the ActionInvocation row for why the conformance costs five rows.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
                 // `audit-provider`'s reviewed widening — the second real implementation
                 // behind the seam, and one of the five rows the conformance costs. See the
@@ -205,6 +237,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `wiring`'s reviewed widening — the recipe reads the gate's summaries (the
+                // arm's card sentence, the preview's dry-run answer, the mismatch re-prompt)
+                // to present and re-present. It reads the rendered words to show them; it
+                // never decides with them.
+                "VoccaBootstrap/ActionWiring.swift",
             ]
         ),
         (
@@ -228,6 +265,9 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `executor`'s reviewed widening — the probe's `ProbeActionProvider` returns
+                // an outcome from its `invoke`. One of the five rows the conformance costs.
+                "VoccaNetworkProbe/ActionAuditDrive.swift",
             ]
         ),
         (
@@ -246,6 +286,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `executor`'s reviewed widening — the probe's `ProbeActionProvider` names the
+                // token in `invoke`'s signature and never constructs one; Family B below is
+                // unchanged by this widening, exactly as it is for the providers.
+                "VoccaNetworkProbe/ActionAuditDrive.swift",
             ]
         ),
         (

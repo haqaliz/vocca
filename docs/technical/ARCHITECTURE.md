@@ -292,7 +292,7 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Mode (dictate/converse) | `SessionMode` + `SessionModeMachine` | the explicit state machine (`VoccaCore/Mode/`) — chord-keyed, no implicit switching, the injection path reachable only from the dictate state (type/assertion-enforced; `mode-machine`, 2026-09-16) | No — always local |
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` — **real since `context-provider` (2026-09-18)**: the seam in `VoccaCore/Context/` (`ContextSnapshot`, the sync non-throwing contract — D1), `NullContext` the shipped default (reads nothing), `AccessibilityContext` in `VoccaContext` behind its own per-seam AX and Secure Input permits (Secure Input refused first); the per-app consent gate (bundle-IDs-only store, the never-read decision) and the AND-gated BYOK payload field are the same unit's | **No — by design** |
 | MCP transport | `MCPTransport` | `InMemoryMCPTransport`, **`StdioMCPTransport`** — real since `stdio-transport` (2026-09-21); **guardrail 7 met**. The stdio child is **not observable** by the zero-network interposer (**D2**); the answer is that the default configuration configures no server and therefore **cannot create one**, the BYOK precedent of unreachable-rather-than-excepted. `spawnsSubprocess` is a declared value | No |
-| Actions | `ActionProvider` | `NullActionProvider` (the shipped default — zero tools, refuses everything) and **`AuditActionProvider`** (`VoccaActions/Providers/` — an actor over the real audit store: `audit.count` read-only, `audit.clear` destructive) — **real since `local-data-provider` (2026-09-19); guardrail 7 MET**. `MCPProvider` and `ShellProvider` remain PENDING. The seam is **`async`** — see the annotation below, which is the reason | No |
+| Actions | `ActionProvider` | `NullActionProvider` (the shipped default — zero tools, refuses everything) and **`AuditActionProvider`** (`VoccaActions/Providers/` — an actor over the real audit store: `audit.count` read-only, `audit.clear` destructive) — **real since `local-data-provider` (2026-09-19); guardrail 7 MET**; `MCPProvider` exists behind the protocol layer (`mcp-protocol`, 2026-09-20) but is **not composed** — it is discovered per server, a later slice's wiring; `ShellProvider` remains PENDING. The surface is real since `action-surface-wiring` (2026-09-21): **`ActionExecutor`** (the gate's one caller in the shipped configuration — every decision recorded, `auditRecorded` honesty), **`ActionConfigStore`** (one byte-pinned `action-config.json` — servers + enablement, tolerant decode, absent is off, no arguments ever), the widget confirmation card, and the Actions tab. The policy floor is **`.none`, recorded as a decision** — see the annotation below. The seam is **`async`** — see the annotation below, which is the reason | No |
 
 > *Annotated (`local-data-provider`, 2026-09-19) — **the seam is `async` because its first real
 > implementation could not be written otherwise**, and that is guardrail 7 doing its job.*
@@ -348,6 +348,37 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > The failure mode is a **green test while a child egresses**. This unit cannot fix that; it
 > ships the prohibition lint so reaching for a transport is a reviewed edit, and `PROBE-ACTIONS`
 > proves only that the audit store reaches no network name.
+
+> *Annotated (`action-surface-wiring`, 2026-09-21) — the Actions row's policy and execution
+> path.* **The policy floor is `.none`, recorded as a decision, not an unexamined default.**
+> The wiring supplies it deliberately: the F1/F2 fail-safes already force confirmation on
+> anything without a genuine `readOnlyHint` (absent means unsafe), so a stricter floor —
+> say `.destructive` — would force confirmation even on genuinely read-only tools and break
+> M3's read-only-runs-directly contract. Escalate-only means the floor can only raise;
+> `.none` is the minimal honest floor.
+>
+> **The executor is the gate's one caller in the shipped configuration.** `ActionExecutor`
+> (`VoccaActions/`) owns gate-submit + audit-record: every decision the gate produces —
+> `autoRanReadOnly`, `confirmed`, `refused` (including `toolNotEnabled` and
+> `approvedSentenceMismatch`), `dryRun` — lands in the append-only store, and a recording
+> failure never throws through (the decision stands, `auditRecorded == false`, logged
+> loudly). The sentence binding is live in its path: the executor always passes the exact
+> sentence the caller showed, so an approval cannot be replayed against a different action
+> (N2's tightening).
+>
+> **Server configuration and enablement persist in one file, `action-config.json`**
+> (`ActionConfigStore`, `VoccaActions/Config/`): `servers` (absolute `executablePath` only —
+> the `StdioMCPTransport.Configuration` contract, no PATH lookup; cap 8) and `enablement`
+> rows (providerID/toolID, no arguments ever; cap 512). Tolerant decode — a corrupt file
+> loads as empty with a loud log, never a throw; unknown keys refused; atomic writes;
+> **absent is off**.
+>
+> **D2 on the surface.** Discovery is explicit user action by design (R4 — the spawn is the
+> trust the user extends), and in this slice the composed wiring cannot even spawn:
+> discovery answers a bounded `discovery.unwired` refusal because no transport is wired, so
+> the default configuration cannot create a child **and no surface action can either**. The
+> Actions tab's copy says where the claim stops — *"Configuring a server is trust extended
+> to its author, not a guarantee we can make."*
 
 > *Status (memory-order aspect, 2026-08-27): the strategy-memory row is real end to end.
 > `InjectionStrategyStore` and both implementations shipped in `store-seam`; the ladder now

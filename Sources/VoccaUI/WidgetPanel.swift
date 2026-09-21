@@ -60,6 +60,14 @@ public final class WidgetPanel: NSPanel {
     /// (`LiveWidget`, the binding tests) compiles unchanged (`dual-mode` D6).
     private let soundPlayer: any WidgetSoundPlaying
 
+    /// The confirmation card's Confirm/Decline closures — supplied by the wiring, the
+    /// ``MenuBarItem`` closure-seam precedent (`confirmation-card`). Defaulted to no-ops so every
+    /// existing construction site compiles unchanged; `VoccaUI` never names a provider or the
+    /// gate — the closures are the seam, and the store's generation check is the guard on the
+    /// confirm side.
+    private let onConfirmAction: @Sendable () -> Void
+    private let onDeclineAction: @Sendable () -> Void
+
     /// The state the previous `apply` saw — the diff the sound selection reads. A converse entry
     /// plays the tick; a phase change or any dictation transition plays nothing.
     ///
@@ -83,10 +91,14 @@ public final class WidgetPanel: NSPanel {
     public init(
         store: WidgetStateStore,
         levelSource: any LiveLevelSource,
-        soundPlayer: any WidgetSoundPlaying = SystemWidgetSoundPlayer()
+        soundPlayer: any WidgetSoundPlaying = SystemWidgetSoundPlayer(),
+        onConfirmAction: @Sendable @escaping () -> Void = {},
+        onDeclineAction: @Sendable @escaping () -> Void = {}
     ) {
         self.store = store
         self.soundPlayer = soundPlayer
+        self.onConfirmAction = onConfirmAction
+        self.onDeclineAction = onDeclineAction
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 30),
             styleMask: [.nonactivatingPanel, .titled],
@@ -96,7 +108,9 @@ public final class WidgetPanel: NSPanel {
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        contentView = NSHostingView(rootView: WidgetView(store: store, level: levelSource))
+        contentView = NSHostingView(rootView: WidgetView(
+            store: store, level: levelSource,
+            onConfirmAction: onConfirmAction, onDeclineAction: onDeclineAction))
         box.value = self
         observation = store.$state.sink { [weak box] state in
             Task { @MainActor in
@@ -121,9 +135,10 @@ public final class WidgetPanel: NSPanel {
 
     // MARK: - The window follows the store
 
-    /// The single funnel the store's every publication flows through: show a non-IDLE widget (or a
-    /// notice), hide a returned-to-IDLE one. Read, not remembered: `isVisible` is the window's own
-    /// answer, so a stale belief about visibility is impossible.
+    /// The single funnel the store's every publication flows through: show a non-IDLE widget, a
+    /// notice, or a presented confirmation card (and hide a returned-to-IDLE one with no card and
+    /// no notice). Read, not remembered: `isVisible` is the window's own answer, so a stale
+    /// belief about visibility is impossible.
     ///
     /// The sound hook rides the same funnel (`dual-mode` D6): the selection's verdict on the
     /// `lastState → state.state` diff plays — the converse entry tick exactly once per entry, and
@@ -136,7 +151,7 @@ public final class WidgetPanel: NSPanel {
             soundPlayer.play(sound)
         }
         lastState = state.state
-        let shouldShow = state.state != .idle || state.notice != nil
+        let shouldShow = state.state != .idle || state.notice != nil || state.confirmation != nil
         if shouldShow {
             if !isVisible {
                 orderFrontRegardless()
