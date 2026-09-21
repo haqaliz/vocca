@@ -23,12 +23,14 @@
 /// gate, never a way around it — and the gate still applies enablement, the mode and the local
 /// radius policy before it mints anything.
 ///
-/// **It carries no payload, deliberately.** Binding an approval to the exact invocation and
-/// sentence the person saw is the natural next step and is recorded as one in
-/// ``ActionConfirmation``'s documentation; it is not taken here because per-invocation is already
-/// structural — the approval is an *argument*, so it exists for the duration of one call and there
-/// is nowhere for it to be remembered. A second invocation that wants to act needs a second
-/// argument. "Don't ask me again" has no representation in this type.
+/// **It carries no payload, deliberately.** An approval asserts that a human said yes to **this**
+/// invocation; it cannot verify it (N2). `sentence-binding` (C13 slice 5) narrows what the
+/// assertion can be *replayed against* — ``ActionGate/submit(_:to:enablement:policy:approval:mode:approvedSentence:)``
+/// takes the exact sentence the person was shown as an argument, and refuses the moment its own
+/// freshly-rendered sentence differs. The binding lives on the submission, not in this type, so
+/// per-invocation stays structural: the approval is an *argument*, existing for the duration of
+/// one call, and a second invocation that wants to act needs a second argument. "Don't ask me
+/// again" has no representation in this type.
 public enum ActionApproval: Sendable {
     /// No one has said yes. **The default**, and the answer a caller that forgot to ask gives.
     case withheld
@@ -356,8 +358,11 @@ public enum ActionGate {
     ///   - approvedSentence: The exact sentence the human was shown when they approved, or `nil`
     ///     for no binding. With a non-nil value and ``ActionApproval/granted``, the gate refuses
     ///     the moment its own freshly-rendered sentence differs — the approval cannot be replayed
-    ///     against a different action. `nil` grants nothing: the gate decides exactly as it did
-    ///     before this parameter existed.
+    ///     against a different action. The N2 narrowing, stated: the approval asserts a human
+    ///     said yes; the binding narrows what that yes can be replayed against; that the human
+    ///     *saw* the sentence is asserted by the UI layer that drew the card, which the gate
+    ///     cannot verify. `nil` grants nothing: the gate decides exactly as it did before this
+    ///     parameter existed.
     ///   - mode: Live or dry-run. Defaults to live, because a caller that means to rehearse says so.
     /// - Returns: The decision. Only ``ActionDecision/invoked(summary:outcome:)`` reached the
     ///   provider.
