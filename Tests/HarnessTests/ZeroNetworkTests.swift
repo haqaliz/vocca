@@ -446,14 +446,16 @@ final class ZeroNetworkTests: XCTestCase {
 
     /// **The audit log's post-condition** (PROBE-ACTIONS): the verbatim report of the
     /// `VoccaActions` store's default work — the real store over a fresh temporary directory,
-    /// the **executor round trip** (`executor` aspect, C13 slice 5): an arm submission stopped
-    /// for want of a yes (recorded as a refusal), then a grant bound to the shown sentence
-    /// (recorded as a confirmation), both read back by a **second** store over the same
-    /// directory with their ordinals, decisions and the binding intact, and the directory left
-    /// empty. Asserted whole, as one line — the `expectedContextLifecycle` shape. This is
-    /// deliberately **not** a golden string to be regenerated when it fails:
+    /// driven through the **composed action recipe** (`wiring` aspect, C13 slice 5): the real
+    /// `AuditActionProvider` armed through the wiring's own closures, the binding-mismatch
+    /// re-prompt (a sentence that drifted between show and confirm, refused by attempting the
+    /// call, re-prompted), the confirm that ran the real clear, the clear's own record
+    /// reconstructing off the disk, and the composed default's facts (`servers=0`,
+    /// `spawnsSubprocess=false` — the D2 narrowed promise as a reported line, the
+    /// `requiresNetwork` analogue). Asserted whole, as one line — the `expectedContextLifecycle`
+    /// shape. This is deliberately **not** a golden string to be regenerated when it fails:
     /// ``testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes`` reads
-    /// it back and refuses a version that no longer describes a round trip.
+    /// it back and refuses a version that no longer describes the composed round trip.
     ///
     /// The drive exists because creating a module obliges this unit to prove the module does not
     /// egress (`audit-log/spec.md`'s 2026-09-19 amendment). A store that was constructed and
@@ -467,23 +469,31 @@ final class ZeroNetworkTests: XCTestCase {
     /// whole value is that it records what actually happened.
     ///
     /// The wiring aspect owns this line's final shape; what is pinned here is that the decision
-    /// source is the executor and the sentence binding is live in the probe's path.
+    /// source is the composed recipe (the executor inside the wiring) and the sentence binding
+    /// is live in the probe's path.
     private static let expectedActionAuditLifecycle = [
         "store=real",
         // Where the drive wrote — the two halves of the temp-directory promise.
         "store.location=temporary",
         "store.isDefaultLocation=false",
-        // The round trip: two entries committed, two read back off the disk by a second store,
-        // their ordinals rebuilt from the directory and both decisions intact. The order is the
-        // executor round trip's own: the arm's stop first (refused), then the grant's run
-        // (confirmed).
-        "recorded=2",
-        "reloaded=2",
-        "ordinals=1-2",
-        "decisions=refused,confirmed",
-        // The executor round trip's binding: the grant leg carried the shown sentence and
-        // reached the provider — the N2 binding live in the drive's path.
+        // The composed default's facts: no server is configured out of the box and the default
+        // configuration cannot create a child — the D2 narrowed promise, reported not commented.
+        "servers=0",
+        "spawnsSubprocess=false",
+        // The round trip, through the wiring: the log's peak before the clear (two seed stops,
+        // the arm's stop, the drift entry, the mismatch's declined decision), the real clear
+        // running over all of them, and the clear's own record — the only entry a reader finds —
+        // reconstructing with its ordinal and its decision intact.
+        "recorded=5",
+        "reloaded=1",
+        "ordinals=1-1",
+        "decisions=confirmed",
+        // The wiring's binding: the final confirm carried the re-prompted card's shown sentence
+        // and reached the provider — the N2 binding live in the composed path.
         "binding=matched",
+        // The binding actually refused once: the drift made the gate render a different
+        // sentence, and the wiring re-prompted rather than dead-ending.
+        "mismatch=reprompted",
         // And nothing left behind on the machine that ran it.
         "cleared=0",
     ].joined(separator: " ")
@@ -968,10 +978,12 @@ final class ZeroNetworkTests: XCTestCase {
 
         // The audit log's post-condition. The twelfth effect-not-reference check, and the one
         // that pins the `VoccaActions` module's **file I/O** rather than its existence: the real
-        // store over a fresh temporary directory, two entries committed, a second store over
-        // the same directory reading them back, and the directory cleared. Every field is a fact the drive can only produce by writing and reading real
-        // bytes — `reloaded` and `decisions` come from the second store's own answer, so a drive
-        // that constructed a store and discarded it cannot report them.
+        // store over a fresh temporary directory, driven through the composed action recipe —
+        // the real `AuditActionProvider` armed, the mismatch re-prompted, the real clear run,
+        // and the clear's own record read back by a second store. Every field is a fact the
+        // drive can only produce by writing and reading real bytes — `reloaded`, `ordinals` and
+        // `decisions` come from the second store's own answer, so a drive that constructed a
+        // store and discarded it cannot report them.
         //
         // Deleting the drive removes the line from the probe's output entirely, so the
         // comparison fails against nil rather than quietly covering less.
@@ -979,15 +991,15 @@ final class ZeroNetworkTests: XCTestCase {
             try XCTUnwrap(actionAuditPayload(of: observation)),
             Self.expectedActionAuditLifecycle,
             """
-            The probe did not report driving the action audit log's default work.
+            The probe did not report driving the action audit log's composed default work.
               expected: \(Self.expectedActionAuditLifecycle)
               observed: \(actionAuditPayload(of: observation) ?? "no report at all")
             Either VoccaNetworkProbe.exerciseActionAudit() was not called on the \
             default-configuration path — in which case VoccaActions' file I/O is outside this \
             invariant, and a module that writes files is exactly what this invariant exists to \
-            watch — or the store no longer behaves as written. Do not fix this by deleting the \
-            call, and do not fix it by pasting in whatever the probe now prints — see \
-            testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes.
+            watch — or the composed recipe no longer behaves as written. Do not fix this by \
+            deleting the call, and do not fix it by pasting in whatever the probe now prints — \
+            see testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes.
             \(observation.diagnosticSummary)
             """)
 
@@ -1786,25 +1798,35 @@ final class ZeroNetworkTests: XCTestCase {
                 + "default work could be reporting reads that stopped because of a revoke.")
     }
 
-    /// **Guards the guard.** ``expectedActionAuditLifecycle`` must keep describing a **round trip
-    /// through real bytes, decided by the executor**: the real store (not some in-memory
-    /// stand-in), at least one entry recorded, every recorded entry read back by a second store,
-    /// both gate decisions surviving the file, the sentence binding live in the drive's path, and
-    /// the directory left clear.
+    /// **Guards the guard.** ``expectedActionAuditLifecycle`` must keep describing **the composed
+    /// recipe's round trip through real bytes**: the real store (not some in-memory stand-in),
+    /// the composed default's facts (`servers=0`, `spawnsSubprocess=false` — the D2 narrowed
+    /// promise as a reported line), the binding-mismatch re-prompt observed rather than assumed,
+    /// the confirmed entry reconstructing off the disk, and the directory left clear.
     ///
-    /// The field that carries the weight is `reloaded`. A drive that recorded entries and never
-    /// read them back would prove the store can be *called*, not that it wrote anything a reader
-    /// can find — and `VoccaActions`' whole exposure to this invariant is its file I/O. A
-    /// weakened constant (`recorded=0`, or `reloaded` dropped) would still satisfy the verbatim
-    /// comparison above while the drive covered nothing.
+    /// The wiring aspect re-derived this guard because the round trip's shape changed: the drive
+    /// now runs the composed recipe, and the real `audit.clear` **removes** the entries it runs
+    /// over — so the old `reloaded == recorded` equality is gone on purpose (the peak `recorded`
+    /// is what the clear ran over; the survivor is the clear's own record). The weight moved to
+    /// the fields that cannot weaken:
     ///
-    /// `binding` is the executor leg's weight: a drive that stopped submitting through the
-    /// executor — hand-built decisions, a dropped `approvedSentence` — would keep every other
-    /// field and lose this one. The assertion is deliberately three-sided like the MCP guard's:
-    /// the field must be present (a drive that stopped reporting it proves nothing about the
-    /// binding), it must not be the `refused` the drive reports when the round trip breaks (a
-    /// grant that never reached the provider), and it must be `matched` — the sentence the arm
-    /// leg rendered is the sentence the grant was bound to.
+    /// - `reloaded` — exactly one entry must reconstruct: the clear's own record, the R8
+    ///   reconstruct. A constant with `reloaded=0` would still satisfy the verbatim comparison
+    ///   while proving the store can be called, never that real bytes reached a real directory.
+    /// - `decisions` — exactly `confirmed`: the invoked action survives the file with the R8
+    ///   distinction intact. A constant that read `refused,confirmed` would mean the clear never
+    ///   ran over the earlier decisions, or that the mismatch leg never happened.
+    /// - `mismatch` — `reprompted`: the binding actually refused once, and the wiring re-prompted
+    ///   rather than dead-ending. A constant that dropped it would pass while the N2 binding's
+    ///   refusal path was gone.
+    /// - `binding` — `matched`: the final confirm carried the re-prompted card's shown sentence
+    ///   and reached the provider. A drive that granted without the shown sentence — the N2
+    ///   binding absent from the one path that proves it reaches no network name — would lose
+    ///   this field and keep every other.
+    /// - `servers` / `spawnsSubprocess` — the composed default's facts. A constant weakened to
+    ///   `servers=1` or `spawnsSubprocess=true` would pass the verbatim comparison while the D2
+    ///   narrowed promise — the thing the zero-network line exists to prove about the default —
+    ///   was gone.
     func testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes() throws {
         let fields = try Self.parseFields(of: Self.expectedActionAuditLifecycle)
 
@@ -1827,23 +1849,40 @@ final class ZeroNetworkTests: XCTestCase {
             "The asserted audit post-condition recorded nothing — a store that wrote no entry "
                 + "proves nothing about the module's file I/O.")
         XCTAssertEqual(
-            Int(try value("reloaded")) ?? -1, recorded,
-            "The asserted audit post-condition no longer reads back everything it wrote. That "
-                + "equality is the round trip: without it the drive proves the store can be "
-                + "called, never that real bytes reached a real directory.")
+            Int(try value("reloaded")) ?? -1, 1,
+            "The asserted audit post-condition no longer requires exactly one entry to "
+                + "reconstruct — the clear's own record. More than one means the real clear never "
+                + "ran over the earlier decisions; zero means the round trip covered nothing.")
         XCTAssertEqual(
-            try value("decisions"), "refused,confirmed",
-            "The asserted audit post-condition no longer carries both a refused and a confirmed "
-                + "decision through the file — the R8 distinction the log exists for could be "
-                + "lost in the bytes and this line would not notice. The refused entry is the "
-                + "arm leg's stop, recorded first; a drive whose arm auto-ran would read "
-                + "autoRanReadOnly,confirmed and fail here.")
+            try value("ordinals"), "1-1",
+            "The asserted audit post-condition no longer carries the rebuilt ordinals — the "
+                + "single surviving entry, read off the directory rather than off any counter.")
+        XCTAssertEqual(
+            try value("decisions"), "confirmed",
+            "The asserted audit post-condition no longer requires exactly the confirmed decision "
+                + "to survive the file. The refused and declined decisions were what the real "
+                + "clear ran over — a constant that kept them means the clear never ran.")
         XCTAssertEqual(
             try value("binding"), "matched",
-            "The asserted audit post-condition no longer carries the executor's matched binding. "
-                + "The drive could be hand-building decisions, or granting without the shown "
-                + "sentence — the N2 binding absent from the one path that proves it reaches no "
-                + "network name — and this line would not notice.")
+            "The asserted audit post-condition no longer carries the wiring's matched binding. "
+                + "The drive could be granting without the shown sentence — the N2 binding absent "
+                + "from the one path that proves it reaches no network name — and this line would "
+                + "not notice.")
+        XCTAssertEqual(
+            try value("mismatch"), "reprompted",
+            "The asserted audit post-condition no longer requires the observed re-prompt — a "
+                + "constant that dropped the mismatch leg would pass while the binding's refusal "
+                + "path was gone, and the refusal is the N2 narrowing working in a live process.")
+        XCTAssertEqual(
+            try value("servers"), "0",
+            "The asserted audit post-condition no longer requires the composed default's zero "
+                + "servers — the D2 narrowed promise could silently gain a configured server "
+                + "while this line watched nothing.")
+        XCTAssertEqual(
+            try value("spawnsSubprocess"), "false",
+            "The asserted audit post-condition no longer requires the composed default's "
+                + "no-spawn fact — a composition that wired a transport would declare it here, "
+                + "and the zero-network line would still be green if nothing read the fact.")
         XCTAssertEqual(
             Int(try value("cleared")) ?? -1, 0,
             "The asserted audit post-condition no longer requires the cleared directory — the "
