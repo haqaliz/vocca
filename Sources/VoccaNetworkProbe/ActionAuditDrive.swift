@@ -39,14 +39,20 @@ import VoccaCore
 // construct-and-discard drive would satisfy the coverage list while touching no file, which is
 // precisely the coverage this module needs.
 //
-// The decisions are **built directly rather than submitted through `ActionGate`**, and that is a
-// deliberate trade rather than a shortcut. Driving the gate needs an `ActionProvider` conformance
-// here, whose signatures would name five of the families `ActionSeamBoundaryTests` confines —
-// `ActionConfirmation` among them — so a drive whose subject is the file system would widen the
-// lint that keeps the action vocabulary inside `VoccaCore`. What the gate decides is asserted
-// headlessly in `ActionGateTests` and `ActionAuditStoreTests`, where the round trip runs through
-// real submissions; what only a live process can show is that writing those entries to disk
-// contacts nothing, and that is what this drive shows.
+// The decisions are **not hand-built any more**: they come from ``ActionExecutor`` — the one
+// caller of ``ActionGate`` in the shipped configuration (`executor` aspect, C13 slice 5) — driven
+// through the whole of the surface's round trip: arm (withheld, so a destructive tool stops for
+// want of a yes), then grant **with the sentence the arm rendered** (the sentence a human would
+// have been shown), which is what turns the second submission into an invocation. That is the
+// same path the confirmation card will drive, and it is the point of the change: the executor
+// aspect's acceptance 6 asks the probe to prove that path reaches no network name, which a drive
+// that kept building decisions directly could not.
+//
+// Driving the executor costs the widening `ActionSeamBoundaryTests` recorded when the drive
+// chose not to conform to the seam: this file now owns a ``ProbeActionProvider``, whose
+// signatures name five of the families that lint confines. That is the reviewed trade this
+// aspect makes on purpose — a drive whose subject is the executor's path must hold the seam the
+// executor submits to, and the lint rows record the cost in the same review that accepted it.
 //
 // ## What a green PROBE-ACTIONS does NOT prove
 //
@@ -61,8 +67,8 @@ import VoccaCore
 //
 // ## The report, and where each field comes from
 //
-// `store=real recorded=2 reloaded=2 ordinals=1-2 decisions=confirmed,refused cleared=0` — every
-// field an effect of the run:
+// `store=real recorded=2 reloaded=2 ordinals=1-2 decisions=confirmed,refused binding=matched
+// cleared=0` — every field an effect of the run:
 //
 // - `store` — the shipped store's own type name, so a swapped-in double flips it.
 // - `store.location` / `store.isDefaultLocation` — where the drive wrote, the `UsageLedgerDrive`
@@ -76,7 +82,12 @@ import VoccaCore
 // - `ordinals` — the first and last write ordinals the reader read back, which are rebuilt from
 //   the directory rather than from any counter this drive holds.
 // - `decisions` — the decisions as the reader decoded them, which is the R8 distinction
-//   (confirmed vs refused) surviving the file rather than surviving memory.
+//   (confirmed vs refused) surviving the file rather than surviving memory. The refused entry is
+//   the arm leg's — the gate stopped a destructive tool for want of a yes, and the stop is
+//   recorded like any other decision.
+// - `binding` — whether the grant leg carried the arm leg's shown sentence and reached the
+//   provider: `matched` means the sentence a human would have seen is the sentence the gate
+//   acted on (the N2 binding live in the executor's path), `refused` means the round trip broke.
 // - `cleared` — the entries left behind. Zero: the drive does not leave an audit log on the
 //   machine that ran it.
 extension VoccaNetworkProbe {
@@ -121,23 +132,38 @@ extension VoccaNetworkProbe {
         var value: ActionAuditDrive?
     }
 
-    /// The two decisions the drive records.
+    /// The probe's own provider — the one tool the probe is allowed to "run", on the probe's own
+    /// provider id.
     ///
-    /// One of each kind that matters to the log: an action that ran on a confirmation, and one
-    /// the gate stopped. Their sentence names nothing real — the probe's own tool, on the probe's
-    /// own provider id — because an entry attributed to a shipped provider would be
-    /// indistinguishable from one produced by a process that had actually done something.
-    private static var probeActionDecisions: [ActionDecision] {
-        let summary = ActionSummary(
-            sentence: "The probe would run its own tool, which does nothing.",
-            blastRadius: .destructive)
-        return [
-            .invoked(summary: summary, outcome: .succeeded),
-            .confirmationRequired(summary),
-        ]
+    /// Its sentence names nothing real, because an entry attributed to a shipped provider would
+    /// be indistinguishable from one produced by a process that had actually done something. The
+    /// radius is destructive because the round trip needs a tool the gate will stop without a
+    /// yes: a read-only tool would auto-run on the arm leg and the refused half of the
+    /// `decisions` field would be gone.
+    ///
+    /// This conformance is the widening the drive's header records: it names
+    /// ``ActionProvider``, ``ActionInvocation``, ``ActionSummary``, ``ActionOutcome`` and
+    /// ``ActionConfirmation`` — five of the families `ActionSeamBoundaryTests` confines — and
+    /// every one of those rows is a reviewed edit in the same review that accepted the executor
+    /// as the decision source.
+    private struct ProbeActionProvider: ActionProvider {
+        let toolIDs = ["probe-tool"]
+
+        func describe(_ invocation: ActionInvocation) async -> ActionSummary {
+            ActionSummary(
+                sentence: "The probe would run its own tool, which does nothing.",
+                blastRadius: .destructive)
+        }
+
+        func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) async
+            -> ActionOutcome
+        {
+            .succeeded
+        }
     }
 
-    /// The round trip itself: commit, re-open, read back, clear.
+    /// The round trip itself: arm, grant with the shown sentence, commit, re-open, read back,
+    /// clear.
     private static func runActionAuditRoundTrip() async -> ActionAuditDrive {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vocca-probe-actions-\(UUID().uuidString)")
@@ -153,16 +179,30 @@ extension VoccaNetworkProbe {
             home: FileManager.default.homeDirectoryForCurrentUser)
 
         let store = FileSystemActionAuditStore(directory: directory)
+        let executor = ActionExecutor(provider: ProbeActionProvider(), store: store)
+
         var recorded = 0
+        var binding = "refused"
         if let invocation = ActionInvocation(providerID: "dev.vocca.probe", toolID: "probe-tool") {
-            for decision in probeActionDecisions {
-                // `try?` rather than a throw: the drive reports what happened and lets the suite
-                // judge it. A store that refused to write leaves `recorded` short of `reloaded`'s
-                // expectation and fails the post-condition by name, which is a better failure
-                // than a probe that exits non-zero with no line to read.
-                let entry = try? await store.record(
-                    invocation, decision: decision, at: .seconds(recorded + 1))
-                if entry != nil { recorded += 1 }
+            let enablement = ActionEnablement([invocation])
+
+            // Arm: withheld, so the destructive tool stops for want of a yes — and the stop is
+            // recorded like any other decision.
+            let armed = await executor.submit(
+                invocation, enablement: enablement, policy: .none,
+                approval: .withheld, approvedSentence: nil, mode: .live)
+            if armed.auditRecorded { recorded += 1 }
+
+            // Grant with the shown sentence: the sentence the arm leg rendered is the sentence a
+            // human would have been shown, and the grant is bound to exactly that. `binding`
+            // reports whether the grant reached the provider — the N2 binding live in the
+            // executor's path, observed rather than claimed.
+            if let shown = armed.decision.summary?.sentence {
+                let granted = await executor.submit(
+                    invocation, enablement: enablement, policy: .none,
+                    approval: .granted, approvedSentence: shown, mode: .live)
+                if granted.auditRecorded { recorded += 1 }
+                if granted.decision.reachedTheProvider { binding = "matched" }
             }
         }
 
@@ -184,6 +224,7 @@ extension VoccaNetworkProbe {
                 "reloaded=\(reloaded.count)",
                 "ordinals=\(ordinals.first ?? 0)-\(ordinals.last ?? 0)",
                 "decisions=\(reloaded.map(\.decision.rawValue).joined(separator: ","))",
+                "binding=\(binding)",
                 "cleared=\(cleared)",
             ].joined(separator: " "),
             moduleWitness: type(of: store))

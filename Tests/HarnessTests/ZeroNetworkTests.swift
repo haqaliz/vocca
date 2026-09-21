@@ -446,9 +446,11 @@ final class ZeroNetworkTests: XCTestCase {
 
     /// **The audit log's post-condition** (PROBE-ACTIONS): the verbatim report of the
     /// `VoccaActions` store's default work — the real store over a fresh temporary directory,
-    /// two entries recorded as real decisions, both read back by a **second** store
-    /// over the same directory with their ordinals and their decisions intact, and the directory
-    /// left empty. Asserted whole, as one line — the `expectedContextLifecycle` shape. This is
+    /// the **executor round trip** (`executor` aspect, C13 slice 5): an arm submission stopped
+    /// for want of a yes (recorded as a refusal), then a grant bound to the shown sentence
+    /// (recorded as a confirmation), both read back by a **second** store over the same
+    /// directory with their ordinals, decisions and the binding intact, and the directory left
+    /// empty. Asserted whole, as one line — the `expectedContextLifecycle` shape. This is
     /// deliberately **not** a golden string to be regenerated when it fails:
     /// ``testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes`` reads
     /// it back and refuses a version that no longer describes a round trip.
@@ -463,17 +465,25 @@ final class ZeroNetworkTests: XCTestCase {
     /// `~/Library/Application Support/Vocca/actions/`**. A drive that quietly took the shipped
     /// location would fold probe entries into a real install's audit log — the one file whose
     /// whole value is that it records what actually happened.
+    ///
+    /// The wiring aspect owns this line's final shape; what is pinned here is that the decision
+    /// source is the executor and the sentence binding is live in the probe's path.
     private static let expectedActionAuditLifecycle = [
         "store=real",
         // Where the drive wrote — the two halves of the temp-directory promise.
         "store.location=temporary",
         "store.isDefaultLocation=false",
         // The round trip: two entries committed, two read back off the disk by a second store,
-        // their ordinals rebuilt from the directory and both decisions intact.
+        // their ordinals rebuilt from the directory and both decisions intact. The order is the
+        // executor round trip's own: the arm's stop first (refused), then the grant's run
+        // (confirmed).
         "recorded=2",
         "reloaded=2",
         "ordinals=1-2",
-        "decisions=confirmed,refused",
+        "decisions=refused,confirmed",
+        // The executor round trip's binding: the grant leg carried the shown sentence and
+        // reached the provider — the N2 binding live in the drive's path.
+        "binding=matched",
         // And nothing left behind on the machine that ran it.
         "cleared=0",
     ].joined(separator: " ")
@@ -1777,15 +1787,24 @@ final class ZeroNetworkTests: XCTestCase {
     }
 
     /// **Guards the guard.** ``expectedActionAuditLifecycle`` must keep describing a **round trip
-    /// through real bytes**: the real store (not some in-memory stand-in), at least one entry
-    /// recorded, every recorded entry read back by a second store, both gate decisions surviving
-    /// the file, and the directory left clear.
+    /// through real bytes, decided by the executor**: the real store (not some in-memory
+    /// stand-in), at least one entry recorded, every recorded entry read back by a second store,
+    /// both gate decisions surviving the file, the sentence binding live in the drive's path, and
+    /// the directory left clear.
     ///
     /// The field that carries the weight is `reloaded`. A drive that recorded entries and never
     /// read them back would prove the store can be *called*, not that it wrote anything a reader
     /// can find — and `VoccaActions`' whole exposure to this invariant is its file I/O. A
     /// weakened constant (`recorded=0`, or `reloaded` dropped) would still satisfy the verbatim
     /// comparison above while the drive covered nothing.
+    ///
+    /// `binding` is the executor leg's weight: a drive that stopped submitting through the
+    /// executor — hand-built decisions, a dropped `approvedSentence` — would keep every other
+    /// field and lose this one. The assertion is deliberately three-sided like the MCP guard's:
+    /// the field must be present (a drive that stopped reporting it proves nothing about the
+    /// binding), it must not be the `refused` the drive reports when the round trip breaks (a
+    /// grant that never reached the provider), and it must be `matched` — the sentence the arm
+    /// leg rendered is the sentence the grant was bound to.
     func testTheAssertedActionAuditPostConditionStillDescribesARoundTripThroughRealBytes() throws {
         let fields = try Self.parseFields(of: Self.expectedActionAuditLifecycle)
 
@@ -1813,10 +1832,18 @@ final class ZeroNetworkTests: XCTestCase {
                 + "equality is the round trip: without it the drive proves the store can be "
                 + "called, never that real bytes reached a real directory.")
         XCTAssertEqual(
-            try value("decisions"), "confirmed,refused",
-            "The asserted audit post-condition no longer carries both a confirmed and a refused "
+            try value("decisions"), "refused,confirmed",
+            "The asserted audit post-condition no longer carries both a refused and a confirmed "
                 + "decision through the file — the R8 distinction the log exists for could be "
-                + "lost in the bytes and this line would not notice.")
+                + "lost in the bytes and this line would not notice. The refused entry is the "
+                + "arm leg's stop, recorded first; a drive whose arm auto-ran would read "
+                + "autoRanReadOnly,confirmed and fail here.")
+        XCTAssertEqual(
+            try value("binding"), "matched",
+            "The asserted audit post-condition no longer carries the executor's matched binding. "
+                + "The drive could be hand-building decisions, or granting without the shown "
+                + "sentence — the N2 binding absent from the one path that proves it reaches no "
+                + "network name — and this line would not notice.")
         XCTAssertEqual(
             Int(try value("cleared")) ?? -1, 0,
             "The asserted audit post-condition no longer requires the cleared directory — the "
