@@ -2019,8 +2019,15 @@ set -euo pipefail
 # shell section, the moment of arm — the count taken from the floor script's own parse in
 # the ratchet commit.
 #
+# The shell-provider probe-aspect RED raise (2824 -> 2825; executed 2825) — the PROBE-SHELL
+# post-condition and its guard-the-guard pair grow one test:
+# `testTheAssertedShellPostConditionStillDescribesTheComposedDefaultAndARoundTripThroughRealBytes`
+# (the verbatim-line additions are constants, not tests; the intent-default guard gains the
+# resolver-catalog field's assertion in the same method) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2824
+MINIMUM_EXECUTED_TESTS=2825
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
