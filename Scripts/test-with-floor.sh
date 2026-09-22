@@ -1956,8 +1956,18 @@ set -euo pipefail
 # cross-instance and no-file-created conventions, and the default-directory pin beside the
 # config store) — the count taken from the floor script's own parse in the ratchet commit.
 #
+# The transport-permit-widening raise (2780 -> 2783; executed 2783) — the provider-aspect
+# step 1, a lint-only REFACTOR that widens the transport prohibition's permitted set from one
+# file to two (`VoccaActions/Execution/ShellExecutor.swift` added ahead of its file, recorded
+# as pending): `ActionTransportProhibitionTests` grows by 3 — the exact-two-reviewed-entries
+# set pin, the pending-shell-executor-entry record (asserts the entry is present and its file
+# absent, so the day the file lands the vacuity is retired loudly), and the planted third-file
+# control (a real file naming `Process` is written into the module and the real scan must
+# still report it — the widening does not weaken leg (a)) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2780
+MINIMUM_EXECUTED_TESTS=2783
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
