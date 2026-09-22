@@ -540,6 +540,63 @@ final class ZeroNetworkTests: XCTestCase {
         "called=ok",
     ].joined(separator: " ")
 
+    /// **The intent voice round trip's post-condition** (PROBE-INTENT): the verbatim report of
+    /// the `intent-layer` probe drive's composed-recipe round trip — the real audit store over a
+    /// fresh temporary directory, the intent recipe composed over a call-logged probe provider
+    /// and the **real** `KeywordIntentResolver` (a probe-seeded synonym table), the utterance
+    /// resolving, the gate asking (the card with the provider's sentence verbatim), the existing
+    /// confirm closure answering with the shown sentence bound, the provider's `invoke` counted,
+    /// and the audit row reconstructing off the disk. Asserted whole, as one line — the
+    /// `expectedActionAuditLifecycle` shape. This is deliberately **not** a golden string to be
+    /// regenerated when it fails:
+    /// ``testTheAssertedIntentPostConditionStillDescribesAVoiceRoundTripThroughTheRecipe`` reads
+    /// it back and refuses a version that no longer describes the composed round trip.
+    ///
+    /// `store.location` and `store.isDefaultLocation` are the `expectedUsageLedgerLifecycle`
+    /// promise, restated for this module's voice leg: **no probe run writes to the founder's real
+    /// `~/Library/Application Support/Vocca/`**.
+    private static let expectedIntentLifecycle = [
+        // The real store, named from its own type — a swapped-in double flips it.
+        "store=real",
+        // Where the drive wrote — the two halves of the temp-directory promise.
+        "store.location=temporary",
+        "store.isDefaultLocation=false",
+        // The wiring's resolve answered a confident match — the round trip has a first leg.
+        "resolved=1",
+        // The gate asked: the card appeared with the provider's sentence.
+        "card=yes",
+        // The provider's own call log: confirm → invoke exactly once, counted.
+        "invoked=1",
+        // The audit store's own decoded answer: the withheld stop (refused) and the confirmed
+        // invoke, in ordinal order — the reconstruct, read off the disk by a second store.
+        "decisions=refused,confirmed",
+        "ordinals=1-2",
+        // The N2 binding live in the probe's path: the confirmed entry's summary is the card's
+        // shown sentence, verbatim.
+        "binding=matched",
+    ].joined(separator: " ")
+
+    /// **The composed default's facts** (PROBE-INTENT-DEFAULT): the verbatim report of the
+    /// intent composition `AppBootstrap.configure` makes — the composed root's
+    /// `NullIntentResolver` fact carrier, one resolution through the **composed** wiring
+    /// resolving nothing (`intentResolved=0` — the R7 unwired posture as an effect, not a
+    /// comment), and the composed wiring's declared no-spawn fact (`spawnsSubprocess=false` —
+    /// the D2 narrowed promise extended to the voice leg). Asserted whole, as one line, and
+    /// deliberately **not** a golden string: ``testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault``
+    /// reads it back and refuses a version that no longer describes the composed default.
+    private static let expectedIntentDefaultLifecycle = [
+        // The composed root's fact carrier, derived from the slot's own dynamic type — a
+        // composition that wired a different resolver flips it.
+        "resolver=NullIntentResolver",
+        // The drive actually resolved through the composed wiring — one resolution, counted.
+        "resolves=1",
+        // That resolution was not a tool call — distinguishable from "the drive didn't run" by
+        // the `resolves` field sitting next to it.
+        "intentResolved=0",
+        // The composed intent wiring's declared fact — the voice leg spawns nothing.
+        "spawnsSubprocess=false",
+    ].joined(separator: " ")
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -1027,6 +1084,56 @@ final class ZeroNetworkTests: XCTestCase {
             testTheAssertedMCPPostConditionStillDescribesANegotiatedConversation. Note what this \
             line does NOT cover: a stdio transport is deviation D2 and is invisible to this \
             interposer, which is why ActionTransportProhibitionTests exists.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The intent voice round trip's post-condition. The fourteenth effect-not-reference
+        // check, and the one that pins the voice path's round trip — the `intent-layer` slice's
+        // own half of the invariant: the composed intent recipe over real temp-directory stores
+        // and a call-logged probe provider, utterance → resolve → gate → card → the existing
+        // confirm closure → the provider's `invoke` counted exactly once → the audit row
+        // reconstructing. Every field is a fact the drive can only produce by running the round
+        // trip: `invoked` is the provider's own call log, `decisions` and `ordinals` come from
+        // the second store's own answer, and `binding` compares the confirmed entry's summary
+        // with the card's shown sentence.
+        //
+        // Deleting the drive removes the line from the probe's output entirely, so the
+        // comparison fails against nil rather than quietly covering less.
+        XCTAssertEqual(
+            try XCTUnwrap(intentPayload(of: observation)),
+            Self.expectedIntentLifecycle,
+            """
+            The probe did not report driving the intent voice round trip.
+              expected: \(Self.expectedIntentLifecycle)
+              observed: \(intentPayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseIntent() was not called on the \
+            default-configuration path — in which case the intent voice path is outside this \
+            invariant — or the composed recipe no longer behaves as written. Do not fix this by \
+            deleting the call, and do not fix it by pasting in whatever the probe now prints — \
+            see testTheAssertedIntentPostConditionStillDescribesAVoiceRoundTripThroughTheRecipe.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The composed default's intent facts. The fifteenth effect-not-reference check, and the
+        // one that pins the R7 unwired posture as an effect rather than a comment: the composed
+        // root's resolver is the shipped `NullIntentResolver` (derived from the slot's own
+        // dynamic type), one resolution through the composed wiring resolves nothing
+        // (`intentResolved=0`, sitting next to the counted `resolves=1` so the zero is an
+        // effect, not an absence), and the composed intent wiring declares `spawnsSubprocess=false`
+        // — the D2 narrowed promise extended to the voice leg.
+        XCTAssertEqual(
+            try XCTUnwrap(intentDefaultPayload(of: observation)),
+            Self.expectedIntentDefaultLifecycle,
+            """
+            The probe did not report the composed intent default's facts.
+              expected: \(Self.expectedIntentDefaultLifecycle)
+              observed: \(intentDefaultPayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseIntent() was not called on the \
+            default-configuration path — in which case the composed intent wiring is outside \
+            this invariant — or the composed default no longer resolves nothing and spawns \
+            nothing. Do not fix this by deleting the call, and do not fix it by pasting in \
+            whatever the probe now prints — see \
+            testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault.
             \(observation.diagnosticSummary)
             """)
 
@@ -1978,6 +2085,127 @@ final class ZeroNetworkTests: XCTestCase {
                 + "the call is known to have been attempted, never to have completed.")
     }
 
+    /// **Guards the guard.** ``expectedIntentLifecycle`` must keep describing **a voice round
+    /// trip through the composed intent recipe**: the real store, the resolution's first leg,
+    /// the card the gate asked for, the provider's `invoke` counted exactly once, and the audit
+    /// row reconstructing off the disk with the N2 binding matched.
+    ///
+    /// The fields that cannot weaken:
+    ///
+    /// - `invoked` — exactly `1`: the counted "confirm → invoke exactly once". A constant with
+    ///   `invoked=0` would still satisfy the verbatim comparison while the voice path proved the
+    ///   gate can be reached, never that a human yes ever ran anything.
+    /// - `decisions` — exactly `refused,confirmed`: the withheld stop reconstructs first, the
+    ///   confirmed invoke second. A constant that read `refused` alone means the confirm never
+    ///   reached the provider; one that read `confirmed` alone means the stop — the recorded
+    ///   refusal the round trip is built on — vanished.
+    /// - `binding` — `matched`: the confirmed entry's summary is the card's shown sentence, the
+    ///   N2 binding live in the one path that proves the voice leg reaches no network name.
+    /// - `resolved` — at least `1`: a drive that composed the wiring and confirmed without ever
+    ///   resolving an utterance proves nothing about the voice path's first leg.
+    func testTheAssertedIntentPostConditionStillDescribesAVoiceRoundTripThroughTheRecipe() throws {
+        let fields = try Self.parseFields(of: Self.expectedIntentLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("store"), "real",
+            "The asserted intent post-condition no longer names the real store — the drive could "
+                + "be reporting a test double, which would put none of the voice path's file I/O "
+                + "inside this invariant.")
+        XCTAssertEqual(
+            Int(try value("resolved")) ?? -1, 1,
+            "The asserted intent post-condition no longer requires the resolution's first leg — a "
+                + "drive that composed the wiring and confirmed without resolving proves nothing "
+                + "about the voice path.")
+        XCTAssertEqual(
+            try value("card"), "yes",
+            "The asserted intent post-condition no longer requires the card — without it the "
+                + "drive could be confirming a card that was never presented, and the gate's ask "
+                + "leg would be watching nothing.")
+        XCTAssertEqual(
+            Int(try value("invoked")) ?? -1, 1,
+            "The asserted intent post-condition no longer requires the provider's invoke to be "
+                + "counted exactly once — a constant with invoked=0 would pass the verbatim "
+                + "comparison while no human yes ever ran anything.")
+        XCTAssertEqual(
+            try value("decisions"), "refused,confirmed",
+            "The asserted intent post-condition no longer reconstructs the withheld stop and the "
+                + "confirmed invoke, in ordinal order — the refused entry is the round trip's "
+                + "recorded foundation, and the confirmed entry is its proof.")
+        XCTAssertEqual(
+            try value("ordinals"), "1-2",
+            "The asserted intent post-condition no longer carries the rebuilt ordinals — read off "
+                + "the directory, not off any counter.")
+        XCTAssertEqual(
+            try value("binding"), "matched",
+            "The asserted intent post-condition no longer carries the matched binding — the drive "
+                + "could be confirming without the shown sentence, and the N2 binding would be "
+                + "absent from the one path that proves it reaches no network name.")
+        XCTAssertEqual(
+            try value("store.location"), "temporary",
+            "The asserted intent post-condition no longer requires the temporary directory — a "
+                + "probe run must never write an audit entry where a real install keeps its own.")
+        XCTAssertEqual(
+            try value("store.isDefaultLocation"), "false",
+            "The asserted intent post-condition no longer refuses the shipped location — without "
+                + "this the drive could fold probe entries into the founder's real audit log.")
+    }
+
+    /// **Guards the guard.** ``expectedIntentDefaultLifecycle`` must keep describing **the
+    /// composed default** — the R7 unwired posture as an effect of the composed root, never a
+    /// comment and never an absence.
+    ///
+    /// The fields that cannot weaken:
+    ///
+    /// - `intentResolved` — must be `0` **and** must sit next to a counted `resolves` of at
+    ///   least `1`: a constant that dropped `resolves` would be indistinguishable from a drive
+    ///   that never ran, which is exactly the vacuous green this field exists to refuse. A
+    ///   composition that wired a resolver (N1's flip) flips `intentResolved` to `1` and the
+    ///   guard refuses the flip as a reviewed edit.
+    /// - `resolver` — `NullIntentResolver`, derived from the composed root's own slot: a
+    ///   composition that wired anything else flips it to `other`/`none`.
+    /// - `spawnsSubprocess` — `false`: the D2 narrowed promise extended to the voice leg — a
+    ///   composition that declared a spawn would say so here.
+    func testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault() throws {
+        let fields = try Self.parseFields(of: Self.expectedIntentDefaultLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("resolver"), "NullIntentResolver",
+            "The asserted intent default post-condition no longer requires the composed root's "
+                + "Null resolver — a composition that wired any other resolver would still pass "
+                + "a constant that watched nothing.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("resolves")) ?? 0, 1,
+            "The asserted intent default post-condition resolved nothing — intentResolved=0 must "
+                + "be distinguishable from 'the drive didn't run', and the counted resolution is "
+                + "what distinguishes them.")
+        XCTAssertEqual(
+            Int(try value("intentResolved")) ?? -1, 0,
+            "The asserted intent default post-condition no longer requires the composed default "
+                + "to resolve nothing — the R7 unwired posture could be silently flipped (N1) "
+                + "while this line watched nothing.")
+        XCTAssertEqual(
+            try value("spawnsSubprocess"), "false",
+            "The asserted intent default post-condition no longer requires the composed intent "
+                + "wiring's no-spawn fact — a composition that wired a spawn would declare it "
+                + "here, and the zero-network line would still be green if nothing read the fact.")
+    }
+
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
     /// probe never reported one.
     ///
@@ -2083,6 +2311,36 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-MCP\t") {
             return String(line.dropFirst("PROBE-MCP\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-INTENT` line's payload — the intent voice round trip's report — or `nil` when
+    /// the probe never reported one.
+    ///
+    /// The `PROBE-MCP` parser shape: the line exists only when `exerciseIntent()` ran on the
+    /// default-configuration path, so its absence is a missing drive rather than an empty
+    /// report. `VoccaBootstrap` is already covered by the converse driver's witness, so the
+    /// module coverage list alone would not notice a deleted drive — this accessor and its
+    /// assertion are the voice round trip's survival guarantee.
+    private func intentPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-INTENT\t") {
+            return String(line.dropFirst("PROBE-INTENT\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-INTENT-DEFAULT` line's payload — the composed default's intent facts — or
+    /// `nil` when the probe never reported one.
+    ///
+    /// The `PROBE-INTENT` parser shape, on the sibling line the same drive emits. The prefix is
+    /// deliberately longer than `PROBE-INTENT\t`, so the two accessors cannot confuse each
+    /// other's lines.
+    private func intentDefaultPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-INTENT-DEFAULT\t") {
+            return String(line.dropFirst("PROBE-INTENT-DEFAULT\t".count))
         }
         return nil
     }
