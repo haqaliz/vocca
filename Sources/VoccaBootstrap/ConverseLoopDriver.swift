@@ -40,8 +40,11 @@ import VoccaCore
 ///   empty transcript → the silent skip — the dictation empty-skip policy) → resolve the
 ///   cleanup provider (**at most once per session** — nil → raw) → `clean` under the
 ///   injected-clock budget race (the `cleanIfWired` doctrine's caller-side copy — the
-///   pipeline's is private and pinned; timeout/throw → raw) → `replyGenerator` →
-///   `loop.scheduleReply`.
+///   pipeline's is private and pinned; timeout/throw → raw) → **the intent step** (R4: a
+///   resolved utterance branches — `.ask` speaks its question, bounded — a second
+///   consecutive `.ask` falls through; `.toolCall` speaks the handler's reply, a silent
+///   handler falls through; `.none`/unwired falls through — the reply generator untouched)
+///   → `replyGenerator` → `loop.scheduleReply`.
 /// - `.speakReply(text:)` → spawn the render child: resolve the synthesizer lazily → render
 ///   one pass collecting `AudioChunk`s → `reportPlaybackStarted()` (the window opens) → each
 ///   chunk via `reportPlaybackChunk` (the echo gate's reference) → `playback.play`. **The
@@ -71,8 +74,8 @@ import VoccaCore
 /// It names **no injector** — converse never injects (R6; the structural prohibition is the
 /// mode machine's, and this file makes it vacuously true by construction: a driver with no
 /// injector seam has nothing to reach) — and no network type. Its recipes (the ASR provider,
-/// the cleanup provider, the synthesizer) are lazy closures so construction is pure and the
-/// zero-network probe stays green (D1).
+/// the cleanup provider, the intent provider, the action handler, the synthesizer) are lazy
+/// closures so construction is pure and the zero-network probe stays green (D1).
 @MainActor
 public final class ConverseLoopDriver {
 
@@ -96,6 +99,18 @@ public final class ConverseLoopDriver {
 
     /// The cleanup recipe — resolved at most once per session.
     private let cleanupProvider: @Sendable () async throws -> (any CleanupProvider)?
+
+    /// The intent recipe — the resolution of a cleaned utterance (`intent-layer` PRD R4), in
+    /// the `asrProvider`/`cleanupProvider` shape: resolved **once per committed utterance**,
+    /// after cleanup, before the reply. `nil` is the unwired answer — today's behavior,
+    /// byte-identical. `async` because the wiring's resolver may be an actor (the same reason
+    /// the ASR recipe is); a synchronous closure satisfies it unchanged.
+    private let intentProvider: @Sendable (String) async -> IntentResolution?
+
+    /// The action leg — the spoken reply after a `.toolCall`'s terminal decision. `nil` is
+    /// the honest-drop channel (the driver's silent-return discipline): the pipeline falls
+    /// through to the reply generator, never a throw, never a notice.
+    private let intentActionHandler: @Sendable (ActionInvocation) async -> String?
 
     /// The reply generator — the shipped deterministic stand-in behind the R7 seam.
     private let replyGenerator: any ReplyGenerator
@@ -146,6 +161,16 @@ public final class ConverseLoopDriver {
     /// The session's resolved synthesizer — at most one, resolved lazily.
     private var synthesizer: (any SpeechSynthesizer)?
 
+    /// The bounded re-ask counter (`intent-layer` PRD R4): consecutive `.ask` resolutions,
+    /// per-session, reset on any non-`.ask` outcome.
+    private var consecutiveAsks = 0
+
+    /// The re-ask bound (PRD R4): a question is spoken while the consecutive-`.ask` count is
+    /// below the bound — so exactly the first `.ask` of a run is spoken, and a second
+    /// consecutive one falls through to the reply generator (still `.ask` after the
+    /// re-resolution → fall through to `.none`/echo).
+    private static let askBound = 2
+
     /// The nothing-focused target: converse never names a target (`PRODUCT_SPEC.md:200`).
     private static let nothingFocused = TargetContext(
         bundleID: nil, windowTitle: nil, isSecureInput: false)
@@ -161,6 +186,12 @@ public final class ConverseLoopDriver {
     ///   - asrProvider: the engine recipe, read at the moment an utterance commits (`async` —
     ///     the current resolver is an actor; a synchronous closure satisfies it unchanged).
     ///   - cleanupProvider: the cleanup recipe, resolved at most once per session.
+    ///   - intentProvider: the intent recipe — the resolution of a cleaned utterance, read at
+    ///     the moment a turn reaches the intent step. `nil` (the default) is the unwired
+    ///     answer: today's reply-generator behavior, byte-identical.
+    ///   - intentActionHandler: the action leg — the spoken reply after a `.toolCall`'s
+    ///     terminal decision. `nil` (the default) stays silent and the pipeline falls through
+    ///     to the reply generator.
     ///   - replyGenerator: the R7 seam's deterministic stand-in.
     ///   - synthesizer: the speech recipe, resolved at the first `.speakReply`.
     ///   - playback: the duckable output the rendered reply drains into.
@@ -174,6 +205,10 @@ public final class ConverseLoopDriver {
         capture: any ContinuousAudioSource,
         asrProvider: @escaping @Sendable () async -> (any ASREngine)?,
         cleanupProvider: @escaping @Sendable () async throws -> (any CleanupProvider)?,
+        intentProvider: @escaping @Sendable (String) async -> IntentResolution? = { _ in nil },
+        intentActionHandler: @escaping @Sendable (ActionInvocation) async -> String? = { _ in
+            nil
+        },
         replyGenerator: any ReplyGenerator,
         synthesizer: @escaping @Sendable () async throws -> any SpeechSynthesizer,
         playback: any PlaybackEngine,
@@ -183,6 +218,8 @@ public final class ConverseLoopDriver {
         self.capture = capture
         self.asrProvider = asrProvider
         self.cleanupProvider = cleanupProvider
+        self.intentProvider = intentProvider
+        self.intentActionHandler = intentActionHandler
         self.replyGenerator = replyGenerator
         self.synthesizerProvider = synthesizer
         self.playback = playback
@@ -279,9 +316,9 @@ public final class ConverseLoopDriver {
 
     // MARK: - The utterance pipeline
 
-    /// The committed utterance's journey: ASR → cleanup(`.conversing`) → reply →
-    /// `scheduleReply`. Cancellation (a user stop) returns silently at every boundary — no
-    /// `scheduleReply`, no notice.
+    /// The committed utterance's journey: ASR → cleanup(`.conversing`) → the intent step →
+    /// reply → `scheduleReply`. Cancellation (a user stop) returns silently at every boundary
+    /// — no `scheduleReply`, no notice.
     private func runUtterancePipeline(utterance: [AudioBuffer]) async {
         let buffer = AudioBuffer(
             samples: utterance.flatMap(\.samples),
@@ -323,7 +360,32 @@ public final class ConverseLoopDriver {
         }
         guard !Task.isCancelled else { return }
 
-        let reply = replyGenerator.reply(to: raw)
+        // The intent step (`intent-layer` PRD R4), between cleanup and the reply: a resolved
+        // utterance branches — `.ask` speaks its question and nothing executes (R2: a guess
+        // never runs), bounded by the re-ask counter; `.toolCall` speaks the action handler's
+        // reply (a silent handler falls through — the honest-drop channel); `.none` and the
+        // unwired `nil` fall through — the reply generator untouched, byte-identical.
+        let reply: String
+        if let resolution = await intentProvider(raw) {
+            switch resolution {
+            case .ask(let question):
+                consecutiveAsks += 1
+                if consecutiveAsks < Self.askBound {
+                    reply = question
+                } else {
+                    reply = replyGenerator.reply(to: raw)
+                }
+            case .toolCall(let invocation):
+                consecutiveAsks = 0
+                reply = await intentActionHandler(invocation) ?? replyGenerator.reply(to: raw)
+            case .none:
+                consecutiveAsks = 0
+                reply = replyGenerator.reply(to: raw)
+            }
+        } else {
+            consecutiveAsks = 0
+            reply = replyGenerator.reply(to: raw)
+        }
         guard !Task.isCancelled else { return }
         loop.scheduleReply(reply)
         // The `.speakReply` we just queued is drained here — the drive task may be awaiting the

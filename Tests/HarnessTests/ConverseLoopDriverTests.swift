@@ -357,8 +357,11 @@ final class ConverseLoopDriverTests: XCTestCase {
 
     // MARK: - The compile pins
 
-    /// The driver exists with the twelve-parameter init and the public loop — a widened or
-    /// renamed seam stops compiling (the frozen-signature doctrine).
+    /// The driver exists with the fourteen-parameter init and the public loop — a widened or
+    /// renamed seam stops compiling (the frozen-signature doctrine). The two intent closures
+    /// are pinned here at their nil-safe defaults (`converse-step`'s deliberate widening — a
+    /// reviewed edit, never an edit-to-match of a broken build): the unwired driver is
+    /// today's driver.
     func testTheDriverIsConstructibleOverTheDoubles() {
         func requireDriver(_ driver: ConverseLoopDriver) -> ConverseLoopDriver { driver }
 
@@ -371,6 +374,8 @@ final class ConverseLoopDriverTests: XCTestCase {
                 capture: ScriptedContinuousCapture(),
                 asrProvider: { ScriptedASR(transcripts: []) },
                 cleanupProvider: { nil },
+                intentProvider: { _ in nil },
+                intentActionHandler: { _ in nil },
                 replyGenerator: EchoReplyGenerator(),
                 synthesizer: { Self.stubSynthesizer },
                 playback: FakePlaybackEngine(),

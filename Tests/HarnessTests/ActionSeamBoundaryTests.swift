@@ -225,6 +225,14 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // text once the 4 KB bound is checked at construction). It builds the gate's
                 // input from a matched utterance; it never decides with it.
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
+                // `converse-step`'s reviewed widening — the converse driver's action leg
+                // names the invocation in its handler closure's signature (the spoken reply
+                // after a `.toolCall`'s terminal decision), the recipe passes the closure
+                // through, and the probe drive spells the unwired closure explicitly. All
+                // three move the type, never decide with it.
+                "VoccaBootstrap/ConverseLoopDriver.swift",
+                "VoccaBootstrap/ConverseWiring.swift",
+                "VoccaNetworkProbe/ConverseLoopDrive.swift",
             ]
         ),
         (
