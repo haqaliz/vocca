@@ -3339,6 +3339,108 @@ must actually have been entered before a row means anything.
 
 ---
 
+## 24. Shell commands — `shell-provider`
+
+Nothing in this section runs in CI. The shell provider's spine — the gate-level refusal by
+attempting the call, the argv-derived sentence, dry-run, the audit record — is proven
+headlessly inside the zero-network interposer over the real executor (`PROBE-SHELL`:
+`commands=0 spawnsSubprocess=false seeded=1 card=yes invoked=1
+decisions=refused,confirmed,dryRun ordinals=1-3 binding=matched`); what these rows observe
+is the **rendered** surface, the **real** engine and the **real** audit artifact on the
+founder's machine. Three ground rules before any of them: **nothing is configured out of
+the box** (no registry, no enablement — the default configuration cannot create a shell
+child, and the arm surface is not generic: an enablement row alone renders nothing), so
+each row starts with a deliberate, recorded configuration step; **a command whose file does
+not declare `readOnly: true` claims the destructive radius** (absent means destructive by
+default), so the read-only rows say so explicitly; and **no rate may be quoted** — these
+rows record whether the refusal, the sentence, the invocation and the reconstruction held,
+never how often anything ran. Recorded — never gated, each under **rule 1**: the state must
+actually have been entered before a row means anything.
+
+151. **Configure + enable a read-only command; the card shows the argv-derived sentence;
+    confirm → the command runs → the audit reconstructs (C13 slice 7, recorded — never
+    gated).**
+
+    *Gesture:* create `shell-commands.json` under `<applicationSupport>/Vocca/` (the shape
+    is byte-pinned by tests — keep the field names verbatim) with one read-only command,
+    e.g. `{"id": "whoami", "command": ["/usr/bin/whoami"], "readOnly": true}`, and launch.
+    Verify the Actions tab's shell section renders a row for the command (default off), and
+    enable it. Press the hotkey to arm, and verify the confirmation card shows the
+    **argv-derived sentence** — the argv substituted in place, quoted-sanitised, e.g. `Run
+    the shell command 'whoami': /usr/bin/whoami.` — read off the **rendered** card and
+    compared against the definition. Press **Confirm**, verify the command actually ran
+    (the output is the command's own answer), then open the audit artifact
+    (`<applicationSupport>/Vocca/action-audit/` — one file per event, ordinal names) and
+    reconstruct the decision from the entry fields: the confirmed invocation, the
+    provider/tool ids, and the sentence.
+
+    *Verify the state was entered:* the registry really loaded (the shell section really
+    rendered the row from the file — a section without the row proves the file was never
+    read), the enablement row was really on, the card was really read off the rendered
+    surface before any confirm, the confirm really ran the command, and the audit rows were
+    really read off disk.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a configured read-only
+    command ran through the gate, the card showed the argv-derived sentence, and the audit
+    row reconstructs off disk** — the shell leg's first real observation of the C13 surface.
+
+    *Void — not fail — if:* the shell section rendered no row (the registry was never read
+    — rule 1), the command was never enabled, or no card appeared.
+
+    *Failure:* a card whose sentence differs from the argv-derived render, a confirm that
+    records nothing or runs a different argv, a command that ran without a card, or an
+    audit log that cannot reconstruct the decision.
+
+152. **A destructive command is refused without confirmation — the gate answers by
+    attempting the call, and no side effect occurs (C13 slice 7, recorded — never
+    gated).**
+
+    *Gesture:* add a destructive command to the registry — one whose file does **not**
+    declare `readOnly: true` (absent means destructive by default), e.g.
+    `{"id": "rm-temp", "command": ["/bin/rm", "-f", "/tmp/vocca-smoke-<date>"]}` after
+    creating the target file — enable it and arm. Verify the confirmation card appears
+    (the refusal is **by attempting the call** — the gate was asked, the card rendered;
+    a silent nothing proves nothing) and then **decline** it on the rendered surface.
+    Verify **no side effect**: the target file still exists, and the audit artifact's
+    newest entry reconstructs a refusal (or no invocation at all), never a confirmed run.
+
+    *Verify the state was entered:* the card really rendered for the destructive command
+    (row 151's shape, without which a refusal is unobservable), the decline really happened
+    on the rendered surface (not a scripted call), and "no side effect" was checked against
+    the real target and the real audit artifact, not assumed.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a destructive command
+    was refused without confirmation — the gate answered by attempting the call, no side
+    effect occurred**.
+
+    *Void — not fail — if:* the destructive command never rendered a row or never armed
+    (rule 1).
+
+    *Failure:* a destructive command that ran without a confirmed card, a side effect
+    observed, or a destructive invocation that rendered no card at all (a silent grant is
+    the fail-open this row exists to catch).
+
+153. **Dry-run records but never invokes (C13 slice 7, recorded — never gated).**
+
+    *Gesture:* from the armed state with a command card showing (row 151's shape), take the
+    **dry-run / preview** path on the rendered surface. Verify the command did **not** run —
+    no side effect, and the engine's own call log shows the dry-run reached it zero times —
+    while the audit artifact gained a `dryRun` entry: dry-run records but never invokes.
+
+    *Verify the state was entered:* the preview really went through the executor's dry-run
+    path (a re-render of the card is not a dry-run), and "never invoked" was checked
+    against the engine's call log and real side effects, not assumed.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a dry-run recorded its
+    audit row and never invoked the command**.
+
+    *Void — not fail — if:* the preview affordance never appeared (rule 1).
+
+    *Failure:* a dry-run that invoked the command (any side effect, any engine call), or a
+    dry-run that recorded nothing.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

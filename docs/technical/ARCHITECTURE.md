@@ -292,8 +292,9 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Mode (dictate/converse) | `SessionMode` + `SessionModeMachine` | the explicit state machine (`VoccaCore/Mode/`) — chord-keyed, no implicit switching, the injection path reachable only from the dictate state (type/assertion-enforced; `mode-machine`, 2026-09-16) | No — always local |
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` — **real since `context-provider` (2026-09-18)**: the seam in `VoccaCore/Context/` (`ContextSnapshot`, the sync non-throwing contract — D1), `NullContext` the shipped default (reads nothing), `AccessibilityContext` in `VoccaContext` behind its own per-seam AX and Secure Input permits (Secure Input refused first); the per-app consent gate (bundle-IDs-only store, the never-read decision) and the AND-gated BYOK payload field are the same unit's | **No — by design** |
 | MCP transport | `MCPTransport` | `InMemoryMCPTransport`, **`StdioMCPTransport`** — real since `stdio-transport` (2026-09-21); **guardrail 7 met**. The stdio child is **not observable** by the zero-network interposer (**D2**); the answer is that the default configuration configures no server and therefore **cannot create one**, the BYOK precedent of unreachable-rather-than-excepted. `spawnsSubprocess` is a declared value | No |
-| Actions | `ActionProvider` | `NullActionProvider` (the shipped default — zero tools, refuses everything) and **`AuditActionProvider`** (`VoccaActions/Providers/` — an actor over the real audit store: `audit.count` read-only, `audit.clear` destructive) — **real since `local-data-provider` (2026-09-19); guardrail 7 MET**; `MCPProvider` exists behind the protocol layer (`mcp-protocol`, 2026-09-20) but is **not composed** — it is discovered per server, a later slice's wiring; `ShellProvider` remains PENDING. The surface is real since `action-surface-wiring` (2026-09-21): **`ActionExecutor`** (the gate's one caller in the shipped configuration — every decision recorded, `auditRecorded` honesty), **`ActionConfigStore`** (one byte-pinned `action-config.json` — servers + enablement, tolerant decode, absent is off, no arguments ever), the widget confirmation card, and the Actions tab. The policy floor is **`.none`, recorded as a decision** — see the annotation below. The seam is **`async`** — see the annotation below, which is the reason | No |
+| Actions | `ActionProvider` | `NullActionProvider` (the shipped default — zero tools, refuses everything) and **`AuditActionProvider`** (`VoccaActions/Providers/` — an actor over the real audit store: `audit.count` read-only, `audit.clear` destructive) — **real since `local-data-provider` (2026-09-19); guardrail 7 MET**; `MCPProvider` exists behind the protocol layer (`mcp-protocol`, 2026-09-20) but is **not composed** — it is discovered per server, a later slice's wiring; **`ShellProvider`** is real since `shell-provider` (2026-09-22) — see the shell row below, composed arm-surface-only. The surface is real since `action-surface-wiring` (2026-09-21): **`ActionExecutor`** (the gate's one caller in the shipped configuration — every decision recorded, `auditRecorded` honesty), **`ActionConfigStore`** (one byte-pinned `action-config.json` — servers + enablement, tolerant decode, absent is off, no arguments ever), the widget confirmation card, and the Actions tab. The policy floor is **`.none`, recorded as a decision** — see the annotation below. The seam is **`async`** — see the annotation below, which is the reason | No |
 | Intent | `IntentResolver` | `KeywordIntentResolver` (token-scored over a seeded synonym table, the not-confident threshold 0.75 → the spoken ask naming the resolver's own top ≤3 candidates, nothing executes; the seed pin makes a retune a reviewed edit) + `NullIntentResolver` (the composed default — `.none` for every utterance, the D2-analogue unwired posture) — real since `intent-layer` (2026-09-22); **the guardrail-7 claim stated honestly: one real classifier plus a default** (the D3 shape; S1's `PhraseIntentResolver` is the retirement path, still should-have) | **Yes** — a hosted/BYOK classifier is a later *addition* to the seam, never this slice, never a replacement |
+| Shell execution | `ShellExecutor` (engine) + `ShellProvider` (provider) | **real since `shell-provider` (2026-09-22)**: `ShellExecutor` runs the **fixed argv** via `Process` — never `/bin/sh -c` — over an injected clock with a counted wait, terminate→poll→SIGKILL→poll reaping (never `waitUntilExit`), bounded capture, failures as returned values; `ShellProvider` (`dev.vocca.shell`) over it: the **argv-derived sentence** (describe and invoke share one render, so sentence and argv cannot drift), **destructive by default** (`readOnly` absent → `.destructive`); definitions persist in **`shell-commands.json`** (shape-only, caps refuse never clamp); composed **arm-surface-only** (the intent seam has no shell row — `intentShellRows=0`). The transport-permit lint's permitted set widened from exactly one file to exactly two — **the default configuration cannot create a shell child** (D2, narrowed in writing; an *enabled* command's egress is never provable) | No |
 
 > *Annotated (`local-data-provider`, 2026-09-19) — **the seam is `async` because its first real
 > implementation could not be written otherwise**, and that is guardrail 7 doing its job.*
@@ -405,6 +406,50 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > `intentResolved=0` as an effect of the composed root, `spawnsSubprocess=false` as a
 > declared value — and the dictation path is byte-for-byte untouched (G5 re-anchored once,
 > deliberately: `aa12c723…` → `ecfcdb4b…`; the dictation digests unchanged).
+
+> *Annotated (`shell-provider`, 2026-09-22) — the shell row above and the widened transport
+> lint.* **The roadmap's highest blast radius ships:** a shell command can delete, modify or
+> egress anything the user can — the first provider whose radius is unboundedly destructive
+> — mitigated by the proven spine rather than a new mechanism: the gate's structural refusal
+> by attempting the call (asserted at the gate level with the engine provably never
+> reached), the argv-derived sentence, dry-run, and every decision recorded.
+>
+> **The sentence is argv-derived, by founder decision.** `describe` renders the concrete
+> sentence from the command's argv — `Run the shell command '<id>': <argv, values
+> substituted in place, quoted-sanitised>; <key = value pairs, sorted>. <clause>` — and
+> `describe`/`invoke` share one render, so the sentence a human approves is the argv that
+> runs: a planted argv appears verbatim and a clause cannot hide a different argv.
+>
+> **The engine** (`ShellExecutor`) executes a **fixed argv** via `Process` — never
+> `/bin/sh -c`, so the child is not hidden behind a shell of our own making — under the 30 s
+> ceiling over an injected `MonotonicClock` with a counted wait, reap via
+> terminate→poll→SIGKILL→poll (never `waitUntilExit`, the recorded deadlock), bounded 4 KB
+> output capture, and failures as returned values, never throws.
+>
+> **The registry** (`ShellCommandRegistry`) persists `shell-commands.json` — definitions
+> only, shape-only (never enablement, never argument values), tolerant decode with one loud
+> log, caps that refuse rather than clamp (64 commands / 64 KB), and **`readOnly` absent →
+> destructive by default** (the MCP "absent means unsafe" precedent, tightened by the
+> F1-lesson test: Swift's `JSONDecoder` refuses `1` for `Bool`, so a corrupt file is refused
+> whole).
+>
+> **The transport widening and D2.** The prohibition lint's permitted set grew from exactly
+> one file to exactly two (`StdioMCPTransport` + `ShellExecutor`), and the D2 answer
+> narrows in writing: a shell child is even less observable than an MCP child — the same
+> blind hop with a shell in front of it, and the restricted child purges
+> `DYLD_INSERT_LIBRARIES` — so the claim is **the default configuration cannot create a
+> shell child**. The probe proves the default cannot spawn, never that an enabled command
+> cannot egress; the surface copy says where the claim stops — *"Vocca cannot see inside a
+> program it starts on your behalf."*
+>
+> **Arm-surface-only.** The shell leg renders the registry's commands as the existing tool
+> rows (enablement folded from the shared store, default off) — the arm surface is not
+> generic (tool rows exist only from `discoverySucceeded`), so the section builds its own —
+> and the intent seam has no `dev.vocca.shell` row (`intentShellRows=0`, asserted by the
+> probe): the voice leg cannot resolve to a shell command this slice. The composed default
+> has no registry and no enablement — nothing spawns (`PROBE-SHELL`:
+> `commands=0 spawnsSubprocess=false`). G5 re-anchored once, deliberately: `ecfcdb4b…` →
+> `e9aa45bb…`; the dictation digests unchanged.
 
 > *Status (memory-order aspect, 2026-08-27): the strategy-memory row is real end to end.
 > `InjectionStrategyStore` and both implementations shipped in `store-seam`; the ladder now
