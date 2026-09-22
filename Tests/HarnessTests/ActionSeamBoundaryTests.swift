@@ -218,8 +218,7 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // invocation a confident match resolved to. The intent seam reads the action
                 // vocabulary to *name* what would run (`.toolCall(ActionInvocation)`); it never
                 // builds one to act with, and nothing it does decides with it. The keyword
-                // resolver joins this row when its GREEN lands (it constructs the invocation the
-                // resolution carries).
+                // resolver's row sits next to it.
                 "VoccaCore/Intent/IntentResolution.swift",
                 // `intent-seam` GREEN's reviewed widening — the keyword resolver constructs the
                 // invocation a confident match carries (provider/tool, and the seeded arguments
