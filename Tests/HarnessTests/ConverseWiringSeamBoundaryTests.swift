@@ -59,6 +59,12 @@ private enum ConverseWiringSeamTestError: Error, CustomStringConvertible {
 ///   driver's — the recipe and the probe drive infer the type without naming it, and a
 ///   permitted file that does not name its family fails the non-vacuous guard; the honest set
 ///   is the files that actually name it.)
+/// - `IntentResolution` (`converse-step`'s widening) → its four Core declarations/readers
+///   (the intent-seam lint's own jurisdiction, `IntentSeamBoundaryTests`) plus the three
+///   converse files the widened driver's signature carries it into: the driver's `intentProvider`
+///   closure type, the recipe's passthrough parameter, and the probe drive's explicit unwired
+///   closure. The driver reads the resolution to branch — `.ask` speaks, `.toolCall` acts,
+///   `.none`/unwired falls through — it never resolves with it.
 ///
 /// ## The `TextInjector` VoccaBootstrap leg (the recorded amendment obligation)
 ///
@@ -99,6 +105,26 @@ final class ConverseWiringSeamBoundaryTests: XCTestCase {
                 "VoccaCore/TurnTaking/ConverseTurnFailure.swift",
                 "VoccaBootstrap/ConverseLoopDriver.swift",
                 "VoccaBootstrap/AppBootstrap.swift",
+            ]
+        ),
+        (
+            "IntentResolution",
+            [
+                // The Core files are the intent-seam lint's own jurisdiction
+                // (`IntentSeamBoundaryTests` within VoccaCore); they are listed here because
+                // this lint's scan root is the whole package.
+                "VoccaCore/Intent/IntentResolution.swift",
+                "VoccaCore/Intent/IntentResolver.swift",
+                "VoccaCore/Intent/KeywordIntentResolver.swift",
+                "VoccaCore/Intent/NullIntentResolver.swift",
+                // `converse-step`'s reviewed widening — the three converse files the widened
+                // driver's signature carries the resolution vocabulary into. The driver
+                // branches on it (`.ask`/`.toolCall`/`.none`), the recipe passes the closure
+                // through, and the probe drive spells the unwired closure explicitly — all
+                // three read it, never resolve with it.
+                "VoccaBootstrap/ConverseLoopDriver.swift",
+                "VoccaBootstrap/ConverseWiring.swift",
+                "VoccaNetworkProbe/ConverseLoopDrive.swift",
             ]
         ),
     ]
@@ -264,6 +290,7 @@ final class ConverseWiringSeamBoundaryTests: XCTestCase {
             public struct Leak {
                 public let driver: ConverseLoopDriver?
                 public let failure: ConverseTurnFailure?
+                public let resolution: IntentResolution?
             }
             """
         for (name, _) in Self.converseFamilies {
