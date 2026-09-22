@@ -2,13 +2,46 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-21).** The skeleton exists; **the product does not.**
+> **Status (2026-09-22).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`intent-layer` (C13 slice 6, shipped 2026-09-22):** the voice leg of the action surface —
+> the piece that joins the converse pipeline to the action machinery, with the §8 escape-valve
+> decision made and pinned. The seam is **`VoccaCore/Intent/`** (Foundation-free, no new
+> module): `IntentResolution` (`.toolCall`/`.ask`/`.none`), the synchronous `IntentResolver`
+> over a caller-supplied catalog (the enablement, never-read at the intent level — R3/M7),
+> `ToolReference`, **`KeywordIntentResolver`** (token-scored over a seeded synonym table, the
+> not-confident threshold 0.75 → the spoken ask names the resolver's own top ≤3 candidates,
+> nothing executes), and **`NullIntentResolver`** — the composed default, the D2-analogue
+> unwired posture. The `ConverseLoopDriver` is widened to fourteen parameters (compile pin
+> widened deliberately): the `intentProvider`/`intentActionHandler` lazy closures wire the
+> intent step between clean and the reply — `.ask` spoken only, bounded re-ask = 2 then echo,
+> `.toolCall` through the **shared** executor with `approval: .withheld` → the existing card
+> re-rendered after the record with a fresh generation token → confirm/decline closures; the
+> card-up guard, every decision recorded, `auditRecorded == false` answers with the failure
+> copy never a success ack, acks derived from the decision (provisional copy). **The §8 floor
+> ships pinned**: `EscapeValveTests` names `BlastRadius.requiresConfirmation` — an outward-
+> facing tool always confirms under every approval/policy/mode shape; time-boxed and decaying
+> per-tool trust are decided-and-deferred with their blockers (persisted trust state, changed
+> approval semantics, M4a). `PROBE-INTENT` (voice round trip: `resolved=1 card=yes invoked=1
+> decisions=refused,confirmed binding=matched`) and `PROBE-INTENT-DEFAULT`
+> (`resolver=NullIntentResolver resolves=1 intentResolved=0 spawnsSubprocess=false`) drive the
+> composed wiring inside the zero-network interposer with their guard-the-guard pair; the G5
+> pin re-anchored once, deliberately (`aa12c723…` → `ecfcdb4b…`, dictation digests unchanged).
+> **No gate passes** (tenth unit ahead of the uncleared gates under the recorded posture); R8
+> mitigated, not retired — the N2 limit stated (an approval asserts a human said yes, cannot
+> verify it), the classifier's accuracy unmeasurable in CI (SMOKE 150 records utterance counts,
+> never a rate), the D3-shaped seam claim stated honestly (keyword + null default: one real
+> classifier plus a default; S1 `PhraseIntentResolver` is the retirement path), the seeds are
+> code-level (a retune is a reviewed edit until S1), the two-mint observation recorded
+> (harmless — pairwise comparisons within a mint, the sentence binding is the backstop), the
+> D2 sequencing recorded (the G5 re-anchor landed in the probe REFACTOR commit; the GREEN phase
+> ran with the one anticipated pin failure). SMOKE 148-150 are **written and runnable** —
+> recorded, never gated, executed by nothing in CI. Test floor: **2761**.
 > **`action-surface-wiring` (C13 slice 5, shipped 2026-09-21):** the Actions surface — the
 > first human-in-the-loop safety surface — is real and composed. The sentence binding
 > (`ActionGate.submit`'s additive `approvedSentence`): a grant is refused by attempting the
@@ -342,7 +375,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2629 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 2761 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam

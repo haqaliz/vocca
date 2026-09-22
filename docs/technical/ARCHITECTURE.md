@@ -293,6 +293,7 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 | Context | `ContextProvider` | `AccessibilityContext`, `NullContext` — **real since `context-provider` (2026-09-18)**: the seam in `VoccaCore/Context/` (`ContextSnapshot`, the sync non-throwing contract — D1), `NullContext` the shipped default (reads nothing), `AccessibilityContext` in `VoccaContext` behind its own per-seam AX and Secure Input permits (Secure Input refused first); the per-app consent gate (bundle-IDs-only store, the never-read decision) and the AND-gated BYOK payload field are the same unit's | **No — by design** |
 | MCP transport | `MCPTransport` | `InMemoryMCPTransport`, **`StdioMCPTransport`** — real since `stdio-transport` (2026-09-21); **guardrail 7 met**. The stdio child is **not observable** by the zero-network interposer (**D2**); the answer is that the default configuration configures no server and therefore **cannot create one**, the BYOK precedent of unreachable-rather-than-excepted. `spawnsSubprocess` is a declared value | No |
 | Actions | `ActionProvider` | `NullActionProvider` (the shipped default — zero tools, refuses everything) and **`AuditActionProvider`** (`VoccaActions/Providers/` — an actor over the real audit store: `audit.count` read-only, `audit.clear` destructive) — **real since `local-data-provider` (2026-09-19); guardrail 7 MET**; `MCPProvider` exists behind the protocol layer (`mcp-protocol`, 2026-09-20) but is **not composed** — it is discovered per server, a later slice's wiring; `ShellProvider` remains PENDING. The surface is real since `action-surface-wiring` (2026-09-21): **`ActionExecutor`** (the gate's one caller in the shipped configuration — every decision recorded, `auditRecorded` honesty), **`ActionConfigStore`** (one byte-pinned `action-config.json` — servers + enablement, tolerant decode, absent is off, no arguments ever), the widget confirmation card, and the Actions tab. The policy floor is **`.none`, recorded as a decision** — see the annotation below. The seam is **`async`** — see the annotation below, which is the reason | No |
+| Intent | `IntentResolver` | `KeywordIntentResolver` (token-scored over a seeded synonym table, the not-confident threshold 0.75 → the spoken ask naming the resolver's own top ≤3 candidates, nothing executes; the seed pin makes a retune a reviewed edit) + `NullIntentResolver` (the composed default — `.none` for every utterance, the D2-analogue unwired posture) — real since `intent-layer` (2026-09-22); **the guardrail-7 claim stated honestly: one real classifier plus a default** (the D3 shape; S1's `PhraseIntentResolver` is the retirement path, still should-have) | **Yes** — a hosted/BYOK classifier is a later *addition* to the seam, never this slice, never a replacement |
 
 > *Annotated (`local-data-provider`, 2026-09-19) — **the seam is `async` because its first real
 > implementation could not be written otherwise**, and that is guardrail 7 doing its job.*
@@ -379,6 +380,31 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > the default configuration cannot create a child **and no surface action can either**. The
 > Actions tab's copy says where the claim stops — *"Configuring a server is trust extended
 > to its author, not a guarantee we can make."*
+
+> *Annotated (`intent-layer`, 2026-09-22) — **the §8 escape-valve decision and the voice leg
+> (the Intent row above).** The §8 question the action layer reserved for its "next slice" is
+> decided, not deferred: **the never-silenceable blast-radius floor ships as a pinned
+> invariant.** `EscapeValveTests` names `BlastRadius.requiresConfirmation`
+> (`BlastRadius.swift:56-63`) as the floor and enumerates every shape a submission can take —
+> approval × policy × mode — asserting an outward-facing invocation never auto-runs; the
+> raising-floor leg shows the escalation can only ever raise (a lying provider can only cause
+> the user to be asked more often, never less). The other two §8 shapes — time-boxed scoping
+> ("this tool, next 10 minutes") and per-tool trust that decays — are **decided and
+> deferred** with their blockers recorded: a persisted trust state plus changed approval
+> semantics, which M4a binds ("don't ask again" has no representation in the type). The
+> wiring's current floor stays **`.none`, recorded as a decision** — the §8 floor is about
+> what *future* trust cannot silence, a different axis from today's policy.
+>
+> **The voice leg composes over the same executor and the same card** (`IntentWiring`,
+> VoccaBootstrap): the resolver's catalog is the enablement, never-read (a disabled tool is
+> never resolved to, never described, never called — M7 extended to the intent step), the
+> executor is the **shared** `root.actionExecutor` (the gate's one caller, unchanged), the
+> card is presented with the sentence re-rendered after the record and a fresh generation
+> token (the card-up guard refuses a second presentation), and the confirm/decline closures
+> are the surface's own. The composed default resolves nothing — `NullIntentResolver`,
+> `intentResolved=0` as an effect of the composed root, `spawnsSubprocess=false` as a
+> declared value — and the dictation path is byte-for-byte untouched (G5 re-anchored once,
+> deliberately: `aa12c723…` → `ecfcdb4b…`; the dictation digests unchanged).
 
 > *Status (memory-order aspect, 2026-08-27): the strategy-memory row is real end to end.
 > `InjectionStrategyStore` and both implementations shipped in `store-seam`; the ladder now
