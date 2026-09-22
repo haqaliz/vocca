@@ -221,6 +221,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // resolver joins this row when its GREEN lands (it constructs the invocation the
                 // resolution carries).
                 "VoccaCore/Intent/IntentResolution.swift",
+                // `intent-seam` GREEN's reviewed widening — the keyword resolver constructs the
+                // invocation a confident match carries (provider/tool, and the seeded arguments
+                // text once the 4 KB bound is checked at construction). It builds the gate's
+                // input from a matched utterance; it never decides with it.
+                "VoccaCore/Intent/KeywordIntentResolver.swift",
             ]
         ),
         (
