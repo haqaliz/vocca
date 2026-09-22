@@ -151,9 +151,8 @@ final class ShellWiringTests: XCTestCase {
 
         let reloaded = await harness.auditStore.load()
         XCTAssertEqual(
-            reloaded.count, 2,
-            "the enablement save records nothing; the arm is not part of this path — the "
-                + "dry-run's own record plus the preview is the whole of the log")
+            reloaded.count, 1,
+            "the dry-run's own record is the whole of the log — nothing else was submitted")
         XCTAssertTrue(
             reloaded.contains { $0.decision == .dryRun },
             "the preview's decision is recorded as a dry run — the R8 every-decision rule")
@@ -215,8 +214,9 @@ final class ShellWiringTests: XCTestCase {
         let harness = await ShellWiringHarness(commands: [])
         defer { try? FileManager.default.removeItem(at: harness.directory) }
 
+        let commands = await harness.wiring.listCommands()
         XCTAssertTrue(
-            await harness.wiring.listCommands().isEmpty,
+            commands.isEmpty,
             "no command is configured out of the box — an absent file is the empty registry")
         XCTAssertFalse(
             harness.wiring.spawnsSubprocess,
@@ -326,8 +326,9 @@ private final class ShellWiringHarness {
 
 /// The dry-run's witness: an engine that records every call and answers, so a test can prove
 /// the acting half was reached zero times on the engine's own log — the `failsTheTestIfInvoked`
-/// shape (every call recorded, the caller asserts the empty log).
-private struct FailsTheTestIfInvokedRunner: Sendable {
+/// shape (every call recorded, the caller asserts the empty log). A class because the
+/// `Mutex` it owns is non-`Copyable` — the `ActionGeneration` shape.
+private final class FailsTheTestIfInvokedRunner: Sendable {
     private let calls = Mutex<[ShellExecutor.Configuration]>([])
 
     func run(_ configuration: ShellExecutor.Configuration) async -> ShellExecutionResult {

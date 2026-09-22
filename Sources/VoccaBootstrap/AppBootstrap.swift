@@ -660,30 +660,32 @@ public enum AppBootstrap {
                     for: .applicationSupportDirectory, in: .userDomainMask).first,
                 home: FileManager.default.homeDirectoryForCurrentUser))
         // Hoisted so the intent composition can hand the **same** provider instance to the
-        // shared executor's recipe (the re-render's describe source, R5).
+        // shared executor's recipe (the re-render's describe source, R5) — and the shell
+        // composition can share the same in-flight read.
         let actionProvider = AuditActionProvider(store: actionAuditStore)
+        // The in-flight refusal, read lazily at arm time — never at composition. Shared by the
+        // action wiring and the shell wiring: a confirmation card cannot land mid-dictation
+        // from either surface.
+        let sessionActive: @Sendable @MainActor () -> Bool = { [weak root] in
+            guard let root else { return false }
+            return root.holdToTalk.machine.state != .idle
+                || root.toggle.machine.state != .idle
+                // `nil` — a composition whose converse wiring has not composed yet — is
+                // quiet: there is no session a card could interrupt (the `isQuiet` shape).
+                || (root.converseDriver.map { $0.loop.state != .idle } ?? false)
+        }
         let actionWiring = AppBootstrap.composeActionWiring(
             configStore: actionConfigStore,
             auditStore: actionAuditStore,
             provider: actionProvider,
-            sessionActive: { [weak root] in
-                guard let root else { return false }
-                return root.holdToTalk.machine.state != .idle
-                    || root.toggle.machine.state != .idle
-                    // `nil` — a composition whose converse wiring has not composed yet — is
-                    // quiet: there is no session a card could interrupt (the `isQuiet` shape).
-                    || (root.converseDriver.map { $0.loop.state != .idle } ?? false)
-            },
+            sessionActive: sessionActive,
             root: root)
         root.actionWiring = actionWiring
         root.actionExecutor = actionWiring.executor
         root.actionConfigStore = actionConfigStore
-        root.actionConfirm = actionWiring.confirm
-        root.actionDecline = actionWiring.decline
-        // The card's buttons, reached through the live widget's slot — filled now, read at the
-        // panel's first construction, which needs a user's arm and therefore comes after
-        // `configure` (the `partialSink.store` shape).
-        root.liveWidget.confirmationActions = (actionWiring.confirm, actionWiring.decline)
+        // The card's Confirm and Decline — the **routed** closures, assigned after the shell
+        // composition below (a shell card is answered by the shell wiring, every other card by
+        // this one): the card is one surface, and the routing reads the shell wiring lazily.
 
         // The intent composition (C13 slice 6, R7 — the C11/C12/C13 additive shape, one more
         // recipe + the two root slots above): the voice path's resolution and action leg,
@@ -707,6 +709,59 @@ public enum AppBootstrap {
         // The fact carrier: the same resolver the wiring resolves through, kept so the probe
         // can derive the composed default's posture from the root's own slot.
         root.intentResolver = intentResolver
+
+        // The shell composition (C13 slice 7, R6 — the C11/C12/C13 additive shape, one more
+        // recipe + the root slots above): the shell provider over the shipped registry, the
+        // executor over the **same** audit store, the Actions tab's shell leg, and the
+        // confirmation card's routing. The provider's construction reads the registry file, so
+        // — the converse composition's reason — the wiring composes in a launch task:
+        // `configure` may not block, and an absent file is the empty registry answered at call
+        // time, never here. Probe-safe by construction: nothing starts or spawns at
+        // composition — the registry and the stores are read at call time — and the composed
+        // default declares `spawnsSubprocess = false` (the D2 narrowed promise, the
+        // `requiresNetwork` analogue, for the configuration: zero commands, nothing to spawn).
+        let shellRegistry = ShellCommandRegistry(
+            directory: ShellCommandRegistry.defaultDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask).first,
+                home: FileManager.default.homeDirectoryForCurrentUser))
+        root.shellRegistry = shellRegistry
+        Task { @MainActor in
+            let shellProvider = await ShellProvider.load(registry: shellRegistry)
+            let shellWiring = AppBootstrap.composeShellWiring(
+                configStore: actionConfigStore,
+                auditStore: actionAuditStore,
+                registry: shellRegistry,
+                provider: shellProvider,
+                sessionActive: sessionActive,
+                root: root)
+            root.shellWiring = shellWiring
+            root.shellExecutor = shellWiring.executor
+        }
+        // The confirmation card's closures, routed by the card's own providerID: a shell card
+        // is answered by the shell wiring's executor, every other card by the action wiring's
+        // — the card is one surface, and the routing reads `shellWiring` lazily (the
+        // composition task above may not have landed; a shell card cannot exist before the
+        // wiring that presented it, so a nil read is quiet either way).
+        root.actionConfirm = { @MainActor [weak root] in
+            guard let root else { return }
+            guard let card = root.widgetStore.state.confirmation?.signal else { return }
+            if card.providerID == ShellProvider.providerID {
+                await root.shellWiring?.confirm()
+            } else {
+                await actionWiring.confirm()
+            }
+        }
+        root.actionDecline = { @MainActor [weak root] in
+            guard let root else { return }
+            guard let card = root.widgetStore.state.confirmation?.signal else { return }
+            if card.providerID == ShellProvider.providerID {
+                await root.shellWiring?.decline()
+            } else {
+                await actionWiring.decline()
+            }
+        }
+        root.liveWidget.confirmationActions = (root.actionConfirm!, root.actionDecline!)
 
         return root
     }
@@ -1562,14 +1617,18 @@ public final class DictationLoopRoot {
     /// composition that built no action wiring.
     public var actionConfigStore: ActionConfigStore?
 
-    /// The confirmation card's Confirm closure — the wiring's, read by the widget panel through
-    /// the live widget's slot (`confirmationActions`). `nil` only in a composition that built no
-    /// action wiring.
+    /// The confirmation card's Confirm closure — the **routed** closure (the shell-provider
+    /// wiring's addition): a shell card is answered by the shell wiring's executor, every other
+    /// card by the action wiring's — the card is one surface, and the routing reads the shell
+    /// wiring lazily (a nil read is quiet: a shell card cannot exist before the wiring that
+    /// presented it). Read by the widget panel through the live widget's slot
+    /// (`confirmationActions`). `nil` only in a composition that built no action wiring.
     public var actionConfirm: (@Sendable @MainActor () async -> Void)?
 
-    /// The confirmation card's Decline closure — the wiring's, read by the widget panel through
-    /// the live widget's slot (`confirmationActions`). `nil` only in a composition that built no
-    /// action wiring.
+    /// The confirmation card's Decline closure — the **routed** closure (the shell-provider
+    /// wiring's addition): a shell card is answered by the shell wiring's executor, every other
+    /// card by the action wiring's. Read by the widget panel through the live widget's slot
+    /// (`confirmationActions`). `nil` only in a composition that built no action wiring.
     public var actionDecline: (@Sendable @MainActor () async -> Void)?
 
     // MARK: - The intent composition (C13 slice 6, intent-layer)
@@ -1586,6 +1645,26 @@ public final class DictationLoopRoot {
     /// report the R7 unwired posture as an effect of the composed root rather than as a comment.
     /// `nil` only in a composition that built no intent wiring.
     public var intentResolver: (any IntentResolver)?
+
+    // MARK: - The shell composition (C13 slice 7, shell-provider)
+
+    /// **The composed shell wiring** (`wiring` aspect): the executor over the shell provider
+    /// and the shared audit store, the Actions tab's shell leg and the shell card's closures —
+    /// composed by `configure` through the probe-safe recipe (`composeShellWiring`; construction
+    /// only, nothing spawns, reads or starts at composition). `nil` until the launch task that
+    /// reads the registry lands, and in every composition that built no shell wiring — every
+    /// headless harness in the suite.
+    public var shellWiring: ShellWiring<ShellProvider>?
+
+    /// The executor the shell wiring submits through — the shell leg's own caller of
+    /// ``ActionGate``, over the shared audit store and the real `ShellProvider`. `nil` until the
+    /// shell composition's launch task lands.
+    public var shellExecutor: ActionExecutor<ShellProvider>?
+
+    /// The registry the shell wiring reads — the same `shell-commands.json` the shell leg
+    /// renders, reached back from `configure` (the ``modelStore`` precedent). `nil` only in a
+    /// composition that built no shell wiring.
+    public var shellRegistry: ShellCommandRegistry?
 
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
@@ -1868,16 +1947,35 @@ public final class DictationLoopRoot {
                         await self?.actionWiring?.discoverTools(serverID)
                             ?? .failed("discovery.unwired")
                     },
+                    // The shell leg's row source: the registry's commands, read through the
+                    // shell wiring. `nil` wiring (the headless default, or before the shell
+                    // composition's launch task lands) claims nothing — the empty answer.
+                    loadShellCommands: { [weak self] in
+                        await self?.shellWiring?.listCommands() ?? []
+                    },
                     setToolEnabled: { [weak self] providerID, toolID, enabled in
                         guard let wiring = self?.actionWiring else { return }
                         try await wiring.setToolEnabled(providerID, toolID, enabled)
                     },
+                    // The arm and preview bindings, routed by the provider's own id: a shell
+                    // command goes through the shell wiring's executor, everything else through
+                    // the action wiring's — one surface, two per-provider executors, the
+                    // routing read lazily (a nil shell wiring is quiet: no shell row can exist
+                    // before the wiring that lists it).
                     armAction: { [weak self] providerID, toolID in
-                        guard let wiring = self?.actionWiring else { return }
-                        try await wiring.arm(providerID, toolID)
+                        guard let self else { return }
+                        if providerID == ShellProvider.providerID {
+                            try await self.shellWiring?.arm(providerID, toolID)
+                        } else {
+                            try await self.actionWiring?.arm(providerID, toolID)
+                        }
                     },
                     previewAction: { [weak self] providerID, toolID in
-                        await self?.actionWiring?.preview(providerID, toolID)
+                        guard let self else { return nil }
+                        if providerID == ShellProvider.providerID {
+                            return await self.shellWiring?.preview(providerID, toolID)
+                        }
+                        return await self.actionWiring?.preview(providerID, toolID)
                     },
                     // The card-lifecycle signals: the page's own arm() fires the presented one
                     // after its fold (the surface's optimistic half), the wiring's confirm and

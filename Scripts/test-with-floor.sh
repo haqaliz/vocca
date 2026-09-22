@@ -2000,8 +2000,20 @@ set -euo pipefail
 # refusal, the gate-level load-bearing refusal by attempting the call, and the dry-run
 # never-invokes row — the count taken from the floor script's own parse in the ratchet commit.
 #
+# The shell-provider wiring-aspect GREEN raise (2814 -> 2822; executed 2822) — the composed
+# shell wiring suite grows 8 tests: `ShellWiringTests` drives the composed round trip over the
+# real engine (arm -> the argv-derived card sentence -> confirm -> /bin/echo runs -> the audit
+# reconstructs in ordinal order, decisions and the binding match), the decline records the
+# refused decision, the dry-run records but never invokes (asserted on the engine's own call
+# log), a disabled command is declined before any describe (the bounded key), and the
+# composed default reports `commands=0` / `spawnsSubprocess=false`; `ActionsTabTests` grows
+# the shell leg's three reducer rows (shell commands fold off by default with enablement
+# re-applied, their toggles flip row and set together, and arming an enabled shell command
+# yields the confirmation state) — the count taken from the floor script's own parse in the
+# ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2814
+MINIMUM_EXECUTED_TESTS=2822
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

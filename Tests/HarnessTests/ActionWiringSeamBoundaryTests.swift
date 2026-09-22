@@ -32,7 +32,10 @@ import XCTest
 ///   the intent drive whose round trip's human leg is the surface's own confirm/decline
 ///   closures, R5);
 /// - `IntentWiring` / `composeIntentWiring` — the voice path's recipe, composed by `configure`
-///   and driven by the intent drive.
+///   and driven by the intent drive;
+/// - `ShellWiring` / `composeShellWiring` — the shell surface's recipe (`shell-provider`),
+///   composed by `configure` only (nothing in the probe drives it; the probe aspect is a later
+///   slice).
 ///
 /// The never-read guard's second half follows for both seams: no `ActionProvider` and no
 /// intent-family name in the two digest-pinned dictation files — "the loop never depends on
@@ -69,6 +72,13 @@ final class ActionWiringSeamBoundaryTests: XCTestCase {
                 "VoccaBootstrap/IntentWiring.swift",
                 "VoccaBootstrap/AppBootstrap.swift",
                 "VoccaNetworkProbe/IntentDrive.swift",
+            ]
+        ),
+        (
+            identifiers: ["ShellWiring", "composeShellWiring"],
+            permitted: [
+                "VoccaBootstrap/ShellWiring.swift",
+                "VoccaBootstrap/AppBootstrap.swift",
             ]
         ),
     ]

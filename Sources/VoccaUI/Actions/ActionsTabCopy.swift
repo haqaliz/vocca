@@ -23,6 +23,15 @@ public enum ActionsTabCopy {
     /// D2 copy must therefore live (the moment of spawn).
     public static let toolsSectionTitle = "Server tools"
 
+    /// The shell section's title (`shell-provider` wiring) — the section that lists the
+    /// registry's configured commands, armable like any other tool row.
+    public static let shellSectionTitle = "Shell commands"
+
+    /// The shell section's empty state — honest about why it is empty: nothing is configured
+    /// out of the box, and an absent `shell-commands.json` is the empty registry.
+    public static let emptyShellCommands =
+        "No shell commands configured. Add them to shell-commands.json to arm them here."
+
     /// The empty state — honest about why it is empty.
     public static let emptyServers =
         "No servers configured yet. Add one to connect its tools."

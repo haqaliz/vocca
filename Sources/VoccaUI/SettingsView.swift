@@ -215,6 +215,10 @@ public struct SettingsBindings {
     /// (`action-surface-wiring` D2). The answer is the tab's own model: the tool rows, or the
     /// bounded failure key.
     public var discoverTools: (String) async -> ActionsDiscoveryResult
+    /// The shell registry's configured commands as tool rows — the shell leg's row source
+    /// (`shell-provider` wiring). A registry read, never a discovery and never a spawn. The
+    /// empty answer is the honest default: no command is configured out of the box.
+    public var loadShellCommands: () async -> [ActionsToolRow]
     /// Flips one tool's enablement row. Persisted as membership; absent is off (PRD M7).
     public var setToolEnabled: (String, String, Bool) async throws -> Void
     /// Runs the armed action through the gate — the wiring's half of the arm path, behind the
@@ -301,13 +305,15 @@ public struct SettingsBindings {
         // The Actions defaults claim **nothing** and change **nothing**, for the reason the
         // usage defaults do. An empty config renders the honest "nothing configured" (which is
         // the fresh-install truth and the safe direction — no server is configured out of the
-        // box), an un-wired discovery claims no tools, an un-wired preview claims no sentence,
+        // box), an un-wired discovery claims no tools, an un-wired shell leg claims no
+        // commands, an un-wired preview claims no sentence,
         // and saves, enablement flips, gate arms and card signals that go nowhere change
         // nothing. A default that reported a discovery or an arm nothing performed would let
         // the page tell a user something happened when it did not.
         loadActionsConfig: @escaping () async -> ActionsConfigDraft = { .empty },
         saveActionsConfig: @escaping (ActionsConfigDraft) async throws -> Void = { _ in },
         discoverTools: @escaping (String) async -> ActionsDiscoveryResult = { _ in .succeeded([]) },
+        loadShellCommands: @escaping () async -> [ActionsToolRow] = { [] },
         setToolEnabled: @escaping (String, String, Bool) async throws -> Void = { _, _, _ in },
         armAction: @escaping (String, String) async throws -> Void = { _, _ in },
         previewAction: @escaping (String, String) async -> String? = { _, _ in nil },
@@ -353,6 +359,7 @@ public struct SettingsBindings {
         self.loadActionsConfig = loadActionsConfig
         self.saveActionsConfig = saveActionsConfig
         self.discoverTools = discoverTools
+        self.loadShellCommands = loadShellCommands
         self.setToolEnabled = setToolEnabled
         self.armAction = armAction
         self.previewAction = previewAction

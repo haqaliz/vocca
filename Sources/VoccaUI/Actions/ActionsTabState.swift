@@ -28,6 +28,13 @@ public struct ActionsTabState: Sendable, Equatable {
     /// The rows the tools section renders: the last successful discovery's tools, with
     /// `isEnabled` folded from ``enablement``.
     public var toolRows: [ActionsToolRow]
+    /// The rows the shell section renders (`shell-provider` wiring): the registry's configured
+    /// commands, with `isEnabled` folded from ``enablement`` exactly like discovery rows —
+    /// default off (M7), absent is off. A registry read, never a discovery and never a spawn.
+    public var shellRows: [ActionsToolRow]
+    /// Whether the shell registry's commands have landed — `false` with no rows is "we haven't
+    /// looked yet"; `true` with no rows is the honest empty state (nothing configured).
+    public var isShellLoaded: Bool
     /// The discovery's one closed three-step, per server.
     public var discovery: ActionsDiscoveryState
     /// The arm state — `awaitingConfirmation` is the wiring's card signal; nothing else on this
@@ -51,17 +58,20 @@ public struct ActionsTabState: Sendable, Equatable {
     public static let initial = ActionsTabState(
         servers: [], enablement: [], toolRows: [], discovery: .idle, arm: .idle, preview: .idle,
         serverNameDraft: "", serverPathDraft: "", editingServerID: nil, isLoaded: false,
-        saveError: nil)
+        saveError: nil, shellRows: [], isShellLoaded: false)
 
     public init(
         servers: [ActionsServerRow], enablement: Set<ActionsToolKey>,
         toolRows: [ActionsToolRow], discovery: ActionsDiscoveryState, arm: ActionsArmState,
         preview: ActionsPreviewState, serverNameDraft: String, serverPathDraft: String,
-        editingServerID: String?, isLoaded: Bool, saveError: String?
+        editingServerID: String?, isLoaded: Bool, saveError: String?,
+        shellRows: [ActionsToolRow] = [], isShellLoaded: Bool = false
     ) {
         self.servers = servers
         self.enablement = enablement
         self.toolRows = toolRows
+        self.shellRows = shellRows
+        self.isShellLoaded = isShellLoaded
         self.discovery = discovery
         self.arm = arm
         self.preview = preview
@@ -108,6 +118,9 @@ public enum ActionsPreviewState: Sendable, Equatable {
 public enum ActionsTabAction: Sendable, Equatable {
     /// The config was read; these are its servers and its persisted enablement.
     case configLoaded(servers: [ActionsServerRow], enablement: Set<ActionsToolKey>)
+    /// The shell registry answered with its configured commands — the shell leg's row source
+    /// (`shell-provider` wiring): a registry read, never a discovery and never a spawn.
+    case shellConfigLoaded([ActionsToolRow])
     /// The add form's name field changed.
     case serverNameFieldEdited(String)
     /// The add form's path field changed.
@@ -157,6 +170,18 @@ public enum ActionsTabReducer {
             next.enablement = enablement
             next.isLoaded = true
             next.saveError = nil
+
+        case .shellConfigLoaded(let tools):
+            // Default off is the reducer's rule, not the wiring's — the same fold discovery
+            // rows obey: a command that arrives enabled is off unless the persisted enablement
+            // holds its key (M7).
+            next.shellRows = tools.map { row in
+                var resolved = row
+                resolved.isEnabled = next.enablement.contains(
+                    ActionsToolKey(providerID: row.providerID, toolID: row.toolID))
+                return resolved
+            }
+            next.isShellLoaded = true
 
         case .serverNameFieldEdited(let name):
             next.serverNameDraft = name
@@ -241,11 +266,20 @@ public enum ActionsTabReducer {
 
         case .toolEnabledChanged(let providerID, let toolID, let enabled):
             // One tool at a time, and only a tool that exists: absent is off, so a flip for a
-            // row nobody discovered mints nothing and enables nothing.
-            guard let index = next.toolRows.firstIndex(where: {
+            // row nobody discovered — or a command the registry never declared — mints nothing
+            // and enables nothing. The shell rows join the search: a shell command's row flips
+            // through the same enablement set, the same draft, the same save.
+            if let index = next.toolRows.firstIndex(where: {
                 $0.providerID == providerID && $0.toolID == toolID
-            }) else { return state }
-            next.toolRows[index].isEnabled = enabled
+            }) {
+                next.toolRows[index].isEnabled = enabled
+            } else if let index = next.shellRows.firstIndex(where: {
+                $0.providerID == providerID && $0.toolID == toolID
+            }) {
+                next.shellRows[index].isEnabled = enabled
+            } else {
+                return state
+            }
             let key = ActionsToolKey(providerID: providerID, toolID: toolID)
             if enabled {
                 next.enablement.insert(key)
@@ -258,8 +292,10 @@ public enum ActionsTabReducer {
             // The M7 never-read rule at the surface: arming a disabled tool is refused by the
             // reducer — the state does not change, so no confirmation signal can be emitted
             // from it. Only an enabled row, and only from an idle arm, may land on the card.
+            // The shell rows join the search: a shell command is armed through the same gate
+            // the server tools are.
             guard next.arm == .idle,
-                let row = next.toolRows.first(where: {
+                let row = (next.toolRows + next.shellRows).first(where: {
                     $0.providerID == providerID && $0.toolID == toolID
                 }),
                 row.isEnabled
