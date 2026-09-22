@@ -111,10 +111,10 @@ private enum ActionTransportTestError: Error, CustomStringConvertible {
 /// - **(c)** every permitted path that exists was actually scanned — a permitted entry pointing
 ///   at a deleted or moved file permits nothing and hides that it permits nothing.
 ///
-/// A permitted entry that names a file which does not exist yet is a **pending** entry: it
-/// permits nothing today. That vacuity is recorded rather than passed over —
-/// ``testThePendingShellExecutorEntryIsRecordedNotSilent`` asserts the pending state, and the
-/// day the file lands the assertion fails, which is exactly when legs (b) and (c) begin to
+/// Both entries are **live**: each names a file that exists. A permitted entry that names a
+/// file which does not exist yet is a **pending** entry, permitting nothing — that vacuity was
+/// recorded rather than passed over while the shell executor was pending, and the record died
+/// with the file: the moment `Execution/ShellExecutor.swift` landed, legs (b) and (c) began to
 /// apply to the entry.
 ///
 /// The vacuity is closed from the other side as well: the scanned file list is asserted non-empty,
@@ -238,12 +238,10 @@ final class ActionTransportProhibitionTests: XCTestCase {
     /// And what the lint still does is unchanged: **reaching for `Process` anywhere else is a
     /// reviewed edit.** Leg (a) still fails any third file, and this widening ships a planted
     /// control that proves it against the real scan —
-    /// ``testAPlantedThirdFileNamingAProcessFamilyStillFailsTheLint``. The entry also lands
-    /// **ahead of its file**: `Execution/ShellExecutor.swift` does not exist yet, and the
-    /// vacuity that creates is recorded rather than passed over —
-    /// ``testThePendingShellExecutorEntryIsRecordedNotSilent`` asserts the pending state and
-    /// will fail the day the file lands, which is exactly when this entry stops being a
-    /// promise and becomes a confinement.
+    /// ``testAPlantedThirdFileNamingAProcessFamilyStillFailsTheLint``. The entry landed
+    /// **with its file**: `Execution/ShellExecutor.swift` exists, so the vacuity the widening
+    /// briefly carried is gone and legs (b) and (c) and the count equality now apply to it —
+    /// the entry stopped being a promise and became a confinement the day the executor shipped.
     private static let filesPermittedToNameATransport: Set<String> = [
         "VoccaActions/MCP/StdioMCPTransport.swift",
         "VoccaActions/Execution/ShellExecutor.swift",
@@ -363,10 +361,8 @@ final class ActionTransportProhibitionTests: XCTestCase {
             shell executor — and a spawn anywhere else is a confinement that has sprung a leak.
             """)
 
-        // Legs (b) and (c): every permitted entry **that exists** still names one and was
-        // actually scanned. The second entry is pending — `Execution/ShellExecutor.swift` has
-        // not landed yet — and a pending entry permits nothing, which is a vacuity recorded
-        // rather than passed over by ``testThePendingShellExecutorEntryIsRecordedNotSilent``.
+        // Legs (b) and (c): every permitted entry names one and was actually scanned — both
+        // entries are live now; the shell executor's pending period ended when its file landed.
         for file in permitted.sorted().filter(scannedRelative.contains) {
             // Leg (b): every existing permitted file still names one. Vacuous until the set
             // gained its first entry; the whole point of the entry is that this leg watches
@@ -391,9 +387,7 @@ final class ActionTransportProhibitionTests: XCTestCase {
                 """)
         }
 
-        // Exactly the *live* permitted entries may name a family: the pending entry names no
-        // file yet, so it names nothing — and the moment its file lands, this equality begins
-        // to count it, which is the same review the pending-entry test forces.
+        // Exactly the *live* permitted entries may name a family — both are live now.
         XCTAssertEqual(
             result.sightings.count, permitted.intersection(scannedRelative).count,
             "exactly the live permitted entries may name a transport or subprocess family, got "
@@ -419,31 +413,6 @@ final class ActionTransportProhibitionTests: XCTestCase {
             the permitted set must be exactly the two reviewed entries — the stdio transport \
             and the shell executor. Any change to the set is a reviewed edit and must land \
             here, in this assertion, with the D2 answer the entry owes.
-            """)
-    }
-
-    /// The second entry is **pending**: it names a file that does not exist yet.
-    ///
-    /// The `ShellProvider`'s executor lands in a later step of the same unit. Until it does,
-    /// the entry permits nothing — legs (b) and (c) and the count equality apply only to
-    /// permitted entries that exist. That vacuity is recorded rather than passed over: this
-    /// test asserts the pending state, and the moment `Execution/ShellExecutor.swift` exists
-    /// it fails, forcing the author of that file to retire the pending note and let the legs
-    /// begin to apply — the same review the widening itself owes.
-    func testThePendingShellExecutorEntryIsRecordedNotSilent() throws {
-        XCTAssertTrue(
-            Self.filesPermittedToNameATransport.contains(
-                "VoccaActions/Execution/ShellExecutor.swift"),
-            "the shell executor entry must be present — this test records that it is pending, "
-                + "and a removed entry removes the pending record with it")
-        let executor = try moduleRoot()
-            .appendingPathComponent("Execution/ShellExecutor.swift")
-        XCTAssertFalse(
-            FileManager.default.fileExists(atPath: executor.path),
-            """
-            \(executor.path) exists — the pending entry has become live. Retire this test: the \
-            permitted entry now owes legs (b) and (c) and the count equality, which apply to it \
-            from this moment on.
             """)
     }
 
@@ -564,18 +533,16 @@ final class ActionTransportProhibitionTests: XCTestCase {
     /// string-level controls' end-to-end counterpart — it exercises the actual scan of the
     /// actual module with the actual permitted set, and it is what "the widening did not
     /// weaken leg (a)" means rather than hopes.
+    ///
+    /// The probe is planted **at the module root, in its own uniquely named file**, and only
+    /// that file is removed afterwards. The widening's first draft planted it in
+    /// `Execution/` and removed the directory — which was safe while `Execution/` held nothing
+    /// real, and destructive from the day the executor's files landed there: the cleanup would
+    /// have deleted the very confinement this control exists to guard.
     func testAPlantedThirdFileNamingAProcessFamilyStillFailsTheLint() throws {
         let root = try moduleRoot()
-        let planted = root
-            .appendingPathComponent("Execution")
-            .appendingPathComponent("LintPlantedProbe.swift")
-        try FileManager.default.createDirectory(
-            at: planted.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: planted)
-            try? FileManager.default.removeItem(at: planted.deletingLastPathComponent())
-        }
+        let planted = root.appendingPathComponent("LintPlantedProbe.swift")
+        defer { try? FileManager.default.removeItem(at: planted) }
         try """
             import Foundation
 

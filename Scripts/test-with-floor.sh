@@ -1966,8 +1966,24 @@ set -euo pipefail
 # still report it — the widening does not weaken leg (a)) — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The shell-provider execution-aspect raise (2783 -> 2792; executed 2792) — the `execution`
+# aspect of the C13 slice-7 shell-provider unit, the subprocess engine itself:
+# `ShellExecutorTests` (10 — the benign echo run with the exit code read back, the non-zero
+# exit mapped to the bounded `shell.exitCode` key, the seeded sleeping child hitting the 30 s
+# ceiling over the injected clock without the suite sleeping and with a wait-count proving the
+# poll yielded, the frozen-clock acceptance that pins the counted wait (a clock that never
+# advances must still cost a bounded wait), the no-orphan contract asserted `kill(pid, 0) ==
+# -1 && errno == ESRCH` on the real child after a timed-out run, the `seq` flood capped at the
+# 4 KB bound and still terminating normally, the launch-failure returned value, the scrubbed
+# environment proving the caller's `PATH`/`HOME` never reach the child, the pure signal/exit
+# mapping, and the bounds-pinned-in-one-place) minus the one retired test: the transport
+# prohibition's pending-shell-executor record, which the lint itself designed to fail the day
+# `Execution/ShellExecutor.swift` landed — the file is live now, so the vacuity it recorded is
+# retired and legs (b) and (c) and the count equality apply to the entry. Net +9. The count was
+# taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2783
+MINIMUM_EXECUTED_TESTS=2792
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -162,11 +162,12 @@ final class ShellExecutorTests: XCTestCase {
                 + "wall, must be what ended it")
         let waits = await sleeper.waits
         XCTAssertLessThanOrEqual(
-            waits, configuration.maximumPolls + 101,
+            waits, configuration.maximumPolls + 201,
             """
             the counted wait performed \(waits) polls against a budget of \
-            \(configuration.maximumPolls) plus the termination polls. A spin loop — or a wait \
-            not bounded by a count — would exceed this; the count is what terminated the run.
+            \(configuration.maximumPolls) for the run plus two termination waits of up to 100 \
+            polls each (the SIGTERM honouring window and the SIGKILL one). A spin loop — or a \
+            wait not bounded by a count — would exceed this; the count is what terminated the run.
             """)
     }
 
