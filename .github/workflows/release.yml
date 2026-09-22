@@ -57,7 +57,7 @@ permissions:
 
 env:
   CI: "1"
-  XCODE_MAJOR: "16"
+  XCODE_MAJOR: "26"
 
 jobs:
   release:
