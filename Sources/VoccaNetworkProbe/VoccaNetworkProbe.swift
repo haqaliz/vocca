@@ -392,6 +392,19 @@ struct VoccaNetworkProbe {
         print("PROBE-INTENT\t\(intent.report)")
         print("PROBE-INTENT-DEFAULT\t\(intent.defaultReport)")
 
+        // The composed shell configuration, run rather than referenced — the same shape as
+        // the drives above, for the slice whose provider **can** spawn: the composed
+        // default's facts (`commands=0`, `spawnsSubprocess=false` — the D2 narrowed promise,
+        // read off a wiring composed over an absent registry) and the seeded round trip over
+        // a benign real `/bin/echo` command (arm → the argv-derived card sentence → confirm →
+        // the real engine runs → the audit reconstructs, plus the dry-run row that never
+        // invoked). This is the one drive in this function that starts a child — and the
+        // child itself is invisible to the interposer (D2, recorded in the drive's own
+        // documentation): the line proves the default cannot spawn, never that an enabled
+        // command cannot egress. See `ShellDrive.swift`.
+        let shell = exerciseShell()
+        print("PROBE-SHELL\t\(shell.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -408,6 +421,7 @@ struct VoccaNetworkProbe {
             actionAudit.moduleWitness,
             mcp.moduleWitness,
             intent.moduleWitness,
+            shell.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be
