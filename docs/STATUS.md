@@ -10,6 +10,122 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `intent-layer` unit shipped 2026-09-22 — C13 slice 6: the intent layer — the voice leg
+of the action surface: the utterance pipeline gains an intent step, a guess never executes,
+and the §8 escape-valve decision is made and pinned; no gate passes.**
+`feat/intent-layer/aliz`. Five aspects (the record aspect is this entry). Floor **2761**
+(executed 2761).
+
+**What shipped, per aspect.**
+*intent-seam* — the seam in **`VoccaCore/Intent/`** (Core vocabulary, Foundation-free — the
+empty import allow-list holds, no new module): `IntentResolution`
+(`.toolCall(ActionInvocation)` / `.ask(question:)` / `.none`), the `IntentResolver` protocol —
+synchronous, deterministic, `Sendable`, resolving a cleaned utterance against a
+caller-supplied catalog (R3: the resolver never reads enablement; the wiring supplies only
+enabled tools) — and `ToolReference` (providerID/toolID/displayName). **`KeywordIntentResolver`**,
+the first real classifier: token-scored matching (matched ÷ candidate tokens over displayName +
+toolID + seeded phrases, camelCase-aware Foundation-free tokenization, stop words), the seeded
+**not-confident threshold 0.75** below which resolution is `.ask` — the spoken question names
+the resolver's own top ≤3 candidates in score-then-lexical order, never a tool the matcher did
+not rank — and the seeded synonym table: the two audit rows ("clear the audit log" →
+`dev.vocca.audit/audit.clear`, "count the audit log" → `audit.count`) plus the args-carrying
+agent-A row ("post a message" → `dev.vocca.mcp.chat/post_message` with
+`{"text": "{{utterance}}"}`), the arguments built over the whole cleaned utterance and refused,
+never truncated, at the 4 KB construction bound. **`NullIntentResolver`**, the composed default
+— `.none` for every utterance. The `IntentSeamBoundaryTests` family lint (the six intent
+families confined to the seam files, non-vacuous guards, planted-violation and comment-strip
+controls) and the **seed pin**: the shipped rows verbatim, the row count (3), the threshold and
+the `{{utterance}}` placeholder — a retune of a wrong seed is a reviewed edit, exactly as R8
+records.
+*converse-step* — `ConverseLoopDriver` widened to **fourteen parameters**, the frozen-signature
+compile pin widened deliberately (the reviewed-edit mechanism): the two lazy closures in the
+`asrProvider`/`cleanupProvider` shape — `intentProvider: (String) async -> IntentResolution?`
+and `intentActionHandler: (ActionInvocation) async -> String?` — both defaulting to nil, the
+unwired answer, today's echo behavior byte-identical. The pipeline branch between clean and
+reply: `.ask` speaks its question and **nothing executes** (a guess never runs — the ask path
+precedes any provider call); `.toolCall` speaks the handler's reply (a silent nil handler falls
+through — the honest-drop channel); `.none`/nil reproduce the reply generator byte-for-byte.
+The bounded re-ask: a per-session counter, a question spoken while the count is below the bound
+— **exactly the first `.ask` of a run is spoken, a second consecutive one falls through to the
+echo**, reset on any non-`.ask` outcome. `ConverseTurnFailure` untouched (failures are returned
+values); `composeConverseWiring` passes the closures through at their nil defaults.
+*action-round-trip* — **`IntentWiring<Provider>`** (VoccaBootstrap) and the additive recipe
+`composeIntentWiring(configStore:provider:executor:resolver:root:)`: the catalog is the
+**enablement, never-read** (the same `loadEnablement()` rows the Actions tab edits — a disabled
+tool is never resolved to, never described, never called, M7 extended to the intent step); the
+action leg submits through the **shared** `root.actionExecutor` with
+`approval: .withheld, approvedSentence: nil, mode: .live` — the voice path never pre-grants; on
+`.confirmationRequired` the card is presented with the sentence **re-rendered after the record**
+(the count-bearing precedent) and a **fresh generation token**; the **card-up guard** (a second
+voice action while a card is up refuses to present — read lazily from the store, records
+nothing); the spoken acks derived from the terminal decision — confirmed → "Done.", an outcome
+failure → "Something went wrong.", declined → "Cancelled.", refused/not-invoked → silent — and
+a decision with `auditRecorded == false` answers with the bounded failure copy ("Something went
+wrong — the action was not recorded."), **never a success ack**. The policy floor `.none` is
+inherited and recorded (the `ActionWiring.swift:203` decision). **The §8 floor is pinned**:
+`EscapeValveTests` names `BlastRadius.requiresConfirmation` by name (`BlastRadius.swift:56-63`)
+and enumerates every approval × policy × mode shape — an outward-facing invocation never
+auto-runs — plus the raising-floor leg, the escalation that can only ever raise.
+`AppBootstrap.configure` composes the voice path over the **same** `AuditActionProvider`
+instance the surface's executor was built over (the re-render's describe source) and the
+composed default's `NullIntentResolver`, with new nullable root slots (`intentWiring`,
+`intentResolver` — the probe's fact carrier).
+*probe* — **PROBE-INTENT**, the voice round trip inside the zero-network interposer over probe
+doubles (real temp-directory stores, a call-logged probe provider, the **real**
+`KeywordIntentResolver` over a probe-seeded synonym table, the existing confirm/decline
+closures as the human leg): `store=real store.location=temporary store.isDefaultLocation=false
+resolved=1 card=yes invoked=1 decisions=refused,confirmed ordinals=1-2 binding=matched`; and
+**PROBE-INTENT-DEFAULT**, the composed default's facts read off the root `configure` built —
+the fact carrier's own dynamic type: `resolver=NullIntentResolver resolves=1 intentResolved=0
+spawnsSubprocess=false`. The guard-the-guard pair reads the constants back field by field and
+refuses a version that no longer describes the composed round trip or the composed default; the
+wiring-family lint gained the intent families' rows and the pinned-dictation-files
+never-name-intent leg. **G5 re-anchored exactly once, deliberately**: `AppBootstrap.swift`
+`aa12c723…` → `ecfcdb4b…` — computed, never edited-to-match; `SessionMachine.swift` and
+`DictationPipeline.swift` digests unchanged, asserted by the pin.
+
+**Measured (recorded, never gated):** nothing was measured. The only figures are test counts:
+**2761** executed through the floor script (`N == E`). No percentage exists — in particular no
+resolution rate — and none may be quoted.
+
+**The honesty block:**
+- **No gate passes.** The tenth unit built ahead of the uncleared gates under the recorded
+  posture.
+- **R8 is mitigated, not retired — and the voice leg is the first path by which a spoken
+  sentence can cause an action.** The mitigation is the existing round trip made reachable from
+  voice — the gate's structural refusal, the sentence binding, every decision recorded — plus
+  the new "a guess never executes" property: the ask path precedes any provider call. **N2's
+  limit is stated:** an approval asserts a human said yes and **cannot verify it**; the binding
+  narrows what an approval can be replayed against, the seeing is asserted by the UI layer, and
+  the classifier's wrong-but-confident failures are bounded by the gate, not by the classifier.
+- **The classifier's accuracy is unmeasurable in CI.** The not-confident threshold and the
+  synonym table are seeds — the founder's invention until SMOKE 148-150 run (env-gated, the
+  ASR-WER precedent). The tuning path is code-level: a retune of a wrong seed is a reviewed edit
+  to `shippedSynonyms` (pinned verbatim) until S1's `PhraseIntentResolver` lands the
+  user-editable table. SMOKE 150 records utterance counts (resolved/asked/missed), never a rate.
+- **The D3-shaped guardrail-7 claim, stated honestly.** The seam ships with
+  `KeywordIntentResolver` + `NullIntentResolver` — one *real* classifier plus a shipped default,
+  the slice-1 D3 shape (a shipped default is not a second implementation). S1
+  (`PhraseIntentResolver`) is the retirement path, still should-have.
+- **The two-mint observation.** The intent recipe and the action surface's recipe each own a
+  **private generation mint** (`IntentGeneration` / `ActionWiring`'s). Harmless: the store's
+  stale-card guard compares within a mint — pairwise — and the sentence binding is the backstop
+  across the surface boundary; a token minted by one recipe is never compared against the
+  other's.
+- **D2 stands; the sequencing is recorded.** The G5 re-anchor landed in the probe REFACTOR
+  commit as the plan scheduled it (probe plan Phase D3), so the GREEN phase's validation run
+  carried the **one anticipated pin failure** — the digest moved before the re-anchor commit,
+  exactly as planned; the re-anchor was computed, never edited-to-match, and the dictation
+  digests are unchanged.
+- **The spoken-ack copy is provisional.** "Done." / "Cancelled." / "Something went wrong — the
+  action was not recorded." are provisional text pending the founder's real run (SMOKE 148-149);
+  what is pinned is the derived-from-decision shape, not the words.
+- **No SMOKE rows executed.** Steps 148-150 are **written and runnable** — recorded, never
+  gated, executed by nothing in CI.
+- Floor **2761** (executed 2761).
+
+---
+
 **The `action-surface-wiring` unit shipped 2026-09-21 — C13 slice 5: the Actions surface —
 the first human-in-the-loop safety surface, composed and probe-driven; the "nothing is
 wired" sentence retires; no gate passes.** `feat/action-surface-wiring/aliz`.

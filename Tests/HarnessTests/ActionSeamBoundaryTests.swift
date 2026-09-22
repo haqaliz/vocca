@@ -167,6 +167,17 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // sighting: the composition drives `ActionProvider` + `ActionGate` and nothing
                 // else (the PRD's persona-3 rule, structural rather than stated).
                 "VoccaBootstrap/ActionWiring.swift",
+                // `action-round-trip`'s reviewed widening — the intent recipe mirrors the
+                // action recipe's shape (`IntentWiring<Provider: ActionProvider>`), so the
+                // generic constraint is a sighting for the same reason: the voice path drives
+                // the same seam + gate and nothing else. Two rows for this file (the other
+                // families it would name are inferred away), deliberately fewer than the five a
+                // conformance costs.
+                "VoccaBootstrap/IntentWiring.swift",
+                // `probe`'s reviewed widening — the probe drive's own call-logged provider for
+                // the voice round trip. One of the five rows that conformance costs (see the
+                // type documentation); the other four sit in their families below.
+                "VoccaNetworkProbe/IntentDrive.swift",
             ]
         ),
         (
@@ -214,6 +225,34 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // construct one to submit). It reads the vocabulary to build the gate's input;
                 // it never decides with it.
                 "VoccaBootstrap/ActionWiring.swift",
+                // `intent-seam`'s reviewed widening — the resolution vocabulary carries the
+                // invocation a confident match resolved to. The intent seam reads the action
+                // vocabulary to *name* what would run (`.toolCall(ActionInvocation)`); it never
+                // builds one to act with, and nothing it does decides with it. The keyword
+                // resolver's row sits next to it.
+                "VoccaCore/Intent/IntentResolution.swift",
+                // `intent-seam` GREEN's reviewed widening — the keyword resolver constructs the
+                // invocation a confident match carries (provider/tool, and the seeded arguments
+                // text once the 4 KB bound is checked at construction). It builds the gate's
+                // input from a matched utterance; it never decides with it.
+                "VoccaCore/Intent/KeywordIntentResolver.swift",
+                // `converse-step`'s reviewed widening — the converse driver's action leg
+                // names the invocation in its handler closure's signature (the spoken reply
+                // after a `.toolCall`'s terminal decision), the recipe passes the closure
+                // through, and the probe drive spells the unwired closure explicitly. All
+                // three move the type, never decide with it.
+                "VoccaBootstrap/ConverseLoopDriver.swift",
+                "VoccaBootstrap/ConverseWiring.swift",
+                "VoccaNetworkProbe/ConverseLoopDrive.swift",
+                // `action-round-trip`'s reviewed widening — the intent recipe's action leg
+                // takes the invocation its closure signature names (the voice path submits
+                // what a `.toolCall` resolved to). It moves the type through the executor; it
+                // never decides with it.
+                "VoccaBootstrap/IntentWiring.swift",
+                // `probe`'s reviewed widening — the voice round trip's call-logged provider
+                // names the invocation in `describe`/`invoke`'s signatures. One of the five
+                // rows the conformance costs.
+                "VoccaNetworkProbe/IntentDrive.swift",
             ]
         ),
         (
@@ -242,6 +281,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // to present and re-present. It reads the rendered words to show them; it
                 // never decides with them.
                 "VoccaBootstrap/ActionWiring.swift",
+                // `probe`'s reviewed widening — the voice round trip's call-logged provider
+                // renders a summary from its `describe`. One of the five rows the conformance
+                // costs.
+                "VoccaNetworkProbe/IntentDrive.swift",
             ]
         ),
         (
@@ -268,6 +311,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // `executor`'s reviewed widening — the probe's `ProbeActionProvider` returns
                 // an outcome from its `invoke`. One of the five rows the conformance costs.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
+                // `probe`'s reviewed widening — the voice round trip's call-logged provider
+                // returns an outcome from its `invoke`. One of the five rows the conformance
+                // costs.
+                "VoccaNetworkProbe/IntentDrive.swift",
             ]
         ),
         (
@@ -290,6 +337,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // token in `invoke`'s signature and never constructs one; Family B below is
                 // unchanged by this widening, exactly as it is for the providers.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
+                // `probe`'s reviewed widening — the voice round trip's call-logged provider
+                // names the token in `invoke`'s signature and never constructs one; Family B
+                // below is unchanged by this widening, exactly as it is for the providers.
+                "VoccaNetworkProbe/IntentDrive.swift",
             ]
         ),
         (

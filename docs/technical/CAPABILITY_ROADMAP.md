@@ -455,6 +455,42 @@ shapes (`prd.md:338-344`) — is flagged as the *next* slice's conversation (M4a
 slice). No gate passes; SMOKE 144-147 written and runnable, recorded never gated. Test
 floor: **2710**.)*
 
+*(Amended by the `intent-layer` unit, 2026-09-22: **slice 6 of C13 shipped — the intent
+layer**, the piece that joins the converse pipeline to the action machinery — the voice leg
+of the surface, and the slice the §8 escape-valve conversation was reserved for. Shipped: the
+**`IntentResolver`** seam in `VoccaCore/Intent/` (Foundation-free: `IntentResolution`
+`.toolCall/.ask/.none`, `ToolReference`) with **`KeywordIntentResolver`** — token-scored over
+a seeded synonym table with the not-confident threshold 0.75, the ask naming the resolver's
+own top ≤3 candidates with nothing executed ("a guess never executes") — and
+**`NullIntentResolver`**, the composed default (the unwired posture, `intentResolved=0` as an
+effect of the composed root); the converse driver's intent step (two lazy closures on
+`ConverseLoopDriver`, the frozen-signature compile pin widened deliberately, bounded re-ask =
+2 then the echo fall-through, the reply seam untouched); the voice action leg over the
+**shared** executor and the existing card (`IntentWiring` — the catalog is the enablement,
+never-read; the card re-rendered after the record with a fresh generation token; the card-up
+guard; every decision recorded; spoken acks derived from the decision, `auditRecorded ==
+false` never a success ack — provisional copy pending the founder's real run); `PROBE-INTENT`
+and `PROBE-INTENT-DEFAULT` inside the zero-network interposer with their guard-the-guard
+pair; and the seed pin (the shipped synonym rows verbatim — a retune of a wrong seed is a
+reviewed edit, code-level until S1). **The §8 decision is made, not deferred:**
+the never-silenceable blast-radius floor ships as a pinned invariant (`EscapeValveTests`
+names `BlastRadius.requiresConfirmation` — an outward-facing tool always confirms under every
+approval/policy/mode shape, and the raising floor can only ever escalate); **time-boxed trust
+and decaying per-tool trust are decided and deferred** with their blockers recorded
+(persisted trust state, changed approval semantics, M4a). G5 re-anchored once, deliberately
+(`aa12c723…` → `ecfcdb4b…`; dictation digests unchanged).
+
+**What is still NOT built — the remaining C13 machinery:** **`ShellProvider`** (the highest
+blast radius in the roadmap), **coding-agent handoff**, **reply-text rendering**, and the
+**S1 `PhraseIntentResolver`** — the second *real* intent implementation that would retire the
+D3-shaped guardrail-7 caveat (keyword + null default is one real classifier plus a shipped
+default; the seam's record states the honest claim) and the user-editable tuning path for the
+seeds (code-level this slice by decision). The BYOK/LLM intent implementation is a later
+addition to the seam, never a replacement. No gate passes; SMOKE 148-150 written and
+runnable, recorded never gated (the rows require the N1 flip — composing a resolver
+deliberately — a reviewed edit, since the shipped default resolves nothing). Test
+floor: **2761**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

@@ -64,13 +64,24 @@ extension AppBootstrap {
     /// routing that calls `observe` — is the later aspects' composition (converse-hotkey,
     /// widget-converse), recorded hand-off; the shape was verified compatible when this recipe
     /// landed.
+    ///
+    /// ## The intent closures
+    ///
+    /// The recipe's two intent closures default to the unwired answers (`nil` — today's
+    /// echo-only behavior, byte-identical): the composed default resolves nothing and cannot
+    /// voice-act (PRD R7) until the `action-round-trip` aspect's wiring supplies the resolver
+    /// over the enablement catalog and the shared executor.
     @MainActor
     public static func composeConverseWiring(
         clock: any MonotonicClock & Sendable,
         store: ModelStore,
         resolver: DictationEngineResolver,
         cleanupResolver: CleanupResolver,
-        root: DictationLoopRoot
+        root: DictationLoopRoot,
+        intentProvider: @escaping @Sendable (String) async -> IntentResolution? = { _ in nil },
+        intentActionHandler: @escaping @Sendable (ActionInvocation) async -> String? = { _ in
+            nil
+        }
     ) async -> ConverseLoopDriver {
         // The third graph, with the configuration-change callback ending the converse session —
         // a device switch mid-capture is "the loop's trigger" (`StreamingCapture.swift:131-133`).
@@ -134,6 +145,8 @@ extension AppBootstrap {
             capture: capture,
             asrProvider: { await resolver.engineIfReady() },
             cleanupProvider: { try await cleanupResolver.resolve(mode: .conversing) },
+            intentProvider: intentProvider,
+            intentActionHandler: intentActionHandler,
             replyGenerator: EchoReplyGenerator(),
             synthesizer: { try await AppBootstrap.kokoroSynthesizer(store: store) },
             playback: SystemPlayback(level: .default, clock: clock),

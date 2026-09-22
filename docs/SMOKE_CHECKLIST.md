@@ -3241,6 +3241,104 @@ gate pass.
 
 ---
 
+## 23. Intent layer — `intent-layer`
+
+Nothing in this section runs in CI. The intent step's resolution, the ask path's
+nothing-executes property, the executor leg and the probe's round trip are proven headlessly
+(inside the zero-network interposer, over probe doubles — `resolved=1 card=yes invoked=1
+decisions=refused,confirmed binding=matched`); what these rows observe is the **rendered**
+surface and the **real** spoken loop. Two ground rules before any of them: **the shipped
+default resolves nothing by decision** (R7 — `AppBootstrap.configure` wires
+`NullIntentResolver`, so the first utterance echoes), and these rows are runnable only after
+the deliberate **N1 flip** — composing `KeywordIntentResolver` in `AppBootstrap.configure` (a
+reviewed edit, recorded in `CAPABILITY_ROADMAP.md`) — which is itself part of what the run
+records. The **spoken-ack copy is provisional** ("Done." / "Cancelled." / "Something went
+wrong — the action was not recorded."): what is pinned is the derived-from-decision shape,
+the words await the founder's real run and are recorded, not ratified, here. **No resolution
+percentage may be quoted** — SMOKE 150 records utterance counts only, and no accuracy number
+exists until real runs produce one. Recorded — never gated, each under **rule 1**: the state
+must actually have been entered before a row means anything.
+
+148. **The voice leg's card shows the gate's sentence verbatim (C13 slice 6, recorded —
+    never gated).**
+
+    *Gesture:* with the N1 flip in place, enable `audit.clear` in the Actions tab (rows are
+    off by default; absent is off), switch to the CONVERSING surface, and say "clear the
+    audit log". Verify the widget panel card appears with the gate's own render — the
+    count sentence, "Permanently delete N entries from the action audit log. This cannot
+    be undone." — read off the **rendered** card and compared verbatim to the gate's
+    render, and verify the card carries no "don't ask again" / "remember" affordance
+    anywhere (M4a).
+
+    *Verify the state was entered:* the utterance really resolved through the composed
+    wiring (the card is the effect of a `.toolCall` — an echo proves nothing), the card
+    was really read off the rendered surface before any confirm, and the enablement row
+    was really on.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a spoken utterance
+    produced the card with the gate's sentence verbatim, no ask-again affordance** — the
+    voice leg's first real observation of the C13 surface.
+
+    *Void — not fail — if:* the utterance was echoed (the flip not in place, or the seed
+    failing the match — rule 1), or no card appeared.
+
+    *Failure:* a card whose sentence differs from the gate's render, a resolution that
+    executes without a card, or any "don't ask again" affordance.
+
+149. **Confirm → the audit row reconstructs (C13 slice 6, recorded — never gated).**
+
+    *Gesture:* continuing from 148, press **Confirm** on the rendered card. Record which
+    spoken ack the build actually produced (the provisional copy is "Done." — the words
+    are provisional pending this run, the record is the decision), then open the audit
+    artifact (`<applicationSupport>/Vocca/action-audit/` — one file per event, ordinal
+    names) and reconstruct the decision from the entry fields: the confirmed invocation,
+    the provider/tool ids, and the sentence. The clear was ordered and its own record
+    follows it — the log is never empty afterwards.
+
+    *Verify the state was entered:* the card really rendered (row 148), the Confirm press
+    really happened on the rendered surface (not a scripted call), and the audit rows were
+    really read off disk.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a voice-issued action
+    ran through the gate, was confirmed on the rendered card, and its audit row
+    reconstructs off disk** — the R8 every-decision rule observed on the voice leg.
+
+    *Void — not fail — if:* no card appeared (row 148's void), or no invocation reached
+    the executor (rule 1).
+
+    *Failure:* a confirm that records nothing, an audit log that cannot reconstruct the
+    decision, or a success ack on a decision whose record failed (`auditRecorded ==
+    false` — the failure copy is the only honest answer).
+
+150. **An ambiguous utterance is answered with a spoken question, no tool touched (C13
+    slice 6, recorded — never gated).**
+
+    *Gesture:* with the flip in place and a tool enabled, say an utterance the resolver
+    cannot confidently match — one below the not-confident threshold, e.g. "delete the
+    log" against the audit tools. Verify the answer is the **spoken question** naming the
+    resolver's own top candidates (in the shipped composition the catalog carries no
+    display names, so the question speaks the provider/tool identifiers — record what the
+    build actually said), rendered by the real synthesizer — and verify **no tool was
+    touched**: the audit artifact gained no entry and no card appeared (the ask path
+    precedes any provider call). Repeat over a handful of utterances and record the
+    utterance counts — resolved / asked / missed — **never a rate or a percentage**.
+
+    *Verify the state was entered:* the utterances really went through the intent step
+    (the spoken question is the `.ask` effect — an echo proves nothing), and "no tool
+    touched" was really checked against the disk and the absence of a card, not assumed.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **ambiguous utterances
+    were answered with a spoken question and zero provider side effects** — "a guess never
+    executes" observed on the real surface — with the raw utterance counts recorded.
+
+    *Void — not fail — if:* the flip was not in place, or the utterances never reached
+    the intent step (rule 1).
+
+    *Failure:* any tool touched on an ambiguous utterance (an audit entry, a card, an
+    invoke), or a confident-sounding guess that executed without a card.
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

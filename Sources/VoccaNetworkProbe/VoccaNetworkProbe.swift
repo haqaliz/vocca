@@ -231,12 +231,18 @@ struct VoccaNetworkProbe {
         // ZeroNetworkTests 2/2 green, which made the one module here that has real work the one
         // module whose work nothing checked. Module granularity is enough for the eight
         // placeholders; for this one it was not.
-        let observedPolicy: NSApplication.ActivationPolicy = MainActor.assumeIsolated {
+        //
+        // The composed root is **held** here rather than scoped to the policy read: the intent
+        // drive below reads the composed root's intent slots (the `probe` aspect), and the
+        // holding itself is the object graph a real launch keeps alive — the
+        // `withExtendedLifetime` rationale, applied for the whole function now that the root
+        // escapes the closure it used to live in.
+        let composedRoot: DictationLoopRoot = MainActor.assumeIsolated {
             let application = NSApplication.shared
-            let root = AppBootstrap.configure(application)
-            return withExtendedLifetime(root) {
-                application.activationPolicy()
-            }
+            return AppBootstrap.configure(application)
+        }
+        let observedPolicy: NSApplication.ActivationPolicy = MainActor.assumeIsolated {
+            NSApplication.shared.activationPolicy()
         }
         print("PROBE-BOOTSTRAP\tactivationPolicy=\(name(of: observedPolicy))")
 
@@ -373,6 +379,19 @@ struct VoccaNetworkProbe {
         let mcp = exerciseMCPSession()
         print("PROBE-MCP\t\(mcp.report)")
 
+        // The intent voice path, run rather than referenced — the same shape as the drives
+        // above, for the `intent-layer` composition the conversation wiring's closures used to
+        // answer with `nil` alone. Two reports: the composed-recipe round trip over probe
+        // doubles (PROBE-INTENT — the voice path's full trip through the gate, the card and the
+        // audit reconstruct), and the composed root's default facts (PROBE-INTENT-DEFAULT —
+        // `intentResolved=0` as an effect of the composed `NullIntentResolver`, and the
+        // composed wiring's declared `spawnsSubprocess=false`). Nothing spawns, connects or
+        // dials; the drive composes its own root over probe fakes for the round trip and reads
+        // the composed root's slots for the default facts. See `IntentDrive.swift`.
+        let intent = exerciseIntent(composedRoot: composedRoot)
+        print("PROBE-INTENT\t\(intent.report)")
+        print("PROBE-INTENT-DEFAULT\t\(intent.defaultReport)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -388,6 +407,7 @@ struct VoccaNetworkProbe {
             context.moduleWitness,
             actionAudit.moduleWitness,
             mcp.moduleWitness,
+            intent.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be

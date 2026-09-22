@@ -1911,8 +1911,37 @@ set -euo pipefail
 # wiring-family lint — the count taken from the floor script's own parse in the ratchet
 # commit.
 #
+# The intent-layer raise (2710 -> 2761; executed 2761) — the C13 slice-6 voice leg, the
+# four code aspects of the intent layer:
+# `IntentResolverContractTests` (10 — the seam contract: matched/ask/none read through the
+# existential, the seeded arguments row, the never-invents-outside-the-catalog guard, the
+# null default, determinism), `KeywordIntentResolverTests` (12 — the seeded phrases, stop
+# words and camelCase matching, the arguments built over the utterance, the ask naming its
+# top candidates in deterministic order with the ≤3 bound, planted wrong-synonym rows in
+# both directions that must NOT resolve to the wrong tool, the 4 KB bound refused never
+# truncated, the seeded-defaults pin), `IntentSeamBoundaryTests` (8 — the family lint with
+# its non-vacuous guards, planted-violation and comment-strip controls, and the seed pin:
+# the shipped rows verbatim, the count, the not-confident threshold 0.75 and the
+# placeholder), `ConverseIntentStepTests` (6 — the driver's intent step: `.ask` spoken and
+# nothing executed, `.toolCall` through the handler, the silent handler's fall-through,
+# `.none`/nil byte-identical to the echo, the bounded re-ask and its per-session reset),
+# `IntentRoundTripTests` (6 — the voice round trip resolves -> presents -> confirms ->
+# reconstructs, the binding-mismatch re-prompt with a fresh generation token and the fresh
+# confirm invoking, decline records the refused decision and never invokes, a disabled tool
+# is never resolved to nor called, the card-up guard, the recording-failure bounded ack
+# with no card), `IntentDriverIntegrationTests` (1 — the end-to-end round trip driving the
+# driver through the card and the audit), `EscapeValveTests` (3 — the §8 floor: the
+# outward-facing branch point named by name, the approval × policy × mode enumeration
+# proving an outward-facing invocation never auto-runs, the raising-floor leg), the
+# `ZeroNetworkTests` PROBE-INTENT guard-the-guard pair (the two post-condition readers,
+# effect-not-reference: `intentResolved=0` must sit next to a counted `resolves`, `invoked`
+# must be counted, `binding` must be matched), and the `ActionWiringSeamBoundaryTests`
+# wiring-family growth (three new legs: the composition-files table, the planted intent
+# wiring use, and the pinned-dictation-files never-name-intent guard) — the count taken
+# from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2710
+MINIMUM_EXECUTED_TESTS=2761
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
