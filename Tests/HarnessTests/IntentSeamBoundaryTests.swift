@@ -25,9 +25,9 @@ private enum IntentSeamTestError: Error, CustomStringConvertible {
         switch self {
         case .seamDirectoryMissing(let expectedAt):
             return """
-                The intent seam's module directory does not exist at \(expectedAt). The intent \
-                family confinement is asserted by scanning the source tree; if the module has \
-                moved or been renamed, this lint enforces nothing.
+                The intent seam's scan root does not exist at \(expectedAt). The intent family \
+                confinement is asserted by scanning the source tree; if the module has moved or \
+                been renamed, this lint enforces nothing.
                 """
         case .noSwiftFilesScanned(let under):
             return """
@@ -40,8 +40,8 @@ private enum IntentSeamTestError: Error, CustomStringConvertible {
 }
 
 /// The intent-seam family lint (`intent-seam` plan Phase 3, `intent-layer` PRD R10): **within
-/// `VoccaCore`, only the files of `Intent/` may name the intent families — and each
-/// implementation name may appear in exactly its own file.**
+/// `Sources/`, only the permitted files may name the intent families — and each implementation
+/// name may appear in exactly its own file.**
 ///
 /// The same shape as ``ReplySeamBoundaryTests`` and its siblings: the seam lives in Core,
 /// everything *decided* about intent resolution lives above it in the seam's vocabulary, and
@@ -49,13 +49,39 @@ private enum IntentSeamTestError: Error, CustomStringConvertible {
 /// the permitted files — a second file naming a family means a decision (or a resolution path)
 /// has moved somewhere CI cannot see.
 ///
+/// ## The reviewed widening (`action-round-trip`, 2026-09-22)
+///
+/// The scan root was `VoccaCore` alone when the seam shipped, and the families' permitted sets
+/// were the `Intent/` files. The wiring that composes a resolver landed in `VoccaBootstrap`
+/// (`IntentWiring.swift`), and the converse step had already carried the resolution vocabulary
+/// into its driver, recipe and probe drive — so the confinement now covers **the whole
+/// `Sources/` tree**, and the permitted sets name every file that genuinely names a family:
+///
+/// - the `VoccaCore/Intent/` seam files (the original jurisdiction);
+/// - `VoccaBootstrap/IntentWiring.swift` (`action-round-trip`): the `resolve` closure returns
+///   ``IntentResolution``, takes `any IntentResolver`, and builds the `[ToolReference]` catalog
+///   from the enablement rows — it produces what the driver branches on, never branches itself;
+/// - `VoccaBootstrap/ConverseLoopDriver.swift` and `VoccaBootstrap/ConverseWiring.swift`
+///   (`converse-step`): the driver's `intentProvider` closure type and its `.ask`/`.toolCall`/
+///   `.none` branch, plus the recipe's passthrough;
+/// - `VoccaNetworkProbe/ConverseLoopDrive.swift` (`converse-step`): the probe's explicit
+///   unwired closure.
+///
+/// Widening the scan root is the deliberate reviewed edit this lint's mechanism exists for: the
+/// permitted tables below are the only place a new naming file can appear, and every row is
+/// read in review. `AppBootstrap.swift` joins these sets when the composition root composes the
+/// wiring (the `probe` aspect) — a permitted file that does not yet name its family fails the
+/// non-vacuous guard, so it is not listed ahead of that landing.
+///
+/// ## The families
+///
 /// The families are the identifier prefixes below — a prefix rule, so every member of each
 /// family is covered by construction:
 ///
-/// - `IntentResolver` (the seam itself): the protocol file and the two files whose conformances
-///   must name it;
-/// - `IntentResolution` and `ToolReference` (the vocabulary): the protocol file and both
-///   resolvers' signatures must name them, and the vocabulary file names the resolution;
+/// - `IntentResolver` (the seam itself): the protocol file and the files whose conformances or
+///   consumers must name it;
+/// - `IntentResolution` and `ToolReference` (the vocabulary): the seam files, the resolvers,
+///   and the composition/branch files above;
 /// - `KeywordIntentResolver`, `NullIntentResolver` and `KeywordSynonym`: exactly one file each.
 ///
 /// ## What this lint does and does not see
@@ -70,44 +96,62 @@ private enum IntentSeamTestError: Error, CustomStringConvertible {
 /// reviewed edit necessary by asserting the rows verbatim.
 final class IntentSeamBoundaryTests: XCTestCase {
 
-    /// The module the seam lives in — the scan root.
-    private static let seamModuleRoot = "VoccaCore"
-
-    /// The files allowed to name each family, relative to ``seamModuleRoot``.
+    /// The files allowed to name each family, relative to `Sources/` (the scan root — see the
+    /// type documentation's reviewed widening).
     ///
-    /// **One row per family, and nothing else ever joins a permitted set.** The wiring that
-    /// composes a resolver lives in `VoccaBootstrap`, which is **not** in this scan root — no
-    /// amendment is needed from it; only a future file *inside VoccaCore* naming a family
-    /// requires a reviewed row edit.
+    /// **One row per family, and nothing else ever joins a permitted set.** A future file
+    /// naming a family requires a reviewed row edit here — which is the point.
     private static let families: [(name: String, permitted: Set<String>)] = [
         (
             name: "IntentResolver",
             permitted: [
-                "Intent/IntentResolver.swift",
-                "Intent/KeywordIntentResolver.swift",
-                "Intent/NullIntentResolver.swift",
+                "VoccaCore/Intent/IntentResolver.swift",
+                "VoccaCore/Intent/KeywordIntentResolver.swift",
+                "VoccaCore/Intent/NullIntentResolver.swift",
+                // `action-round-trip`'s reviewed widening — the wiring's `resolve` closure is
+                // the seam's consumer: it supplies the catalog and reads the resolution. It
+                // names the protocol to call it, never to re-decide with it.
+                "VoccaBootstrap/IntentWiring.swift",
             ]
         ),
         (
             name: "IntentResolution",
             permitted: [
-                "Intent/IntentResolution.swift",
-                "Intent/IntentResolver.swift",
-                "Intent/KeywordIntentResolver.swift",
-                "Intent/NullIntentResolver.swift",
+                "VoccaCore/Intent/IntentResolution.swift",
+                "VoccaCore/Intent/IntentResolver.swift",
+                "VoccaCore/Intent/KeywordIntentResolver.swift",
+                "VoccaCore/Intent/NullIntentResolver.swift",
+                // `converse-step`'s reviewed widening — the driver's `intentProvider` closure
+                // type and its `.ask`/`.toolCall`/`.none` branch, the recipe's passthrough,
+                // and the probe drive's explicit unwired closure. All three read the
+                // resolution, never resolve with it.
+                "VoccaBootstrap/ConverseLoopDriver.swift",
+                "VoccaBootstrap/ConverseWiring.swift",
+                "VoccaNetworkProbe/ConverseLoopDrive.swift",
+                // `action-round-trip`'s reviewed widening — the wiring's `resolve` closure
+                // returns the resolution vocabulary (the closure type's signature). It
+                // produces what the driver branches on; it never branches itself.
+                "VoccaBootstrap/IntentWiring.swift",
             ]
         ),
         (
             name: "ToolReference",
             permitted: [
-                "Intent/IntentResolver.swift",
-                "Intent/KeywordIntentResolver.swift",
-                "Intent/NullIntentResolver.swift",
+                "VoccaCore/Intent/IntentResolver.swift",
+                "VoccaCore/Intent/KeywordIntentResolver.swift",
+                "VoccaCore/Intent/NullIntentResolver.swift",
+                // `action-round-trip`'s reviewed widening — the wiring builds the catalog the
+                // resolver resolves against, from the enablement rows (R3). It reads the
+                // vocabulary to build the seam's input; it never decides with it.
+                "VoccaBootstrap/IntentWiring.swift",
             ]
         ),
-        (name: "KeywordIntentResolver", permitted: ["Intent/KeywordIntentResolver.swift"]),
-        (name: "NullIntentResolver", permitted: ["Intent/NullIntentResolver.swift"]),
-        (name: "KeywordSynonym", permitted: ["Intent/KeywordIntentResolver.swift"]),
+        (
+            name: "KeywordIntentResolver",
+            permitted: ["VoccaCore/Intent/KeywordIntentResolver.swift"]
+        ),
+        (name: "NullIntentResolver", permitted: ["VoccaCore/Intent/NullIntentResolver.swift"]),
+        (name: "KeywordSynonym", permitted: ["VoccaCore/Intent/KeywordIntentResolver.swift"]),
     ]
 
     /// Every occurrence of a family identifier in `source`, comments removed first.
@@ -156,8 +200,8 @@ final class IntentSeamBoundaryTests: XCTestCase {
     /// implementation (the family used everywhere else — vacuous), and "the permitted file names
     /// the family" passes if three files do (the seam has sprung a leak). The `sightings.count`
     /// equality is the third leg: exactly the permitted set may name the family.
-    func testOnlyTheIntentFilesInVoccaCoreMayNameTheIntentFamilies() throws {
-        let root = try sourcesRoot().appendingPathComponent(Self.seamModuleRoot, isDirectory: true)
+    func testOnlyThePermittedFilesInSourcesMayNameTheIntentFamilies() throws {
+        let root = try sourcesRoot()
         guard FileManager.default.fileExists(atPath: root.path) else {
             throw IntentSeamTestError.seamDirectoryMissing(expectedAt: root.path)
         }

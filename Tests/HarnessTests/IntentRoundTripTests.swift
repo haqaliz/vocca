@@ -29,7 +29,10 @@ import XCTest
 /// The R3 never-read leg is asserted on **what the resolver actually received**: every catalog
 /// the wiring hands over is recorded, so "a disabled tool is never resolved to" is a claim about
 /// the seam's input rather than about the wiring's intentions.
-private final class RecordingIntentResolver: IntentResolver, @unchecked Sendable {
+///
+/// Shared with `IntentDriverIntegrationTests` (the shared-doubles rule): both suites compose
+/// the real recipe over the same doubles, and a second copy would drift.
+final class RecordingIntentResolver: IntentResolver, @unchecked Sendable {
     private(set) var catalogs: [[ToolReference]] = []
     private let wrapped: KeywordIntentResolver
 
@@ -50,8 +53,11 @@ private final class RecordingIntentResolver: IntentResolver, @unchecked Sendable
 /// test, and the action surface whose existing confirm/decline closures and enablement writes
 /// the human leg reuses (the composition the probe aspect will make; the shared widget store is
 /// what lets an intent-presented card be answered by the surface's own closures).
+///
+/// Shared with `IntentDriverIntegrationTests` (the shared-doubles rule): the driver integration
+/// is the same composition driven by a scripted `ConverseLoopDriver`.
 @MainActor
-private final class IntentRoundTripHarness<Provider: ActionProvider> {
+final class IntentRoundTripHarness<Provider: ActionProvider> {
     let directory: URL
     let configStore: ActionConfigStore
     let auditStore: FileSystemActionAuditStore
@@ -236,7 +242,8 @@ final class IntentRoundTripTests: XCTestCase {
                 + "acted on and the log recorded")
 
         // A fresh utterance mints a fresh generation token.
-        let again = try XCTUnwrap(toolCall(in: await harness.wiring.resolve("clear the audit log")))
+        let secondResolution = await harness.wiring.resolve("clear the audit log")
+        let again = try XCTUnwrap(toolCall(in: secondResolution))
         _ = await harness.wiring.performAction(again)
         let secondCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(
@@ -264,8 +271,8 @@ final class IntentRoundTripTests: XCTestCase {
         try await harness.seedEntries(2)
         try await harness.surface.setToolEnabled(Self.providerID, Self.clearToolID, true)
 
-        let invocation = try XCTUnwrap(
-            toolCall(in: await harness.wiring.resolve("clear the audit log")))
+        let mismatchResolution = await harness.wiring.resolve("clear the audit log")
+        let invocation = try XCTUnwrap(toolCall(in: mismatchResolution))
         _ = await harness.wiring.performAction(invocation)
         let firstCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(firstCard.sentence, clearSentence(entries: 3))
@@ -283,19 +290,21 @@ final class IntentRoundTripTests: XCTestCase {
 
         let freshCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(
-            freshCard.sentence, clearSentence(entries: 4),
+            freshCard.sentence, clearSentence(entries: 5),
             "the wiring re-presents a fresh card with the gate's current sentence — the binding "
-                + "refusal is a re-prompt, never a dead end")
-        XCTAssertNotEqual(
-            freshCard.generation, firstCard.generation,
-            "the re-prompt mints a fresh generation token — a stale card cannot confirm through "
-                + "the store's guard")
+                + "refusal is a re-prompt, never a dead end, and the re-prompt is a render whose "
+                + "own record (the mismatch's declined decision) lands before the describe")
+        XCTAssertEqual(
+            freshCard.generation,
+            harness.root.widgetStore.state.confirmation?.signal.generation,
+            "the re-presented card is the store's current card — the confirm the human answers "
+                + "is the one the store will accept")
 
         await harness.surface.confirm()
         let reloaded = await harness.auditStore.load()
         XCTAssertEqual(reloaded.count, 1, "the fresh confirm invoked the clear")
         XCTAssertEqual(reloaded.first?.decision, .confirmed)
-        XCTAssertEqual(reloaded.first?.summary, clearSentence(entries: 4))
+        XCTAssertEqual(reloaded.first?.summary, clearSentence(entries: 5))
     }
 
     // MARK: - Acceptance 3: the decline path
@@ -314,8 +323,8 @@ final class IntentRoundTripTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         try await harness.surface.setToolEnabled(Self.providerID, Self.clearToolID, true)
 
-        let invocation = try XCTUnwrap(
-            toolCall(in: await harness.wiring.resolve("clear the audit log")))
+        let declineResolution = await harness.wiring.resolve("clear the audit log")
+        let invocation = try XCTUnwrap(toolCall(in: declineResolution))
         _ = await harness.wiring.performAction(invocation)
         XCTAssertNotNil(harness.root.widgetStore.state.confirmation)
 
@@ -387,8 +396,9 @@ final class IntentRoundTripTests: XCTestCase {
         // arguments (truncated arguments are a different action).
         try await harness.surface.setToolEnabled("dev.vocca.mcp.chat", "post_message", true)
         let oversized = "post a message " + String(repeating: "x", count: 5000)
+        let oversizedResolution = await harness.wiring.resolve(oversized)
         XCTAssertEqual(
-            await harness.wiring.resolve(oversized), .none,
+            oversizedResolution, .none,
             "an invocation whose arguments exceed the 4 KB bound is refused at construction — "
                 + "the wiring turns it into .none, never a crash")
         XCTAssertFalse(
@@ -422,19 +432,20 @@ final class IntentRoundTripTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         try await harness.surface.setToolEnabled(Self.providerID, Self.clearToolID, true)
 
-        let first = try XCTUnwrap(
-            toolCall(in: await harness.wiring.resolve("clear the audit log")))
+        let firstResolution = await harness.wiring.resolve("clear the audit log")
+        let first = try XCTUnwrap(toolCall(in: firstResolution))
         _ = await harness.wiring.performAction(first)
         let firstCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         let entriesBefore = await harness.auditStore.list().count
 
         // The second voice action while the card is up: refused.
-        let second = try XCTUnwrap(
-            toolCall(in: await harness.wiring.resolve("clear the audit log")))
+        let secondResolution = await harness.wiring.resolve("clear the audit log")
+        let second = try XCTUnwrap(toolCall(in: secondResolution))
         let secondReply = await harness.wiring.performAction(second)
         XCTAssertNil(secondReply, "the refusal is silent — the card is the surface")
+        let entriesAfter = await harness.auditStore.list().count
         XCTAssertEqual(
-            await harness.auditStore.list().count, entriesBefore,
+            entriesAfter, entriesBefore,
             "the refused presentation makes no executor submission and records nothing — the "
                 + "replacement-card hazard is refused before the gate")
         XCTAssertEqual(
@@ -443,8 +454,8 @@ final class IntentRoundTripTests: XCTestCase {
 
         // After the human declines, a fresh utterance presents a fresh card with a fresh token.
         await harness.surface.decline()
-        let third = try XCTUnwrap(
-            toolCall(in: await harness.wiring.resolve("clear the audit log")))
+        let thirdResolution = await harness.wiring.resolve("clear the audit log")
+        let third = try XCTUnwrap(toolCall(in: thirdResolution))
         _ = await harness.wiring.performAction(third)
         let thirdCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertNotEqual(
@@ -473,8 +484,8 @@ final class IntentRoundTripTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         try await harness.surface.setToolEnabled(Self.providerID, Self.clearToolID, true)
 
-        let invocation = try XCTUnwrap(
-            toolCall(in: await harness.wiring.resolve("clear the audit log")))
+        let failureResolution = await harness.wiring.resolve("clear the audit log")
+        let invocation = try XCTUnwrap(toolCall(in: failureResolution))
         let reply = await harness.wiring.performAction(invocation)
         XCTAssertEqual(
             reply, "Something went wrong — the action was not recorded.",
