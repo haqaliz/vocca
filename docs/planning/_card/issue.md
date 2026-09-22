@@ -1,31 +1,35 @@
-# Card: feat/action-surface-wiring
+# Card: feat/intent-layer
 
-> Inline brief — no GitHub issue. Source: the `vocca-next` recommendation (2026-09-21),
-> itself grounded in the four C13 slice records (`action-safety-spine`, `local-data-provider`,
-> `mcp-protocol`, `stdio-transport`).
+> Inline brief — no GitHub issue. Source: the `vocca-next` recommendation (2026-09-22),
+> itself grounded in the C13 slice records (`action-safety-spine`, `local-data-provider`,
+> `mcp-protocol`, `stdio-transport`, `action-surface-wiring`).
 
 ## The unit
 
-**C13 slice 5 of N: the action layer's user-visible surface and composition-root wiring** —
-the slice every C13 record since slice 1 has ended by naming ("nothing is wired").
+**C13 slice 6 of N: the intent layer** — the named remaining C13 machinery
+(`CAPABILITY_ROADMAP.md:450-451`): utterance → tool call with correctly built arguments,
+the "not confident" ask path that asks rather than guesses, and voice-triggered actions
+feeding the shipped arm/confirm surface (the surface PRD's own words: "the voice path needs
+the intent layer", `action-surface-wiring/prd.md:222`).
 
-- Per-tool enablement gets its **persisted store** (deferred at
-  `docs/planning/action-safety-spine/prd.md:295` — "the persisted store belongs with the slice
-  that introduces real tools to enable"; that condition, real tools existing, is now met:
-  `MCPProvider` + `InMemoryMCPTransport` + `StdioMCPTransport` are shipped).
-- The **confirmation prompt** renders the provider's `describe` sentence as the only route to
-  `invoke` in a shipped configuration.
-- A **minimal server-configuration surface** ships with copy honoring the D2 answer
-  (configuring a server is trust extended to its author, not a guarantee).
-- The **additive wiring** re-anchors G5 with the dictation digests unchanged.
+- The intent layer as a **new seam** in `VoccaCore` — local and deterministic first, no LLM
+  in the OSS core, a pluggable seam for a stronger local model later.
+- The **§8 escape-valve decision** this slice owes (the "next slice's conversation",
+  `action-safety-spine/prd.md:338-344`): time-boxed trust / a never-silenceable blast-radius
+  floor / decaying per-tool trust — decided here, with the never-silenceable floor asserted
+  in a test.
+- Voice-issued actions run through the existing gate → executor → audit round trip; every
+  decision recorded.
 
 **Acceptances, written first per repo test-first doctrine:**
-1. A destructive invocation without the user's confirmation is refused *by attempting the call*.
-2. Enable → invoke → disable refuses the next invocation (no carry-over).
-3. The default configuration still spawns no child process.
-4. Dry-run produces zero provider side effects.
-5. The first action-path SMOKE rows land (arm → confirm → invoke → audit row reconstructs).
+1. A matched utterance yields a tool call with correct arguments on the stub server.
+2. An ambiguous utterance yields the ask path with zero provider side effects on the call log.
+3. Every voice-issued action lands in the audit store via the executor round trip — a guess
+   never executes.
+4. The §8 floor test: an outward-facing tool always confirms even with trust active.
+5. PROBE drives the composed intent wiring inside the zero-network interposer.
 
-**Caveat (record in the unit):** R8 is the risk being mitigated, not retired — the prompt is
-the first human-in-the-loop safety surface, and the gate's N2 limit (an approval asserts a
-human said yes, it cannot verify it) must be stated in the unit's record.
+**Caveat (record in the unit):** the classifier is local and deterministic first behind the
+new seam; its real accuracy is unmeasurable in CI (env-gated real runs, the ASR-WER
+precedent); the "not confident" threshold is a judgment call this PRD sets with the §8
+decision, not a deferral.
