@@ -481,6 +481,77 @@ final class ActionsTabTests: XCTestCase {
             "the scan would pass an arm that never signals — the wiring's card could never appear")
     }
 
+    // MARK: - The shell leg (shell-provider wiring)
+
+    /// The shell registry's commands fold as rows — **off by default** (M7), with the
+    /// persisted enablement re-applied exactly like discovery rows: the reducer's rule, so
+    /// the wiring cannot arm a command on arrival.
+    func testShellConfigLoadFoldsRowsOffByDefaultAndReappliesEnablement() {
+        var state = loaded(
+            enablement: [ActionsToolKey(providerID: "dev.vocca.shell", toolID: "remembered")])
+        let rows = [
+            tool("dev.vocca.shell", "fresh", enabled: true, radius: .destructive),
+            tool("dev.vocca.shell", "remembered", enabled: true, radius: .readOnly),
+        ]
+        state = ActionsTabReducer.reduce(state, .shellConfigLoaded(rows))
+
+        XCTAssertFalse(
+            state.shellRows[0].isEnabled,
+            "a shell command's row is off even when handed enabled — default off is the "
+                + "reducer's, never the wiring's")
+        XCTAssertTrue(
+            state.shellRows[1].isEnabled,
+            "a persisted enablement row re-applies at load — re-enabling after a relaunch "
+                + "must not require re-toggling")
+    }
+
+    /// A shell row's toggle flips the row **and** the persisted set together — the same
+    /// enablement set, the same draft, the same save the server rows use.
+    func testAShellRowsEnablementFlipsTheRowAndThePersistedSet() {
+        var state = loaded()
+        state = ActionsTabReducer.reduce(
+            state, .shellConfigLoaded([tool("dev.vocca.shell", "echo")]))
+
+        state = ActionsTabReducer.reduce(
+            state,
+            .toolEnabledChanged(providerID: "dev.vocca.shell", toolID: "echo", enabled: true))
+        XCTAssertTrue(state.shellRows[0].isEnabled)
+        XCTAssertTrue(
+            state.enablement.contains(ActionsToolKey(providerID: "dev.vocca.shell", toolID: "echo")))
+
+        state = ActionsTabReducer.reduce(
+            state,
+            .toolEnabledChanged(providerID: "dev.vocca.shell", toolID: "echo", enabled: false))
+        XCTAssertFalse(state.shellRows[0].isEnabled)
+        XCTAssertFalse(
+            state.enablement.contains(ActionsToolKey(providerID: "dev.vocca.shell", toolID: "echo")))
+    }
+
+    /// Arming an enabled shell command yields `awaitingConfirmation` — the shell rows are arm
+    /// surface rows like any other, and a disabled one is refused by the reducer before any
+    /// signal can be emitted.
+    func testArmingAnEnabledShellCommandYieldsAwaitingConfirmation() {
+        var state = loaded()
+        state = ActionsTabReducer.reduce(
+            state, .shellConfigLoaded([tool("dev.vocca.shell", "echo")]))
+        state = ActionsTabReducer.reduce(
+            state,
+            .toolEnabledChanged(providerID: "dev.vocca.shell", toolID: "echo", enabled: true))
+
+        state = ActionsTabReducer.reduce(
+            state, .armRequested(providerID: "dev.vocca.shell", toolID: "echo"))
+        XCTAssertEqual(
+            state.arm, .awaitingConfirmation(providerID: "dev.vocca.shell", toolID: "echo"))
+
+        let before = state
+        state = ActionsTabReducer.reduce(
+            state, .armRequested(providerID: "dev.vocca.shell", toolID: "never-enabled"))
+        XCTAssertEqual(
+            state, before,
+            "a disabled shell command's arm is refused by the reducer — the M7 never-read "
+                + "rule at the surface, for the shell leg too")
+    }
+
     // MARK: - Fixtures
 
     private func actionsFolder() throws -> URL {
