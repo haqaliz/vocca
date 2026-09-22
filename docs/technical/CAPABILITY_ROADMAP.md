@@ -491,6 +491,42 @@ runnable, recorded never gated (the rows require the N1 flip — composing a res
 deliberately — a reviewed edit, since the shipped default resolves nothing). Test
 floor: **2761**.)*
 
+*(Amended by the `shell-provider` unit, 2026-09-22: **slice 7 of C13 shipped — the shell
+provider**, the roadmap's highest blast radius, composed onto the proven spine. Shipped:
+**`ShellCommandRegistry`** (the persisted `shell-commands.json` — self-contained,
+shape-only, tolerant decode, the caps refuse never clamp, **`readOnly` absent → destructive
+by default**); **`ShellExecutor`** (the **fixed argv** via `Process`, never `/bin/sh -c`;
+the 30 s ceiling over an injected clock with a counted wait; terminate→poll→SIGKILL→poll
+reaping, never `waitUntilExit`; bounded capture; failures as returned values; the no-orphan
+acceptance asserted `ESRCH` on a real child); **`ShellProvider`** (`dev.vocca.shell`) with
+the **argv-derived sentence** (founder decision — a planted argv appears verbatim, a clause
+cannot hide it; describe and invoke share one render, so sentence and argv cannot drift);
+the C13 load-bearing acceptance asserted at the gate level (a destructive invocation
+without approval is refused **by attempting the call**, the engine provably never reached);
+the shell **arm leg** (the registry's commands rendered as the existing tool rows — the
+step-1 finding: the arm surface is not generic, tool rows exist only from
+`discoverySucceeded`, so the shell section builds its own — enablement folded from the
+shared store, default off, the D2 copy on the surface); the **transport-permit widening**
+(the prohibition lint's permitted set: exactly one file → exactly two), with **the D2
+answer narrowed in writing — the default configuration cannot create a shell child**; and
+`PROBE-SHELL` inside the zero-network interposer (`commands=0 spawnsSubprocess=false`,
+guard-the-guard pair). **The intent seam is untouched by decision** — `intentShellRows=0`
+asserted: shell is arm-surface-only this slice, the voice leg has no phrase that could
+resolve to a shell command. G5 re-anchored once, deliberately (`ecfcdb4b…` → `e9aa45bb…`;
+dictation digests unchanged).
+
+**What is still NOT built — the remaining C13 machinery:** **`ShellProvider` is no longer
+PENDING** — the roadmap's highest blast radius ships, mitigated by the proven spine and the
+argv-derived sentence; what remains is **coding-agent handoff** and **reply-text
+rendering**, plus the recorded deferrals: the **S1 `PhraseIntentResolver`** (the
+guardrail-7 retirement path — still should-have — and the user-editable tuning path for the
+seeds), **time-boxed trust and decaying per-tool trust** (§8 — decided and deferred with
+their blockers: persisted trust state, changed approval semantics, M4a), and the
+**intent-seam shell leg** (a voice path to shell commands; the arm-surface-only decision is
+the record, and composing it is a reviewed edit, the N1 precedent). No gate passes; SMOKE
+151-153 written and runnable, recorded never gated (the rows require configuring and
+enabling a real command on the founder's machine — never CI). Test floor: **2825**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

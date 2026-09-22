@@ -83,6 +83,26 @@ struct ActionsTabPage: View {
                 }
             }
 
+            Section(ActionsTabCopy.shellSectionTitle) {
+                // The D2 copy at the moment of arm: this section's rows run a program on the
+                // user's machine, and the narrowed promise — that configuring a shell command
+                // is trust extended to the file's author — belongs where the command is armed.
+                Text(ActionsTabCopy.shellD2TrustCopy)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if state.isShellLoaded && state.shellRows.isEmpty {
+                    Text(ActionsTabCopy.emptyShellCommands)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(state.shellRows) { row in
+                    toolRow(row)
+                }
+                Text(ActionsTabCopy.defaultOffDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if let saveError = state.saveError {
                 Section {
                     Text(ActionsTabCopy.saveError(saveError))
@@ -92,7 +112,10 @@ struct ActionsTabPage: View {
             }
         }
         .formStyle(.grouped)
-        .task { await load() }
+        .task {
+            await load()
+            await loadShellCommands()
+        }
     }
 
     // MARK: - The servers section
@@ -323,5 +346,12 @@ struct ActionsTabPage: View {
         let config = await bindings.loadActionsConfig()
         state = ActionsTabReducer.reduce(
             state, .configLoaded(servers: config.servers, enablement: config.enablement))
+    }
+
+    /// The shell registry's commands, folded once per opening — the shell leg's row source,
+    /// read through the wiring like the config is. A registry read; no discovery, no spawn.
+    private func loadShellCommands() async {
+        let rows = await bindings.loadShellCommands()
+        state = ActionsTabReducer.reduce(state, .shellConfigLoaded(rows))
     }
 }

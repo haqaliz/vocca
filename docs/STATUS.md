@@ -10,6 +10,119 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `shell-provider` unit shipped 2026-09-22 — C13 slice 7: the shell command provider —
+the roadmap's highest blast radius, the first provider whose radius is unboundedly
+destructive, composed onto the proven spine with the argv-derived sentence and the
+arm-surface-only shell leg; no gate passes.**
+`feat/shell-provider/aliz`. Six aspects (the record aspect is this entry). Floor **2825**
+(executed 2825).
+
+**What shipped, per aspect.**
+*command-registry* — **`ShellCommandRegistry`** (`VoccaActions/Config/`:
+`ShellCommandDefinition`, `ShellCommandParameters`), the persisted **`shell-commands.json`**
+(definitions only, `<applicationSupport>/Vocca/`, byte-pinned): tolerant decode — absent,
+corrupt or unknown-key files load as the empty registry with one loud log, never a throw —
+atomic temp-write-rename, and the caps **refuse, never clamp** (64 commands / 64 KB — seeds,
+a retune is a reviewed edit); invalid rows are skipped loudly (duplicate id, empty argv,
+over-long id); **`readOnly` absent → `false`** — a command whose file does not declare
+`readOnly: true` claims the destructive radius, the MCP "absent means unsafe" precedent; the
+file is shape-only, never enablement and never argument values (enablement is membership in
+`ActionConfigStore`, argument values travel only at call time). The F1-lesson test:
+`testABooleanConfusionCannotClaimReadOnly` — Swift's `JSONDecoder` **refuses `1` for `Bool`**
+(no NSNumber collapse), so a corrupt file is refused whole rather than read as claiming
+read-only. Floor 2761→2780.
+*provider-widening* — the transport prohibition lint's permitted set grows from **exactly
+one** file (`VoccaActions/MCP/StdioMCPTransport.swift`) to **exactly two** (adds
+`VoccaActions/Execution/ShellExecutor.swift`, pending at the time): the new exact-set pin,
+a **pending-entry-recording test** (fails the day the file lands — the author's job to
+retire it, retired by its author in the execution GREEN as designed), and a
+planted-third-file control. **The D2-for-shell answer is recorded in the doc**: a shell
+child is even *less* observable than an MCP child — the same blind hop with a shell in
+front of it, and the restricted child purges `DYLD_INSERT_LIBRARIES` from the environment
+it passes on — so the claim narrows in writing exactly as it did for the transport: **the
+default configuration cannot create a shell child**. Floor 2780→2783.
+*execution* — **`ShellExecutor`** (`VoccaActions/Execution/`, + `ShellExecutionResult`):
+the **fixed argv** runs via `Process` — never `/bin/sh -c`, so the child is not hidden
+behind a shell of our own making; the 30 s ceiling over an injected `MonotonicClock` with a
+**counted** wait (`maximumPolls` budget — a frozen clock cannot hang the suite);
+terminate→poll→SIGKILL→poll reaping, **never `waitUntilExit`** (the recorded deadlock);
+bounded 4 KB output capture; exit-code mapping to the bounded `shell.*` reason keys; a
+scrubbed environment; failure as **returned values, never throws**. The no-orphan
+acceptance asserted `kill(pid, 0) == -1 && errno == ESRCH` on a real child — a **zombie
+answers `kill(pid, 0)` successfully**, so ESRCH is the only honest answer. Deviations
+recorded: `/bin/false` → `/usr/bin/false` (platform reality), the lint's pending-entry test
+retired by its author as designed, and the `asActionOutcome()` fold deferred to the
+provider (`ActionOutcome` is Core-only). Floor 2783→2792→2793.
+*provider* — **`ShellProvider`** (`VoccaActions/Providers/`, + `ShellProviderSentences`),
+`providerID = "dev.vocca.shell"`, nonisolated `toolIDs` fixed at construction; **describe
+derives the concrete sentence from the argv** (founder decision): `Run the shell command
+'<id>': <argv, values substituted in place, quoted-sanitised>; <key = value pairs, sorted>.
+<clause>` — a planted argv appears verbatim and a clause cannot hide a different argv; the
+shared rendering between describe and invoke means the sentence and the argv **cannot
+drift**. Destructive by default (`readOnly` absent → `.destructive`); unreadable/missing
+parameters describe as a refusal **keeping the radius**; unknown command → refusal value.
+The C13 load-bearing acceptance asserted at the gate level: a destructive invocation
+without approval is `.confirmationRequired` **by attempting the call** — the engine
+provably never reached, its call log empty. The five Family-A rows. Floor 2793→2814.
+*wiring* — **`ShellWiring`** (VoccaBootstrap) and the composition-root routing
+(arm/preview/confirm/decline by the card's providerID). **The step-1 finding, recorded:
+the arm surface is NOT generic** — tool rows exist only from `discoverySucceeded`
+(`ActionsTabState.swift:28-30,226-236`), and the shipped discovery is the bounded
+`discovery.unwired` refusal keyed by server id, so an enablement row alone renders nothing.
+The shell leg therefore builds its own section: the registry's commands rendered as the
+existing `ActionsToolRow`s (radius from the file's claim, enablement folded from the shared
+store, default off) with the D2 copy — *"Configuring a shell command runs that command on
+your machine; Vocca cannot see inside a program it starts on your behalf."* Unwired default:
+with no registry and no enablement, **nothing spawns**. `AppBootstrap` grew → **G5
+re-anchored deliberately in REFACTOR** (`ecfcdb4b…` → `e9aa45bb…`, computed with shasum,
+never edited-to-match; the dictation digests unchanged). S3 per-command overrides deferred.
+Floor 2814→2822→2824.
+*probe* — **PROBE-SHELL**, the composed shell drive inside the zero-network interposer
+(`ShellDrive`, `exerciseShell`, module coverage):
+`store=real store.location=temporary store.isDefaultLocation=false commands=0
+spawnsSubprocess=false seeded=1 card=yes invoked=1 decisions=refused,confirmed,dryRun
+ordinals=1-3 binding=matched` — every field an effect of the run: the real store in a temp
+directory, the composed default's `commands=0`/`spawnsSubprocess=false` read off the run,
+the seeded registry's own answer, the gate's card, the engine's own call log (the confirm
+runs the child exactly once, the dry-run row reaches it zero times), the ordinals rebuilt
+from the directory, and the binding to the card's shown sentence. **PROBE-INTENT-DEFAULT
+gained `intentShellRows=0`** — the resolver-catalog fact: no `dev.vocca.shell` row in the
+shipped synonym table, the arm-surface-only decision asserted (the voice leg has no learned
+phrase that could ever resolve to a shell command). The guard-the-guard pair refuses
+weakened constants (planted `commands=1` / `spawnsSubprocess=true` fail loudly). G5 did not
+move again (digests verified). Floor 2824→2825.
+
+**Measured (recorded, never gated):** nothing was measured. The only figures are test
+counts: **2825** executed through the floor script (`N == E`). No percentage exists — in
+particular no shell-execution or refusal rate — and none may be quoted.
+
+**The honesty block:**
+- **No gate passes.** The eleventh unit built ahead of the uncleared gates under the
+  recorded posture.
+- **R8 is amplified — the first provider whose blast radius is unboundedly destructive.** A
+  shell command can delete, modify or egress anything the user can; the mitigation is the
+  proven spine, not a new mechanism — the structural refusal by attempting the call, the
+  argv-derived sentence, dry-run, and every decision recorded. **N2 is stated:** an approval
+  asserts a human said yes and **cannot verify it**; the binding narrows what an approval
+  can be replayed against and the seeing is asserted by the UI layer.
+- **D2 stands, now with a shell in front of the child.** A shell child is not observable by
+  the zero-network interposer — the same blind hop as the stdio child, with a shell in front
+  of it, and the restricted child purges `DYLD_INSERT_LIBRARIES`. The transport widening's
+  answer is recorded: the claim narrows in writing — **the default configuration cannot
+  create a shell child**; the probe proves the default cannot spawn, **never that an
+  enabled command cannot egress**. The D2 copy says where the claim stops, on the surface.
+- **The sentence is argv-derived, by founder decision.** The shared describe/invoke render
+  means the sentence and the argv cannot drift; the sentence is what a human was shown and
+  what the binding is against — a clause cannot hide a different argv.
+- **Arm-surface-only.** Shell is composed onto the action surface only; the intent seam has
+  no `dev.vocca.shell` row (`intentShellRows=0`, asserted by the probe). The voice leg
+  cannot resolve to a shell command this slice.
+- **The classifier's accuracy is unmeasured** (unchanged from the intent-layer record) — no
+  resolution rate exists and none may be quoted.
+- **No SMOKE rows executed.** Steps 151-153 are **written and runnable** — recorded, never
+  gated, executed by nothing in CI; no rate is ever recorded.
+- Floor **2825** (executed 2825).
+
 **The `intent-layer` unit shipped 2026-09-22 — C13 slice 6: the intent layer — the voice leg
 of the action surface: the utterance pipeline gains an intent step, a guess never executes,
 and the §8 escape-valve decision is made and pinned; no gate passes.**

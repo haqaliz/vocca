@@ -1940,8 +1940,94 @@ set -euo pipefail
 # wiring use, and the pinned-dictation-files never-name-intent guard) — the count taken
 # from the floor script's own parse in the ratchet commit.
 #
+# The shell-provider command-registry raise (2761 -> 2780; executed 2780) — the C13 slice-7
+# first aspect, the persisted `shell-commands.json` definitions store:
+# `ShellCommandRegistryTests` (19 — the well-formed decode with the destructive-by-default
+# `readOnly`-absent rule, the tolerant-decode battery: absent/corrupt/unreadable files load
+# empty with exactly one loud log each and the bytes never rewritten, the boolean-confusion
+# pin (`"readOnly": 1` is refused, never read as a claim of read-only), the never-throwing
+# static decoder, the unknown-key refusal at every level of the shape (top-level, row,
+# parameter), the atomic temp-write-then-rename pair with the torn-commit and temp-invisible
+# recovery acceptances, the two caps (64 commands and 64 KB, both refused loudly with the
+# prior file byte-identical), the row-level validation skips (duplicate id, empty argv,
+# over-long id, empty id, unnamed parameter — skipped loudly, the rest load), the byte-level
+# key-set pin (exactly `version`+`commands` / the row's five fields / `name`, and no
+# enablement or argument-value key in populated bytes), the pinned-file round trip, the
+# cross-instance and no-file-created conventions, and the default-directory pin beside the
+# config store) — the count taken from the floor script's own parse in the ratchet commit.
+#
+# The transport-permit-widening raise (2780 -> 2783; executed 2783) — the provider-aspect
+# step 1, a lint-only REFACTOR that widens the transport prohibition's permitted set from one
+# file to two (`VoccaActions/Execution/ShellExecutor.swift` added ahead of its file, recorded
+# as pending): `ActionTransportProhibitionTests` grows by 3 — the exact-two-reviewed-entries
+# set pin, the pending-shell-executor-entry record (asserts the entry is present and its file
+# absent, so the day the file lands the vacuity is retired loudly), and the planted third-file
+# control (a real file naming `Process` is written into the module and the real scan must
+# still report it — the widening does not weaken leg (a)) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
+# The shell-provider execution-aspect raise (2783 -> 2792; executed 2792) — the `execution`
+# aspect of the C13 slice-7 shell-provider unit, the subprocess engine itself:
+# `ShellExecutorTests` (10 — the benign echo run with the exit code read back, the non-zero
+# exit mapped to the bounded `shell.exitCode` key, the seeded sleeping child hitting the 30 s
+# ceiling over the injected clock without the suite sleeping and with a wait-count proving the
+# poll yielded, the frozen-clock acceptance that pins the counted wait (a clock that never
+# advances must still cost a bounded wait), the no-orphan contract asserted `kill(pid, 0) ==
+# -1 && errno == ESRCH` on the real child after a timed-out run, the `seq` flood capped at the
+# 4 KB bound and still terminating normally, the launch-failure returned value, the scrubbed
+# environment proving the caller's `PATH`/`HOME` never reach the child, the pure signal/exit
+# mapping, and the bounds-pinned-in-one-place) minus the one retired test: the transport
+# prohibition's pending-shell-executor record, which the lint itself designed to fail the day
+# `Execution/ShellExecutor.swift` landed — the file is live now, so the vacuity it recorded is
+# retired and legs (b) and (c) and the count equality apply to the entry. Net +9. The count was
+# taken from the floor script's own parse in the ratchet commit.
+#
+# The shell-provider execution-aspect REFACTOR raise (2792 -> 2793; executed 2793) — the
+# reason-key alignment made structural: `ShellExecutionResult` gains `asActionOutcome()` (the
+# fold into the `ActionOutcome` vocabulary the audit record persists, carrying each failure key
+# unchanged) and `boundedFailureKeys` (the closed set), and `ShellExecutorTests` grows one test
+# pinning that the vocabulary is exactly the four `shell.*` keys, each distinct, each mapping
+# one-to-one into `ActionOutcome.failed(reasonKey:)`, and success folding to `.succeeded` — the
+# count taken from the floor script's own parse in the ratchet commit.
+#
+# The shell-provider provider-aspect GREEN raise (2793 -> 2814; executed 2814) — the
+# `ShellProvider` conformance suite grows 21 tests: the toolIDs contract and the
+# registry-loading factory, the argv-derived sentence (planted argv verbatim, a clause that
+# cannot hide it, sorted sanitised `key = value` parameter renderings, no control character
+# able to forge a dialog line), destructive-by-default and the four refusal shapes that keep
+# the radius, unknown-command refusals as values, invoke through a call-logged engine (the
+# resolved argv, the substitution, the four bounded keys carried unchanged), the empty-argv
+# refusal, the gate-level load-bearing refusal by attempting the call, and the dry-run
+# never-invokes row — the count taken from the floor script's own parse in the ratchet commit.
+#
+# The shell-provider wiring-aspect GREEN raise (2814 -> 2822; executed 2822) — the composed
+# shell wiring suite grows 8 tests: `ShellWiringTests` drives the composed round trip over the
+# real engine (arm -> the argv-derived card sentence -> confirm -> /bin/echo runs -> the audit
+# reconstructs in ordinal order, decisions and the binding match), the decline records the
+# refused decision, the dry-run records but never invokes (asserted on the engine's own call
+# log), a disabled command is declined before any describe (the bounded key), and the
+# composed default reports `commands=0` / `spawnsSubprocess=false`; `ActionsTabTests` grows
+# the shell leg's three reducer rows (shell commands fold off by default with enablement
+# re-applied, their toggles flip row and set together, and arming an enabled shell command
+# yields the confirmation state) — the count taken from the floor script's own parse in the
+# ratchet commit.
+#
+# The shell-provider wiring-aspect REFACTOR raise (2822 -> 2824; executed 2824) — the shell
+# D2 copy lands on the surface with its two pins: the copy text itself (exact-in-spirit of
+# the server-author copy — configuring a shell command runs that command on your machine,
+# and Vocca cannot see inside a program it starts on your behalf) and its placement in the
+# shell section, the moment of arm — the count taken from the floor script's own parse in
+# the ratchet commit.
+#
+# The shell-provider probe-aspect RED raise (2824 -> 2825; executed 2825) — the PROBE-SHELL
+# post-condition and its guard-the-guard pair grow one test:
+# `testTheAssertedShellPostConditionStillDescribesTheComposedDefaultAndARoundTripThroughRealBytes`
+# (the verbatim-line additions are constants, not tests; the intent-default guard gains the
+# resolver-catalog field's assertion in the same method) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2761
+MINIMUM_EXECUTED_TESTS=2825
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

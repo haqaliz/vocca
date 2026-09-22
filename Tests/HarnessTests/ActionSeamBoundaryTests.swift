@@ -152,6 +152,12 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `shell-provider`'s reviewed widening — the fourth real implementation behind
+                // the seam, and one of the five rows that conformance costs. It runs a
+                // configured argv on the user's machine — the highest blast radius in the
+                // roadmap — so the sentence it renders is derived from the argv, never from
+                // authored prose, and the gate is its whole mitigation.
+                "VoccaActions/Providers/ShellProvider.swift",
                 // `executor`'s reviewed widening — the one caller of the gate in the shipped
                 // configuration. The generic constraint is the seam itself: the executor is
                 // per-provider by construction, holding the concrete provider it submits to.
@@ -167,6 +173,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // sighting: the composition drives `ActionProvider` + `ActionGate` and nothing
                 // else (the PRD's persona-3 rule, structural rather than stated).
                 "VoccaBootstrap/ActionWiring.swift",
+                // `shell-provider`'s reviewed widening — the shell recipe mirrors the action
+                // recipe's shape (`ShellWiring<Provider: ActionProvider>`), so the generic
+                // constraint is a sighting for the same reason: the shell surface drives the
+                // same seam + gate and nothing else.
+                "VoccaBootstrap/ShellWiring.swift",
                 // `action-round-trip`'s reviewed widening — the intent recipe mirrors the
                 // action recipe's shape (`IntentWiring<Provider: ActionProvider>`), so the
                 // generic constraint is a sighting for the same reason: the voice path drives
@@ -211,6 +222,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `shell-provider`'s reviewed widening — the fourth real implementation behind
+                // the seam, and one of the five rows that conformance costs. It reads the
+                // invocation's arguments to resolve the command's parameter slots; it builds
+                // the gate's input, never a decision with it.
+                "VoccaActions/Providers/ShellProvider.swift",
                 // `enablement-store`'s reviewed widening — the config store maps its persisted
                 // enablement rows to membership by constructing an ActionInvocation per row
                 // (arguments always nil). It reads the vocabulary to build the gate's input;
@@ -225,6 +241,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // construct one to submit). It reads the vocabulary to build the gate's input;
                 // it never decides with it.
                 "VoccaBootstrap/ActionWiring.swift",
+                // `shell-provider`'s reviewed widening — the shell recipe builds invocations
+                // from the shell leg's provider/tool identifiers (the arm, confirm, decline and
+                // preview paths all construct one to submit). It reads the vocabulary to build
+                // the gate's input; it never decides with it.
+                "VoccaBootstrap/ShellWiring.swift",
                 // `intent-seam`'s reviewed widening — the resolution vocabulary carries the
                 // invocation a confident match resolved to. The intent seam reads the action
                 // vocabulary to *name* what would run (`.toolCall(ActionInvocation)`); it never
@@ -276,11 +297,21 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `shell-provider`'s reviewed widening — the fourth real implementation behind
+                // the seam, and one of the five rows that conformance costs. It renders the
+                // argv-derived summary `describe` must return; the sentence a person approves
+                // is the argv that would run, never the author's prose about it.
+                "VoccaActions/Providers/ShellProvider.swift",
                 // `wiring`'s reviewed widening — the recipe reads the gate's summaries (the
                 // arm's card sentence, the preview's dry-run answer, the mismatch re-prompt)
                 // to present and re-present. It reads the rendered words to show them; it
                 // never decides with them.
                 "VoccaBootstrap/ActionWiring.swift",
+                // `shell-provider`'s reviewed widening — the shell recipe reads the gate's
+                // summaries (the arm's card sentence, the preview's dry-run answer, the
+                // mismatch re-prompt) to present and re-present. It reads the rendered words to
+                // show them; it never decides with them.
+                "VoccaBootstrap/ShellWiring.swift",
                 // `probe`'s reviewed widening — the voice round trip's call-logged provider
                 // renders a summary from its `describe`. One of the five rows the conformance
                 // costs.
@@ -308,6 +339,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `shell-provider`'s reviewed widening — the fourth real implementation behind
+                // the seam, and one of the five rows that conformance costs. It returns the
+                // outcome `invoke` owes the audit log, folding the engine's bounded `shell.*`
+                // keys through unchanged — never a message and never a trap.
+                "VoccaActions/Providers/ShellProvider.swift",
                 // `executor`'s reviewed widening — the probe's `ProbeActionProvider` returns
                 // an outcome from its `invoke`. One of the five rows the conformance costs.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
@@ -333,6 +369,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // for is a program Vocca did not write, which is why the annotation it reports
                 // is a claim the gate's policy may raise and may never lower.
                 "VoccaActions/MCP/MCPProvider.swift",
+                // `shell-provider`: the provider NAMES the token in `invoke`'s signature and
+                // never constructs one; Family B below is the check that says so, and it is
+                // unchanged by this widening, exactly as it is for the other providers.
+                "VoccaActions/Providers/ShellProvider.swift",
                 // `executor`'s reviewed widening — the probe's `ProbeActionProvider` names the
                 // token in `invoke`'s signature and never constructs one; Family B below is
                 // unchanged by this widening, exactly as it is for the providers.

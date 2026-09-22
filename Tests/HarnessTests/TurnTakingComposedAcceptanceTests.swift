@@ -314,6 +314,11 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
     /// three files were clean in `git status`; a deliberate edit fails CI until the digest
     /// is recomputed and edited in review — the pin must never be edited to match a moved
     /// tree).
+    ///
+    /// `AppBootstrap.swift` was re-anchored once, deliberately, on 2026-09-22 by the
+    /// `shell-provider` wiring REFACTOR (`ecfcdb4b…` → `e9aa45bb…`, computed, never
+    /// edited-to-match): the composition root grew the shell wiring, the card routing and the
+    /// Actions-tab bindings. The two dictation digests are unchanged.
     func testTheDictationPathIsByteForByteUntouched() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -327,7 +332,7 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "ecfcdb4ba122a494b49e9a6ee4338393639019aba1d19557ad2d7461674b5f74"
+                "e9aa45bbfd897f3b80299c77851667e5bd7fb26e0bf4a8dc247e3d742d787f2c"
             ),
         ]
 

@@ -9,6 +9,34 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`shell-provider` (C13 slice 7, shipped 2026-09-22):** the roadmap's highest blast
+> radius — the first provider whose radius is unboundedly destructive — composed onto the
+> proven spine, with the D2 answer narrowing again in writing. `ShellCommandRegistry`
+> persists **`shell-commands.json`** (shape-only, tolerant decode, caps refuse never clamp,
+> **`readOnly` absent → destructive by default**, the F1-lesson test: Swift's `JSONDecoder`
+> refuses `1` for `Bool`); `ShellExecutor` runs the **fixed argv** (never `/bin/sh -c`) over
+> an injected clock with a counted wait, terminate→poll→SIGKILL→poll reaping, never
+> `waitUntilExit` (the recorded deadlock), the no-orphan acceptance asserted `ESRCH` on a
+> real child; `ShellProvider` (`dev.vocca.shell`) with the **argv-derived sentence**
+> (founder decision — a planted argv appears verbatim, a clause cannot hide it; describe
+> and invoke share one render so sentence and argv cannot drift), the C13 acceptance at the
+> gate level — a destructive invocation without approval is refused **by attempting the
+> call**, the engine provably never reached. The shell arm leg renders the registry's
+> commands as the existing tool rows (enablement from the shared store, default off, the D2
+> copy on the surface), with the step-1 finding recorded: **the arm surface is not generic**
+> — tool rows exist only from `discoverySucceeded`, so the section builds its own. The
+> transport-permit lint widened from exactly one file to exactly two, and **the claim
+> narrows in writing — the default configuration cannot create a shell child** (a shell
+> child is even less observable than an MCP child; an *enabled* command's egress is never
+> provable). `PROBE-SHELL` drives the composed default (`commands=0 spawnsSubprocess=false`)
+> inside the zero-network interposer with its guard-the-guard pair; PROBE-INTENT-DEFAULT
+> gained `intentShellRows=0` — shell is **arm-surface-only**, the voice leg cannot resolve
+> to a shell command this slice. G5 re-anchored once, deliberately (`ecfcdb4b…` →
+> `e9aa45bb…`, dictation digests unchanged). **No gate passes** (eleventh unit ahead of the
+> uncleared gates); R8 amplified and mitigated, not retired — N2 stated (an approval asserts
+> a human said yes, cannot verify it); the classifier's accuracy unmeasured (unchanged).
+> SMOKE 151-153 are **written and runnable** — recorded, never gated, executed by nothing in
+> CI. Test floor: **2825**.
 > **`intent-layer` (C13 slice 6, shipped 2026-09-22):** the voice leg of the action surface —
 > the piece that joins the converse pipeline to the action machinery, with the §8 escape-valve
 > decision made and pinned. The seam is **`VoccaCore/Intent/`** (Foundation-free, no new

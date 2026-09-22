@@ -74,9 +74,13 @@ import VoccaUI
 //   live in the voice path.
 //
 // PROBE-INTENT-DEFAULT: `resolver=NullIntentResolver resolves=1 intentResolved=0
-// spawnsSubprocess=false` — `resolver` derived from the composed root's slot's own dynamic
-// type, `resolves`/`intentResolved` from the resolution the drive actually performed through
-// the composed wiring, and `spawnsSubprocess` from the composed wiring's declared fact.
+// spawnsSubprocess=false intentShellRows=0` — `resolver` derived from the composed root's
+// slot's own dynamic type, `resolves`/`intentResolved` from the resolution the drive actually
+// performed through the composed wiring, `spawnsSubprocess` from the composed wiring's
+// declared fact, and `intentShellRows` counted off the shipped resolver catalog — the
+// arm-surface-only decision (shell is never composed into the intent seam, the `shell-provider`
+// founder decision) as a reported fact: the voice leg has no learned phrase that could ever
+// resolve to a shell command.
 extension VoccaNetworkProbe {
 
     /// The intent drive's observation: the round trip and the composed default's facts, as two
@@ -252,6 +256,15 @@ extension VoccaNetworkProbe {
             spawnsSubprocess = "\(composedWiring.spawnsSubprocess)"
         }
 
+        // The arm-surface-only fact (`shell-provider`, founder decision): the shipped
+        // resolver catalog never names a `dev.vocca.shell` row — counted off the shipped
+        // synonym table, the only resolver catalog the voice leg can learn phrases from. A
+        // composition that wired a shell synonym flips this count, and the guard-the-guard
+        // refuses the flip as a reviewed edit.
+        let shellRows = KeywordIntentResolver.shippedSynonyms.filter {
+            $0.providerID == ShellProvider.providerID
+        }.count
+
         // A second store over the same directory: the reader shares nothing with the writer, so
         // what it returns came off the disk.
         let reader = FileSystemActionAuditStore(directory: auditDirectory)
@@ -280,6 +293,7 @@ extension VoccaNetworkProbe {
                 "resolves=\(resolves)",
                 "intentResolved=\(intentResolved)",
                 "spawnsSubprocess=\(spawnsSubprocess)",
+                "intentShellRows=\(shellRows)",
             ].joined(separator: " "),
             moduleWitness: type(of: wiring))
     }

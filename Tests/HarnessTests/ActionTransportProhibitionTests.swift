@@ -79,23 +79,43 @@ private enum ActionTransportTestError: Error, CustomStringConvertible {
 /// than true-with-a-footnote. The transport takes the same shape. See the entry's own comment on
 /// ``filesPermittedToNameATransport``, which is where the answer lives.
 ///
+/// ## That day came again: `shell-provider`, 2026-09-22
+///
+/// The second entry is the shell executor, and it owes the same answer and a harsher version
+/// of it: **a shell child is even less observable than an MCP child.** The MCP child was one
+/// blind hop; a shell child is the same hop with a shell in front of it, and the restricted
+/// child purges `DYLD_*` from the environment it passes on, so the interposer cannot see the
+/// shell's egress or anything the shell spawns behind it. Nothing at this layer changes that
+/// — so the claim narrows in writing exactly as it did before: **the default configuration
+/// cannot create a shell child either.** The provider is not wired into the shipped
+/// composition, so the probe never reaches a spawn. See the entry's own comment for the full
+/// record — and the two tests this widening ships with: the set pin and the pending-entry
+/// record, below.
+///
 /// ## Forbidden families
 ///
 /// `URLSession`, `NW`, `Network`, `Process`, `posix_spawn`, `NSTask`, `system` — the two doors
 /// out of the process (a socket opened here, a child spawned to open one elsewhere), as
 /// identifier *prefix* families in the ``ModelDownloaderSeamTests`` shape.
 ///
-/// Exactly **one** file under `Sources/VoccaActions/` may name any of them — the stdio transport,
-/// and nothing else. The prohibition therefore has three legs now, where an empty permitted set
-/// needed only one:
+/// Exactly **two** files under `Sources/VoccaActions/` may name any of them — the stdio
+/// transport and the shell executor, and nothing else. The prohibition therefore has three
+/// legs now, where an empty permitted set needed only one:
 ///
 /// - **(a)** no *unpermitted* file names a family;
-/// - **(b)** every *permitted* file **does** name one — which stopped being vacuous the day the
-///   set gained its first entry, and is the ``ModelDownloaderSeamTests`` leg: a permitted file
-///   that no longer names `Process` means the spawn moved somewhere this lint cannot see, and the
-///   one-sided check "nothing else names it" would pass while the confinement was gone;
-/// - **(c)** every permitted path exists and was actually scanned — a permitted entry pointing at
-///   a deleted or moved file permits nothing and hides that it permits nothing.
+/// - **(b)** every *existing* permitted file **does** name one — which stopped being vacuous
+///   the day the set gained its first entry, and is the ``ModelDownloaderSeamTests`` leg: a
+///   permitted file that no longer names `Process` means the spawn moved somewhere this lint
+///   cannot see, and the one-sided check that nothing else names it would pass while the
+///   confinement was gone;
+/// - **(c)** every permitted path that exists was actually scanned — a permitted entry pointing
+///   at a deleted or moved file permits nothing and hides that it permits nothing.
+///
+/// Both entries are **live**: each names a file that exists. A permitted entry that names a
+/// file which does not exist yet is a **pending** entry, permitting nothing — that vacuity was
+/// recorded rather than passed over while the shell executor was pending, and the record died
+/// with the file: the moment `Execution/ShellExecutor.swift` landed, legs (b) and (c) began to
+/// apply to the entry.
 ///
 /// The vacuity is closed from the other side as well: the scanned file list is asserted non-empty,
 /// every scanned file is asserted to exist, and scanning nothing throws
@@ -162,8 +182,8 @@ final class ActionTransportProhibitionTests: XCTestCase {
         "URLSession", "NW", "Network", "Process", "posix_spawn", "NSTask", "system",
     ]
 
-    /// Files permitted to name a forbidden family, relative to `Sources/`. **Exactly one**, and
-    /// the entry is the reviewed edit this lint exists to force.
+    /// Files permitted to name a forbidden family, relative to `Sources/`. **Exactly two**, and
+    /// each entry is the reviewed edit this lint exists to force.
     ///
     /// ## The answer to D2, which this entry owes the review
     ///
@@ -192,13 +212,39 @@ final class ActionTransportProhibitionTests: XCTestCase {
     /// default.** A sentence that survives a `PROBE-*` run because the code path was never reached
     /// is worth more than a sentence that survives because an exception was written for it.
     ///
-    /// ## What a second entry would cost
+    /// ## The second entry: `shell-provider`, 2026-09-22 — D2 answered for a shell child
     ///
-    /// The spawn must stay confined to one file or the confinement means nothing: two files that
-    /// may each spawn are two places the review has to be repeated and one place it will not be.
-    /// A second entry is not a formatting change.
+    /// The first entry warned what a second would cost, and it was right: two files that may
+    /// each spawn are two places the review has to be repeated and one place it will not be.
+    /// The second entry is nevertheless made, because the shell provider needs `Process` and
+    /// the alternative — an exception to the lint — is the one thing that costs more than the
+    /// second review. The answer the entry owes is D2 asked of a *shell* child, and it is the
+    /// first answer, harsher:
+    ///
+    /// **A shell child is even less observable than an MCP child.** The MCP child was one blind
+    /// hop; the shell child is the same hop with a shell in front of it, and the blindness is
+    /// inherited — the restricted child purges `DYLD_INSERT_LIBRARIES` from the environment it
+    /// passes on, so the zero-network interposer cannot see a shell child's egress, nor
+    /// anything the shell spawns behind it. There is no mitigation at this layer, and an answer
+    /// claiming one would be claiming something measurably false.
+    ///
+    /// **So the claim narrows in writing exactly as it did for the transport: the DEFAULT
+    /// CONFIGURATION CANNOT CREATE A SHELL CHILD.** The provider is not wired into the shipped
+    /// composition, so the probe never reaches a spawn and the zero-network assertion stays
+    /// true *and verifiable*: there is no child for it to be blind to. Configuring a shell
+    /// command is the same trust extended to the command's author, stated in the docs rather
+    /// than implied away.
+    ///
+    /// And what the lint still does is unchanged: **reaching for `Process` anywhere else is a
+    /// reviewed edit.** Leg (a) still fails any third file, and this widening ships a planted
+    /// control that proves it against the real scan —
+    /// ``testAPlantedThirdFileNamingAProcessFamilyStillFailsTheLint``. The entry landed
+    /// **with its file**: `Execution/ShellExecutor.swift` exists, so the vacuity the widening
+    /// briefly carried is gone and legs (b) and (c) and the count equality now apply to it —
+    /// the entry stopped being a promise and became a confinement the day the executor shipped.
     private static let filesPermittedToNameATransport: Set<String> = [
-        "VoccaActions/MCP/StdioMCPTransport.swift"
+        "VoccaActions/MCP/StdioMCPTransport.swift",
+        "VoccaActions/Execution/ShellExecutor.swift",
     ]
 
     /// Every occurrence of a forbidden family in `source`, comments removed first.
@@ -299,6 +345,7 @@ final class ActionTransportProhibitionTests: XCTestCase {
         }
 
         let permitted = Self.filesPermittedToNameATransport
+        let scannedRelative = Set(try result.scanned.map { try relativeToSources($0) })
 
         // Leg (a): nothing outside the permitted set names a family.
         let offenders = result.sightings.filter { !permitted.contains($0.key) }
@@ -310,13 +357,16 @@ final class ActionTransportProhibitionTests: XCTestCase {
             Loopback counts as network in the interposer, and a spawned child runs outside it \
             entirely — see this file's documentation for D2 before making this pass. Widening \
             the permitted set is a reviewed edit that owes the review an answer to D2, not a \
-            formatting change; there is exactly one entry, and the spawn must stay confined to \
-            one file or the confinement means nothing.
+            formatting change; there are exactly two entries — the stdio transport and the \
+            shell executor — and a spawn anywhere else is a confinement that has sprung a leak.
             """)
 
-        // Leg (b): every permitted file still names one. Vacuous until the set gained its first
-        // entry; the whole point of the entry is that this leg now watches something.
-        for file in permitted.sorted() {
+        // Legs (b) and (c): every permitted entry names one and was actually scanned — both
+        // entries are live now; the shell executor's pending period ended when its file landed.
+        for file in permitted.sorted().filter(scannedRelative.contains) {
+            // Leg (b): every existing permitted file still names one. Vacuous until the set
+            // gained its first entry; the whole point of the entry is that this leg watches
+            // something.
             XCTAssertFalse(
                 result.sightings[file]?.isEmpty ?? true,
                 """
@@ -325,12 +375,10 @@ final class ActionTransportProhibitionTests: XCTestCase {
                 permission exists to make visible — or the permission has outlived its reason and \
                 should be removed rather than kept as a standing exception.
                 """)
-        }
 
-        // Leg (c): every permitted path is real and was actually scanned. A permission pointing
-        // at a moved file permits nothing, and hides that it permits nothing.
-        let scannedRelative = Set(try result.scanned.map { try relativeToSources($0) })
-        for file in permitted.sorted() {
+            // Leg (c): every existing permitted path is real and was actually scanned. A
+            // permission pointing at a moved file permits nothing, and hides that it permits
+            // nothing.
             XCTAssertTrue(
                 scannedRelative.contains(file),
                 """
@@ -339,10 +387,33 @@ final class ActionTransportProhibitionTests: XCTestCase {
                 """)
         }
 
+        // Exactly the *live* permitted entries may name a family — both are live now.
         XCTAssertEqual(
-            result.sightings.count, permitted.count,
-            "exactly the permitted set may name a transport or subprocess family, got "
+            result.sightings.count, permitted.intersection(scannedRelative).count,
+            "exactly the live permitted entries may name a transport or subprocess family, got "
                 + "\(result.sightings.keys.sorted())")
+    }
+
+    // MARK: - The permitted set
+
+    /// The permitted set holds **exactly the two reviewed entries**, spelled exactly.
+    ///
+    /// This is the assertion the reviewed-edit mechanism rests on: changing the set — widening,
+    /// narrowing, retyping a path — is a change to this file and to this list. A typo that
+    /// points at a file that never existed would otherwise be indistinguishable from a
+    /// deliberate entry, which is what leg (c) and this pin exist to make visible.
+    func testThePermittedSetHoldsExactlyTheTwoReviewedEntries() {
+        XCTAssertEqual(
+            Self.filesPermittedToNameATransport,
+            [
+                "VoccaActions/MCP/StdioMCPTransport.swift",
+                "VoccaActions/Execution/ShellExecutor.swift",
+            ],
+            """
+            the permitted set must be exactly the two reviewed entries — the stdio transport \
+            and the shell executor. Any change to the set is a reviewed edit and must land \
+            here, in this assertion, with the D2 answer the entry owes.
+            """)
     }
 
     /// The file that makes trap (a) live.
@@ -451,6 +522,55 @@ final class ActionTransportProhibitionTests: XCTestCase {
             Self.transportIdentifiers(inSource: source),
             ["posix_spawn", "NSTask", "system"],
             "every subprocess family must be watched firing — these are the D2 families")
+    }
+
+    /// The widening's own control: a **third** file naming a subprocess family still fails.
+    ///
+    /// A widening that weakened the lint would be invisible in the clean tree — nothing else
+    /// names a family, so leg (a) would have nothing to trip on and the suite would stay green.
+    /// So a real file is planted in the module and the **real scan** is run against it: the
+    /// widened permitted set must still report the planted file as an offender. This is the
+    /// string-level controls' end-to-end counterpart — it exercises the actual scan of the
+    /// actual module with the actual permitted set, and it is what "the widening did not
+    /// weaken leg (a)" means rather than hopes.
+    ///
+    /// The probe is planted **at the module root, in its own uniquely named file**, and only
+    /// that file is removed afterwards. The widening's first draft planted it in
+    /// `Execution/` and removed the directory — which was safe while `Execution/` held nothing
+    /// real, and destructive from the day the executor's files landed there: the cleanup would
+    /// have deleted the very confinement this control exists to guard.
+    func testAPlantedThirdFileNamingAProcessFamilyStillFailsTheLint() throws {
+        let root = try moduleRoot()
+        let planted = root.appendingPathComponent("LintPlantedProbe.swift")
+        defer { try? FileManager.default.removeItem(at: planted) }
+        try """
+            import Foundation
+
+            struct LintPlantedProbe {
+                func run() { _ = Process() }
+            }
+            """.write(to: planted, atomically: true, encoding: .utf8)
+
+        let relative = try relativeToSources(planted)
+        XCTAssertFalse(
+            Self.filesPermittedToNameATransport.contains(relative),
+            "the planted file must not be a permitted entry, or this control watches nothing")
+
+        let result = try scan(under: root)
+        XCTAssertEqual(
+            result.sightings[relative], ["Process"],
+            "the widened lint must still see the planted file's Process: \(result.sightings)")
+
+        let offenders = result.sightings.filter {
+            !Self.filesPermittedToNameATransport.contains($0.key)
+        }
+        XCTAssertTrue(
+            offenders.keys.contains(relative),
+            """
+            leg (a) must still fail for a third file: the offenders \(offenders.keys.sorted()) \
+            do not include the planted \(relative). The widening must not have made unpermitted \
+            sightings permissible.
+            """)
     }
 
     // MARK: - Trap (a): `system` inside `FileSystem`

@@ -23,6 +23,23 @@ public enum ActionsTabCopy {
     /// D2 copy must therefore live (the moment of spawn).
     public static let toolsSectionTitle = "Server tools"
 
+    /// The shell section's title (`shell-provider` wiring) — the section that lists the
+    /// registry's configured commands, armable like any other tool row.
+    public static let shellSectionTitle = "Shell commands"
+
+    /// The shell section's empty state — honest about why it is empty: nothing is configured
+    /// out of the box, and an absent `shell-commands.json` is the empty registry.
+    public static let emptyShellCommands =
+        "No shell commands configured. Add them to shell-commands.json to arm them here."
+
+    /// **The shell leg's D2 copy, exact-in-spirit** (the server-author copy above): configuring
+    /// a shell command runs that command on the user's machine — and Vocca's check watches its
+    /// own process and cannot see inside a program Vocca starts on its behalf. Placed in the
+    /// shell section, the moment of arm.
+    public static let shellD2TrustCopy =
+        "Configuring a shell command runs that command on your machine; Vocca cannot see "
+        + "inside a program it starts on your behalf."
+
     /// The empty state — honest about why it is empty.
     public static let emptyServers =
         "No servers configured yet. Add one to connect its tools."
