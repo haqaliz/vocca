@@ -1990,8 +1990,18 @@ set -euo pipefail
 # one-to-one into `ActionOutcome.failed(reasonKey:)`, and success folding to `.succeeded` — the
 # count taken from the floor script's own parse in the ratchet commit.
 #
+# The shell-provider provider-aspect GREEN raise (2793 -> 2814; executed 2814) — the
+# `ShellProvider` conformance suite grows 21 tests: the toolIDs contract and the
+# registry-loading factory, the argv-derived sentence (planted argv verbatim, a clause that
+# cannot hide it, sorted sanitised `key = value` parameter renderings, no control character
+# able to forge a dialog line), destructive-by-default and the four refusal shapes that keep
+# the radius, unknown-command refusals as values, invoke through a call-logged engine (the
+# resolved argv, the substitution, the four bounded keys carried unchanged), the empty-argv
+# refusal, the gate-level load-bearing refusal by attempting the call, and the dry-run
+# never-invokes row — the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2793
+MINIMUM_EXECUTED_TESTS=2814
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
