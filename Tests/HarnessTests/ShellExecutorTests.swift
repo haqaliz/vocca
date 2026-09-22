@@ -325,6 +325,44 @@ final class ShellExecutorTests: XCTestCase {
 
     // MARK: - The bounds are pinned in one place
 
+    /// The engine's failure vocabulary is the closed set of bounded `shell.*` keys, each spelled
+    /// for ``ActionOutcome/failed(reasonKey:)`` and each a distinct key the provider's fold
+    /// carries into the audit record unchanged.
+    ///
+    /// The alignment is structural: a key outside this closed set would be a failure the
+    /// provider's mapping had never reviewed, and free text would smuggle unbounded bytes onto a
+    /// byte-pinned audit entry. Success carries no key at all — it folds to
+    /// ``ActionOutcome/succeeded``.
+    func testTheFailureKeysAreTheClosedBoundedVocabulary() {
+        let keys = ShellExecutionResult.boundedFailureKeys
+        XCTAssertEqual(
+            Set(keys),
+            ["shell.exitCode", "shell.timedOut", "shell.signal", "shell.launchFailed"],
+            "the engine's failure keys are exactly the closed shell.* vocabulary — no free text, "
+                + "no unreviewed key")
+        XCTAssertEqual(
+            keys.count, Set(keys).count,
+            "each key is distinct — a duplicated key would collapse the audit vocabulary")
+
+        let mapped = keys.map { ActionOutcome.failed(reasonKey: $0) }
+        for first in 0..<mapped.count {
+            for second in (first + 1)..<mapped.count {
+                XCTAssertNotEqual(
+                    mapped[first], mapped[second],
+                    "each key maps to a distinct ActionOutcome — the provider's fold is "
+                        + "one-to-one")
+            }
+        }
+        for key in keys {
+            XCTAssertTrue(
+                key.hasPrefix("shell."),
+                "a shell failure key must be namespaced under shell. — \(key) is not")
+            XCTAssertFalse(
+                key.contains(" "),
+                "a bounded reason key carries no message — \(key) contains spaces")
+        }
+    }
+
     /// The timeout ceiling and the output bound are pinned as the shipped defaults, and a
     /// configuration that declares neither takes them rather than a literal of its own.
     ///

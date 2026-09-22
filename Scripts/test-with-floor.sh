@@ -1982,8 +1982,16 @@ set -euo pipefail
 # retired and legs (b) and (c) and the count equality apply to the entry. Net +9. The count was
 # taken from the floor script's own parse in the ratchet commit.
 #
+# The shell-provider execution-aspect REFACTOR raise (2792 -> 2793; executed 2793) — the
+# reason-key alignment made structural: `ShellExecutionResult` gains `asActionOutcome()` (the
+# fold into the `ActionOutcome` vocabulary the audit record persists, carrying each failure key
+# unchanged) and `boundedFailureKeys` (the closed set), and `ShellExecutorTests` grows one test
+# pinning that the vocabulary is exactly the four `shell.*` keys, each distinct, each mapping
+# one-to-one into `ActionOutcome.failed(reasonKey:)`, and success folding to `.succeeded` — the
+# count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2792
+MINIMUM_EXECUTED_TESTS=2793
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

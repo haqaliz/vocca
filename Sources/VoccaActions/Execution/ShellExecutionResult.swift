@@ -31,7 +31,9 @@ import Foundation
 /// ``ActionOutcome/succeeded`` carries no payload, and the acceptance reads the exit code back
 /// off a successful run. The engine needs a channel for the code and for the captured output,
 /// so it returns this type and the provider folds it into ``ActionOutcome`` — success with
-/// exit 0, and every `.failed` key carried across unchanged.
+/// exit 0, and every `.failed` key carried across unchanged. The fold lives with the provider,
+/// not here: naming ``ActionOutcome`` from this file would trip the action-family seam lint,
+/// and the provider is the file that already owes its Family-A rows.
 public struct ShellExecutionResult: Sendable, Equatable {
 
     /// The run's outcome. ``succeeded`` carries the exit code so the caller can read it back;
@@ -74,6 +76,20 @@ public struct ShellExecutionResult: Sendable, Equatable {
     }
 
     // MARK: - The bounded reason keys
+
+    /// The closed set of failure keys this engine may produce.
+    ///
+    /// Each key is spelled for ``ActionOutcome/failed(reasonKey:)`` and the provider folds them
+    /// into ``ActionOutcome`` **unchanged** — never translated, abbreviated or re-spelled — so
+    /// this list is exactly the vocabulary the audit seam can ever see from a shell run. Pinned
+    /// by test so a new key is a reviewed addition here, not a stray literal the provider never
+    /// mapped.
+    public static let boundedFailureKeys: [String] = [
+        exitCodeReasonKey,
+        timedOutReasonKey,
+        signalReasonKey,
+        launchFailedReasonKey,
+    ]
 
     /// The child exited with a non-zero status.
     ///
