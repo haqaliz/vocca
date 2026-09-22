@@ -167,6 +167,13 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // sighting: the composition drives `ActionProvider` + `ActionGate` and nothing
                 // else (the PRD's persona-3 rule, structural rather than stated).
                 "VoccaBootstrap/ActionWiring.swift",
+                // `action-round-trip`'s reviewed widening — the intent recipe mirrors the
+                // action recipe's shape (`IntentWiring<Provider: ActionProvider>`), so the
+                // generic constraint is a sighting for the same reason: the voice path drives
+                // the same seam + gate and nothing else. Two rows for this file (the other
+                // families it would name are inferred away), deliberately fewer than the five a
+                // conformance costs.
+                "VoccaBootstrap/IntentWiring.swift",
             ]
         ),
         (
@@ -233,6 +240,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 "VoccaBootstrap/ConverseLoopDriver.swift",
                 "VoccaBootstrap/ConverseWiring.swift",
                 "VoccaNetworkProbe/ConverseLoopDrive.swift",
+                // `action-round-trip`'s reviewed widening — the intent recipe's action leg
+                // takes the invocation its closure signature names (the voice path submits
+                // what a `.toolCall` resolved to). It moves the type through the executor; it
+                // never decides with it.
+                "VoccaBootstrap/IntentWiring.swift",
             ]
         ),
         (

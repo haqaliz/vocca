@@ -125,6 +125,10 @@ final class ConverseWiringSeamBoundaryTests: XCTestCase {
                 "VoccaBootstrap/ConverseLoopDriver.swift",
                 "VoccaBootstrap/ConverseWiring.swift",
                 "VoccaNetworkProbe/ConverseLoopDrive.swift",
+                // `action-round-trip`'s reviewed widening — the intent recipe's `resolve`
+                // closure returns the resolution vocabulary (the closure type's signature).
+                // It produces what the driver branches on; it never branches itself.
+                "VoccaBootstrap/IntentWiring.swift",
             ]
         ),
     ]
