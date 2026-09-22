@@ -73,6 +73,11 @@ public struct IntentWiring<Provider: ActionProvider>: Sendable {
     /// surface's closures use, exposed for the composition root's slot.
     public let executor: ActionExecutor<Provider>
 
+    /// **Whether the composed intent wiring spawns a child process.** `false` — the declared
+    /// value, the ``ActionWiring`` analogue: the voice path spawns nothing (D2), and a
+    /// composition that wired a transport would declare it here rather than in a comment.
+    public let spawnsSubprocess: Bool
+
     /// **The local radius floor, `.none`, recorded as a decision** — the `ActionWiring.swift:203`
     /// decision inherited by the voice leg: escalate-only means the floor can only raise, and a
     /// stricter *current* floor would force confirmation on genuinely read-only tools and break
@@ -85,12 +90,14 @@ public struct IntentWiring<Provider: ActionProvider>: Sendable {
         resolve: @escaping @Sendable @MainActor (String) async -> IntentResolution,
         performAction: @escaping @Sendable @MainActor (ActionInvocation) async -> String?,
         executor: ActionExecutor<Provider>,
-        policy: ActionRadiusPolicy
+        policy: ActionRadiusPolicy,
+        spawnsSubprocess: Bool
     ) {
         self.resolve = resolve
         self.performAction = performAction
         self.executor = executor
         self.policy = policy
+        self.spawnsSubprocess = spawnsSubprocess
     }
 }
 
@@ -109,12 +116,17 @@ extension AppBootstrap {
         }
     }
 
-    /// **The intent wiring recipe** (`action-round-trip`): the resolution and action-leg
-    /// closures, composed over the shipped seams — the ``ActionExecutor`` (the gate's one
-    /// caller, built here over the real audit store and the injected provider), the
-    /// ``ActionConfigStore`` (the composition's parameter — the shipped composition passes the
-    /// real store, the probe and tests pass temp-directory stores), the injected
-    /// ``IntentResolver``, and the widget store's card folds.
+    /// **The intent wiring recipe** (`action-round-trip` + `probe`): the resolution and
+    /// action-leg closures, composed over the shipped seams — the ``ActionExecutor`` (the
+    /// composition's parameter: the shipped composition passes the **shared**
+    /// `root.actionExecutor` — the same instance the surface's closures submit through, R5 —
+    /// while the probe and tests pass their own over temp-directory stores), the ``ActionConfigStore``
+    /// (also the composition's parameter — the shipped composition passes the real store, the
+    /// probe and tests pass temp-directory stores), the injected ``ActionProvider`` (the
+    /// re-render's describe source — the shipped composition passes the same instance the
+    /// executor was built over; `ActionExecutor` keeps its provider private, so the recipe
+    /// takes the seam it renders through), the injected ``IntentResolver``, and the widget
+    /// store's card folds.
     ///
     /// ## The executor leg
     ///
@@ -151,12 +163,11 @@ extension AppBootstrap {
     @MainActor
     public static func composeIntentWiring<Provider: ActionProvider>(
         configStore: ActionConfigStore,
-        auditStore: FileSystemActionAuditStore,
         provider: Provider,
+        executor: ActionExecutor<Provider>,
         resolver: any IntentResolver,
         root: DictationLoopRoot
     ) -> IntentWiring<Provider> {
-        let executor = ActionExecutor(provider: provider, store: auditStore)
         let generation = IntentGeneration()
         let logger = Logger(subsystem: "dev.vocca.Vocca", category: "intent-wiring")
 
@@ -245,6 +256,7 @@ extension AppBootstrap {
             resolve: resolve,
             performAction: performAction,
             executor: executor,
-            policy: policy)
+            policy: policy,
+            spawnsSubprocess: false)
     }
 }

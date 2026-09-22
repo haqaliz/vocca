@@ -659,10 +659,13 @@ public enum AppBootstrap {
                 applicationSupport: FileManager.default.urls(
                     for: .applicationSupportDirectory, in: .userDomainMask).first,
                 home: FileManager.default.homeDirectoryForCurrentUser))
+        // Hoisted so the intent composition can hand the **same** provider instance to the
+        // shared executor's recipe (the re-render's describe source, R5).
+        let actionProvider = AuditActionProvider(store: actionAuditStore)
         let actionWiring = AppBootstrap.composeActionWiring(
             configStore: actionConfigStore,
             auditStore: actionAuditStore,
-            provider: AuditActionProvider(store: actionAuditStore),
+            provider: actionProvider,
             sessionActive: { [weak root] in
                 guard let root else { return false }
                 return root.holdToTalk.machine.state != .idle
@@ -681,6 +684,29 @@ public enum AppBootstrap {
         // panel's first construction, which needs a user's arm and therefore comes after
         // `configure` (the `partialSink.store` shape).
         root.liveWidget.confirmationActions = (actionWiring.confirm, actionWiring.decline)
+
+        // The intent composition (C13 slice 6, R7 — the C11/C12/C13 additive shape, one more
+        // recipe + the two root slots above): the voice path's resolution and action leg,
+        // composed over the **shared** executor (`actionWiring.executor` — the same instance
+        // `root.actionExecutor` receives, R5), the enablement catalog (the same `actionConfigStore`
+        // the Actions tab edits), and the composed default's `NullIntentResolver` — the
+        // D2-analogue posture: a shipped configuration cannot voice-act until a future slice
+        // wires a resolver deliberately (N1 records the flip as a reviewed edit), and the
+        // echo reply generator is untouched. Probe-safe by construction: nothing here spawns,
+        // reads or starts — the stores are read at call time, the resolver is a pure `.none`,
+        // and the wiring declares `spawnsSubprocess = false` (the `requiresNetwork` analogue,
+        // extended to the voice leg).
+        let intentResolver = NullIntentResolver()
+        let intentWiring = AppBootstrap.composeIntentWiring(
+            configStore: actionConfigStore,
+            provider: actionProvider,
+            executor: actionWiring.executor,
+            resolver: intentResolver,
+            root: root)
+        root.intentWiring = intentWiring
+        // The fact carrier: the same resolver the wiring resolves through, kept so the probe
+        // can derive the composed default's posture from the root's own slot.
+        root.intentResolver = intentResolver
 
         return root
     }
@@ -1545,6 +1571,21 @@ public final class DictationLoopRoot {
     /// the live widget's slot (`confirmationActions`). `nil` only in a composition that built no
     /// action wiring.
     public var actionDecline: (@Sendable @MainActor () async -> Void)?
+
+    // MARK: - The intent composition (C13 slice 6, intent-layer)
+
+    /// **The composed intent wiring** (`action-round-trip` + `probe`): the voice path's
+    /// resolution and action-leg closures, composed by `configure` through the probe-safe
+    /// recipe (`composeIntentWiring`) over the **shared** executor (`actionExecutor`) and the
+    /// composed default's `NullIntentResolver`. `nil` only in a composition that built no intent
+    /// wiring — every headless harness in the suite.
+    public var intentWiring: IntentWiring<AuditActionProvider>?
+
+    /// **The composed default's resolver — the fact carrier** (`probe`): the
+    /// `NullIntentResolver` the wiring resolves through, kept on the root so the probe can
+    /// report the R7 unwired posture as an effect of the composed root rather than as a comment.
+    /// `nil` only in a composition that built no intent wiring.
+    public var intentResolver: (any IntentResolver)?
 
     /// The settings window, built on first use and kept for the process's lifetime.
     ///

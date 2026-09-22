@@ -109,8 +109,8 @@ final class IntentRoundTripHarness<Provider: ActionProvider> {
 
         let wiring = AppBootstrap.composeIntentWiring(
             configStore: configStore,
-            auditStore: auditStore,
             provider: provider,
+            executor: ActionExecutor(provider: provider, store: auditStore),
             resolver: resolver,
             root: root)
         let surface = AppBootstrap.composeActionWiring(

@@ -17,11 +17,12 @@ import XCTest
 
 /// **The action-wiring family lint** (`wiring` aspect Phase 4, the
 /// `ContextWiringSeamBoundaryTests` shape): the C13 composition's own names are confined to the
-/// three files that compose it — the recipe (`VoccaBootstrap/ActionWiring.swift`), the
-/// composition root's call (`AppBootstrap.swift`), and the probe drive
-/// (`VoccaNetworkProbe/ActionAuditDrive.swift`) — and never the pinned dictation files, the
-/// action machinery, or `VoccaUI` (the surfaces consume the root's slots, never the wiring's
-/// names).
+/// files that compose it — the recipe (`VoccaBootstrap/ActionWiring.swift`), the
+/// composition root's call (`AppBootstrap.swift`), and the two probe drives that run the
+/// recipe (`ActionAuditDrive.swift` and, since `probe`, the intent drive whose round trip's
+/// human leg is the surface's own confirm/decline closures) — and never the pinned dictation
+/// files, the action machinery, or `VoccaUI` (the surfaces consume the root's slots, never the
+/// wiring's names).
 ///
 /// The family is the wiring's own vocabulary — `ActionWiring` (the recipe's surface; the prefix
 /// rule covers `ActionWiringError` by construction) and `composeActionWiring` (the recipe's
@@ -43,10 +44,15 @@ final class ActionWiringSeamBoundaryTests: XCTestCase {
     /// the composition root names the recipe's call and the root's slots; the probe drive
     /// composes the recipe for the zero-network invariant. The surfaces (`VoccaUI`) consume the
     /// root's slots, never the wiring's names.
+    ///
+    /// `probe`'s reviewed widening — the intent drive names the **action** recipe too: the
+    /// voice round trip's human leg is the surface's own confirm/decline closures (R5), so the
+    /// drive composes `composeActionWiring` alongside `composeIntentWiring`.
     private static let filesPermittedToNameTheWiringFamily: Set<String> = [
         "VoccaBootstrap/ActionWiring.swift",
         "VoccaBootstrap/AppBootstrap.swift",
         "VoccaNetworkProbe/ActionAuditDrive.swift",
+        "VoccaNetworkProbe/IntentDrive.swift",
     ]
 
     /// The identifier prefix of the never-read guard's family: the seam itself.
@@ -113,7 +119,7 @@ final class ActionWiringSeamBoundaryTests: XCTestCase {
     /// check: "no other file names the family" passes if the permitted files *also* lost
     /// their implementation (the family used everywhere else — vacuous), and "the permitted
     /// files name the family" passes if four files do (the seam has sprung a leak).
-    func testOnlyTheThreeCompositionFilesMayNameTheActionWiringFamily() throws {
+    func testOnlyTheCompositionFilesMayNameTheActionWiringFamily() throws {
         let root = try sourcesRoot()
         guard FileManager.default.fileExists(atPath: root.path) else {
             throw ActionWiringLintError.sourcesDirectoryMissing(expectedAt: root.path)
@@ -125,7 +131,7 @@ final class ActionWiringSeamBoundaryTests: XCTestCase {
         }
         XCTAssertTrue(
             offenders.isEmpty,
-            "the action-wiring family is named outside the three composition files: "
+            "the action-wiring family is named outside the composition files: "
                 + "\(offenders.sorted())")
 
         let permitted = Self.filesPermittedToNameTheWiringFamily

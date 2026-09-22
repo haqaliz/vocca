@@ -67,11 +67,23 @@ private enum IntentSeamTestError: Error, CustomStringConvertible {
 /// - `VoccaNetworkProbe/ConverseLoopDrive.swift` (`converse-step`): the probe's explicit
 ///   unwired closure.
 ///
+/// ## The reviewed widening (`probe`, 2026-09-22)
+///
+/// The composition root and the probe drive landed and joined the permitted sets — the
+/// `AppBootstrap.swift` row the `action-round-trip` note above anticipated:
+///
+/// - `VoccaBootstrap/AppBootstrap.swift` (`probe`): the root's `intentResolver` slot type (the
+///   `IntentResolver` row) and the composed default's construction (`NullIntentResolver` — the
+///   R7 unwired posture, wired deliberately);
+/// - `VoccaNetworkProbe/IntentDrive.swift` (`probe`): the drive constructs the real
+///   `KeywordIntentResolver` over a probe-seeded synonym table (both rows), and derives the
+///   composed default's fact by naming the `NullIntentResolver` it checks the composed root's
+///   slot for — the drive reads the implementations to observe the composition, never to branch
+///   a resolution on one.
+///
 /// Widening the scan root is the deliberate reviewed edit this lint's mechanism exists for: the
 /// permitted tables below are the only place a new naming file can appear, and every row is
-/// read in review. `AppBootstrap.swift` joins these sets when the composition root composes the
-/// wiring (the `probe` aspect) — a permitted file that does not yet name its family fails the
-/// non-vacuous guard, so it is not listed ahead of that landing.
+/// read in review.
 ///
 /// ## The families
 ///
@@ -112,6 +124,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // the seam's consumer: it supplies the catalog and reads the resolution. It
                 // names the protocol to call it, never to re-decide with it.
                 "VoccaBootstrap/IntentWiring.swift",
+                // `probe`'s reviewed widening — the root's `intentResolver` fact carrier slot
+                // is typed with the seam. The composition root holds the resolver for the
+                // probe to observe; it never resolves with it.
+                "VoccaBootstrap/AppBootstrap.swift",
             ]
         ),
         (
@@ -148,10 +164,35 @@ final class IntentSeamBoundaryTests: XCTestCase {
         ),
         (
             name: "KeywordIntentResolver",
-            permitted: ["VoccaCore/Intent/KeywordIntentResolver.swift"]
+            permitted: [
+                "VoccaCore/Intent/KeywordIntentResolver.swift",
+                // `probe`'s reviewed widening — the drive constructs the real classifier over
+                // a probe-seeded synonym table. It runs the shipped machinery; it never
+                // branches a resolution on the concrete type.
+                "VoccaNetworkProbe/IntentDrive.swift",
+            ]
         ),
-        (name: "NullIntentResolver", permitted: ["VoccaCore/Intent/NullIntentResolver.swift"]),
-        (name: "KeywordSynonym", permitted: ["VoccaCore/Intent/KeywordIntentResolver.swift"]),
+        (
+            name: "NullIntentResolver",
+            permitted: [
+                "VoccaCore/Intent/NullIntentResolver.swift",
+                // `probe`'s reviewed widening — the composition constructs the composed
+                // default (R7's unwired posture, a deliberate wiring), and the probe drive
+                // names it to derive the composed root's fact. The drive checks which resolver
+                // the root holds; it never resolves with the concrete type.
+                "VoccaBootstrap/AppBootstrap.swift",
+                "VoccaNetworkProbe/IntentDrive.swift",
+            ]
+        ),
+        (
+            name: "KeywordSynonym",
+            permitted: [
+                "VoccaCore/Intent/KeywordIntentResolver.swift",
+                // `probe`'s reviewed widening — the drive seeds one row for the probe's own
+                // tool, the table's injection point the resolver's initializer exposes.
+                "VoccaNetworkProbe/IntentDrive.swift",
+            ]
+        ),
     ]
 
     /// Every occurrence of a family identifier in `source`, comments removed first.
