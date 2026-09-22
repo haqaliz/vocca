@@ -214,6 +214,13 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // construct one to submit). It reads the vocabulary to build the gate's input;
                 // it never decides with it.
                 "VoccaBootstrap/ActionWiring.swift",
+                // `intent-seam`'s reviewed widening — the resolution vocabulary carries the
+                // invocation a confident match resolved to. The intent seam reads the action
+                // vocabulary to *name* what would run (`.toolCall(ActionInvocation)`); it never
+                // builds one to act with, and nothing it does decides with it. The keyword
+                // resolver joins this row when its GREEN lands (it constructs the invocation the
+                // resolution carries).
+                "VoccaCore/Intent/IntentResolution.swift",
             ]
         ),
         (
