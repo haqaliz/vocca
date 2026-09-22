@@ -32,6 +32,14 @@ public enum ActionsTabCopy {
     public static let emptyShellCommands =
         "No shell commands configured. Add them to shell-commands.json to arm them here."
 
+    /// **The shell leg's D2 copy, exact-in-spirit** (the server-author copy above): configuring
+    /// a shell command runs that command on the user's machine — and Vocca's check watches its
+    /// own process and cannot see inside a program Vocca starts on its behalf. Placed in the
+    /// shell section, the moment of arm.
+    public static let shellD2TrustCopy =
+        "Configuring a shell command runs that command on your machine; Vocca cannot see "
+        + "inside a program it starts on your behalf."
+
     /// The empty state — honest about why it is empty.
     public static let emptyServers =
         "No servers configured yet. Add one to connect its tools."

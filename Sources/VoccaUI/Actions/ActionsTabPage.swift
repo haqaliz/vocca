@@ -84,6 +84,12 @@ struct ActionsTabPage: View {
             }
 
             Section(ActionsTabCopy.shellSectionTitle) {
+                // The D2 copy at the moment of arm: this section's rows run a program on the
+                // user's machine, and the narrowed promise — that configuring a shell command
+                // is trust extended to the file's author — belongs where the command is armed.
+                Text(ActionsTabCopy.shellD2TrustCopy)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if state.isShellLoaded && state.shellRows.isEmpty {
                     Text(ActionsTabCopy.emptyShellCommands)
                         .font(.callout)

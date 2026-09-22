@@ -552,6 +552,44 @@ final class ActionsTabTests: XCTestCase {
                 + "rule at the surface, for the shell leg too")
     }
 
+    // MARK: - The shell leg's copy (shell-provider wiring)
+
+    /// The shell D2 copy, exact-in-spirit of the server-author copy: configuring a shell
+    /// command runs that command on the user's machine, and Vocca cannot see inside a
+    /// program it starts on its behalf — the narrowed promise, in words.
+    func testTheShellD2TrustCopyIsPinned() {
+        XCTAssertEqual(
+            ActionsTabCopy.shellD2TrustCopy,
+            "Configuring a shell command runs that command on your machine; Vocca cannot "
+                + "see inside a program it starts on your behalf.")
+    }
+
+    /// The shell D2 copy sits in the **shell section** — the section whose rows arm the
+    /// child. The server copy lives at the moment of spawn; the shell copy lives at the
+    /// moment of arm.
+    func testTheShellSectionCarriesTheD2Copy() throws {
+        let page = SwiftSourceScanner.stripComments(from: try pageSource())
+        guard let sectionTitle = page.range(of: "ActionsTabCopy.shellSectionTitle") else {
+            return XCTFail("the page must name its shell section through the copy enum")
+        }
+        let after = page[sectionTitle.upperBound...]
+        guard let brace = after.firstIndex(of: "{") else {
+            return XCTFail("the section header must open a braced body")
+        }
+        let characters = Array(after)
+        let offset = after.distance(from: after.startIndex, to: brace)
+        guard let body = SwiftSourceScanner.bracedBody(in: characters, openingBraceIndex: offset)
+        else {
+            return XCTFail("the section body must balance")
+        }
+        XCTAssertTrue(
+            body.body.contains("ActionsTabCopy.shellD2TrustCopy"),
+            "the shell section must carry the D2 copy — the moment of arm")
+        XCTAssertTrue(
+            body.body.contains("ActionsTabCopy.defaultOffDetail"),
+            "the shell section's rows sit beside the default-off detail, like the server rows")
+    }
+
     // MARK: - Fixtures
 
     private func actionsFolder() throws -> URL {

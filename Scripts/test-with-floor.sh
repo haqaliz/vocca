@@ -2012,8 +2012,15 @@ set -euo pipefail
 # yields the confirmation state) — the count taken from the floor script's own parse in the
 # ratchet commit.
 #
+# The shell-provider wiring-aspect REFACTOR raise (2822 -> 2824; executed 2824) — the shell
+# D2 copy lands on the surface with its two pins: the copy text itself (exact-in-spirit of
+# the server-author copy — configuring a shell command runs that command on your machine,
+# and Vocca cannot see inside a program it starts on your behalf) and its placement in the
+# shell section, the moment of arm — the count taken from the floor script's own parse in
+# the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2822
+MINIMUM_EXECUTED_TESTS=2824
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
