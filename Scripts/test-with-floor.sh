@@ -1940,8 +1940,24 @@ set -euo pipefail
 # wiring use, and the pinned-dictation-files never-name-intent guard) — the count taken
 # from the floor script's own parse in the ratchet commit.
 #
+# The shell-provider command-registry raise (2761 -> 2780; executed 2780) — the C13 slice-7
+# first aspect, the persisted `shell-commands.json` definitions store:
+# `ShellCommandRegistryTests` (19 — the well-formed decode with the destructive-by-default
+# `readOnly`-absent rule, the tolerant-decode battery: absent/corrupt/unreadable files load
+# empty with exactly one loud log each and the bytes never rewritten, the boolean-confusion
+# pin (`"readOnly": 1` is refused, never read as a claim of read-only), the never-throwing
+# static decoder, the unknown-key refusal at every level of the shape (top-level, row,
+# parameter), the atomic temp-write-then-rename pair with the torn-commit and temp-invisible
+# recovery acceptances, the two caps (64 commands and 64 KB, both refused loudly with the
+# prior file byte-identical), the row-level validation skips (duplicate id, empty argv,
+# over-long id, empty id, unnamed parameter — skipped loudly, the rest load), the byte-level
+# key-set pin (exactly `version`+`commands` / the row's five fields / `name`, and no
+# enablement or argument-value key in populated bytes), the pinned-file round trip, the
+# cross-instance and no-file-created conventions, and the default-directory pin beside the
+# config store) — the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2761
+MINIMUM_EXECUTED_TESTS=2780
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
