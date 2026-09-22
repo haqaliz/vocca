@@ -198,10 +198,10 @@ public actor ShellCommandRegistry {
             let file = try JSONDecoder().decode(ShellCommandFile.self, from: data)
             return validated(file, onInvalidElement: onInvalidElement)
         } catch let error as ActionConfigDecodeError {
-            onInvalidElement("shell-commands: refusing a file this build cannot read: \(error)")
+            onInvalidElement("shell-commands: refusing a registry this build cannot read: \(error)")
             return nil
         } catch {
-            onInvalidElement("shell-commands: refusing an unreadable shell-commands file")
+            onInvalidElement("shell-commands: refusing an unreadable registry file")
             return nil
         }
     }
