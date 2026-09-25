@@ -2026,8 +2026,36 @@ set -euo pipefail
 # resolver-catalog field's assertion in the same method) — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The phrase-intent-resolver phrase-resolver-aspect RED raise (2825 -> 2836) — the second real
+# `IntentResolver`'s contract: ten rows in `PhraseIntentResolverTests` (the exact match, the
+# normalization fold, the near miss, the catalog as enablement twice, table order, never asks,
+# empty utterances, determinism, the one public normalization) and one shared-contract row in
+# `IntentResolverContractTests` (the determinism row widened in place, not counted) — the
+# count taken from the floor script's own parse in the ratchet commit.
+#
+# The phrase-intent-resolver phrase-table-store-aspect RED raise (2836 -> 2852) — the
+# `intent-phrases.json` store's sixteen rows in `IntentPhraseStoreTests`: absent is quietly
+# empty, unreadable/oversize files are loudly empty and never rewritten, row-level tolerance
+# (including the F1 no-coercion row and first-wins duplicates), the shell refusal at load, the
+# caps refusing never clamping on load and on save, the round trip, byte stability, the stray
+# temp file, the byte-level pin, the store/resolver normalization agreement, and the default
+# location — the count taken from the floor script's own parse in the ratchet commit.
+#
+# The phrase-intent-resolver wiring-aspect RED raise (2852 -> 2858) — the composed phrase
+# leg's five rows in `PhraseIntentWiringTests` (composition reads nothing, a file edit takes
+# effect next turn, a phrase-resolved destructive call refused by attempting it, no enablement
+# row touches nothing, a shell phrase never resolves even with the command enabled) and the
+# §8 floor's phrase row in `EscapeValveTests` — the count taken from the floor script's own
+# parse in the ratchet commit.
+#
+# The phrase-intent-resolver probe-aspect RED raise (2858 -> 2859) — the PROBE-INTENT-PHRASE
+# post-condition's guard-the-guard:
+# `testTheAssertedIntentPhrasePostConditionStillDescribesAPhraseRoundTripAndTheShellRefusal`
+# (the verbatim-line assertion joins the existing default-configuration test, not counted) —
+# the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2825
+MINIMUM_EXECUTED_TESTS=2859
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

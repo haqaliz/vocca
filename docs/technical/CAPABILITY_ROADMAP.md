@@ -527,6 +527,38 @@ the record, and composing it is a reviewed edit, the N1 precedent). No gate pass
 151-153 written and runnable, recorded never gated (the rows require configuring and
 enabling a real command on the founder's machine — never CI). Test floor: **2825**.)*
 
+*(Amended by the `phrase-intent-resolver` unit, 2026-09-25: **slice 8 of C13 shipped: the
+intent layer's S1**, the second real intent classifier and the user's tuning path. Shipped:
+- **`PhraseIntentResolver`** (`VoccaCore/Intent/`, Foundation-free): exact matching under one
+  public normalization, first row in table order, catalog-gated, no arguments, **never asks**.
+- **`IntentPhraseStore`** (`VoccaActions/Config/`): the user-editable `intent-phrases.json`.
+  Shape-only, tolerant, caps that refuse rather than clamp, and **a shell-target row refused at
+  load**.
+- **The per-turn resolver provider** on `composeIntentWiring`: the file is read each turn,
+  never at composition, and an edit takes effect without a relaunch.
+- **The N1 flip.** The composed default is now a `PhraseIntentResolver` over the user's file,
+  so the shipped configuration voice-acts only after a two-step opt-in (a phrase **and** an
+  enabled tool). With no file it resolves nothing, as the null default did.
+- **PROBE-INTENT-PHRASE** inside the zero-network interposer.
+
+The **D3-shaped guardrail-7 caveat is retired** with its limit stated: two real classifiers,
+not composed together. G5 was re-anchored once, deliberately (`e9aa45bb…` → `eba72eaf…`); the
+dictation digests are unchanged. Found at the review gate: **the audit tools have no
+Actions-tab row** (enablement is a hand-edit of `action-config.json`), and SMOKE 148's gesture
+was corrected for it.
+
+**What is still NOT built — the remaining C13 machinery:**
+- **coding-agent handoff**
+- **reply-text rendering**
+- a **phrase-then-keyword composite resolver**
+- an **audit-tools arm section** in the Actions tab
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load by decision,
+  and reversing it is a founder call)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+
+No gate passes. SMOKE 154-156 are written and runnable, recorded and never gated. Test floor:
+**2859**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

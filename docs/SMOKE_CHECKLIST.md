@@ -3262,6 +3262,16 @@ must actually have been entered before a row means anything.
 148. **The voice leg's card shows the gate's sentence verbatim (C13 slice 6, recorded —
     never gated).**
 
+    *Correction (2026-09-25, `phrase-intent-resolver` finding F-B):* the gesture below
+    originally read "enable `audit.clear` in the Actions tab". **That row does not exist** —
+    the Actions tab renders tool rows only from MCP discovery (unwired) and the shell section,
+    so the audit tools have no toggle (F-A). Enable it by hand-editing
+    `~/Library/Application Support/Vocca/action-config.json` to hold
+    `{"servers":[],"enablement":[{"providerID":"dev.vocca.audit","toolID":"audit.clear"}]}`
+    (merge into any existing `enablement` array). And since `phrase-intent-resolver` the
+    shipped default is the phrase resolver, not the keyword one: "the N1 flip" is now a phrase
+    row for "clear the audit log" in `intent-phrases.json` (row 154's shape).
+
     *Gesture:* with the N1 flip in place, enable `audit.clear` in the Actions tab (rows are
     off by default; absent is off), switch to the CONVERSING surface, and say "clear the
     audit log". Verify the widget panel card appears with the gate's own render — the
@@ -3438,6 +3448,70 @@ actually have been entered before a row means anything.
 
     *Failure:* a dry-run that invoked the command (any side effect, any engine call), or a
     dry-run that recorded nothing.
+
+154. **A user phrase resolves and a read-only tool runs directly (C13 slice 8, recorded —
+    never gated).**
+
+    *Gesture:* enable `audit.count` by hand-editing
+    `~/Library/Application Support/Vocca/action-config.json` to
+    `{"servers":[],"enablement":[{"providerID":"dev.vocca.audit","toolID":"audit.count"}]}`.
+    The Actions tab has no audit row (F-A). Then write
+    `~/Library/Application Support/Vocca/intent-phrases.json` as
+    `{"version":1,"phrases":[{"phrase":"how big is the log","providerID":"dev.vocca.audit","toolID":"audit.count"}]}`.
+    Switch to the CONVERSING surface and say "How big is the log?". Verify three things: no
+    card appears (read-only runs directly, M3), the spoken reply is "Done.", and the audit log
+    gained one `autoRanReadOnly` entry.
+
+    *Verify the state was entered:* the utterance really resolved through the phrase
+    resolver. An echo of your words back means it did not (rule 1). So does a spoken question:
+    the phrase resolver never asks, so an ask means some other resolver answered.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a phrase the user wrote
+    resolved to the tool the user named, and a read-only tool ran without a card**. Record the
+    count of attempts it took to be heard, never a rate.
+
+    *Void — not fail — if:* the utterance was echoed because ASR or cleanup produced
+    different words (record the transcript), or the enablement edit was not in place.
+
+    *Failure:* a card for a read-only tool, a tool other than `audit.count` running, or no
+    audit entry for a run that happened.
+
+155. **An edit to the phrase file takes effect on the next turn, no relaunch (C13 slice 8,
+    recorded — never gated).**
+
+    *Gesture:* continuing from 154 without quitting Vocca, change the phrase in
+    `intent-phrases.json` to "count my log" and save. Say "how big is the log", then "count
+    my log".
+
+    *Verify the state was entered:* Vocca was not relaunched between the edit and the two
+    utterances (`pgrep -x Vocca` shows the same PID).
+
+    *Pass:* the old phrase echoes and the new phrase runs `audit.count`, recorded with the
+    never-gated note.
+
+    *Void — not fail — if:* ASR produced different words for either utterance (record the
+    transcripts).
+
+    *Failure:* the old phrase still runs the tool, or the new phrase needs a relaunch.
+
+156. **A shell-target phrase is refused at load, loudly (C13 slice 8, recorded — never
+    gated).**
+
+    *Gesture:* with a shell command configured **and enabled** in the Actions tab's shell
+    section, add a row to `intent-phrases.json` naming it:
+    `{"phrase":"empty my downloads","providerID":"dev.vocca.shell","toolID":"<your command id>"}`.
+    Run `log stream --predicate 'subsystem == "dev.vocca.Vocca" AND category == "intent-phrases"'`
+    in a terminal, then say "empty my downloads" in the CONVERSING surface.
+
+    *Verify the state was entered:* the shell command really was enabled (its toggle on in the
+    shell section), so the refusal is the store's and not the catalog's.
+
+    *Pass:* the log shows `intent-phrases: refusing row N: a shell command cannot be reached by
+    voice`, the utterance echoes, no card appears, and the command does not run. Recorded
+    with the never-gated note: **a shell command cannot be reached by voice, however the phrase
+    file is edited**.
+
+    *Failure:* a shell card appears, the command runs, or no refusal line is logged.
 
 ---
 

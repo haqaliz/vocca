@@ -120,6 +120,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Intent/IntentResolver.swift",
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
                 "VoccaCore/Intent/NullIntentResolver.swift",
+                // `phrase-intent-resolver`'s reviewed widening — the second real classifier's
+                // own file: it conforms to the seam, reads the catalog and returns the
+                // resolution vocabulary, exactly as the keyword resolver's file does.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
                 // `action-round-trip`'s reviewed widening — the wiring's `resolve` closure is
                 // the seam's consumer: it supplies the catalog and reads the resolution. It
                 // names the protocol to call it, never to re-decide with it.
@@ -137,6 +141,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Intent/IntentResolver.swift",
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
                 "VoccaCore/Intent/NullIntentResolver.swift",
+                // `phrase-intent-resolver`'s reviewed widening — the second real classifier's
+                // own file: it conforms to the seam, reads the catalog and returns the
+                // resolution vocabulary, exactly as the keyword resolver's file does.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
                 // `converse-step`'s reviewed widening — the driver's `intentProvider` closure
                 // type and its `.ask`/`.toolCall`/`.none` branch, the recipe's passthrough,
                 // and the probe drive's explicit unwired closure. All three read the
@@ -156,6 +164,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Intent/IntentResolver.swift",
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
                 "VoccaCore/Intent/NullIntentResolver.swift",
+                // `phrase-intent-resolver`'s reviewed widening — the second real classifier's
+                // own file: it conforms to the seam, reads the catalog and returns the
+                // resolution vocabulary, exactly as the keyword resolver's file does.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
                 // `action-round-trip`'s reviewed widening — the wiring builds the catalog the
                 // resolver resolves against, from the enablement rows (R3). It reads the
                 // vocabulary to build the seam's input; it never decides with it.
@@ -176,12 +188,11 @@ final class IntentSeamBoundaryTests: XCTestCase {
             name: "NullIntentResolver",
             permitted: [
                 "VoccaCore/Intent/NullIntentResolver.swift",
-                // `probe`'s reviewed widening — the composition constructs the composed
-                // default (R7's unwired posture, a deliberate wiring), and the probe drive
-                // names it to derive the composed root's fact. The drive checks which resolver
-                // the root holds; it never resolves with the concrete type.
-                "VoccaBootstrap/AppBootstrap.swift",
-                "VoccaNetworkProbe/IntentDrive.swift",
+                // `phrase-intent-resolver`'s reviewed narrowing — the composition no longer
+                // constructs the null resolver (the N1 flip), and the probe drive derives the
+                // composed fact from the phrase resolver instead. `probe`'s widening for
+                // `AppBootstrap.swift` and `IntentDrive.swift` is withdrawn: a permitted file
+                // must actually name the family.
             ]
         ),
         (
@@ -190,6 +201,36 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
                 // `probe`'s reviewed widening — the drive seeds one row for the probe's own
                 // tool, the table's injection point the resolver's initializer exposes.
+                "VoccaNetworkProbe/IntentDrive.swift",
+            ]
+        ),
+        (
+            name: "PhraseIntentResolver",
+            permitted: [
+                // `phrase-intent-resolver`'s new family — its own file, and each later
+                // aspect's reviewed widening below.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
+                // `phrase-table-store`'s reviewed widening — the store judges a phrase's
+                // emptiness and duplication with the resolver's own `normalized(_:)`, so the
+                // two cannot disagree. It never resolves.
+                "VoccaActions/Config/IntentPhraseStore.swift",
+                // `wiring`'s reviewed widening — the composition root builds the composed
+                // default each turn (the N1 flip), and the probe drive names the type to derive
+                // the composed root's fact. Neither branches a resolution on the concrete type.
+                "VoccaBootstrap/AppBootstrap.swift",
+                "VoccaNetworkProbe/IntentDrive.swift",
+            ]
+        ),
+        (
+            name: "PhraseIntentRow",
+            permitted: [
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
+                // `phrase-table-store`'s reviewed widening — the store decodes the file into
+                // the rows the resolver is built over.
+                "VoccaActions/Config/IntentPhraseStore.swift",
+                // `probe`'s reviewed widening — the drive counts the shell rows of the table
+                // the composed default was actually built over (`intentShellRows`). It reads
+                // the rows; it never resolves with them.
                 "VoccaNetworkProbe/IntentDrive.swift",
             ]
         ),

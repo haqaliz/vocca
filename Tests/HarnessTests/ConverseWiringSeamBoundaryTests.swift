@@ -117,6 +117,9 @@ final class ConverseWiringSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Intent/IntentResolver.swift",
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
                 "VoccaCore/Intent/NullIntentResolver.swift",
+                // `phrase-intent-resolver`'s reviewed widening — the second real classifier's
+                // own file returns the resolution vocabulary, as the keyword resolver's does.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
                 // `converse-step`'s reviewed widening — the three converse files the widened
                 // driver's signature carries the resolution vocabulary into. The driver
                 // branches on it (`.ask`/`.toolCall`/`.none`), the recipe passes the closure

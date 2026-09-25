@@ -1,83 +1,73 @@
-# Understanding: ShellProvider (feat/shell-provider)
+# Understanding — phrase-intent-resolver (Phase 2 dig)
 
-Source: `docs/planning/_card/issue.md` (inline brief) + the Phase 2 code dig.
-All claims below cite real files in the worktree; code wins over prose.
+## What the work actually asks
 
-## What the unit is really asking
+The second *real* `IntentResolver` (C13 S1, `intent-layer/prd.md:188`). Today the seam has
+`KeywordIntentResolver` (token-scored, seeded in code) and `NullIntentResolver` (the composed
+default). The intent-layer record calls that the **D3-shaped guardrail-7 caveat**: one real
+classifier plus a default. S1 retires it and is also the **user-editable tuning path**: today a
+wrong seed means a reviewed code edit (`KeywordIntentResolver.shippedSynonyms`, pinned verbatim
+by `IntentSeamBoundaryTests`).
 
-C13 slice 7: the P4 "run commands" leg of the wedge. A **shell-command `ActionProvider`**
-that executes a *configured* command set on the user's machine, behind the existing
-`ActionProvider` seam — with the full proven safety spine applied: the `describe`/`invoke`
-split, the gate's structural refusal, sentence binding, dry-run with zero side effects, and
-the append-only audit. It is the highest-blast-radius component in the roadmap
-(`CAPABILITY_ROADMAP.md:483`, `action-surface-wiring/prd.md:219`), deferred for sequencing,
-never blocked.
+Phase: **P4, C13**. No gate passes. This is the twelfth unit built ahead of the uncleared
+gates under the recorded posture.
 
-## Affected areas (from the dig)
+## Code it touches (read, not assumed)
 
-1. **New provider** behind `Sources/VoccaCore/Actions/ActionProvider.swift:65-95` —
-   `describe(_:) async -> ActionSummary` (pure; renders the concrete sentence), `invoke(_:confirmation:) async -> ActionOutcome` (async, **never throws**).
-2. **Command configuration** — a registry of named commands (command line, sentence, blast
-   radius claim) + enablement. The shipped `ActionConfigStore` (`action-config.json`) holds
-   servers + enablement rows keyed `providerID`+`toolID`, "absent is off"
-   (`Sources/VoccaActions/Config/ActionConfigStore.swift`). Whether shell commands reuse this
-   store or need a sibling shape is a PRD decision.
-3. **The transport-prohibition lint** — THE decisive constraint. `Tests/HarnessTests/ActionTransportProhibitionTests.swift:161-163` forbids `Process`/`posix_spawn`/`NSTask`/`system`
-   in `Sources/VoccaActions/`, and the permitted set is **exactly one file**
-   (`VoccaActions/MCP/StdioMCPTransport.swift`, `:200-202`). A `ShellProvider` names `Process`
-   by definition, so it **cannot ship in `VoccaActions` without a reviewed widening** — and the
-   widening owes the review an answer to D2 (a shell child is not observable; a restricted
-   child purges the interposer env; the zero-network guard cannot see its egress).
-4. **Composition + fact carrier** — the wiring recipes (`ActionWiring<Provider>`,
-   `IntentWiring<Provider>`) are generic over the provider and declare `spawnsSubprocess`
-   (`ActionWiring.swift:110,382`; `IntentWiring.swift:79,260`). The composed **default**
-   pins `false`. A ShellProvider wiring must declare its value truthfully; the default
-   configuration must still spawn nothing.
-5. **Probe + zero-network interposer** — `VoccaNetworkProbe/` with the fact-carrier pattern;
-   `PROBE-SHELL` would assert the composed default (`spawnsSubprocess=false`) inside the
-   interposer (`Tests/HarnessTests/ZeroNetworkTests.swift` guard-the-guard family).
-6. **Family-A lint** — a new provider conformance adds five rows to the per-family permitted
-   tables in `Tests/HarnessTests/ActionSeamBoundaryTests.swift` (doc `:84-97`).
+- `Sources/VoccaCore/Intent/` — `IntentResolver` (sync, deterministic, `resolve(_:against:)`,
+  the catalog is the enablement and is never read), `IntentResolution`
+  (`.toolCall/.ask/.none`), `ToolReference`, `KeywordIntentResolver` (Foundation-free
+  tokenizer, stop words, `utterancePlaceholder`), `NullIntentResolver`. Core imports nothing
+  (`CoreBoundaryTests.swift:116`), so the resolver must be stdlib-only. The **store** cannot
+  live in Core.
+- `Sources/VoccaBootstrap/IntentWiring.swift` — `composeIntentWiring(configStore:provider:
+  executor:resolver:root:)`. It builds the catalog from `config.enablement` per call, and
+  `performAction` submits `approval: .withheld`. The resolver is a parameter, so a new
+  resolver needs **no** wiring change beyond its construction.
+- `Sources/VoccaBootstrap/AppBootstrap.swift:701` — `let intentResolver = NullIntentResolver()`.
+  Any change here moves the G5 pin.
+- The persistence precedents: `VoccaText/Dictionary/FileSystemDictionaryStore.swift` (the C5
+  shape: element-wise tolerant decode, one loud log per skipped element, atomic tmp+rename,
+  sorted keys, load never writes) and `VoccaActions/Config/ShellCommandRegistry.swift` (caps
+  that refuse, never clamp; invalid rows skipped loudly; `defaultDirectory(applicationSupport:
+  home:)`).
+- Tests: `IntentResolverContractTests` (the per-implementation contract), `IntentSeamBoundaryTests`
+  (the per-seam lint: which files may name `IntentResolver`, `KeywordIntentResolver`, …, so a
+  new resolver type is a **reviewed widening** of that lint), `EscapeValveTests` (the §8 floor),
+  `IntentRoundTripTests`, and the probe `VoccaNetworkProbe/IntentDrive.swift`
+  (`PROBE-INTENT-DEFAULT resolver=NullIntentResolver … intentShellRows=0`).
 
-## The reuse that makes this tractable
+## Ambiguities / contradictions surfaced
 
-The spine is built and generic: `ActionExecutor<Provider>` is the gate's only caller and
-records every decision; the confirmation card, dry-run, sentence binding, mismatch re-prompt,
-and re-render-after-record are all wired for any `Provider`. ShellProvider is a *third*
-conformance, not new safety machinery. `InvokeBehavior.failsTheTestIfInvoked` already exists
-for the dry-run acceptance; temp-dir store harnesses exist (`ActionWiringHarness`).
+1. **The shipped default.** If the default stays `NullIntentResolver`, a user-editable phrase
+   file does nothing in the shipped app, and "user tuning path" is only true after a reviewed
+   flip (N1). If the default becomes `PhraseIntentResolver` over the user's file, an
+   absent file resolves nothing, which is behaviourally identical to Null. But
+   `resolver=NullIntentResolver` in PROBE-INTENT-DEFAULT and the G5 digest both move. This is
+   a founder call.
+2. **Shell targets.** `intentShellRows=0` pins the arm-surface-only decision
+   (shell-provider PRD, Out of Scope, founder decision). A user phrase naming
+   `dev.vocca.shell/<id>` would reverse it.
+3. **Arguments.** `action-config.json` carries "no arguments ever"; the keyword table carries a
+   `{{utterance}}` template. An exact-phrase row's utterance *is* the phrase, so templating is
+   meaningless. The open choice is static argument text or none.
+4. **`.ask` has no meaning for an exact matcher.** There is no confidence gradient. A miss is
+   `.none`, and the brief's acceptance list agrees.
+5. **Composition with the keyword resolver** (phrase first, keyword fallback) would be a third
+   type, a composite. It isn't in the brief, so it's out of scope unless asked.
+6. **Editing UI.** C5's dictionary started file-only. The brief says "user-editable JSON", so
+   there's no Settings editor unless asked.
+7. Side observation, not this unit: `KeywordIntentResolver.jsonEscaped` emits `\u{XX}` for
+   control characters, which is not valid JSON (JSON wants `\u00XX`). Record it; don't fix it
+   here.
 
-## Design questions the PRD must decide
+## Local-first / scope check
 
-- **Module placement**: `VoccaActions/` + a reviewed transport-permit widening (the
-  stdio-transport precedent: empty → exactly one file; this would be one → two), versus a new
-  module. The widening path is the honest one — it is the mechanism D2 reviews are recorded in.
-- **Command configuration shape**: reuse `ActionConfigStore` enablement rows (providerID +
-  toolID = command name) with a separate command-definition file, or a self-contained command
-  registry. "No arguments ever" in the persisted enablement must hold; args travel only at
-  call time.
-- **Arguments**: fixed named parameters per command definition (`$1`, `$2`…), rendered
-  `key = value` in `describe` exactly as `MCPProvider.swift:294-327` does; unreadable/missing
-  args = refusal sentence **without de-escalating the radius** (`MCPProvider.swift:202-207`).
-- **Composed default posture**: ShellProvider unwired (the `NullIntentResolver` precedent) so
-  the composed default's fact carriers stay `false` — and the copy states where the claim
-  stops (D2).
-- **Real `Process` in CI**: the stdio-transport precedent already runs real children with
-  real pipes and asserts no-orphan (`kill(pid,0) == -1 && errno == ESRCH`), so benign real
-  shell commands (`/bin/echo`, `/bin/true`) in the suite are in-pattern.
+Local, deterministic, zero network, no child process; no cloud, no LLM. It doesn't touch
+capture/ASR/cleanup/injection/TTS, so the dictation digests must stay unchanged. It fits the
+guardrails.
 
-## Open questions for the founder
+## Process note
 
-- Is a shell command's blast radius **always** `destructive`/`outwardFacing` by default
-  (conservative), with read-only only when the author declares a read-only command — matching
-  the MCP fail-safe "absent means unsafe"?
-- Should shell commands be voice-reachable in this slice (the intent catalog is built from
-  enablement rows, so `IntentWiring` picks them up automatically once enabled), or arm-surface
-  only?
-
-## Guardrail check
-
-macOS-only, local-only (executes on the user's machine), no cloud, never cripples the local
-core, dictation core already shipped. The risk to record is **R8 amplified** (shell is
-unboundedly destructive), **N2** (approval asserts a human said yes), **D2** (child not
-observable) — all stated, none hidden. Phase: **P4** (C13).
+This session has no subagent tool, so the gather/dig fan-out ran in the main thread. Recorded
+honestly rather than implied.

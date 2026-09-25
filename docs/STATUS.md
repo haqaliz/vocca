@@ -10,6 +10,131 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `phrase-intent-resolver` unit shipped 2026-09-25 — C13 slice 8 (the intent layer's S1):
+the second real `IntentResolver`, the user's own phrase table, and the N1 flip of the composed
+default; no gate passes.**
+`feat/phrase-intent-resolver/aliz`. Five aspects (the record aspect is this entry). Floor
+**2859** (executed 2859).
+
+**What shipped, per aspect.**
+*phrase-resolver* — **`PhraseIntentResolver`** + **`PhraseIntentRow`** (`VoccaCore/Intent/`,
+Foundation-free): exact matching under one public `normalized(_:)` (lowercased, every run of
+non-letter/digit characters collapsed to one space, trimmed). The first row in table order
+whose normalized phrase equals the utterance **and** whose tool is in the caller's catalog
+resolves to `.toolCall` with **no arguments**; everything else is `.none`. It **never asks**:
+an equality has no confidence gradient, so brittleness ("clear audit log" ≠ "clear the audit
+log") fails to *nothing*, never to a wrong tool. The contract suite's shared rows run over it.
+Three seam lints (intent, action, converse) were widened in GREEN rather than REFACTOR, because
+the suite must be green at GREEN. Floor 2825→2836.
+*phrase-table-store* — **`IntentPhraseStore`** (`VoccaActions/Config/`, an actor) persists
+**`intent-phrases.json`** as `{"version":1,"phrases":[{phrase, providerID, toolID}]}`.
+Shape-only: no enablement, no arguments, no timestamp. It has a byte-level pin.
+- **Loading:** an absent file is quietly empty. An unreadable file, a wrong-shape file, a wrong
+  version or an oversize file is loudly empty, with exactly one log each. Loading never writes.
+- **Rows:** judged one by one with `JSONDecoder` and a lossy per-row wrapper. `"toolID": 1` and
+  `"version": true` are refused, never coerced (the F1 lesson). Empty or over-cap fields,
+  phrases with no words and duplicate normalized phrases (first wins) are each skipped with one
+  log. The duplicate check uses the resolver's own `normalized`.
+- **The shell refusal at load:** a row naming `ShellProvider.providerID` is refused loudly, so
+  the voice leg can never reach a shell command however the file is edited, and Core never
+  learns a provider id.
+- **Caps refuse, never clamp:** 256 phrases, 64 KB, 256-char phrases, 128-char ids.
+- **Saving:** atomic tmp+rename with sorted keys.
+- Logs name the file and the row index, never a phrase's text.
+
+Floor 2836→2852. One RED fixture was corrected in GREEN: the byte-cap save row's table was
+under the cap it meant to exceed.
+*wiring* — `composeIntentWiring(…, resolverProvider:, …)`: the resolver is obtained **once
+per resolution, never at composition**. The catalog is still built first from the enablement,
+and the fixed-`resolver:` form forwards, so every existing call site is unchanged. **The N1
+flip, made deliberately:**
+- `AppBootstrap` composes a provider that loads the real `IntentPhraseStore` and builds a
+  `PhraseIntentResolver` each turn.
+- The root's fact carrier became `intentResolverProvider`, the same closure. The probe calls it
+  and reflects the type.
+- The intent-default guard and the `NullIntentResolver` lint row refused the flip until edited
+  in GREEN, as designed.
+
+The safety rows: composition consults the provider zero times; a file edit takes effect on the
+next turn with no recompose; a phrase-resolved **destructive** call is refused **by attempting
+the call** (card presented, `invokeCount == 0`, `refused` recorded); a phrase naming a tool with
+no enablement row touches nothing; a shell phrase resolves `.none` **even with the command
+enabled**. The §8 floor is extended: `EscapeValveTests` runs the full approval × policy × mode
+enumeration over a `PhraseIntentResolver`-built outward-facing invocation. **G5 re-anchored
+once, deliberately in REFACTOR** (`e9aa45bb…` → `eba72eaf…`, computed with shasum, never
+edited-to-match). The dictation digests are unchanged (`1baeb2de…`, `ce70ca10…`).
+`NullIntentResolver` stays shipped: it is the resolver a composition wires to switch the voice
+leg off. Floor 2852→2858.
+*probe* — **PROBE-INTENT-DEFAULT** now reads `resolver=PhraseIntentResolver resolves=1
+intentResolved=0 spawnsSubprocess=false intentShellRows=0`. `intentShellRows` now also counts
+the table the composed default was built over; it stays 0 on any machine, because shell rows
+are refused at load. **PROBE-INTENT-PHRASE** is new: `store.location=temporary
+store.isDefaultLocation=false phrases=1 resolved=1 card=yes invoked=1 shellRefused=1`. It runs
+a real temp `intent-phrases.json` whose shell row is written as raw bytes (a hand-edit, the
+threat) through the real store, the real resolver, the composed recipe, the card and the
+surface's own confirm, inside the zero-network interposer. Every field is an effect of the run.
+The guard-the-guard was verified by planting `shellRefused=0` (fails), then reverting. The
+planning correction is recorded: `phrases=` moved off the default line because the composed
+root reads the **real** Application Support directory, so a count there would depend on whose
+machine ran the probe. G5 did not move. Floor 2858→2859.
+
+**Measured (recorded, never gated):** nothing was measured. The only figures are test
+counts: **2859** executed through the floor script (`N == E`). No resolution rate exists and
+none may be quoted.
+
+**The honesty block:**
+- **No gate passes.** The twelfth unit built ahead of the uncleared gates under the
+  recorded posture. Demand: roadmap push, not demand pull. No user asked for this slice.
+- **The unwired posture narrowed, in writing.** Since this unit, **the shipped configuration
+  can voice-act**, after a two-step opt-in: the user writes a phrase **and** enables its tool.
+  With neither, it resolves nothing (`intentResolved=0`), exactly as the null default did.
+- **Guardrail 7 for the intent seam: two real classifiers, not composed together.** The D3-shaped
+  caveat is retired: `KeywordIntentResolver` and `PhraseIntentResolver` are both real. Only the
+  phrase resolver is in the shipped default; nothing composes the keyword resolver, and a
+  phrase-then-keyword composite is a later slice.
+- **R8 mitigated, not retired.** A phrase is the user's own declaration, so a
+  wrong-but-confident resolution is less likely than with keywords, but it is still bounded by
+  the gate, not the classifier. **N2 restated:** an approval asserts a human said yes and cannot
+  verify it.
+- **Shell stays arm-surface-only.** Refused at load, asserted in unit tests, in the composed
+  wiring (enabled command, still `.none`) and in the probe (`shellRefused=1`,
+  `intentShellRows=0`).
+- **F-A: the audit tools are not enable-able from the surface.** The Actions tab renders tool
+  rows only from MCP discovery (unwired) and the shell section. In the shipped app, the only
+  tools the voice leg can reach are `dev.vocca.audit/*`, and enabling them means hand-editing
+  `action-config.json`. An audit arm section is a follow-on slice.
+- **F-B: SMOKE 148's gesture was not performable as written** ("enable `audit.clear` in the
+  Actions tab" named a row that does not exist). Corrected in place, with the original wording
+  kept and the correction dated.
+- **F-C: `KeywordIntentResolver.jsonEscaped` emits `\u{XX}` for control characters, which is
+  not valid JSON** (JSON wants `\u00XX`). Recorded, not fixed: the keyword resolver is pinned
+  code, and the fix is its own reviewed edit. It is unreachable in the shipped default, since
+  the keyword resolver is not composed.
+- **Exact match is brittle against ASR/cleanup drift**, by design. How often a real utterance
+  survives cleanup to equal a written phrase is unmeasured until SMOKE 154-156 run. Those rows
+  are written and runnable, recorded and never gated, and executed by nothing in CI. They record
+  attempt counts, never a rate.
+- **Diacritics are not folded** ("café" ≠ "cafe"). Recorded.
+- **CI findings on PR #48:**
+  - **Master had been red since PR #46** (intent-layer, 2026-09-22) on the strict-concurrency job:
+    six `no 'async' operations occur within 'await'` warnings in `ConverseIntentStepTests.swift`
+    (`await handler.calls` / `await provider.calls` on plain classes). The job fails on any
+    warning. Local runs never showed it, because the local toolchain and incremental builds did
+    not emit the warning. Fixed test-only in this PR (`ci:` commit), since it blocked the merge.
+    It isn't this unit's own work.
+  - **A flake, not fixed:** in one of the two CI runs of the same commit, Bundle contract (Debug)
+    failed `DictationPipelineTests.testEveryRowOfTheDecisionTableFinalizesExactlyOneRecord`. The
+    "cancelled before transcribe" row recorded an `asr` span and engine attribution. The same
+    job passed in the other run, Release passed, and it passed locally, so it is
+    timing-dependent. It is on the dictation path, which this unit doesn't touch (digests
+    unchanged). Recorded for a later deterministic fix, in the manner of the re-warm flake fix.
+- **Process note:** the session that planned and built this unit had no subagent tool, so the
+  "agents team" fan-out the pipeline prescribes ran serially in the main thread, strictly
+  test-first (RED → GREEN → REFACTOR per aspect). The phrase-table-store aspect has no REFACTOR
+  commit: its planned content (the lint widening) had to land in GREEN.
+
+---
+
 **The `shell-provider` unit shipped 2026-09-22 — C13 slice 7: the shell command provider —
 the roadmap's highest blast radius, the first provider whose radius is unboundedly
 destructive, composed onto the proven spine with the argv-derived sentence and the

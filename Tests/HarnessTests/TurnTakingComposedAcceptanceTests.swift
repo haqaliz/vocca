@@ -319,6 +319,12 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
     /// `shell-provider` wiring REFACTOR (`ecfcdb4b…` → `e9aa45bb…`, computed, never
     /// edited-to-match): the composition root grew the shell wiring, the card routing and the
     /// Actions-tab bindings. The two dictation digests are unchanged.
+    ///
+    /// Re-anchored once more, deliberately, on 2026-09-25 by the `phrase-intent-resolver`
+    /// wiring REFACTOR (`e9aa45bb…` → `eba72eaf…`, computed with `shasum -a 256`, never
+    /// edited-to-match): the composed intent default flipped from `NullIntentResolver` to a
+    /// per-turn `PhraseIntentResolver` over `intent-phrases.json`. The two dictation digests
+    /// are unchanged.
     func testTheDictationPathIsByteForByteUntouched() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -332,7 +338,7 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "e9aa45bbfd897f3b80299c77851667e5bd7fb26e0bf4a8dc247e3d742d787f2c"
+                "eba72eafd8d71310a09094d2aff51c6e450aba37578a2246556939ffc65233ac"
             ),
         ]
 

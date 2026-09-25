@@ -212,6 +212,14 @@ final class IntentResolverContractTests: XCTestCase {
         let catalog = [Self.auditClear, Self.auditCount, Self.postMessage]
         let utterances = ["clear the audit log", "the audit log", "good morning", "post a message"]
 
+        let phrase: any IntentResolver = requireSendable(
+            requireResolver(
+                PhraseIntentResolver(rows: [
+                    PhraseIntentRow(
+                        phrase: "clear the audit log", providerID: "dev.vocca.audit",
+                        toolID: "audit.clear")
+                ])))
+
         for utterance in utterances {
             XCTAssertEqual(
                 keyword.resolve(utterance, against: catalog),
@@ -219,6 +227,35 @@ final class IntentResolverContractTests: XCTestCase {
             XCTAssertEqual(
                 null.resolve(utterance, against: catalog),
                 null.resolve(utterance, against: catalog))
+            XCTAssertEqual(
+                phrase.resolve(utterance, against: catalog),
+                phrase.resolve(utterance, against: catalog))
         }
+    }
+
+    // MARK: - The second real classifier (`phrase-intent-resolver`)
+
+    /// `PhraseIntentResolver` is a `Sendable` conformance read through the existential, and it
+    /// holds the seam's shared promises: a matched phrase resolves to the catalog tool it
+    /// names, and it never invents a tool outside the catalog (acceptance 4's row).
+    func testThePhraseResolverHoldsTheSeamsSharedContract() throws {
+        let resolver: any IntentResolver = requireSendable(
+            requireResolver(
+                PhraseIntentResolver(rows: [
+                    PhraseIntentRow(
+                        phrase: "clear the audit log", providerID: "dev.vocca.audit",
+                        toolID: "audit.clear"),
+                    PhraseIntentRow(
+                        phrase: "post a message", providerID: "dev.vocca.mcp.chat",
+                        toolID: "post_message"),
+                ])))
+
+        XCTAssertEqual(
+            resolver.resolve("clear the audit log", against: [Self.auditClear, Self.auditCount]),
+            .toolCall(try makeInvocation(providerID: "dev.vocca.audit", toolID: "audit.clear")))
+        XCTAssertEqual(
+            resolver.resolve("post a message", against: [Self.auditClear, Self.auditCount]),
+            .none, "a row whose tool is outside the catalog must never resolve")
+        XCTAssertEqual(resolver.resolve("", against: [Self.auditClear]), .none)
     }
 }
