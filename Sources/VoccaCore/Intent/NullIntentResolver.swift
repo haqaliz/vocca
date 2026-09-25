@@ -19,8 +19,8 @@
 /// slice wires a resolver deliberately, so the composed default resolves nothing and the converse
 /// loop's reply generator is untouched. It is a real conformance, not a stub — the seam has two
 /// implementations (keyword + null default) — and the unit record states the honest D3-shaped
-/// caveat: the null default is a *default*, not a second *real* classifier (R8; S1's
-/// `PhraseIntentResolver` is the retirement path).
+/// caveat: the null default is a *default*, not a second *real* classifier (R8). The caveat
+/// is retired by ``PhraseIntentResolver`` (`phrase-intent-resolver`), the second real one.
 public struct NullIntentResolver: IntentResolver {
 
     public init() {}

@@ -29,11 +29,12 @@
 /// *enabled* tools, so a disabled tool is never resolved to, never described, never called. The
 /// resolver itself never invents a tool the catalog does not name.
 ///
-/// Two deterministic, local, zero-network implementations ship behind this seam
-/// (`CAPABILITY_ROADMAP.md` guardrail 7):
+/// Three deterministic, local, zero-network implementations ship behind this seam — two real
+/// classifiers and a null (`CAPABILITY_ROADMAP.md` guardrail 7):
 ///
 /// - ``KeywordIntentResolver`` — token-scored matching over a seeded synonym table;
-/// - ``NullIntentResolver`` — the composed default: `.none` for every utterance.
+/// - ``PhraseIntentResolver`` — exact normalized matching over the user's own phrase table;
+/// - ``NullIntentResolver`` — `.none` for every utterance.
 public protocol IntentResolver: Sendable {
 
     /// Resolves a cleaned utterance against the enabled-tool catalog.
