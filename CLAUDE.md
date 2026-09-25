@@ -2,12 +2,34 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-22).** The skeleton exists; **the product does not.**
+> **Status (2026-09-25).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`phrase-intent-resolver` (C13 slice 8, shipped 2026-09-25):** the intent layer's S1 —
+> **`PhraseIntentResolver`**, the second *real* `IntentResolver` (exact match under one public
+> normalization, catalog-gated, no arguments, **never asks** — brittleness fails to nothing,
+> never to a wrong tool), over **`intent-phrases.json`** (`IntentPhraseStore`: shape-only,
+> tolerant, caps refuse never clamp, the F1 no-coercion rule, and **a `dev.vocca.shell` row is
+> refused at load**). `composeIntentWiring` gained a per-turn `resolverProvider` (read each
+> turn, never at composition; an edit needs no relaunch). **The N1 flip, made deliberately:**
+> the composed default is now a `PhraseIntentResolver` over the user's file, so **the shipped
+> configuration can voice-act** after a two-step opt-in (a phrase **and** an enabled tool); with
+> no file it resolves nothing, as Null did. The safety rows hold over a phrase hit — a
+> destructive call refused by attempting it, a shell phrase `.none` even with the command
+> enabled, the §8 floor enumerated in `EscapeValveTests`. `PROBE-INTENT-DEFAULT` reads
+> `resolver=PhraseIntentResolver … intentShellRows=0`; `PROBE-INTENT-PHRASE` (`phrases=1
+> resolved=1 card=yes invoked=1 shellRefused=1`) runs inside the zero-network interposer. G5
+> re-anchored once, deliberately (`e9aa45bb…` → `eba72eaf…`, dictation digests unchanged). The
+> D3-shaped caveat is retired — **two real classifiers, not composed together**. Findings: the
+> audit tools have **no Actions-tab row** (enablement is a hand-edit — F-A), SMOKE 148's gesture
+> was corrected for it (F-B), and `KeywordIntentResolver.jsonEscaped` emits invalid JSON for
+> control characters (F-C, recorded not fixed). **No gate passes** (twelfth unit ahead of the
+> uncleared gates); R8 mitigated not retired; no resolution rate exists. SMOKE 154-156 are
+> **written and runnable** — recorded, never gated. Test floor: **2859**.
 >
 > **`shell-provider` (C13 slice 7, shipped 2026-09-22):** the roadmap's highest blast
 > radius — the first provider whose radius is unboundedly destructive — composed onto the
@@ -403,7 +425,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2761 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 2859 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
