@@ -211,11 +211,11 @@ final class ConverseIntentStepTests: XCTestCase {
         XCTAssertEqual(
             Self.spokenReplies(in: driver.effects), [question],
             "the question is the spoken reply — the ask path, and nothing else")
-        let handled = await handler.calls
+        let handled = handler.calls
         XCTAssertEqual(
             handled, [],
             "an .ask resolution executes nothing — the action handler is never touched")
-        let resolved = await provider.calls
+        let resolved = provider.calls
         XCTAssertEqual(
             resolved, ["run the audit"],
             "the resolver read the cleaned utterance once")
@@ -257,7 +257,7 @@ final class ConverseIntentStepTests: XCTestCase {
         XCTAssertEqual(
             Self.spokenReplies(in: driver.effects), ["Done."],
             "the handler's reply is the spoken reply")
-        let handled = await handler.calls
+        let handled = handler.calls
         XCTAssertEqual(
             handled, [Self.fixtureInvocation],
             "the handler received the resolution's invocation, verbatim")
@@ -296,7 +296,7 @@ final class ConverseIntentStepTests: XCTestCase {
             Self.spokenReplies(in: driver.effects), ["turn one"],
             "a silent handler falls through to the reply generator — the echo of the "
                 + "cleaned utterance, byte-identical")
-        let handled = await handler.calls
+        let handled = handler.calls
         XCTAssertEqual(handled, [Self.fixtureInvocation], "the handler was still consulted")
         XCTAssertTrue(failures.values.isEmpty, "silence is an answer, never a notice")
     }
@@ -339,7 +339,7 @@ final class ConverseIntentStepTests: XCTestCase {
             Self.spokenReplies(in: driver.effects), ["one", "two"],
             "the first turn's nil and the second turn's .none both fall through to the "
                 + "reply generator — the echo path, byte-identical")
-        let handled = await handler.calls
+        let handled = handler.calls
         XCTAssertEqual(handled, [], "no resolution executed anything")
         XCTAssertTrue(failures.values.isEmpty)
     }
@@ -383,7 +383,7 @@ final class ConverseIntentStepTests: XCTestCase {
             Self.spokenReplies(in: driver.effects), ["question one", "second"],
             "the first .ask is spoken; the second consecutive .ask falls through to the "
                 + "reply generator — the bounded re-ask")
-        let handled = await handler.calls
+        let handled = handler.calls
         XCTAssertEqual(handled, [], "no resolution executed anything")
         XCTAssertTrue(failures.values.isEmpty)
     }
