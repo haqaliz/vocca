@@ -2033,8 +2033,16 @@ set -euo pipefail
 # `IntentResolverContractTests` (the determinism row widened in place, not counted) — the
 # count taken from the floor script's own parse in the ratchet commit.
 #
+# The phrase-intent-resolver phrase-table-store-aspect RED raise (2836 -> 2852) — the
+# `intent-phrases.json` store's sixteen rows in `IntentPhraseStoreTests`: absent is quietly
+# empty, unreadable/oversize files are loudly empty and never rewritten, row-level tolerance
+# (including the F1 no-coercion row and first-wins duplicates), the shell refusal at load, the
+# caps refusing never clamping on load and on save, the round trip, byte stability, the stray
+# temp file, the byte-level pin, the store/resolver normalization agreement, and the default
+# location — the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2836
+MINIMUM_EXECUTED_TESTS=2852
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
