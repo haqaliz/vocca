@@ -626,6 +626,33 @@ final class ZeroNetworkTests: XCTestCase {
     /// the empty registry) and the seeded round trip drives the real engine through the gate —
     /// the only spawn this invariant ever observes, and the child itself is exactly what it
     /// cannot see (D2, recorded in the drive's own documentation).
+    /// **The seeded phrase round trip** (PROBE-INTENT-PHRASE, `phrase-intent-resolver` R8): the
+    /// real phrase store over a temp `intent-phrases.json` holding one phrase for the probe's
+    /// own tool and one hand-edited shell row, the real `PhraseIntentResolver` built from the
+    /// store's answer through the per-turn recipe, the card, the confirm, and the provider's
+    /// counted run. Asserted whole, as one line — the ``expectedShellLifecycle`` shape — and
+    /// guarded by
+    /// ``testTheAssertedIntentPhrasePostConditionStillDescribesAPhraseRoundTripAndTheShellRefusal``.
+    ///
+    /// The line lives on its own rather than on PROBE-INTENT-DEFAULT because the composed root
+    /// reads the **real** Application Support directory: a phrase count there would depend on
+    /// whose machine ran the probe.
+    private static let expectedIntentPhraseLifecycle = [
+        // Where the drive wrote — no probe run writes to the real Application Support.
+        "store.location=temporary",
+        "store.isDefaultLocation=false",
+        // The store's own answer: the one accepted phrase — the shell row is not among them.
+        "phrases=1",
+        // The phrase resolved to a tool call through the composed recipe.
+        "resolved=1",
+        // The gate asked: the phrase-resolved destructive call reached the card, not the tool.
+        "card=yes",
+        // The provider's own call log: only the confirm reached the acting half.
+        "invoked=1",
+        // The store's own refusal log, counted: the hand-edited shell row was refused at load.
+        "shellRefused=1",
+    ].joined(separator: " ")
+
     private static let expectedShellLifecycle = [
         // The real store, named from its own type — a swapped-in double flips it.
         "store=real",
@@ -1224,6 +1251,29 @@ final class ZeroNetworkTests: XCTestCase {
             Note what this line does NOT cover: the spawned child itself is invisible to this \
             interposer (D2) — the line proves the default cannot spawn, never that an enabled \
             command cannot egress.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The seeded phrase round trip (`phrase-intent-resolver`). The seventeenth
+        // effect-not-reference check: a real `intent-phrases.json` in a temp directory, written
+        // with one audit-style phrase and one hand-edited shell row, loaded by the real store,
+        // resolved by the real phrase resolver through the composed recipe, carried to the card
+        // and confirmed through the surface's own closure. `phrases` is the store's own answer,
+        // `shellRefused` is its own refusal log counted, and `invoked` is the provider's own
+        // call log.
+        XCTAssertEqual(
+            try XCTUnwrap(intentPhrasePayload(of: observation)),
+            Self.expectedIntentPhraseLifecycle,
+            """
+            The probe did not report driving the seeded phrase round trip.
+              expected: \(Self.expectedIntentPhraseLifecycle)
+              observed: \(intentPhrasePayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseIntent() no longer drives the phrase leg on the \
+            default-configuration path — in which case the phrase store's file I/O is outside \
+            this invariant — or the store no longer refuses a shell row, or the composed recipe \
+            no longer carries a phrase to the card. Do not fix this by deleting the call, and do \
+            not fix it by pasting in whatever the probe now prints — see \
+            testTheAssertedIntentPhrasePostConditionStillDescribesAPhraseRoundTripAndTheShellRefusal.
             \(observation.diagnosticSummary)
             """)
 
@@ -2404,6 +2454,52 @@ final class ZeroNetworkTests: XCTestCase {
                 + "this the drive could fold probe entries into the founder's real audit log.")
     }
 
+    /// **Guards the guard.** ``expectedIntentPhraseLifecycle`` must keep describing **a phrase
+    /// round trip and the shell refusal**. The fields that cannot weaken:
+    ///
+    /// - `shellRefused` — exactly `1`: the store's own refusal log. A constant at `0` would pass
+    ///   the verbatim comparison while a hand-edited shell row reached the resolver — the
+    ///   arm-surface-only decision silently reversed.
+    /// - `phrases` — exactly `1`: the audit-style row accepted, the shell row not. `2` would
+    ///   mean the shell row was loaded; `0` a round trip over an empty table.
+    /// - `resolved`, `card`, `invoked` — the phrase reached the card and only the human's yes
+    ///   reached the tool; a constant with `card=no` or `invoked=0` watches nothing.
+    /// - `store.location` — `temporary`: no probe run writes where a real install keeps its file.
+    func testTheAssertedIntentPhrasePostConditionStillDescribesAPhraseRoundTripAndTheShellRefusal()
+        throws
+    {
+        let fields = try Self.parseFields(of: Self.expectedIntentPhraseLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("shellRefused"), "1",
+            "The asserted phrase post-condition no longer requires the shell row's refusal — a "
+                + "hand-edited phrase could reach a shell command while this line watched nothing.")
+        XCTAssertEqual(
+            try value("phrases"), "1",
+            "The asserted phrase post-condition no longer requires exactly the one accepted "
+                + "phrase — the shell row could be loaded, or the table could be empty.")
+        XCTAssertEqual(try value("resolved"), "1", "the phrase must resolve through the recipe")
+        XCTAssertEqual(
+            try value("card"), "yes",
+            "The asserted phrase post-condition no longer requires the card — a phrase could "
+                + "reach a destructive tool without the gate's ask being observed.")
+        XCTAssertEqual(
+            Int(try value("invoked")) ?? -1, 1,
+            "The asserted phrase post-condition no longer requires exactly one human-yes run.")
+        XCTAssertEqual(
+            try value("store.location"), "temporary",
+            "a probe run must never write a phrase file where a real install keeps its own")
+        XCTAssertEqual(try value("store.isDefaultLocation"), "false")
+    }
+
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
     /// probe never reported one.
     ///
@@ -2555,6 +2651,16 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-SHELL\t") {
             return String(line.dropFirst("PROBE-SHELL\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-INTENT-PHRASE` line's payload — the seeded phrase round trip's report — or
+    /// `nil` when the line is absent (the `PROBE-SHELL` parser shape).
+    private func intentPhrasePayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-INTENT-PHRASE\t") {
+            return String(line.dropFirst("PROBE-INTENT-PHRASE\t".count))
         }
         return nil
     }

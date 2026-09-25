@@ -2048,8 +2048,14 @@ set -euo pipefail
 # §8 floor's phrase row in `EscapeValveTests` — the count taken from the floor script's own
 # parse in the ratchet commit.
 #
+# The phrase-intent-resolver probe-aspect RED raise (2858 -> 2859) — the PROBE-INTENT-PHRASE
+# post-condition's guard-the-guard:
+# `testTheAssertedIntentPhrasePostConditionStillDescribesAPhraseRoundTripAndTheShellRefusal`
+# (the verbatim-line assertion joins the existing default-configuration test, not counted) —
+# the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2858
+MINIMUM_EXECUTED_TESTS=2859
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
