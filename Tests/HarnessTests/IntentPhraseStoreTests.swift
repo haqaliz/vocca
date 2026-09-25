@@ -235,7 +235,8 @@ final class IntentPhraseStoreTests: XCTestCase {
         let tooMany = (0...IntentPhraseStore.maximumPhrases).map {
             PhraseIntentRow(phrase: "phrase \($0)", providerID: "p", toolID: "t")
         }
-        let tooBig = (0..<200).map {
+        // Under the row cap, over the byte cap: 250 rows of ~290 encoded bytes is ~72 KB.
+        let tooBig = (0..<250).map {
             PhraseIntentRow(
                 phrase: "\($0) " + String(repeating: "x", count: 250), providerID: "p", toolID: "t")
         }

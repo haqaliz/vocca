@@ -208,15 +208,22 @@ final class IntentSeamBoundaryTests: XCTestCase {
         (
             name: "PhraseIntentResolver",
             permitted: [
-                // `phrase-intent-resolver`'s new family — confined to its own file until a
-                // later aspect's reviewed widening composes it.
-                "VoccaCore/Intent/PhraseIntentResolver.swift"
+                // `phrase-intent-resolver`'s new family — its own file, and each later
+                // aspect's reviewed widening below.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
+                // `phrase-table-store`'s reviewed widening — the store judges a phrase's
+                // emptiness and duplication with the resolver's own `normalized(_:)`, so the
+                // two cannot disagree. It never resolves.
+                "VoccaActions/Config/IntentPhraseStore.swift",
             ]
         ),
         (
             name: "PhraseIntentRow",
             permitted: [
-                "VoccaCore/Intent/PhraseIntentResolver.swift"
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
+                // `phrase-table-store`'s reviewed widening — the store decodes the file into
+                // the rows the resolver is built over.
+                "VoccaActions/Config/IntentPhraseStore.swift",
             ]
         ),
     ]
