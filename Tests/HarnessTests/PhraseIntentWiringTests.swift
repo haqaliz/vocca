@@ -134,8 +134,8 @@ final class PhraseIntentWiringTests: XCTestCase {
             resolverProvider: Self.phraseProvider(phraseStore))
         try await harness.surface.setToolEnabled(Self.auditProviderID, Self.clearToolID, true)
 
-        let invocation = try XCTUnwrap(
-            toolCall(in: await harness.wiring.resolve("Wipe the log.")))
+        let resolution = await harness.wiring.resolve("Wipe the log.")
+        let invocation = try XCTUnwrap(toolCall(in: resolution))
         let reply = await harness.wiring.performAction(invocation)
 
         XCTAssertNil(reply, "the card is the answer — no spoken ack stands in for it")

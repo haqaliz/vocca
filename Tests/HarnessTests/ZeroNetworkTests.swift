@@ -2259,8 +2259,12 @@ final class ZeroNetworkTests: XCTestCase {
     ///   that never ran, which is exactly the vacuous green this field exists to refuse. A
     ///   composition that wired a resolver (N1's flip) flips `intentResolved` to `1` and the
     ///   guard refuses the flip as a reviewed edit.
-    /// - `resolver` — `NullIntentResolver`, derived from the composed root's own slot: a
-    ///   composition that wired anything else flips it to `other`/`none`.
+    /// - `resolver` — `PhraseIntentResolver`, derived from what the composed root's own
+    ///   per-turn provider builds: a composition that wired anything else flips it to
+    ///   `other`/`none`. (It read `NullIntentResolver` until `phrase-intent-resolver`, whose
+    ///   wiring GREEN made the N1 flip — this guard refused it until edited here, as designed.
+    ///   `intentResolved=0` still holds: with no phrase file, the phrase default resolves
+    ///   nothing.)
     /// - `spawnsSubprocess` — `false`: the D2 narrowed promise extended to the voice leg — a
     ///   composition that declared a spawn would say so here.
     func testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault() throws {
@@ -2275,10 +2279,10 @@ final class ZeroNetworkTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            try value("resolver"), "NullIntentResolver",
+            try value("resolver"), "PhraseIntentResolver",
             "The asserted intent default post-condition no longer requires the composed root's "
-                + "Null resolver — a composition that wired any other resolver would still pass "
-                + "a constant that watched nothing.")
+                + "phrase resolver — a composition that wired any other resolver would still "
+                + "pass a constant that watched nothing.")
         XCTAssertGreaterThanOrEqual(
             Int(try value("resolves")) ?? 0, 1,
             "The asserted intent default post-condition resolved nothing — intentResolved=0 must "

@@ -156,8 +156,8 @@ extension AppBootstrap {
     /// ## Probe-safe by construction (the ``ActionWiring`` doc contract)
     ///
     /// Nothing here starts, reads or provisions at composition time: the executor's construction
-    /// is I/O-free, the stores are consulted per call — never at composition — and the card-up
-    /// guard is a store read at call time, never here. The recipe names no transport, no
+    /// is I/O-free, the stores are consulted per call — never at composition — the resolver is
+    /// obtained per call, and the card-up guard is a store read at call time, never here. The recipe names no transport, no
     /// `Process`, and no `TextInjector`; the driver's slots are filled, nothing is composed into
     /// the dictation path.
     @MainActor
@@ -166,6 +166,26 @@ extension AppBootstrap {
         provider: Provider,
         executor: ActionExecutor<Provider>,
         resolver: any IntentResolver,
+        root: DictationLoopRoot
+    ) -> IntentWiring<Provider> {
+        composeIntentWiring(
+            configStore: configStore, provider: provider, executor: executor,
+            resolverProvider: { resolver }, root: root)
+    }
+
+    /// **The intent wiring recipe over a per-turn resolver** (`phrase-intent-resolver` R5): the
+    /// same recipe as the fixed-resolver form above, with the resolver obtained from
+    /// `resolverProvider` **once per resolution, never at composition**. A resolver built over a
+    /// file (the composed default's ``PhraseIntentResolver`` over `intent-phrases.json`) picks up
+    /// an edit on the next turn without a relaunch, and composing the recipe reads nothing. The
+    /// catalog is built first, from the enablement, so a disabled tool is filtered whatever the
+    /// resolver holds.
+    @MainActor
+    public static func composeIntentWiring<Provider: ActionProvider>(
+        configStore: ActionConfigStore,
+        provider: Provider,
+        executor: ActionExecutor<Provider>,
+        resolverProvider: @escaping @Sendable @MainActor () async -> any IntentResolver,
         root: DictationLoopRoot
     ) -> IntentWiring<Provider> {
         let generation = IntentGeneration()
@@ -191,6 +211,7 @@ extension AppBootstrap {
                     ToolReference(
                         providerID: row.providerID, toolID: row.toolID, displayName: ""))
             }
+            let resolver = await resolverProvider()
             return resolver.resolve(utterance, against: catalog)
         }
 

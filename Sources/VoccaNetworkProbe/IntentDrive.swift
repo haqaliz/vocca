@@ -243,10 +243,13 @@ extension VoccaNetworkProbe {
         var resolves = 0
         var intentResolved = 0
         var spawnsSubprocess = "none"
-        if let resolverSlot = composedRoot.intentResolver {
+        // `phrase-intent-resolver`: the slot is the per-turn provider, so the fact is the
+        // dynamic type of what calling it builds — the resolver the next turn would use.
+        if let resolverProvider = composedRoot.intentResolverProvider {
+            let built = await resolverProvider()
             resolverFact =
-                String(reflecting: type(of: resolverSlot)).contains("NullIntentResolver")
-                ? "NullIntentResolver" : "other"
+                String(reflecting: type(of: built)).contains("PhraseIntentResolver")
+                ? "PhraseIntentResolver" : "other"
         }
         if let composedWiring = composedRoot.intentWiring {
             if case .toolCall = await composedWiring.resolve("run the probe tool") {

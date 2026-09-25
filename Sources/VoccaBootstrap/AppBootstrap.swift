@@ -691,24 +691,34 @@ public enum AppBootstrap {
         // recipe + the two root slots above): the voice path's resolution and action leg,
         // composed over the **shared** executor (`actionWiring.executor` — the same instance
         // `root.actionExecutor` receives, R5), the enablement catalog (the same `actionConfigStore`
-        // the Actions tab edits), and the composed default's `NullIntentResolver` — the
-        // D2-analogue posture: a shipped configuration cannot voice-act until a future slice
-        // wires a resolver deliberately (N1 records the flip as a reviewed edit), and the
-        // echo reply generator is untouched. Probe-safe by construction: nothing here spawns,
-        // reads or starts — the stores are read at call time, the resolver is a pure `.none`,
-        // and the wiring declares `spawnsSubprocess = false` (the `requiresNetwork` analogue,
-        // extended to the voice leg).
-        let intentResolver = NullIntentResolver()
+        // the Actions tab edits), and the composed default's resolver — since
+        // `phrase-intent-resolver`, a `PhraseIntentResolver` built each turn over the user's
+        // `intent-phrases.json` (the N1 flip, made deliberately as a reviewed edit). The
+        // D2-analogue posture **narrowed, not dropped**: the shipped configuration voice-acts
+        // only after a two-step opt-in — the user writes a phrase **and** enables its tool — and
+        // with no file it resolves nothing, exactly as the null default did; a shell target is
+        // refused at load; the echo reply generator is untouched. Probe-safe by construction:
+        // nothing here spawns, reads or starts — the stores and the phrase file are read at
+        // call time, never here, and the wiring declares `spawnsSubprocess = false` (the
+        // `requiresNetwork` analogue, extended to the voice leg).
+        let intentPhraseStore = IntentPhraseStore(
+            directory: IntentPhraseStore.defaultDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask).first,
+                home: FileManager.default.homeDirectoryForCurrentUser))
+        let intentResolverProvider: @Sendable @MainActor () async -> any IntentResolver = {
+            PhraseIntentResolver(rows: await intentPhraseStore.load().phrases)
+        }
         let intentWiring = AppBootstrap.composeIntentWiring(
             configStore: actionConfigStore,
             provider: actionProvider,
             executor: actionWiring.executor,
-            resolver: intentResolver,
+            resolverProvider: intentResolverProvider,
             root: root)
         root.intentWiring = intentWiring
-        // The fact carrier: the same resolver the wiring resolves through, kept so the probe
-        // can derive the composed default's posture from the root's own slot.
-        root.intentResolver = intentResolver
+        // The fact carrier: the same provider the wiring resolves through, kept so the probe
+        // can derive the composed default's posture by calling it.
+        root.intentResolverProvider = intentResolverProvider
 
         // The shell composition (C13 slice 7, R6 — the C11/C12/C13 additive shape, one more
         // recipe + the root slots above): the shell provider over the shipped registry, the
@@ -1640,11 +1650,12 @@ public final class DictationLoopRoot {
     /// wiring — every headless harness in the suite.
     public var intentWiring: IntentWiring<AuditActionProvider>?
 
-    /// **The composed default's resolver — the fact carrier** (`probe`): the
-    /// `NullIntentResolver` the wiring resolves through, kept on the root so the probe can
-    /// report the R7 unwired posture as an effect of the composed root rather than as a comment.
+    /// **The composed default's resolver provider — the fact carrier** (`probe`,
+    /// `phrase-intent-resolver`): the **same** per-turn provider the wiring resolves through,
+    /// kept on the root so the probe can report which resolver the composed default builds —
+    /// and what table it was built over — as an effect of calling it rather than as a comment.
     /// `nil` only in a composition that built no intent wiring.
-    public var intentResolver: (any IntentResolver)?
+    public var intentResolverProvider: (@Sendable @MainActor () async -> any IntentResolver)?
 
     // MARK: - The shell composition (C13 slice 7, shell-provider)
 
