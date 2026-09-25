@@ -120,6 +120,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Intent/IntentResolver.swift",
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
                 "VoccaCore/Intent/NullIntentResolver.swift",
+                // `phrase-intent-resolver`'s reviewed widening — the second real classifier's
+                // own file: it conforms to the seam, reads the catalog and returns the
+                // resolution vocabulary, exactly as the keyword resolver's file does.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
                 // `action-round-trip`'s reviewed widening — the wiring's `resolve` closure is
                 // the seam's consumer: it supplies the catalog and reads the resolution. It
                 // names the protocol to call it, never to re-decide with it.
@@ -137,6 +141,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Intent/IntentResolver.swift",
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
                 "VoccaCore/Intent/NullIntentResolver.swift",
+                // `phrase-intent-resolver`'s reviewed widening — the second real classifier's
+                // own file: it conforms to the seam, reads the catalog and returns the
+                // resolution vocabulary, exactly as the keyword resolver's file does.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
                 // `converse-step`'s reviewed widening — the driver's `intentProvider` closure
                 // type and its `.ask`/`.toolCall`/`.none` branch, the recipe's passthrough,
                 // and the probe drive's explicit unwired closure. All three read the
@@ -156,6 +164,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 "VoccaCore/Intent/IntentResolver.swift",
                 "VoccaCore/Intent/KeywordIntentResolver.swift",
                 "VoccaCore/Intent/NullIntentResolver.swift",
+                // `phrase-intent-resolver`'s reviewed widening — the second real classifier's
+                // own file: it conforms to the seam, reads the catalog and returns the
+                // resolution vocabulary, exactly as the keyword resolver's file does.
+                "VoccaCore/Intent/PhraseIntentResolver.swift",
                 // `action-round-trip`'s reviewed widening — the wiring builds the catalog the
                 // resolver resolves against, from the enablement rows (R3). It reads the
                 // vocabulary to build the seam's input; it never decides with it.
@@ -191,6 +203,20 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // `probe`'s reviewed widening — the drive seeds one row for the probe's own
                 // tool, the table's injection point the resolver's initializer exposes.
                 "VoccaNetworkProbe/IntentDrive.swift",
+            ]
+        ),
+        (
+            name: "PhraseIntentResolver",
+            permitted: [
+                // `phrase-intent-resolver`'s new family — confined to its own file until a
+                // later aspect's reviewed widening composes it.
+                "VoccaCore/Intent/PhraseIntentResolver.swift"
+            ]
+        ),
+        (
+            name: "PhraseIntentRow",
+            permitted: [
+                "VoccaCore/Intent/PhraseIntentResolver.swift"
             ]
         ),
     ]
