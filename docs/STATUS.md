@@ -115,6 +115,19 @@ none may be quoted.
   are written and runnable, recorded and never gated, and executed by nothing in CI. They record
   attempt counts, never a rate.
 - **Diacritics are not folded** ("café" ≠ "cafe"). Recorded.
+- **CI findings on PR #48:**
+  - **Master had been red since PR #46** (intent-layer, 2026-09-22) on the strict-concurrency job:
+    six `no 'async' operations occur within 'await'` warnings in `ConverseIntentStepTests.swift`
+    (`await handler.calls` / `await provider.calls` on plain classes). The job fails on any
+    warning. Local runs never showed it, because the local toolchain and incremental builds did
+    not emit the warning. Fixed test-only in this PR (`ci:` commit), since it blocked the merge.
+    It isn't this unit's own work.
+  - **A flake, not fixed:** in one of the two CI runs of the same commit, Bundle contract (Debug)
+    failed `DictationPipelineTests.testEveryRowOfTheDecisionTableFinalizesExactlyOneRecord`. The
+    "cancelled before transcribe" row recorded an `asr` span and engine attribution. The same
+    job passed in the other run, Release passed, and it passed locally, so it is
+    timing-dependent. It is on the dictation path, which this unit doesn't touch (digests
+    unchanged). Recorded for a later deterministic fix, in the manner of the re-warm flake fix.
 - **Process note:** the session that planned and built this unit had no subagent tool, so the
   "agents team" fan-out the pipeline prescribes ran serially in the main thread, strictly
   test-first (RED → GREEN → REFACTOR per aspect). The phrase-table-store aspect has no REFACTOR
