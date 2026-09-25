@@ -2026,8 +2026,15 @@ set -euo pipefail
 # resolver-catalog field's assertion in the same method) — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The phrase-intent-resolver phrase-resolver-aspect RED raise (2825 -> 2836) — the second real
+# `IntentResolver`'s contract: ten rows in `PhraseIntentResolverTests` (the exact match, the
+# normalization fold, the near miss, the catalog as enablement twice, table order, never asks,
+# empty utterances, determinism, the one public normalization) and one shared-contract row in
+# `IntentResolverContractTests` (the determinism row widened in place, not counted) — the
+# count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2825
+MINIMUM_EXECUTED_TESTS=2836
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
