@@ -155,4 +155,51 @@ final class EscapeValveTests: XCTestCase {
                     + "escalate-only rule, measured")
         }
     }
+
+    /// **The floor holds over a phrase-resolved call** (`phrase-intent-resolver` R7): the
+    /// user's own phrase is a resolution like any other, so the invocation
+    /// ``PhraseIntentResolver`` builds for an outward-facing tool faces the same enumeration —
+    /// every approval, policy floor and mode — and reaches the acting half only on the human's
+    /// yes in live mode. Writing a phrase is not a way to pre-approve.
+    func testAPhraseResolvedOutwardFacingToolAlwaysConfirms() async throws {
+        let resolver = PhraseIntentResolver(rows: [
+            PhraseIntentRow(
+                phrase: "tidy my downloads", providerID: Self.invocation.providerID,
+                toolID: Self.invocation.toolID)
+        ])
+        let resolution = resolver.resolve(
+            "Tidy my downloads!",
+            against: [
+                ToolReference(
+                    providerID: Self.invocation.providerID, toolID: Self.invocation.toolID,
+                    displayName: "")
+            ])
+        guard case .toolCall(let invocation) = resolution else {
+            return XCTFail("the phrase must resolve to the outward-facing tool, got \(resolution)")
+        }
+        let provider = RecordingActionProvider(
+            toolIDs: [invocation.toolID], describedRadius: .outwardFacing)
+        let enablement = ActionEnablement([invocation])
+        let policies: [ActionRadiusPolicy] = [
+            .none,
+            ActionRadiusPolicy([
+                ActionRadiusPolicy.Floor(invocation: invocation, radius: .outwardFacing)
+            ]),
+        ]
+
+        for policy in policies {
+            for approval in [ActionApproval.withheld, .granted] {
+                for mode in [ActionGate.Mode.live, .dryRun] {
+                    let decision = await ActionGate.submit(
+                        invocation, to: provider, enablement: enablement,
+                        policy: policy, approval: approval, mode: mode)
+                    XCTAssertEqual(
+                        decision.reachedTheProvider, approval == .granted && mode == .live,
+                        "approval=\(approval) mode=\(mode): a phrase-resolved outward-facing "
+                            + "call reaches invoke only on a human yes, live")
+                }
+            }
+        }
+        XCTAssertEqual(provider.invokeCount, 2)
+    }
 }

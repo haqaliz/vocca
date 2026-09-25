@@ -2041,8 +2041,15 @@ set -euo pipefail
 # temp file, the byte-level pin, the store/resolver normalization agreement, and the default
 # location — the count taken from the floor script's own parse in the ratchet commit.
 #
+# The phrase-intent-resolver wiring-aspect RED raise (2852 -> 2858) — the composed phrase
+# leg's five rows in `PhraseIntentWiringTests` (composition reads nothing, a file edit takes
+# effect next turn, a phrase-resolved destructive call refused by attempting it, no enablement
+# row touches nothing, a shell phrase never resolves even with the command enabled) and the
+# §8 floor's phrase row in `EscapeValveTests` — the count taken from the floor script's own
+# parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2852
+MINIMUM_EXECUTED_TESTS=2858
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -585,9 +585,12 @@ final class ZeroNetworkTests: XCTestCase {
     /// deliberately **not** a golden string: ``testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault``
     /// reads it back and refuses a version that no longer describes the composed default.
     private static let expectedIntentDefaultLifecycle = [
-        // The composed root's fact carrier, derived from the slot's own dynamic type — a
-        // composition that wired a different resolver flips it.
-        "resolver=NullIntentResolver",
+        // The composed root's fact carrier, derived from the dynamic type of the resolver the
+        // root's per-turn provider builds — a composition that wired a different resolver flips
+        // it. `phrase-intent-resolver` flipped it deliberately (NullIntentResolver →
+        // PhraseIntentResolver): an absent phrase file resolves nothing, so `intentResolved=0`
+        // below still holds on a clean machine.
+        "resolver=PhraseIntentResolver",
         // The drive actually resolved through the composed wiring — one resolution, counted.
         "resolves=1",
         // That resolution was not a tool call — distinguishable from "the drive didn't run" by

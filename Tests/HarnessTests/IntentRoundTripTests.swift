@@ -72,7 +72,8 @@ final class IntentRoundTripHarness<Provider: ActionProvider> {
         directory: URL,
         provider: Provider,
         auditStore: FileSystemActionAuditStore,
-        resolver: RecordingIntentResolver = RecordingIntentResolver()
+        resolver: RecordingIntentResolver = RecordingIntentResolver(),
+        resolverProvider: (@Sendable @MainActor () async -> any IntentResolver)? = nil
     ) {
         let configStore = ActionConfigStore(
             directory: directory.appendingPathComponent("config"))
@@ -107,12 +108,25 @@ final class IntentRoundTripHarness<Provider: ActionProvider> {
             liveLevel: QuietLevelSource(),
             sessionKind: .dictation)
 
-        let wiring = AppBootstrap.composeIntentWiring(
-            configStore: configStore,
-            provider: provider,
-            executor: ActionExecutor(provider: provider, store: auditStore),
-            resolver: resolver,
-            root: root)
+        // `phrase-intent-resolver`: a harness given a per-turn resolver provider composes
+        // through that form — the composed default's shape; every other suite keeps the fixed
+        // recording resolver.
+        let wiring: IntentWiring<Provider>
+        if let resolverProvider {
+            wiring = AppBootstrap.composeIntentWiring(
+                configStore: configStore,
+                provider: provider,
+                executor: ActionExecutor(provider: provider, store: auditStore),
+                resolverProvider: resolverProvider,
+                root: root)
+        } else {
+            wiring = AppBootstrap.composeIntentWiring(
+                configStore: configStore,
+                provider: provider,
+                executor: ActionExecutor(provider: provider, store: auditStore),
+                resolver: resolver,
+                root: root)
+        }
         let surface = AppBootstrap.composeActionWiring(
             configStore: configStore,
             auditStore: auditStore,
