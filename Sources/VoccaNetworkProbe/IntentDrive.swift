@@ -92,6 +92,9 @@ extension VoccaNetworkProbe {
         /// The PROBE-INTENT-DEFAULT line — the composed default's facts.
         let defaultReport: String
 
+        /// The PROBE-INTENT-PHRASE line — the seeded phrase round trip's effects.
+        let phraseReport: String
+
         /// A type minted **by this drive**, from which the composition it drove derives its
         /// module's coverage entry — the witness rule every sibling drive follows.
         let moduleWitness: Any.Type
@@ -245,11 +248,13 @@ extension VoccaNetworkProbe {
         var spawnsSubprocess = "none"
         // `phrase-intent-resolver`: the slot is the per-turn provider, so the fact is the
         // dynamic type of what calling it builds — the resolver the next turn would use.
+        var composedTable: [PhraseIntentRow] = []
         if let resolverProvider = composedRoot.intentResolverProvider {
             let built = await resolverProvider()
             resolverFact =
                 String(reflecting: type(of: built)).contains("PhraseIntentResolver")
                 ? "PhraseIntentResolver" : "other"
+            composedTable = (built as? PhraseIntentResolver)?.rows ?? []
         }
         if let composedWiring = composedRoot.intentWiring {
             if case .toolCall = await composedWiring.resolve("run the probe tool") {
@@ -263,10 +268,17 @@ extension VoccaNetworkProbe {
         // resolver catalog never names a `dev.vocca.shell` row — counted off the shipped
         // synonym table, the only resolver catalog the voice leg can learn phrases from. A
         // composition that wired a shell synonym flips this count, and the guard-the-guard
-        // refuses the flip as a reviewed edit.
-        let shellRows = KeywordIntentResolver.shippedSynonyms.filter {
-            $0.providerID == ShellProvider.providerID
-        }.count
+        // refuses the flip as a reviewed edit. Since `phrase-intent-resolver` the count also
+        // covers the table the composed default was actually built over (the machine's real
+        // phrase file, read, never written): the store refuses a shell row at load, so this
+        // stays zero on any machine whatever the file holds.
+        let shellRows =
+            KeywordIntentResolver.shippedSynonyms.filter {
+                $0.providerID == ShellProvider.providerID
+            }.count
+            + composedTable.filter { $0.providerID == ShellProvider.providerID }.count
+
+        let phraseReport = await runPhraseRoundTrip(base: base)
 
         // A second store over the same directory: the reader shares nothing with the writer, so
         // what it returns came off the disk.
@@ -298,7 +310,91 @@ extension VoccaNetworkProbe {
                 "spawnsSubprocess=\(spawnsSubprocess)",
                 "intentShellRows=\(shellRows)",
             ].joined(separator: " "),
+            phraseReport: phraseReport,
             moduleWitness: type(of: wiring))
+    }
+
+    /// **The seeded phrase round trip** (`phrase-intent-resolver` R8): a real
+    /// `intent-phrases.json` in a temp directory — one phrase for the probe's own tool, and one
+    /// **hand-edited** shell row written as raw bytes (the threat is an edit, so the drive does
+    /// not go through `save`) — loaded by the real store, resolved by the real
+    /// `PhraseIntentResolver` through the per-turn recipe, carried to the card and confirmed
+    /// through the surface's own closure. Every field is an effect of the run: `phrases` is the
+    /// store's own answer, `shellRefused` its refusal log counted, `invoked` the provider's own
+    /// call log.
+    @MainActor
+    private static func runPhraseRoundTrip(base: URL) async -> String {
+        let phraseDirectory = base.appendingPathComponent("phrases")
+        let configStore = ActionConfigStore(directory: base.appendingPathComponent("phrase-config"))
+        let auditStore = FileSystemActionAuditStore(
+            directory: base.appendingPathComponent("phrase-audit"))
+        let provider = IntentProbeProvider()
+        let defaultLocation = IntentPhraseStore.defaultDirectory(
+            applicationSupport: FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first,
+            home: FileManager.default.homeDirectoryForCurrentUser)
+
+        let file = """
+            {"version": 1, "phrases": [\
+            {"phrase": "run the probe tool", "providerID": "\(IntentProbeProvider.providerID)", \
+            "toolID": "\(IntentProbeProvider.toolID)"}, \
+            {"phrase": "empty my downloads", "providerID": "\(ShellProvider.providerID)", \
+            "toolID": "empty-downloads"}]}
+            """
+        try? FileManager.default.createDirectory(
+            at: phraseDirectory, withIntermediateDirectories: true)
+        try? Data(file.utf8).write(
+            to: phraseDirectory.appendingPathComponent("intent-phrases.json"))
+
+        let refusals = Mutex(0)
+        let phraseStore = IntentPhraseStore(
+            directory: phraseDirectory,
+            log: { message in
+                if message.contains("shell") { refusals.withLock { $0 += 1 } }
+            })
+        let loadedCount = Mutex(0)
+
+        let root = makeIntentDriveRoot()
+        let surface = AppBootstrap.composeActionWiring(
+            configStore: configStore,
+            auditStore: auditStore,
+            provider: provider,
+            sessionActive: { false },
+            root: root)
+        let wiring = AppBootstrap.composeIntentWiring(
+            configStore: configStore,
+            provider: provider,
+            executor: ActionExecutor(provider: provider, store: auditStore),
+            resolverProvider: {
+                let table = await phraseStore.load().phrases
+                loadedCount.withLock { $0 = table.count }
+                return PhraseIntentResolver(rows: table)
+            },
+            root: root)
+        try? await surface.setToolEnabled(
+            IntentProbeProvider.providerID, IntentProbeProvider.toolID, true)
+
+        var resolved = 0
+        var card = "no"
+        if case .toolCall(let invocation) = await wiring.resolve("Run the probe tool.") {
+            resolved = 1
+            _ = await wiring.performAction(invocation)
+            if root.widgetStore.state.confirmation != nil {
+                card = "yes"
+            }
+            await surface.confirm()
+        }
+
+        return [
+            "store.location=\(phraseDirectory.path.hasPrefix(FileManager.default.temporaryDirectory.path) ? "temporary" : "elsewhere")",
+            "store.isDefaultLocation=\(phraseDirectory == defaultLocation)",
+            "phrases=\(loadedCount.withLock { $0 })",
+            "resolved=\(resolved)",
+            "card=\(card)",
+            "invoked=\(provider.invokeCount)",
+            "shellRefused=\(refusals.withLock { $0 })",
+        ].joined(separator: " ")
     }
 
     /// The minimal real root over the probe's shared fakes — the fold surfaces the wiring needs

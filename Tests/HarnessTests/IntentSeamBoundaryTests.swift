@@ -228,6 +228,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // `phrase-table-store`'s reviewed widening — the store decodes the file into
                 // the rows the resolver is built over.
                 "VoccaActions/Config/IntentPhraseStore.swift",
+                // `probe`'s reviewed widening — the drive counts the shell rows of the table
+                // the composed default was actually built over (`intentShellRows`). It reads
+                // the rows; it never resolves with them.
+                "VoccaNetworkProbe/IntentDrive.swift",
             ]
         ),
     ]

@@ -391,6 +391,7 @@ struct VoccaNetworkProbe {
         let intent = exerciseIntent(composedRoot: composedRoot)
         print("PROBE-INTENT\t\(intent.report)")
         print("PROBE-INTENT-DEFAULT\t\(intent.defaultReport)")
+        print("PROBE-INTENT-PHRASE\t\(intent.phraseReport)")
 
         // The composed shell configuration, run rather than referenced — the same shape as
         // the drives above, for the slice whose provider **can** spawn: the composed
