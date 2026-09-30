@@ -31,7 +31,7 @@ import OSLog
 /// ## What this file is not
 ///
 /// It is not enablement and it is not a trust claim: the file holds **definitions only**.
-/// Enablement is membership in ``ActionConfigStore`` (providerID `dev.vocca.coding-agent` +
+/// Enablement is membership in ``ActionConfigStore`` (providerID `dev.vocca.agent` +
 /// agent id), and an agent row has **no `readOnly` field** — an agent is never read-only, its
 /// blast radius is `outwardFacing` for every row by construction (founder decision, the spec's
 /// "No `readOnly` field" row). The byte-pin in `CodingAgentRegistryTests` asserts the key set on

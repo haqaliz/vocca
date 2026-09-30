@@ -158,6 +158,13 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // roadmap — so the sentence it renders is derived from the argv, never from
                 // authored prose, and the gate is its whole mitigation.
                 "VoccaActions/Providers/ShellProvider.swift",
+                // `agent-provider`'s reviewed widening — the fifth real implementation behind
+                // the seam, and one of the five rows that conformance costs. It runs a
+                // configured agent's fixed argv on the user's machine — outwardFacing for
+                // every row by construction (the registry row has no readOnly field) — so
+                // the sentence it renders is derived from the argv, never from authored
+                // prose, and the gate is its whole mitigation.
+                "VoccaActions/Providers/CodingAgentProvider.swift",
                 // `executor`'s reviewed widening — the one caller of the gate in the shipped
                 // configuration. The generic constraint is the seam itself: the executor is
                 // per-provider by construction, holding the concrete provider it submits to.
@@ -227,6 +234,12 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // invocation's arguments to resolve the command's parameter slots; it builds
                 // the gate's input, never a decision with it.
                 "VoccaActions/Providers/ShellProvider.swift",
+                // `agent-provider`'s reviewed widening — the fifth real implementation behind
+                // the seam, and one of the five rows that conformance costs. It reads the
+                // invocation's arguments for presence only — an agent row declares no
+                // parameters, so any supplied arguments are refused (the gap-1 pin); it
+                // builds the gate's input, never a decision with it.
+                "VoccaActions/Providers/CodingAgentProvider.swift",
                 // `enablement-store`'s reviewed widening — the config store maps its persisted
                 // enablement rows to membership by constructing an ActionInvocation per row
                 // (arguments always nil). It reads the vocabulary to build the gate's input;
@@ -306,6 +319,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // argv-derived summary `describe` must return; the sentence a person approves
                 // is the argv that would run, never the author's prose about it.
                 "VoccaActions/Providers/ShellProvider.swift",
+                // `agent-provider`'s reviewed widening — the fifth real implementation behind
+                // the seam, and one of the five rows that conformance costs. It renders the
+                // argv-derived summary `describe` must return; the sentence a person approves
+                // is the argv that would run, never the author's prose about it.
+                "VoccaActions/Providers/CodingAgentProvider.swift",
                 // `wiring`'s reviewed widening — the recipe reads the gate's summaries (the
                 // arm's card sentence, the preview's dry-run answer, the mismatch re-prompt)
                 // to present and re-present. It reads the rendered words to show them; it
@@ -348,6 +366,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // outcome `invoke` owes the audit log, folding the engine's bounded `shell.*`
                 // keys through unchanged — never a message and never a trap.
                 "VoccaActions/Providers/ShellProvider.swift",
+                // `agent-provider`'s reviewed widening — the fifth real implementation behind
+                // the seam, and one of the five rows that conformance costs. It returns the
+                // outcome `invoke` owes the audit log, folding the engine's bounded keys
+                // through unchanged — never a message and never a trap.
+                "VoccaActions/Providers/CodingAgentProvider.swift",
                 // `executor`'s reviewed widening — the probe's `ProbeActionProvider` returns
                 // an outcome from its `invoke`. One of the five rows the conformance costs.
                 "VoccaNetworkProbe/ActionAuditDrive.swift",
@@ -377,6 +400,10 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // never constructs one; Family B below is the check that says so, and it is
                 // unchanged by this widening, exactly as it is for the other providers.
                 "VoccaActions/Providers/ShellProvider.swift",
+                // `agent-provider`: the provider NAMES the token in `invoke`'s signature and
+                // never constructs one; Family B below is the check that says so, and it is
+                // unchanged by this widening, exactly as it is for the other providers.
+                "VoccaActions/Providers/CodingAgentProvider.swift",
                 // `executor`'s reviewed widening — the probe's `ProbeActionProvider` names the
                 // token in `invoke`'s signature and never constructs one; Family B below is
                 // unchanged by this widening, exactly as it is for the providers.

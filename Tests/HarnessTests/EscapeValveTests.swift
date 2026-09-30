@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Foundation
+import VoccaActions
 import VoccaCore
 import XCTest
 
@@ -19,7 +21,10 @@ import XCTest
 /// acceptance 6): an outward-facing tool always confirms. No approval value, policy floor, mode,
 /// or future trust mechanism can auto-run it — the floor is pinned at the gate level, the
 /// `BlastRadius.requiresConfirmation` single branch point named by name
-/// (`BlastRadius.swift:56-63`), and enumerated over every shape a submission can take.
+/// (`BlastRadius.swift:56-63`), and enumerated over every shape a submission can take: over the
+/// outward-facing stub, over the phrase-resolved call, and over the real ``CodingAgentProvider``
+/// — which describes every resolved row at ``BlastRadius/outwardFacing`` by construction, an
+/// agent being never read-only (the `agent-provider` gap-1 pin).
 ///
 /// ## What "never auto-runs" means, precisely
 ///
@@ -202,4 +207,79 @@ final class EscapeValveTests: XCTestCase {
         }
         XCTAssertEqual(provider.invokeCount, 2)
     }
+
+    /// **The floor holds over the coding-agent arm** (`agent-provider`): the real
+    /// ``CodingAgentProvider`` describes every resolved row at ``BlastRadius/outwardFacing``
+    /// by construction — an agent is never read-only, so there is no read-only claim a floor
+    /// could trust — and the acting half is reached under exactly the same shapes as the stub:
+    /// granted + live, and nothing else.
+    ///
+    /// The provider is the real conformance over a counting engine closure; what is asserted
+    /// on the runner's count is that the gate, not the provider's own discipline, is what stops
+    /// an unapproved agent run.
+    func testAnOutwardFacingAgentInvocationNeverAutoRunsUnderAnyShape() async {
+        let definition = CodingAgentDefinition(
+            id: "commit-helper",
+            executablePath: "/usr/bin/true",
+            arguments: [],
+            projectDirectory: "/tmp")!
+        let invocation = ActionInvocation(
+            providerID: CodingAgentProvider.providerID, toolID: definition.id)!
+        let runner = RecordingAgentRunner()
+        let provider = CodingAgentProvider(agents: [definition]) { configuration in
+            await runner.run(configuration)
+        }
+        let enablement = ActionEnablement([invocation])
+        let raising = ActionRadiusPolicy([
+            ActionRadiusPolicy.Floor(invocation: invocation, radius: .outwardFacing)
+        ])
+        let policies: [(name: String, policy: ActionRadiusPolicy)] = [
+            ("none", .none), ("raising", raising),
+        ]
+        let approvals: [(name: String, approval: ActionApproval)] = [
+            ("withheld", .withheld), ("granted", .granted),
+        ]
+        let modes: [(name: String, mode: ActionGate.Mode)] = [
+            ("live", .live), ("dryRun", .dryRun),
+        ]
+
+        for (policyName, policy) in policies {
+            for (approvalName, approval) in approvals {
+                for (modeName, mode) in modes {
+                    let decision = await ActionGate.submit(
+                        invocation, to: provider, enablement: enablement,
+                        policy: policy, approval: approval, mode: mode)
+                    let label = "approval=\(approvalName) policy=\(policyName) mode=\(modeName)"
+                    XCTAssertEqual(
+                        decision.reachedTheProvider, approval == .granted && mode == .live,
+                        "\(label): an outward-facing agent invocation never auto-runs — no "
+                            + "approval value, policy floor or mode may reach invoke without "
+                            + "a human yes")
+                }
+            }
+        }
+
+        let count = await runner.count
+        XCTAssertEqual(
+            count, 2,
+            "exactly the two human-yes shapes reached the acting half — granted + live under "
+                + "both policy floors; every other shape stopped")
+    }
+}
+
+// MARK: - The counted agent engine
+
+/// The agent provider's engine seam, counted: every run is tallied and answered successfully.
+private actor RecordingAgentRunner {
+
+    private var runs = 0
+
+    func run(_ configuration: ShellExecutor.Configuration) -> ShellExecutionResult {
+        runs += 1
+        return ShellExecutionResult(
+            status: .succeeded(exitCode: 0),
+            standardOutput: Data(), standardError: Data(), outputWasTruncated: false)
+    }
+
+    var count: Int { runs }
 }
