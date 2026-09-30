@@ -2070,8 +2070,24 @@ set -euo pipefail
 # static decoder; and the default directory — the count taken from the floor script's own parse
 # in the ratchet commit.
 #
+# The coding-agent-handoff agent-execution raise (2882 -> 2888) — the six rows in
+# `CodingAgentExecutionTests` that pin the shipped `ShellExecutor` as the agent engine (no new
+# engine ships): an agent-shaped configuration (absolute executable, fixed argv, configured env,
+# the 30 s default) runs to completion with the exit code read back; a raised per-row timeout
+# (120 s) is honored over the injected clock — the run keeps polling past the 30 s mark and
+# resolves only at the configured ceiling, with the 30 s-default counterfactual resolving near
+# its own ~35 s deadline; a hung child is terminated and reaped with the no-orphan acceptance
+# asserted ESRCH on the real pid via `lastProcessIdentifier`; the child receives exactly the
+# configured environment and nothing else (the exact env-set pin); a flooding child is truncated
+# at the 4 KB bound, reported, never fatal; and the registry-shaped row flows into
+# `ShellExecutor.Configuration` (timeoutSeconds `Int` → `timeout` `.seconds(...)`, optional
+# environment → exact environment, absent timeout → the executor's own 30 s default). The
+# transport-permit lint stays at exactly two files — the agent child is an executor child — and
+# the suite names no forbidden family; the count taken from the floor script's own parse in the
+# ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2882
+MINIMUM_EXECUTED_TESTS=2888
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
