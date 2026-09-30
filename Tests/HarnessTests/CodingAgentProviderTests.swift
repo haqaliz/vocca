@@ -175,8 +175,9 @@ final class CodingAgentProviderTests: XCTestCase {
             .write(to: directory.appendingPathComponent("coding-agents.json"))
 
         let registry = CodingAgentRegistry(directory: directory)
+        let result = success()
         let provider = await CodingAgentProvider.load(registry: registry) { configuration in
-            await RecordingAgentRunner(result: self.success()).run(configuration)
+            await RecordingAgentRunner(result: result).run(configuration)
         }
 
         XCTAssertEqual(
@@ -193,7 +194,7 @@ final class CodingAgentProviderTests: XCTestCase {
                 + "was shown")
 
         let reloaded = await CodingAgentProvider.load(registry: registry) { configuration in
-            await RecordingAgentRunner(result: self.success()).run(configuration)
+            await RecordingAgentRunner(result: result).run(configuration)
         }
         XCTAssertEqual(
             reloaded.toolIDs, ["commit-helper", "planted", "review-agent"],
