@@ -590,6 +590,120 @@ final class ActionsTabTests: XCTestCase {
             "the shell section's rows sit beside the default-off detail, like the server rows")
     }
 
+    // MARK: - The agent leg (coding-agent-handoff wiring)
+
+    /// The agent registry's rows fold as rows — **off by default** (M7), with the persisted
+    /// enablement re-applied exactly like discovery rows: the reducer's rule, so the wiring
+    /// cannot arm an agent on arrival.
+    func testAgentConfigLoadFoldsRowsOffByDefaultAndReappliesEnablement() {
+        var state = loaded(
+            enablement: [ActionsToolKey(providerID: "dev.vocca.agent", toolID: "remembered")])
+        let rows = [
+            tool("dev.vocca.agent", "fresh", enabled: true, radius: .outwardFacing),
+            tool("dev.vocca.agent", "remembered", enabled: true, radius: .outwardFacing),
+        ]
+        state = ActionsTabReducer.reduce(state, .agentConfigLoaded(rows))
+
+        XCTAssertFalse(
+            state.agentRows[0].isEnabled,
+            "an agent row is off even when handed enabled — default off is the reducer's, "
+                + "never the wiring's")
+        XCTAssertTrue(
+            state.agentRows[1].isEnabled,
+            "a persisted enablement row re-applies at load — re-enabling after a relaunch "
+                + "must not require re-toggling")
+    }
+
+    /// An agent row's toggle flips the row **and** the persisted set together — the same
+    /// enablement set, the same draft, the same save the server rows use.
+    func testAnAgentRowsEnablementFlipsTheRowAndThePersistedSet() {
+        var state = loaded()
+        state = ActionsTabReducer.reduce(
+            state, .agentConfigLoaded([tool("dev.vocca.agent", "fix-agent")]))
+
+        state = ActionsTabReducer.reduce(
+            state,
+            .toolEnabledChanged(
+                providerID: "dev.vocca.agent", toolID: "fix-agent", enabled: true))
+        XCTAssertTrue(state.agentRows[0].isEnabled)
+        XCTAssertTrue(
+            state.enablement.contains(
+                ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fix-agent")))
+
+        state = ActionsTabReducer.reduce(
+            state,
+            .toolEnabledChanged(
+                providerID: "dev.vocca.agent", toolID: "fix-agent", enabled: false))
+        XCTAssertFalse(state.agentRows[0].isEnabled)
+        XCTAssertFalse(
+            state.enablement.contains(
+                ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fix-agent")))
+    }
+
+    /// Arming an enabled agent row yields `awaitingConfirmation` — the agent rows are arm
+    /// surface rows like any other, and a disabled one is refused by the reducer before any
+    /// signal can be emitted.
+    func testArmingAnEnabledAgentRowYieldsAwaitingConfirmation() {
+        var state = loaded()
+        state = ActionsTabReducer.reduce(
+            state, .agentConfigLoaded([tool("dev.vocca.agent", "fix-agent")]))
+        state = ActionsTabReducer.reduce(
+            state,
+            .toolEnabledChanged(providerID: "dev.vocca.agent", toolID: "fix-agent", enabled: true))
+
+        state = ActionsTabReducer.reduce(
+            state, .armRequested(providerID: "dev.vocca.agent", toolID: "fix-agent"))
+        XCTAssertEqual(
+            state.arm, .awaitingConfirmation(providerID: "dev.vocca.agent", toolID: "fix-agent"))
+
+        let before = state
+        state = ActionsTabReducer.reduce(
+            state, .armRequested(providerID: "dev.vocca.agent", toolID: "never-enabled"))
+        XCTAssertEqual(
+            state, before,
+            "a disabled agent's arm is refused by the reducer — the M7 never-read rule at "
+                + "the surface, for the agent leg too")
+    }
+
+    // MARK: - The agent leg's copy (coding-agent-handoff wiring)
+
+    /// The agent D2 copy, exact-in-spirit of the shell copy: configuring a coding agent runs
+    /// it on the user's machine with the user's configured project, and Vocca cannot see
+    /// inside a program it starts on its behalf — an enabled agent's egress is never
+    /// provable.
+    func testTheAgentD2TrustCopyIsPinned() {
+        XCTAssertEqual(
+            ActionsTabCopy.agentD2TrustCopy,
+            "Configuring a coding agent runs it on your machine with your configured project; "
+                + "Vocca cannot see inside a program it starts on your behalf — an enabled "
+                + "agent's egress is never provable.")
+    }
+
+    /// The agent D2 copy sits in the **Agents section** — the section whose rows arm the
+    /// child. The shell copy lives at the moment of arm; the agent copy lives there too.
+    func testTheAgentSectionCarriesTheD2Copy() throws {
+        let page = SwiftSourceScanner.stripComments(from: try pageSource())
+        guard let sectionTitle = page.range(of: "ActionsTabCopy.agentsSectionTitle") else {
+            return XCTFail("the page must name its agents section through the copy enum")
+        }
+        let after = page[sectionTitle.upperBound...]
+        guard let brace = after.firstIndex(of: "{") else {
+            return XCTFail("the section header must open a braced body")
+        }
+        let characters = Array(after)
+        let offset = after.distance(from: after.startIndex, to: brace)
+        guard let body = SwiftSourceScanner.bracedBody(in: characters, openingBraceIndex: offset)
+        else {
+            return XCTFail("the section body must balance")
+        }
+        XCTAssertTrue(
+            body.body.contains("ActionsTabCopy.agentD2TrustCopy"),
+            "the agents section must carry the D2 copy — the moment of arm")
+        XCTAssertTrue(
+            body.body.contains("ActionsTabCopy.defaultOffDetail"),
+            "the agents section's rows sit beside the default-off detail, like the server rows")
+    }
+
     // MARK: - Fixtures
 
     private func actionsFolder() throws -> URL {
