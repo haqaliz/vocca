@@ -100,7 +100,8 @@ final class CodingAgentRegistryTests: XCTestCase {
                 + "}"
         }
         if let clause { fields["clause"] = jsonString(clause) }
-        return "{ " + fields.map { "\($0.key): \($0.value)" }.joined(separator: ", ") + " }"
+        return "{ " + fields.map { "\(jsonString($0.key)): \($0.value)" }.joined(separator: ", ")
+            + " }"
     }
 
     private func file(_ rows: [String], version: String = "1") -> String {
@@ -297,7 +298,7 @@ final class CodingAgentRegistryTests: XCTestCase {
                     environment: Dictionary(
                         uniqueKeysWithValues: (1...CodingAgentRegistry.maximumEnvironmentEntries + 1)
                             .map { ("K\($0)", "v") })),
-                agent("long-id", id: longID),
+                agent(longID),
                 agent("long-env-key", environment: [longKey: "v"]),
                 agent("long-env-value", environment: ["K": longValue]),
             ]),
@@ -544,8 +545,8 @@ final class CodingAgentRegistryTests: XCTestCase {
         try await store.save(prior)
 
         let overCap = CodingAgentFile(
-            agents: (1...60).map {
-                makeAgent(id: "big-\($0)", clause: String(repeating: "z", count: 1100))
+            agents: (1...CodingAgentRegistry.maximumAgents).map {
+                makeAgent(id: "big-\($0)", clause: String(repeating: "z", count: 5000))
             })
         do {
             try await store.save(overCap)
@@ -660,7 +661,7 @@ final class CodingAgentRegistryTests: XCTestCase {
         ])
         XCTAssertEqual(
             String(decoding: try CodingAgentRegistry.encode(fixed), as: UTF8.self),
-            #"{"agents":[{"arguments":["-serve"],"executablePath":"/usr/local/bin/code-agent","id":"planner","projectDirectory":"/Users/alice/Projects/work","timeoutSeconds":30}],"version":1}"#,
+            #"{"agents":[{"arguments":["-serve"],"executablePath":"\/usr\/local\/bin\/code-agent","id":"planner","projectDirectory":"\/Users\/alice\/Projects\/work","timeoutSeconds":30}],"version":1}"#,
             "a fixed table is the same bytes every time — sorted keys, optionals absent when nil")
     }
 
