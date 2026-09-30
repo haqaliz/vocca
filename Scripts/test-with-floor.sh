@@ -2054,8 +2054,24 @@ set -euo pipefail
 # (the verbatim-line assertion joins the existing default-configuration test, not counted) —
 # the count taken from the floor script's own parse in the ratchet commit.
 #
+# The coding-agent-handoff agent-registry RED raise (2859 -> 2882) — the `coding-agents.json`
+# store's twenty-three rows in `CodingAgentRegistryTests`: absent is quietly empty and creates
+# nothing; unreadable/non-object/wrong-version/oversize files are loudly empty with exactly one
+# log each and are never rewritten; unknown keys refused at every level of the shape (a planted
+# `readOnly` at the row level, an `enablement` section at the top level); the F1 no-coercion
+# rows (a `1` or a `true` for a path, a `"30"` for a timeout); the timeout semantics (absent
+# defaults to 30, 0/-5/601 are skipped loudly, 1 and 600 are inclusive); the row caps (argv,
+# environment entries, env key/value length, id length — all refused, never truncated); the
+# empty or relative (including tilde) executable/project paths; duplicate ids first-wins; the
+# save round trip and never-rewrite, the atomic temp-write-then-rename pair, the torn commit,
+# the stray temp file's invisibility, cross-instance agreement, the count and byte caps refusing
+# never clamping on save; sorted-key byte stability; the byte-level pin (canonical empty
+# document, exact populated bytes, key-set pins with no `readOnly` ever); the never-throwing
+# static decoder; and the default directory — the count taken from the floor script's own parse
+# in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2859
+MINIMUM_EXECUTED_TESTS=2882
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
