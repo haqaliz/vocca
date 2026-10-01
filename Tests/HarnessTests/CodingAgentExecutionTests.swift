@@ -258,6 +258,42 @@ final class CodingAgentExecutionTests: XCTestCase {
             "a flood must fill the cap exactly — truncation lands on the bound, not short of it")
     }
 
+    // MARK: - Acceptance 6: the child runs in the configured working directory
+
+    /// The child starts in the configured working directory — `/bin/pwd` prints the directory
+    /// the configuration named.
+    ///
+    /// This is the project-directory contract of the agent shape: a row's `projectDirectory`
+    /// must reach the child as its working directory, or the sentence "in <directory>" is a
+    /// lie. The directory is a **real** temp directory (created, never assumed), and the
+    /// captured stdout is compared against the URL's symlink-resolved path — `/var` is a
+    /// symlink on macOS, so the child's `getcwd` is the physical path.
+    func testTheChildRunsInTheConfiguredWorkingDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-coding-agent-cwd-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let executor = ShellExecutor(
+            configuration: .init(
+                executablePath: "/bin/pwd",
+                currentDirectoryURL: directory),
+            clock: ContinuousStdioClock(),
+            sleeper: TaskStdioPollSleeper())
+        let result = await executor.run()
+        XCTAssertEqual(
+            result.status, .succeeded(exitCode: 0),
+            "'/bin/pwd' in a real directory must run to completion")
+        XCTAssertEqual(
+            String(decoding: result.standardOutput, as: UTF8.self),
+            directory.resolvingSymlinksInPath().path + "\n",
+            """
+            the child must print the configured directory — the row's projectDirectory is \
+            where the agent actually runs, never the caller's working directory. Got: \
+            \(String(decoding: result.standardOutput, as: UTF8.self))
+            """)
+    }
+
     // MARK: - The seam row: the registry shape flows into the executor configuration
 
     /// The registry-shaped timeout and environment flow into the executor's configuration.

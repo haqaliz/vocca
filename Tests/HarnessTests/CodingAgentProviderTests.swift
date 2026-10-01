@@ -345,6 +345,28 @@ final class CodingAgentProviderTests: XCTestCase {
                 + "variables and nothing else")
     }
 
+    /// **The run closure receives the row's project directory.**
+    ///
+    /// The row's `projectDirectory` becomes the configuration's `currentDirectoryURL` — the
+    /// directory the child will actually start in. The sentence "in <directory>" is only true
+    /// if the configuration carries it.
+    func testTheRunClosureReceivesTheRowsProjectDirectory() async throws {
+        let (provider, runner) = makeProvider(agents: [Self.commitHelper], result: success())
+        let invocation = try makeInvocation(toolID: "commit-helper")
+
+        let decision = await ActionGate.submit(
+            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            policy: .none, approval: .granted, mode: .live)
+
+        XCTAssertEqual(decision.outcome, .succeeded)
+        let calls = await runner.calls
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(
+            calls[0].currentDirectoryURL, URL(fileURLWithPath: Self.commitHelper.projectDirectory),
+            "the row's projectDirectory flows into the configuration's currentDirectoryURL — "
+                + "the child starts in the directory the sentence names")
+    }
+
     /// **The engine's bounded failure keys are carried into the outcome unchanged.**
     ///
     /// The fold is one-to-one: the audit entry records the key the engine produced, never a

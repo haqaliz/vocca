@@ -2156,8 +2156,15 @@ set -euo pipefail
 # proving exactly the 24 existence checks and nothing else) — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The project-directory RED raise (2956 -> 2958) — the working-directory defect's RED phase,
+# the two rows the contract is written as before the field exists (compile-RED):
+# `CodingAgentExecutionTests` grows the `/bin/pwd` working-directory row (a real temp
+# directory, compared symlink-resolved — `/var` is a symlink on macOS, so the child's
+# `getcwd` is physical) and `CodingAgentProviderTests` grows the run-closure row asserting
+# `currentDirectoryURL == URL(fileURLWithPath: row.projectDirectory)`.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2956
+MINIMUM_EXECUTED_TESTS=2958
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
