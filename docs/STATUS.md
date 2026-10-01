@@ -10,6 +10,107 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `active-project-detection` unit shipped 2026-10-01 — the C12 metadata extension +
+agent-provider integration: the focused app's working directory rides the arm-time
+metadata lane into the agent sentence and the run; no gate passes.**
+`feat/active-project-detection/aliz`. Five aspects (the record aspect is this entry). Floor
+**2958 → 2991** (executed 2991).
+
+**What shipped, per aspect.**
+*working-directory-source* — **`WorkingDirectoryRead`** (`VoccaContext/Accessibility/
+WorkingDirectoryRead.swift` — a new seam file, the `AgentCLIDetection` shape: a pure
+resolver over an injected closure): `resolve(pid:libprocRead:)` (one closure call, nothing
+else — headless-testable over a recording fake) + **`libprocCwd`** (one
+`proc_pidinfo(PROC_PIDVNODEPATHINFO)` call; the C string lives in `pvi_cdir.vip_path` —
+**the field-name note: the struct member is `vip_path`, never `vi_cwd`**, the vnode-info
+half); every failure → `nil` (the never-throw doctrine); names no AX prefix, no
+FileManager identifier, no `Process`-prefixed identifier. `ContextAXReading` gains the
+`focusedProcessIdentifier` witness; **`AccessibilityContext.workingDirectory()`** ships
+with the **additive defaulted `workingDirectoryRead` parameter** (default = the real
+`libprocCwd` — the composed default is the honest read, never an unwired nil), Secure
+Input refused first (the refusal stays the `resolveCurrent` ordering). The cwd read
+**never joins `ContextSnapshot`** (resolution byte-identical — D1). Floor 2958→2967.
+*invocation-carrier* — `ActionInvocation.resolvedDirectory: String?` (additive, default
+nil — every existing construction site compiles unchanged; empty refused, so absence has
+one spelling), `WidgetConfirmationSignal.resolvedDirectory` (additive, the card carries
+it), the **nil-tolerant sentence** (`CodingAgentSentences` — no directory → no `in`
+clause; the both-nil leg ships in the sentence and the configuration half pins the
+executor's `currentDirectoryURL` nil default, the pre-fix fallback), and the provider's
+rule in both halves: **`invocation.resolvedDirectory ?? agent.projectDirectory`** —
+describe's `in <dir>` clause and invoke's `currentDirectoryURL` (the argv-that-runs
+doctrine extended to the directory — the child starts where the sentence says it will);
+`currentDirectoryURL` omitted when both are nil. The **gap-1 pin holds** with arguments
+AND a resolved directory on the same invocation (the directory is a separate field, never
+`arguments`). Floor 2967→2976.
+*agent-wiring-cwd* — `composeCodingAgentWiring`/`composeIntentWiring` gained
+**`activeProjectDirectory: @Sendable () async -> String?`** (nil-shaped default — additive
+composition, probe-safe): at arm, a row whose project directory is blank (or that the
+loaded registry lacks — the tolerant decode's skip, the honest "empty" spelling) is
+resolved **exactly once** and carried on the invocation; an explicit row is never
+re-resolved (**D2 — explicit wins, the recording-fake zero-calls proof**); the card
+carries `resolvedDirectory`, and confirm/decline rebuild the invocation from
+`signal.resolvedDirectory` — **one resolution, four identical renders** (the sentence
+binding's four renders: the arm's card render, the post-record re-render, the confirm's
+gate render, the mismatch re-prompt render — a focus change mid-card can never produce a
+mismatch loop or a run in a directory the user was not shown, G3/R-B). **The voice leg
+ships (S2):** a phrase resolving to the agent's invocation is enriched with the arm-time
+resolution — the card carries it, the confirm runs in it; the unwired voice leg's
+clause-less sentence is pinned. The R4 editor caption ("leave empty to detect the focused
+app's project"). Floor 2976→2983. **G5 re-anchored once, deliberately** (the wiring
+REFACTOR commit: `c7d6767c…` → `641b6445…`, full literal
+`641b6445fd163dde55561a242da4e745f79dd7fd61aedcac7c9aff123dd4d237`, computed with shasum,
+never edited-to-match; the dictation digests unchanged — `1baeb2de…`, `ce70ca10…`);
+**three pin sites carry the AppBootstrap literal** (`TurnTakingComposedAcceptanceTests`,
+`AgentPresetsInvariantTests`, `ActiveProjectInvariantTests`).
+*agent-pins* — the invariant suite for the unit, run inside the zero-network interposer:
+PROBE-CODING-AGENT's line asserted verbatim with the unit's files in the tree (the
+composed default still `agents=0 spawnsSubprocess=false` — the cwd read composed, the two
+zeroes), the module-coverage cross-check recomputed from the manifest (twelve library
+modules, the equality re-asserted), the transport permitted set still exactly the two
+entries, the FileManager seam table still exactly eight seams, the AX family still the two
+one-file seams (the context seam's entry still `AXContextSource.swift` plus the new file's
+own naming contract), the Family A/B tables and the policy no-default read off the pin
+file, and the G5 digests recomputed at the re-anchored literal. Floor 2983→2991 (executed
+2991).
+
+**The two recorded GREEN findings.** (1) **`ActionEnablement.isEnabled` compares the
+tool's identity — `providerID` + `toolID` — never the invocation's payload**
+(`ActionGate.swift:52-87`): the carrier's payload-bearing invocation (with
+`resolvedDirectory`) would have been declined as not-enabled against the persisted
+payload-less enablement rows; the `arguments` payload has the same latent wall,
+unexercised because no shipped path submits it through the set; no pin moved. (2)
+**`CodingAgentProvider` completes the carrier's nil leg**: a blank row directory resolves
+to nil → the clause-less sentence, never "in ." — the shipped row shape's directory is
+required, so the nil leg is exercised through the blank spelling.
+
+**The decisions (D1–D3).** **D1 — the metadata lane:** the cwd is a directory path, never
+content — no per-app consent (the bundleID/windowTitle lane), never persisted, shown in
+the sentence; the cwd **never rides the consent-gated `root.contextResolution` slot**,
+never joins `ContextSnapshot`, never in the BYOK payload (the AND-gate never carries it).
+**D2 — explicit wins:** a row with a configured directory uses it, deterministically;
+detection is never consulted for that row (the zero-calls proof). **D3 — ship + measure:**
+`proc_pidinfo(PROC_PIDVNODEPATHINFO)` was unmeasured in this repo; SMOKE 161 measures the
+real read on the founder's real apps before any "works everywhere" claim, while the
+headless suite pins the seam over injected fakes.
+
+**The deferrals, with their blockers.** **Tab-awareness** — the critique's hard question
+recorded: this slice resolves the **frontmost app only** (the AX focused-process fact),
+never the active tab/window of a multi-window app — recorded, a later slice's
+conversation. **`~` expansion** — the detected path is never tilde-shortened and a row's
+directory cannot spell `~` (the registry's absolute-path rule): the file-system seam has
+**no home accessor** (the `AgentCLIDetection` record). The **N1 live "detected" hint** in
+the row editor stays deferred (the caption is the shipped copy).
+
+**No gate passes** (fifteenth unit ahead of the uncleared gates); the composed default
+still reads `agents=0 spawnsSubprocess=false`; zero network; the dictation path
+digest-untouched (the pin proves it). SMOKE 161 is **written and runnable** — recorded,
+never gated; no resolution rate may be quoted. The record aspect also closed the docs
+sync, including the recorded prose fix: `CLAUDE.md`'s coding-agent-handoff paragraph still
+named `dev.vocca.agent` after the rename (the dig) — corrected to `vocca.agent`, a
+documented fix, never a rewrite of the historical record.
+
+---
+
 **The `vocca-agent-id` rename shipped 2026-10-01 — the coding-agent provider's identifier
 is `vocca.agent`, never `dev.vocca.agent`; a persisted-vocabulary rename, recorded.**
 

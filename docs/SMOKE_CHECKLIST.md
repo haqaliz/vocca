@@ -3697,6 +3697,54 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     the argv-derived render, a run in the wrong directory, or an audit log that cannot
     reconstruct the decision.
 
+161. **The active project is detected at arm time: an empty-directory agent row shows the
+    focused app's working directory verbatim on the card, the run happens there, the
+    audit sentence shows it, and the negative row reads "in /" honestly
+    (`active-project-detection`, recorded — never gated).**
+
+    *Gesture:* continuing from 160, focus VS Code (or the founder's editor) on a real
+    project — e.g. a repo under `~/dev/` — and arm an agent row whose **Project
+    directory is empty** (the empty draft is the "detect at arm time" spelling; the
+    editor caption says "leave empty to detect the focused app's project"). Read the
+    sentence off the **rendered** card and verify the resolved path appears verbatim —
+    e.g. `Run the coding agent 'claude': /usr/local/bin/claude <task> in
+    ~/dev/manifold.` — compared against the focused app's real working directory read
+    independently in a terminal (the `lsof -a -p <pid> -d cwd` fact, never assumed).
+    Press **Confirm** and verify the agent actually ran **in that detected directory**
+    (the run's own output — e.g. a task that prints its cwd; the `/bin/pwd` precedent),
+    then open the audit artifact and verify the confirmed entry's **sentence shows the
+    same detected path**. Repeat the whole gesture with the founder's terminal/iTerm
+    row (focus the terminal on a different project — the resolution follows the focused
+    app, not a memory). Then the negative row: focus Finder/desktop — an app whose
+    working directory is `/` — and arm again: the sentence shows "in /" **honestly**,
+    recorded as a measured fact, never a heuristic refusal ("not a project, refusing").
+    "Detected" is the resolved path — read off the surface and compared — never a claim
+    about every app: one measured row is one measured fact.
+
+    *Verify the state was entered:* the row's directory was really empty (a row with a
+    configured directory never consults detection — explicit wins, and the run's
+    directory must be the row's, not the focused app's), the card was really read off
+    the rendered surface before any confirm, the focused app's cwd was really read
+    independently (rule 1 — a guessed path proves nothing), the confirm really ran the
+    agent (the run's own output), and the audit rows were really read off disk. A focus
+    change after the card is not a failure: the run happens in the directory the card
+    showed — the arm-time resolution is the contract (the one-resolution carrier).
+
+    *Pass:* the row recorded verbatim with the never-gated note: **the focused app's
+    working directory was detected at arm time, shown verbatim on the card, the run
+    happened there, the audit sentence showed it, and the negative row read "in /"
+    honestly** — the D3 measurement: `proc_pidinfo`'s real read on the founder's real
+    apps, recorded as facts, never as a rate and never as a claim about every app.
+
+    *Void — not fail — if:* the row's directory was not empty (detection never ran —
+    rule 1), the focused app's cwd could not be read independently, or the agent never
+    ran.
+
+    *Failure:* a card showing a path different from the independently-read cwd, a run
+    that happened somewhere other than the card's path, an audit sentence that differs
+    from the card's, a negative row that refuses or hides instead of showing "in /", or
+    a configured-directory row whose run used the detected path instead of the row's.
+
 ---
 
 ## When this file is wrong

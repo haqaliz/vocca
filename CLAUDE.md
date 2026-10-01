@@ -9,6 +9,32 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`active-project-detection` (C13 slice 11 + the C12 metadata extension, shipped
+> 2026-10-01):** the "voice → my current project" promise stops being hand-operated —
+> the focused app's working directory becomes the agent row's project at arm time.
+> `WorkingDirectoryRead` (`VoccaContext/Accessibility/`, its own seam file over an
+> injected libproc closure — the `AgentCLIDetection` shape): `resolve(pid:libprocRead:)`
+> + `libprocCwd` (one `proc_pidinfo(PROC_PIDVNODEPATHINFO)` call; the C string is
+> `pvi_cdir.vip_path`, never `vi_cwd`; every failure → `nil`); `AccessibilityContext`
+> gains the `focusedProcessIdentifier` witness and `workingDirectory()` with the
+> additive defaulted `workingDirectoryRead` parameter (Secure Input refused first). The
+> metadata lane is **D1**: no consent, never in `ContextSnapshot`, never in the BYOK
+> payload. The carrier: `ActionInvocation.resolvedDirectory` +
+> `WidgetConfirmationSignal.resolvedDirectory` (additive), the nil-tolerant sentence (no
+> directory → no `in` clause), and the provider's
+> `invocation.resolvedDirectory ?? agent.projectDirectory` rule in both halves —
+> describe's clause and invoke's `currentDirectoryURL`, the child starts where the
+> sentence says. `composeCodingAgentWiring`/`composeIntentWiring` gained the arm-time
+> `activeProjectDirectory` closure (nil-shaped default): an empty row resolves **exactly
+> once** at arm (D2 — explicit wins, never for a row that names its own directory), the
+> card carries it, confirm/decline rebuild from `signal.resolvedDirectory` — one
+> resolution, four identical renders; **the voice leg ships (S2)**; the editor caption
+> "leave empty to detect the focused app's project". G5 re-anchored once, deliberately
+> (`c7d6767c…` → `641b6445…`, dictation digests unchanged; three pin sites carry the
+> literal). **No gate passes** (fifteenth unit ahead of the uncleared gates); the
+> composed default still reads `agents=0 spawnsSubprocess=false`. SMOKE 161 is
+> **written and runnable** — recorded, never gated. Test floor: **2991**.
+>
 > **`agent-presets` (C13 slice 10, shipped 2026-10-01):** the authoring surface — **a row
 > is now authored in-app, never by hand** — the first slice that makes the agent arm
 > reachable without touching a file. `KnownAgentPresets` ships **eight pinned presets**
@@ -42,7 +68,7 @@ This file orients a coding agent working in this repository. Read it first.
 > the **`environment`** field — key material lives in the file, what reaches the child is
 > exactly what the file says); the agent child is the **reviewed `ShellExecutor`** — no new
 > engine, so **the transport-permit lint stays at exactly two files** (correcting the PRD's
-> R8 phrasing); `CodingAgentProvider` (`dev.vocca.agent`, the fifth real `ActionProvider`)
+> R8 phrasing); `CodingAgentProvider` (`vocca.agent`, the fifth real `ActionProvider`)
 > with the **argv-derived sentence** (describe and invoke share one render), the
 > **arguments-refusal pin** (an agent row declares no parameters — `{{utterance}}`/`$N`
 > deferred with their blocker — so any supplied arguments are refused,
@@ -51,7 +77,7 @@ This file orients a coding agent working in this repository. Read it first.
 > agents** section with the D2 copy — "an enabled agent's egress is never provable" —
 > policy floor `.none`, in-flight refusal, the sentence-bound card with the mismatch
 > re-prompt, `spawnsSubprocess=false` declared for the composed default) and the root
-> slots; **voice-reachable** — a phrase row naming `dev.vocca.agent` resolves once the
+> slots; **voice-reachable** — a phrase row naming `vocca.agent` resolves once the
 > tool is enabled (the store refuses only `dev.vocca.shell`; phrases arm rows, never task
 > text). `PROBE-CODING-AGENT` runs inside the zero-network interposer (`agents=0
 > spawnsSubprocess=false seeded=1 card=yes invoked=1 decisions=refused,confirmed,dryRun
@@ -480,7 +506,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2956 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 2991 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
