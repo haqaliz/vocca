@@ -2119,8 +2119,22 @@ set -euo pipefail
 # `FileManager` spelling, and imports nothing) — the count taken from the floor script's own
 # parse in the ratchet commit.
 #
+# The agent-detection raise (2923 -> 2931; executed 2931) — the detection resolver's contract
+# suite grows eight tests in `AgentCLIDetectionTests`: the first-candidate-path resolution (and
+# the one-check early exit the recording fake proves), the first-wins ordering across two
+# candidate paths, the injected-PATH resolution with the exact check set (candidate paths first,
+# then the PATH's absolute components — the relative, `~`-prefixed and empty segments are
+# provably never asked about), the name-major candidate-name order, absent-everywhere resolving
+# quietly to `.notDetected` with and without an injected PATH, the exact-check-set pin over the
+# shipped catalog (8 presets x 1 name x 3 candidate paths = 24 checks, nothing more, with a
+# skipped-only PATH widening nothing), the candidate-path constants pinned verbatim (the spec's
+# `~` trio kept out of the MVP — the seam exposes no home directory — pinned as never joining
+# the list), and the shipped resolver file naming no transport family, no file-system spelling
+# and importing nothing — the count taken from the floor script's own parse in the ratchet
+# commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2923
+MINIMUM_EXECUTED_TESTS=2931
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
