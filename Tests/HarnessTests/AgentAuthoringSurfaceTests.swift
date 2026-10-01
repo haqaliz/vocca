@@ -182,15 +182,18 @@ final class AgentAuthoringSurfaceTests: XCTestCase {
             loadDictionary: { [] },
             saveDictionary: { _ in })
 
+        let presets = await bindings.loadAgentPresets()
         XCTAssertEqual(
-            await bindings.loadAgentPresets(), [],
+            presets, [],
             "no presets are claimed — with nothing behind the page, the chooser has nothing "
                 + "to render")
+        let definitions = await bindings.loadAgentDefinitions()
         XCTAssertEqual(
-            await bindings.loadAgentDefinitions(), [],
+            definitions, [],
             "no definitions are claimed — the honest empty state")
+        let detection = await bindings.detectAgents()
         XCTAssertEqual(
-            await bindings.detectAgents(), [:],
+            detection, [:],
             "no detection facts are claimed — nothing is said about any binary")
         try? await bindings.saveAgents(.empty)
         // Nothing to assert but that it returned: the default changes nothing and reports

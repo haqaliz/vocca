@@ -120,8 +120,161 @@ public struct ActionsConfigDraft: Sendable, Equatable {
 /// failure. The failure carries the bounded key the wiring reported; the tab shows it and lets
 /// the user retry.
 public enum ActionsDiscoveryResult: Sendable, Equatable {
-    /// The server listed these tools.
+    /// The server answered with its tool list.
     case succeeded([ActionsToolRow])
     /// Discovery failed — the child could not be spawned or answered — with the wiring's reason.
     case failed(String)
+}
+
+// MARK: - The agent authoring surface (agent-presets)
+
+/// One configured coding agent, as the tab lists and edits it — the tab's own plain spelling
+/// of a `coding-agents.json` row.
+///
+/// `VoccaUI` may not name the action layer's types (the module boundary), so everything the
+/// authoring surface crosses its seams with is spelled here, and the wiring maps the two
+/// spellings at the composition root — the ``ActionsConfigDraft`` precedent, one direction.
+public struct ActionsAgentDefinition: Sendable, Equatable, Identifiable {
+    /// The stable identifier of the agent — the id enablement rows name it by, and the id
+    /// the duplicate check refuses.
+    public var id: String
+    /// The executable to launch — absolute, the fixed-argv contract.
+    public var executablePath: String
+    /// The fixed argv the executable is told — the space-separated draft's folded value.
+    public var arguments: [String]
+    /// The absolute directory the agent works in.
+    public var projectDirectory: String
+    /// How long the agent may run, in seconds — `1...600`, empty meaning the 30-second
+    /// default, exactly as the definition's own init rules say.
+    public var timeoutSeconds: Int
+    /// Explicit environment entries for the agent's process — capped, never truncated.
+    public var environment: [String: String]?
+    /// An optional plain-text sentence the author adds to the confirmation surface.
+    public var clause: String?
+
+    public init(
+        id: String, executablePath: String, arguments: [String] = [],
+        projectDirectory: String, timeoutSeconds: Int = 30,
+        environment: [String: String]? = nil, clause: String? = nil
+    ) {
+        self.id = id
+        self.executablePath = executablePath
+        self.arguments = arguments
+        self.projectDirectory = projectDirectory
+        self.timeoutSeconds = timeoutSeconds
+        self.environment = environment
+        self.clause = clause
+    }
+}
+
+/// The registry as the tab saves it — the ``ActionsConfigDraft`` shape for
+/// `coding-agents.json`: version + rows, one draft, so what the table shows and what the
+/// file holds cannot drift.
+public struct ActionsAgentFile: Sendable, Equatable {
+    /// The file format's version — this build reads and writes `1`.
+    public let version: Int
+    /// The configured agents, in the table's order.
+    public let agents: [ActionsAgentDefinition]
+
+    /// No agents — the file's empty spelling.
+    public static let empty = ActionsAgentFile(version: 1, agents: [])
+
+    public init(version: Int = 1, agents: [ActionsAgentDefinition]) {
+        self.version = version
+        self.agents = agents
+    }
+}
+
+/// One known coding-agent preset, as the chooser renders it — the tab's plain spelling of
+/// the catalog's row: the stable id, the display name, the candidate names detection
+/// resolves, and the non-interactive argv template the editor pre-fills.
+public struct ActionsAgentPreset: Sendable, Equatable, Identifiable {
+    /// The stable identifier of the preset.
+    public let id: String
+    /// The human-readable name the chooser shows.
+    public let displayName: String
+    /// The candidate binary names detection resolves against.
+    public let candidateNames: [String]
+    /// The argv template the editor pre-fills — with the placeholder, never substituted.
+    public let arguments: [String]
+
+    public init(id: String, displayName: String, candidateNames: [String], arguments: [String]) {
+        self.id = id
+        self.displayName = displayName
+        self.candidateNames = candidateNames
+        self.arguments = arguments
+    }
+}
+
+/// One preset's detection fact, as the chooser renders it — the tab's plain spelling of the
+/// resolver's answer. **The honest fact**: detection is the binary exists at a resolved
+/// path — never a version, never "ready to run", and this vocabulary has no words for more.
+public enum ActionsAgentDetection: Sendable, Equatable {
+    /// The binary exists at `path`.
+    case detected(path: String)
+    /// The binary exists nowhere the resolver was allowed to look.
+    case notDetected
+}
+
+/// One detection pass — every preset id, mapped to its fact.
+public typealias ActionsAgentDetectionResult = [String: ActionsAgentDetection]
+
+/// One environment entry as the editor edits it — a key/value pair with a UI-side identity,
+/// because a dictionary cannot hold a half-typed entry and the list's order is the entry's
+/// own place.
+public struct ActionsAgentEnvironmentPairDraft: Sendable, Equatable, Identifiable {
+    /// The pair's UI-side identity — minted once per entry, for the editor's list.
+    public let id: UUID
+    /// The entry's key — a pair with an empty key is not an entry.
+    public var key: String
+    /// The entry's value — may be empty.
+    public var value: String
+
+    public init(id: UUID = UUID(), key: String = "", value: String = "") {
+        self.id = id
+        self.key = key
+        self.value = value
+    }
+}
+
+/// The agent editor's fields — the closed set the draft-edit action names. The environment
+/// pairs are edited by their position in the draft list.
+public enum AgentDraftField: Sendable, Equatable {
+    case id
+    case executablePath
+    case arguments
+    case projectDirectory
+    case timeoutSeconds
+    case clause
+    case environmentKey(Int)
+    case environmentValue(Int)
+}
+
+/// **The authoring surface's own copy of the row contract** — the caps, the timeout default
+/// and the placeholder `VoccaUI` must validate and pre-fill with, spelled here because the
+/// module boundary forbids naming the registry's and the catalog's constants.
+///
+/// A second spelling is honest only while it is proven to agree with the one source of
+/// truth: `AgentAuthoringSurfaceTests` pins every value here against its action-layer
+/// counterpart, so a retune on either side fails loudly — the store/resolver agreement
+/// precedent.
+public enum AgentAuthoringConstants {
+    /// ``CodingAgentRegistry/maximumIDLength``.
+    public static let maximumIDLength = 128
+    /// ``CodingAgentRegistry/maximumArgumentCount``.
+    public static let maximumArgumentCount = 64
+    /// ``CodingAgentRegistry/maximumEnvironmentEntries``.
+    public static let maximumEnvironmentEntries = 16
+    /// ``CodingAgentRegistry/maximumEnvironmentValueLength``.
+    public static let maximumEnvironmentValueLength = 256
+    /// ``CodingAgentRegistry/maximumTimeoutSeconds``.
+    public static let maximumTimeoutSeconds = 600
+    /// ``CodingAgentRegistry/defaultTimeoutSeconds``.
+    public static let defaultTimeoutSeconds = 30
+    /// ``KnownAgentPresets/taskPlaceholder`` — the literal the editor pre-fills and a save
+    /// with it still in the argv refuses loudly.
+    public static let taskPlaceholder = "<task>"
+    /// ``CodingAgentProvider/providerID`` — the enablement keys the agent rows cascade on
+    /// edit-rename and remove.
+    public static let agentProviderID = "dev.vocca.agent"
 }

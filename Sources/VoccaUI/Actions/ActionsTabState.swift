@@ -43,6 +43,40 @@ public struct ActionsTabState: Sendable, Equatable {
     /// Whether the agent registry's rows have landed — `false` with no rows is "we haven't
     /// looked yet"; `true` with no rows is the honest empty state (nothing configured).
     public var isAgentLoaded: Bool
+    /// The agent registry's full rows — the authoring surface's row source (edit/remove and
+    /// the editor's pre-fill read these; the arm surface reads ``agentRows``). The file is
+    /// the memory, so these are the table's truth for the next save.
+    public var agentDefinitions: [ActionsAgentDefinition]
+    /// The known presets the chooser renders, in the catalog's order (`agent-presets`).
+    public var agentPresets: [ActionsAgentPreset]
+    /// Whether the presets have landed — `false` with no presets is "we haven't looked yet".
+    public var isAgentCatalogLoaded: Bool
+    /// Each preset's detection fact, keyed by preset id — the chooser's honest
+    /// "detected — <path>" / "not detected" rows.
+    public var agentDetection: ActionsAgentDetectionResult
+    /// The agent editor's id draft.
+    public var agentIDDraft: String
+    /// The agent editor's executable path draft.
+    public var agentExecutablePathDraft: String
+    /// The agent editor's arguments draft — the fixed argv, space-separated as the user
+    /// types it; the fold splits on whitespace, so the row saved is exactly the words typed.
+    public var agentArgumentsDraft: String
+    /// The agent editor's project directory draft.
+    public var agentProjectDirectoryDraft: String
+    /// The agent editor's timeout draft — text, resolved to seconds at save (empty means the
+    /// 30-second default, exactly as the definition's own init treats absent).
+    public var agentTimeoutDraft: String
+    /// The agent editor's environment entries, as key/value pairs.
+    public var agentEnvironmentDrafts: [ActionsAgentEnvironmentPairDraft]
+    /// The agent editor's clause draft.
+    public var agentClauseDraft: String
+    /// Whether the agent editor is open — an add (``editingAgentID`` nil) or an edit.
+    public var isAgentEditorOpen: Bool
+    /// The definition being edited, by its current id. `nil` for an add.
+    public var editingAgentID: String?
+    /// The last project directory a save committed — the S2 in-memory pre-fill, never
+    /// persisted this slice.
+    public var lastAgentProjectDirectory: String
     /// The discovery's one closed three-step, per server.
     public var discovery: ActionsDiscoveryState
     /// The arm state — `awaitingConfirmation` is the wiring's card signal; nothing else on this
@@ -74,7 +108,16 @@ public struct ActionsTabState: Sendable, Equatable {
         preview: ActionsPreviewState, serverNameDraft: String, serverPathDraft: String,
         editingServerID: String?, isLoaded: Bool, saveError: String?,
         shellRows: [ActionsToolRow] = [], isShellLoaded: Bool = false,
-        agentRows: [ActionsToolRow] = [], isAgentLoaded: Bool = false
+        agentRows: [ActionsToolRow] = [], isAgentLoaded: Bool = false,
+        agentDefinitions: [ActionsAgentDefinition] = [],
+        agentPresets: [ActionsAgentPreset] = [], isAgentCatalogLoaded: Bool = false,
+        agentDetection: ActionsAgentDetectionResult = [:],
+        agentIDDraft: String = "", agentExecutablePathDraft: String = "",
+        agentArgumentsDraft: String = "", agentProjectDirectoryDraft: String = "",
+        agentTimeoutDraft: String = "",
+        agentEnvironmentDrafts: [ActionsAgentEnvironmentPairDraft] = [],
+        agentClauseDraft: String = "", isAgentEditorOpen: Bool = false,
+        editingAgentID: String? = nil, lastAgentProjectDirectory: String = ""
     ) {
         self.servers = servers
         self.enablement = enablement
@@ -83,6 +126,20 @@ public struct ActionsTabState: Sendable, Equatable {
         self.isShellLoaded = isShellLoaded
         self.agentRows = agentRows
         self.isAgentLoaded = isAgentLoaded
+        self.agentDefinitions = agentDefinitions
+        self.agentPresets = agentPresets
+        self.isAgentCatalogLoaded = isAgentCatalogLoaded
+        self.agentDetection = agentDetection
+        self.agentIDDraft = agentIDDraft
+        self.agentExecutablePathDraft = agentExecutablePathDraft
+        self.agentArgumentsDraft = agentArgumentsDraft
+        self.agentProjectDirectoryDraft = agentProjectDirectoryDraft
+        self.agentTimeoutDraft = agentTimeoutDraft
+        self.agentEnvironmentDrafts = agentEnvironmentDrafts
+        self.agentClauseDraft = agentClauseDraft
+        self.isAgentEditorOpen = isAgentEditorOpen
+        self.editingAgentID = editingAgentID
+        self.lastAgentProjectDirectory = lastAgentProjectDirectory
         self.discovery = discovery
         self.arm = arm
         self.preview = preview
@@ -135,6 +192,31 @@ public enum ActionsTabAction: Sendable, Equatable {
     /// The agent registry answered with its configured agents — the agent leg's row source
     /// (`coding-agent-handoff` wiring): a registry read, never a discovery and never a spawn.
     case agentConfigLoaded([ActionsToolRow])
+    /// The agent registry's full rows landed — the authoring surface's row source.
+    case agentDefinitionsLoaded([ActionsAgentDefinition])
+    /// The known presets landed — the chooser's rows.
+    case agentPresetsLoaded([ActionsAgentPreset])
+    /// The presets' detection facts landed — the chooser's honest per-preset facts.
+    case agentDetectionLoaded(ActionsAgentDetectionResult)
+    /// The user picked a preset (or blank) — the add editor opens, pre-filled.
+    case agentEditorOpened(presetID: String?)
+    /// The user closed the add editor without saving.
+    case agentEditorClosed
+    /// One draft field changed — the closed set of editor fields, the environment pairs by
+    /// their position in the draft list.
+    case agentDraftFieldEdited(AgentDraftField, String)
+    /// The user added an environment entry to the draft.
+    case agentEnvironmentPairAdded
+    /// The user removed an environment entry from the draft.
+    case agentEnvironmentPairRemoved(Int)
+    /// The user committed the editor — validated here, before anything reaches the file.
+    case agentSaveRequested
+    /// The user opened an existing row in the editor.
+    case agentEditStarted(id: String)
+    /// The user closed the edit editor without saving.
+    case agentEditCancelled
+    /// The user removed an agent — its enablement row goes with it.
+    case agentRemoved(id: String)
     /// The add form's name field changed.
     case serverNameFieldEdited(String)
     /// The add form's path field changed.
@@ -208,6 +290,163 @@ public enum ActionsTabReducer {
                 return resolved
             }
             next.isAgentLoaded = true
+
+        case .agentDefinitionsLoaded(let definitions):
+            next.agentDefinitions = definitions
+
+        case .agentPresetsLoaded(let presets):
+            next.agentPresets = presets
+            next.isAgentCatalogLoaded = true
+
+        case .agentDetectionLoaded(let detection):
+            next.agentDetection = detection
+
+        case .agentEditorOpened(let presetID):
+            // The add editor, pre-filled from the preset — or blank. The drafts are re-minted
+            // on every open, so a failed earlier save can never leak its values into a fresh
+            // row; the project directory is the S2 remembered value, in memory only.
+            next.isAgentEditorOpen = true
+            next.editingAgentID = nil
+            next.agentEnvironmentDrafts = []
+            next.agentTimeoutDraft = "\(AgentAuthoringConstants.defaultTimeoutSeconds)"
+            next.agentProjectDirectoryDraft = next.lastAgentProjectDirectory
+            next.agentClauseDraft = ""
+            if let presetID, let preset = next.agentPresets.first(where: { $0.id == presetID }) {
+                next.agentIDDraft = preset.id
+                next.agentArgumentsDraft = preset.arguments.joined(separator: " ")
+                switch next.agentDetection[presetID] {
+                case .detected(let path):
+                    // The honest pre-fill: the binary exists at that path.
+                    next.agentExecutablePathDraft = path
+                case .notDetected, nil:
+                    // The first candidate name, unresolved — a visible marker the user must
+                    // make absolute; Save refuses until then (never a claim that it runs).
+                    next.agentExecutablePathDraft = preset.candidateNames.first ?? ""
+                }
+            } else {
+                next.agentIDDraft = ""
+                next.agentArgumentsDraft = ""
+                next.agentExecutablePathDraft = ""
+            }
+
+        case .agentEditorClosed, .agentEditCancelled:
+            next.isAgentEditorOpen = false
+            next.editingAgentID = nil
+            next.agentIDDraft = ""
+            next.agentExecutablePathDraft = ""
+            next.agentArgumentsDraft = ""
+            next.agentProjectDirectoryDraft = ""
+            next.agentTimeoutDraft = ""
+            next.agentEnvironmentDrafts = []
+            next.agentClauseDraft = ""
+
+        case .agentDraftFieldEdited(let field, let value):
+            switch field {
+            case .id: next.agentIDDraft = value
+            case .executablePath: next.agentExecutablePathDraft = value
+            case .arguments: next.agentArgumentsDraft = value
+            case .projectDirectory: next.agentProjectDirectoryDraft = value
+            case .timeoutSeconds: next.agentTimeoutDraft = value
+            case .clause: next.agentClauseDraft = value
+            case .environmentKey(let index):
+                guard next.agentEnvironmentDrafts.indices.contains(index) else { return state }
+                next.agentEnvironmentDrafts[index].key = value
+            case .environmentValue(let index):
+                guard next.agentEnvironmentDrafts.indices.contains(index) else { return state }
+                next.agentEnvironmentDrafts[index].value = value
+            }
+
+        case .agentEnvironmentPairAdded:
+            next.agentEnvironmentDrafts.append(ActionsAgentEnvironmentPairDraft())
+
+        case .agentEnvironmentPairRemoved(let index):
+            guard next.agentEnvironmentDrafts.indices.contains(index) else { return state }
+            next.agentEnvironmentDrafts.remove(at: index)
+
+        case .agentSaveRequested:
+            // The whole refusal battery runs here, before anything reaches the file: the
+            // definition's own init rules, the duplicate-id refusal (the registry's
+            // first-wins would silently skip a duplicate), and the `<task>` placeholder
+            // warning — the row the user saves must be a row that means something. A refusal
+            // is loud (saveError) and keeps the editor open with the draft intact.
+            let definition: ActionsAgentDefinition
+            switch Self.definition(from: next) {
+            case .refused(let reason):
+                next.saveError = ActionsTabCopy.agentInvalidRow(reason)
+                return next
+            case .valid(let row):
+                definition = row
+            }
+            let editingID = next.editingAgentID
+            if next.agentDefinitions.contains(where: {
+                $0.id == definition.id && $0.id != editingID
+            }) {
+                next.saveError = ActionsTabCopy.agentDuplicateID(definition.id)
+                return next
+            }
+            if definition.arguments.contains(AgentAuthoringConstants.taskPlaceholder) {
+                next.saveError = ActionsTabCopy.agentPlaceholderWarning
+                return next
+            }
+            if let editingID, let index = next.agentDefinitions.firstIndex(where: {
+                $0.id == editingID
+            }) {
+                // Edit: mutate in place — never a delete-plus-add. A renamed id carries its
+                // enablement with it: the old key would otherwise dangle, and a row the user
+                // enabled would silently stop being enabled.
+                let oldID = next.agentDefinitions[index].id
+                next.agentDefinitions[index] = definition
+                if oldID != definition.id {
+                    let key = ActionsToolKey(
+                        providerID: AgentAuthoringConstants.agentProviderID, toolID: oldID)
+                    if next.enablement.contains(key) {
+                        next.enablement.remove(key)
+                        next.enablement.insert(
+                            ActionsToolKey(
+                                providerID: AgentAuthoringConstants.agentProviderID,
+                                toolID: definition.id))
+                    }
+                }
+            } else {
+                next.agentDefinitions.append(definition)
+            }
+            next.editingAgentID = nil
+            next.isAgentEditorOpen = false
+            next.saveError = nil
+            next.lastAgentProjectDirectory = definition.projectDirectory
+            // The drafts are held through the save: success clears them (`.saveSucceeded`),
+            // failure leaves them for the user — the row the editor committed stays the row
+            // the user wrote.
+
+        case .agentEditStarted(let id):
+            guard let definition = next.agentDefinitions.first(where: { $0.id == id })
+            else { return state }
+            next.isAgentEditorOpen = true
+            next.editingAgentID = id
+            next.agentIDDraft = definition.id
+            next.agentExecutablePathDraft = definition.executablePath
+            next.agentArgumentsDraft = definition.arguments.joined(separator: " ")
+            next.agentProjectDirectoryDraft = definition.projectDirectory
+            next.agentTimeoutDraft = "\(definition.timeoutSeconds)"
+            next.agentEnvironmentDrafts = (definition.environment ?? [:]).map {
+                ActionsAgentEnvironmentPairDraft(key: $0.key, value: $0.value)
+            }
+            next.agentClauseDraft = definition.clause ?? ""
+
+        case .agentRemoved(let id):
+            guard next.agentDefinitions.contains(where: { $0.id == id }) else { return state }
+            next.agentDefinitions.removeAll { $0.id == id }
+            // The enablement row goes with it — a removed agent's key would otherwise be
+            // re-saved by the very next save, and the store's stale-row tolerance would keep
+            // it forever (the server-removal precedent).
+            next.enablement = next.enablement.filter {
+                !($0.providerID == AgentAuthoringConstants.agentProviderID && $0.toolID == id)
+            }
+            if next.editingAgentID == id {
+                next.editingAgentID = nil
+                next.isAgentEditorOpen = false
+            }
+            next.saveError = nil
 
         case .serverNameFieldEdited(let name):
             next.serverNameDraft = name
@@ -344,11 +583,97 @@ public enum ActionsTabReducer {
 
         case .saveSucceeded:
             next.saveError = nil
+            // The agent drafts clear only on a save that reached the file — a failed save
+            // leaves them in place, the "draft kept" rule.
+            next.agentIDDraft = ""
+            next.agentExecutablePathDraft = ""
+            next.agentArgumentsDraft = ""
+            next.agentProjectDirectoryDraft = ""
+            next.agentTimeoutDraft = ""
+            next.agentEnvironmentDrafts = []
+            next.agentClauseDraft = ""
 
         case .saveFailed(let message):
             next.saveError = message
         }
         return next
+    }
+
+    // MARK: - The row the drafts name
+
+    /// Builds the definition the drafts name, or the loud reason the row must be refused —
+    /// the definition's own init rules, spelled under ``AgentAuthoringConstants`` because the
+    /// module boundary forbids naming the registry's (the agreement is pinned by the surface
+    /// suite). The arguments draft splits on whitespace — the row saved is exactly the words
+    /// typed — and an empty timeout draft is the definition's *absent*: the 30-second
+    /// default. Environment pairs with an empty key are not entries.
+    private static func definition(
+        from state: ActionsTabState
+    ) -> DraftValidation {
+        let id = state.agentIDDraft
+        guard !id.isEmpty else { return .refused(reason: ActionsTabCopy.agentEmptyIDReason) }
+        guard id.count <= AgentAuthoringConstants.maximumIDLength else {
+            return .refused(reason: ActionsTabCopy.agentOverlongIDReason)
+        }
+        let executablePath = state.agentExecutablePathDraft
+        guard isAbsolute(executablePath) else {
+            return .refused(reason: ActionsTabCopy.agentExecutablePathReason)
+        }
+        let arguments = state.agentArgumentsDraft.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard arguments.count <= AgentAuthoringConstants.maximumArgumentCount else {
+            return .refused(reason: ActionsTabCopy.agentArgumentCountReason)
+        }
+        let projectDirectory = state.agentProjectDirectoryDraft
+        guard isAbsolute(projectDirectory) else {
+            return .refused(reason: ActionsTabCopy.agentProjectDirectoryReason)
+        }
+        let timeoutSeconds: Int
+        if state.agentTimeoutDraft.isEmpty {
+            timeoutSeconds = AgentAuthoringConstants.defaultTimeoutSeconds
+        } else if let parsed = Int(state.agentTimeoutDraft),
+            (1...AgentAuthoringConstants.maximumTimeoutSeconds).contains(parsed)
+        {
+            timeoutSeconds = parsed
+        } else {
+            return .refused(reason: ActionsTabCopy.agentTimeoutReason)
+        }
+        var environment: [String: String] = [:]
+        for pair in state.agentEnvironmentDrafts {
+            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { continue }
+            guard
+                key.count <= AgentAuthoringConstants.maximumEnvironmentValueLength
+                    && pair.value.count <= AgentAuthoringConstants.maximumEnvironmentValueLength
+            else {
+                return .refused(reason: ActionsTabCopy.agentEnvironmentLengthReason)
+            }
+            environment[key] = pair.value
+        }
+        guard environment.count <= AgentAuthoringConstants.maximumEnvironmentEntries else {
+            return .refused(reason: ActionsTabCopy.agentEnvironmentCountReason)
+        }
+        return .valid(
+            ActionsAgentDefinition(
+                id: id, executablePath: executablePath, arguments: arguments,
+                projectDirectory: projectDirectory, timeoutSeconds: timeoutSeconds,
+                environment: environment.isEmpty ? nil : environment,
+                clause: state.agentClauseDraft.isEmpty ? nil : state.agentClauseDraft))
+    }
+
+    /// The drafts' validation answer: the row they name, or the loud reason they must be
+    /// refused. `String` is deliberately not the failure half of a `Result` — the reason is
+    /// copy, not an error to throw.
+    private enum DraftValidation {
+        case valid(ActionsAgentDefinition)
+        case refused(reason: String)
+    }
+
+    /// Whether `path` is a usable absolute path under the fixed-argv contract — it must begin
+    /// with `/`, and it must **not** begin with `~` (nothing in this product expands `~`, so a
+    /// `~/bin/agent` would silently resolve to a literal `~` directory at spawn time — the
+    /// exact silent mangling the row's contract exists to refuse).
+    private static func isAbsolute(_ path: String) -> Bool {
+        (path as NSString).isAbsolutePath && !path.hasPrefix("~")
     }
 }
 

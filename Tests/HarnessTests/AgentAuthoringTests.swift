@@ -78,13 +78,20 @@ final class AgentAuthoringTests: XCTestCase {
     }
 
     /// A state with the editor open on the claude preset and the placeholder already
-    /// replaced — the baseline every refusal battery mutates one field at a time.
+    /// replaced — the baseline every refusal battery mutates one field at a time. The
+    /// executable and the project directory are made valid here (the not-detected pre-fill
+    /// is a relative marker on purpose), so each case's single mutation is the only thing
+    /// wrong with its row.
     private func baselineAdd() -> ActionsTabState {
         var state = ActionsTabState.initial
         state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
         state = ActionsTabReducer.reduce(
             state, .agentDraftFieldEdited(.arguments, "-p fix the bug"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.projectDirectory, "/Users/alice/Projects/work"))
         return state
     }
 
@@ -102,6 +109,8 @@ final class AgentAuthoringTests: XCTestCase {
         var state = ActionsTabState.initial
         state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
         state = ActionsTabReducer.reduce(
             state, .agentDraftFieldEdited(.arguments, "-p fix the bug"))
         state = ActionsTabReducer.reduce(
@@ -161,7 +170,7 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertEqual(row.id, "claude", "the id is minted once, at the add — the preset's own id")
         XCTAssertEqual(row.executablePath, "/opt/homebrew/bin/claude")
 
-        state = ActionsTabReducer.reduce(state, .agentSaveSucceeded)
+        state = ActionsTabReducer.reduce(state, .saveSucceeded)
         state = ActionsTabReducer.reduce(state, .agentEditStarted(id: "claude"))
         XCTAssertEqual(state.agentIDDraft, "claude", "the editor opens on the row's own id")
         XCTAssertEqual(state.agentExecutablePathDraft, "/opt/homebrew/bin/claude")
@@ -172,7 +181,7 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertEqual(state.agentDefinitions[0].id, "claude", "an edit keeps the identity")
         XCTAssertEqual(state.agentDefinitions[0].arguments, ["-p", "fix", "the", "other", "bug"])
 
-        state = ActionsTabReducer.reduce(state, .agentSaveSucceeded)
+        state = ActionsTabReducer.reduce(state, .saveSucceeded)
         state = ActionsTabReducer.reduce(state, .agentEditStarted(id: "ghost"))
         XCTAssertEqual(
             state.agentDefinitions.count, 1, "an unknown id opens nothing")
@@ -250,6 +259,10 @@ final class AgentAuthoringTests: XCTestCase {
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
         state = ActionsTabReducer.reduce(
             state, .agentDraftFieldEdited(.arguments, "-p fix the bug"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.projectDirectory, "/Users/alice/Projects/work"))
         state = ActionsTabReducer.reduce(state, .agentSaveRequested)
 
         XCTAssertEqual(state.agentDefinitions.count, 1, "the duplicate is never added")
@@ -280,6 +293,10 @@ final class AgentAuthoringTests: XCTestCase {
         var state = ActionsTabState.initial
         state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.projectDirectory, "/Users/alice/Projects/work"))
         state = ActionsTabReducer.reduce(state, .agentSaveRequested)
 
         XCTAssertTrue(state.agentDefinitions.isEmpty)
@@ -414,6 +431,8 @@ final class AgentAuthoringTests: XCTestCase {
         var longValue = baselineAdd()
         longValue = ActionsTabReducer.reduce(longValue, .agentEnvironmentPairAdded)
         longValue = ActionsTabReducer.reduce(
+            longValue, .agentDraftFieldEdited(.environmentKey(0), "K"))
+        longValue = ActionsTabReducer.reduce(
             longValue,
             .agentDraftFieldEdited(
                 .environmentValue(0), String(repeating: "v", count: 257)))
@@ -515,6 +534,8 @@ final class AgentAuthoringTests: XCTestCase {
         state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
         state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
+        state = ActionsTabReducer.reduce(
             state, .agentDraftFieldEdited(.arguments, "-p fix the bug"))
         state = ActionsTabReducer.reduce(
             state, .agentDraftFieldEdited(.projectDirectory, "/Users/alice/Projects/work"))
@@ -522,7 +543,7 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertEqual(
             state.agentDefinitions[0].projectDirectory, "/Users/alice/Projects/work")
 
-        state = ActionsTabReducer.reduce(state, .agentSaveSucceeded)
+        state = ActionsTabReducer.reduce(state, .saveSucceeded)
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: nil))
         XCTAssertEqual(
             state.agentProjectDirectoryDraft, "/Users/alice/Projects/work",
@@ -549,7 +570,8 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertNil(state.editingAgentID)
 
         var loaded = state
-        loaded = ActionsTabReducer.reduce(loaded, .agentConfigLoaded(servers: [], enablement: []))
+        loaded = ActionsTabReducer.reduce(loaded, .configLoaded(servers: [], enablement: []))
+        loaded = ActionsTabReducer.reduce(loaded, .agentConfigLoaded([]))
         loaded = ActionsTabReducer.reduce(loaded, .agentDefinitionsLoaded([]))
         XCTAssertTrue(loaded.isAgentLoaded)
         XCTAssertTrue(

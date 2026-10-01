@@ -2033,6 +2033,52 @@ public final class DictationLoopRoot {
                     loadAgents: { [weak self] in
                         await self?.agentWiring?.listAgents() ?? []
                     },
+                    // The authoring surface's closures (`agent-presets`): the presets ride
+                    // the same shipped catalog, the detection facts ride the same injected
+                    // seam and the app process's own PATH (named here, at the root — the
+                    // resolver takes it as a parameter, never reads it globally), the
+                    // definitions read the same registry the agent leg renders (per call —
+                    // the file is the memory), and the save maps the tab's plain file into
+                    // the registry's at the root: `VoccaUI` may not name the registry's
+                    // types, the `ActionsConfigDraft` precedent.
+                    loadAgentPresets: {
+                        KnownAgentPresets.all.map {
+                            ActionsAgentPreset(
+                                id: $0.id, displayName: $0.displayName,
+                                candidateNames: $0.candidateNames, arguments: $0.arguments)
+                        }
+                    },
+                    detectAgents: {
+                        let fileSystem = DefaultActionConfigFileSystem()
+                        return await AgentCLIDetection.detect(
+                            catalog: KnownAgentPresets.all,
+                            fileExists: { path in await fileSystem.fileExists(atPath: path) },
+                            path: ProcessInfo.processInfo.environment["PATH"])
+                            .mapValues { detection in
+                                switch detection {
+                                case .detected(let path):
+                                    return ActionsAgentDetection.detected(path: path)
+                                case .notDetected:
+                                    return .notDetected
+                                }
+                            }
+                    },
+                    loadAgentDefinitions: { [weak self] in
+                        guard let registry = self?.agentRegistry else { return [] }
+                        let file = await registry.load()
+                        return file.agents.map {
+                            ActionsAgentDefinition(
+                                id: $0.id, executablePath: $0.executablePath,
+                                arguments: $0.arguments,
+                                projectDirectory: $0.projectDirectory,
+                                timeoutSeconds: $0.timeoutSeconds,
+                                environment: $0.environment, clause: $0.clause)
+                        }
+                    },
+                    saveAgents: { [weak self] file in
+                        guard let registry = self?.agentRegistry else { return }
+                        try await registry.save(AppBootstrap.agentFile(from: file))
+                    },
                     setToolEnabled: { [weak self] providerID, toolID, enabled in
                         guard let wiring = self?.actionWiring else { return }
                         try await wiring.setToolEnabled(providerID, toolID, enabled)
