@@ -534,10 +534,10 @@ private final class CodingAgentWiringHarness<Provider: ActionProvider> {
 /// configurations the runs asked for. A class because the `Mutex` it owns is non-`Copyable` —
 /// the `FailsTheTestIfInvokedRunner` shape, without the failing half: this suite counts.
 private final class CountingAgentRunner: Sendable {
-    private let calls = Mutex<[ShellExecutor.Configuration]>([])
+    private let log = Mutex<[ShellExecutor.Configuration]>([])
 
     func run(_ configuration: ShellExecutor.Configuration) async -> ShellExecutionResult {
-        calls.withLock { $0.append(configuration) }
+        log.withLock { $0.append(configuration) }
         return ShellExecutionResult(
             status: .succeeded(exitCode: 0),
             standardOutput: Data(),
@@ -546,11 +546,11 @@ private final class CountingAgentRunner: Sendable {
     }
 
     var callCount: Int {
-        calls.withLock(\.count)
+        log.withLock(\.count)
     }
 
     var calls: [ShellExecutor.Configuration] {
-        calls.withLock { $0 }
+        log.withLock { $0 }
     }
 }
 

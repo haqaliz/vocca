@@ -2086,8 +2086,24 @@ set -euo pipefail
 # the suite names no forbidden family; the count taken from the floor script's own parse in the
 # ratchet commit.
 #
+# The coding-agent-handoff agent-wiring REFACTOR raise (2903 -> 2915) — the composed agent
+# wiring's seven rows in `CodingAgentWiringTests` (the composed default's `agents=0
+# spawnsSubprocess=false` with an absent registry; the seeded round trip — arm → the
+# argv-derived sentence on the card → confirm → the counting engine runs → the audit
+# reconstructs in ordinal order with the binding matched; the in-flight refusal; the
+# binding-mismatch re-prompt with a fresh render; the voice leg — a `dev.vocca.agent` phrase
+# row resolves `.toolCall` only when enabled, a disabled tool resolves `.none` and is declined
+# before any describe, and the intent store refuses only `dev.vocca.shell`, the agent id never;
+# the stale-row reconcile — the per-call registry read shows an edit on the tab while the
+# provider answers the read-only refusal for the stale id, never a trap) and the Actions-tab
+# agent leg's five rows in `ActionsTabTests` (the fold off-by-default with enablement
+# re-applied, the row-toggle flipping row and persisted set together, the arm of an enabled
+# agent row and the refused arm of a disabled one, the D2 copy pin, and the section carrying
+# the D2 copy at the moment of arm); the count taken from the floor script's own parse in the
+# ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2903
+MINIMUM_EXECUTED_TESTS=2915
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
