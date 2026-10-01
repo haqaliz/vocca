@@ -2174,8 +2174,23 @@ set -euo pipefail
 # snapshot (resolution byte-identical, the metadata lane separate) — the count taken from
 # the floor script's own parse in the ratchet commit.
 #
+# The invocation-carrier raise (2967 -> 2976; executed 2976) — the resolved-directory
+# contract suite of the `active-project-detection` unit grows nine tests in
+# `InvocationCarrierTests`: without resolvedDirectory byte-identical to today (the row's
+# directory renders and runs, sentence asserted byte-for-byte), with it verbatim in both
+# halves (the sentence shows the resolved value, never the row's, and the recording runner
+# receives the same value as currentDirectoryURL — one resolution, describe and invoke),
+# the both-nil clause-less sentence exercised directly on the shared render (the shipped
+# row shape's resolution is never nil — the row's projectDirectory is required — so the
+# nil leg of the sentence ships here and the configuration half pins the executor field's
+# nil default, the pre-fix fallback), the gap-1 pin holding with arguments AND a resolved
+# directory on the same invocation, the signal carrying the field through a reducer round
+# trip with the confirm path rebuilding the identical invocation, the additive vocabulary
+# (nil default, equality includes the field), and the empty refusal so absence has one
+# spelling.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2967
+MINIMUM_EXECUTED_TESTS=2976
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
