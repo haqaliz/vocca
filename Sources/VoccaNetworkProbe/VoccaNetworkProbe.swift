@@ -406,6 +406,20 @@ struct VoccaNetworkProbe {
         let shell = exerciseShell()
         print("PROBE-SHELL\t\(shell.report)")
 
+        // The composed coding-agent configuration, run rather than referenced — the same
+        // shape as the shell drive above, for the `coding-agent-handoff` slice's second
+        // route to a real child: the composed default's facts (`agents=0`,
+        // `spawnsSubprocess=false` — the D2 narrowed promise, read off a wiring composed
+        // over an absent registry) and the seeded round trip over a benign real `/bin/echo`
+        // agent (arm → the outwardFacing card sentence → confirm → the real engine runs →
+        // the audit reconstructs, plus the dry-run row that never invoked). This is the
+        // second drive in this function that starts a child — and the child itself is
+        // invisible to the interposer (D2, recorded in the drive's own documentation): the
+        // line proves the default cannot spawn, never that an enabled agent cannot egress.
+        // See `CodingAgentDrive.swift`.
+        let codingAgent = exerciseCodingAgent()
+        print("PROBE-CODING-AGENT\t\(codingAgent.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -423,6 +437,7 @@ struct VoccaNetworkProbe {
             mcp.moduleWitness,
             intent.moduleWitness,
             shell.moduleWitness,
+            codingAgent.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be
