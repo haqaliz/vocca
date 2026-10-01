@@ -680,6 +680,56 @@ final class ZeroNetworkTests: XCTestCase {
         "binding=matched",
     ].joined(separator: " ")
 
+    /// **The composed coding-agent drive's post-condition** (PROBE-CODING-AGENT): the verbatim
+    /// report of the `agent-probe` drive — the composed default's facts (`agents=0`,
+    /// `spawnsSubprocess=false` — the D2 narrowed promise extended to the agent arm, read off a
+    /// wiring composed over an absent registry, the true first-launch default) and the **seeded**
+    /// round trip over a benign real command (`/bin/echo`): the registry seeded and enabled, the
+    /// outwardFacing card sentence, the confirm running the real child, the dry-run row that
+    /// never invoked, and the audit reconstructing off the disk (ordinals, decisions, binding).
+    /// Asserted whole, as one line — the `expectedShellLifecycle` shape. This is deliberately
+    /// **not** a golden string to be regenerated when it fails:
+    /// ``testTheAssertedCodingAgentPostConditionStillDescribesTheComposedDefaultAndARoundTripThroughRealBytes``
+    /// reads it back and refuses a version that no longer describes the composed default and a
+    /// round trip.
+    ///
+    /// `store.location` and `store.isDefaultLocation` are the `expectedUsageLedgerLifecycle`
+    /// promise, restated for the agent leg: **no probe run writes to the founder's real
+    /// `~/Library/Application Support/Vocca/`**.
+    ///
+    /// The drive exists because the agent composition is the slice's second route to a real
+    /// child under the interposer — the `ShellDrive` sibling: the default cannot spawn (proven
+    /// by the wiring's declared fact and the empty registry) and the seeded round trip drives
+    /// the real engine through the gate. The child itself is exactly what the interposer cannot
+    /// see (D2, recorded in the drive's own documentation): the line proves the default cannot
+    /// spawn, never that an enabled agent cannot egress.
+    private static let expectedCodingAgentLifecycle = [
+        // The real store, named from its own type — a swapped-in double flips it.
+        "store=real",
+        // Where the drive wrote — the two halves of the temp-directory promise.
+        "store.location=temporary",
+        "store.isDefaultLocation=false",
+        // The composed default's facts: an absent registry is zero agents, and the composed
+        // default cannot create a child — the D2 narrowed promise, reported not commented.
+        "agents=0",
+        "spawnsSubprocess=false",
+        // The seeded registry's own answer — the round trip had an agent to arm.
+        "seeded=1",
+        // The gate asked: the card appeared with the outwardFacing sentence.
+        "card=yes",
+        // The engine's own call log: the confirm ran the child exactly once; the dry-run row
+        // reached it zero times — counted, never inferred from the audit.
+        "invoked=1",
+        // The audit store's own decoded answer: the arm's withheld stop, the confirmed run and
+        // the dry-run row, in ordinal order — the reconstruct, read off the disk by a second
+        // store.
+        "decisions=refused,confirmed,dryRun",
+        "ordinals=1-3",
+        // The N2 binding live in the probe's path: the confirmed entry's summary is the card's
+        // shown sentence, verbatim.
+        "binding=matched",
+    ].joined(separator: " ")
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -1274,6 +1324,41 @@ final class ZeroNetworkTests: XCTestCase {
             no longer carries a phrase to the card. Do not fix this by deleting the call, and do \
             not fix it by pasting in whatever the probe now prints — see \
             testTheAssertedIntentPhrasePostConditionStillDescribesAPhraseRoundTripAndTheShellRefusal.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The composed coding-agent drive's post-condition. The eighteenth effect-not-reference
+        // check, and the one that pins the `coding-agent-handoff` slice's own half of the
+        // invariant — the `ShellDrive` sibling: the composed default's facts (`agents=0`,
+        // `spawnsSubprocess=false` — read off a wiring composed over an absent registry) and the
+        // seeded round trip over a benign real `/bin/echo` child — arm → the outwardFacing card
+        // sentence → confirm → the real engine runs → the audit reconstructs off the disk (the
+        // arm's refused stop, the confirmed run, the dry-run row that never invoked). Every
+        // field is a fact the drive can only produce by running the round trip: `invoked` is
+        // the engine's own call log, `decisions` and `ordinals` come from the second store's
+        // own answer, and `binding` compares the confirmed entry's summary with the card's
+        // shown sentence.
+        //
+        // Deleting the drive removes the line from the probe's output entirely, so the
+        // comparison fails against nil rather than quietly covering less.
+        XCTAssertEqual(
+            try XCTUnwrap(agentPayload(of: observation)),
+            Self.expectedCodingAgentLifecycle,
+            """
+            The probe did not report driving the composed coding-agent configuration.
+              expected: \(Self.expectedCodingAgentLifecycle)
+              observed: \(agentPayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseCodingAgent() was not called on the \
+            default-configuration path — in which case the agent composition's round trip is \
+            outside this invariant, and the slice's second route to a real child is exactly \
+            what this invariant exists to watch — or the composed default no longer reads zero \
+            agents and declares no spawn, or the seeded round trip no longer reconstructs. Do \
+            not fix this by deleting the call, and do not fix it by pasting in whatever the \
+            probe now prints — see \
+            testTheAssertedCodingAgentPostConditionStillDescribesTheComposedDefaultAndARoundTripThroughRealBytes. \
+            Note what this line does NOT cover: the spawned child itself is invisible to this \
+            interposer (D2) — the line proves the default cannot spawn, never that an enabled \
+            agent cannot egress.
             \(observation.diagnosticSummary)
             """)
 
@@ -2454,6 +2539,106 @@ final class ZeroNetworkTests: XCTestCase {
                 + "this the drive could fold probe entries into the founder's real audit log.")
     }
 
+    /// **Guards the guard.** ``expectedCodingAgentLifecycle`` must keep describing **the composed
+    /// default and a round trip through real bytes**: the real store, the composed default's
+    /// facts (`agents=0`, `spawnsSubprocess=false` — the D2 narrowed promise as a reported
+    /// line), the seeded registry, the card the gate asked for, the engine's counted run, and
+    /// the audit reconstructing off the disk with the dry-run row and the N2 binding matched.
+    ///
+    /// The fields that cannot weaken:
+    ///
+    /// - `agents` — must be `0`: the composed default's fact, read off a wiring composed
+    ///   over an absent registry. A constant weakened to `agents=1` would pass the verbatim
+    ///   comparison while the D2 narrowed promise — the thing this line exists to prove about
+    ///   the default — was gone.
+    /// - `spawnsSubprocess` — must be `false`: the wiring's declared fact. A composition that
+    ///   wired agents by default would declare it here, and the zero-network line would
+    ///   still be green if nothing read the fact.
+    /// - `invoked` — exactly `1`: the engine's own call log — the confirm ran the child
+    ///   exactly once, and the dry-run row reached it zero times. A constant with `invoked=0`
+    ///   would still satisfy the verbatim comparison while no human yes ever ran anything.
+    /// - `decisions` — exactly `refused,confirmed,dryRun`: the arm's withheld stop, the
+    ///   confirmed run and the dry-run row, in ordinal order. A constant that dropped the
+    ///   dry-run row means the rehearsal half of the seam was never driven; one that dropped
+    ///   the refused stop means the arm never stopped for want of a yes.
+    /// - `binding` — `matched`: the confirmed entry's summary is the card's shown sentence,
+    ///   the N2 binding live in the one path that proves the agent leg reaches no network
+    ///   name while a real child runs.
+    /// - `seeded` — at least `1`: the round trip had an agent to arm; a constant that read
+    ///   `seeded=0` would be a round trip over an empty registry, which arms nothing.
+    func testTheAssertedCodingAgentPostConditionStillDescribesTheComposedDefaultAndARoundTripThroughRealBytes()
+        throws
+    {
+        let fields = try Self.parseFields(of: Self.expectedCodingAgentLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("store"), "real",
+            "The asserted coding-agent post-condition no longer names the real store — the "
+                + "drive could be reporting a test double, which would put none of the agent "
+                + "leg's file I/O inside this invariant.")
+        XCTAssertEqual(
+            try value("agents"), "0",
+            "The asserted coding-agent post-condition no longer requires the composed default's "
+                + "zero agents — an absent registry is the empty registry, and the D2 narrowed "
+                + "promise could silently gain a configured agent while this line watched "
+                + "nothing.")
+        XCTAssertEqual(
+            try value("spawnsSubprocess"), "false",
+            "The asserted coding-agent post-condition no longer requires the composed default's "
+                + "no-spawn fact — a composition that wired a spawn would declare it here, "
+                + "and the zero-network line would still be green if nothing read the fact.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("seeded")) ?? 0, 1,
+            "The asserted coding-agent post-condition seeded nothing — a round trip over an "
+                + "empty registry arms nothing, and the drive would prove only that the wiring "
+                + "can be constructed.")
+        XCTAssertEqual(
+            try value("card"), "yes",
+            "The asserted coding-agent post-condition no longer requires the card — without it "
+                + "the drive could be confirming a card that was never presented, and the gate's "
+                + "ask leg would be watching nothing.")
+        XCTAssertEqual(
+            Int(try value("invoked")) ?? -1, 1,
+            "The asserted coding-agent post-condition no longer requires the engine to be "
+                + "reached exactly once — a constant with invoked=0 would pass the verbatim "
+                + "comparison while no human yes ever ran a child, and one with invoked=2 would "
+                + "mean the dry run had invoked.")
+        XCTAssertEqual(
+            try value("decisions"), "refused,confirmed,dryRun",
+            "The asserted coding-agent post-condition no longer reconstructs the arm's stop, "
+                + "the confirmed run and the dry-run row, in ordinal order — the refused entry "
+                + "is the round trip's recorded foundation, the confirmed entry is its proof, "
+                + "and the dry-run row is the rehearsal that never invoked.")
+        XCTAssertEqual(
+            try value("ordinals"), "1-3",
+            "The asserted coding-agent post-condition no longer carries the rebuilt ordinals — "
+                + "read off the directory, not off any counter.")
+        XCTAssertEqual(
+            try value("binding"), "matched",
+            "The asserted coding-agent post-condition no longer carries the matched binding — "
+                + "the drive could be confirming without the shown sentence, and the N2 binding "
+                + "would be absent from the one path that proves the agent leg reaches no "
+                + "network name while a real child runs.")
+        XCTAssertEqual(
+            try value("store.location"), "temporary",
+            "The asserted coding-agent post-condition no longer requires the temporary "
+                + "directory — a probe run must never write an audit entry where a real install "
+                + "keeps its own.")
+        XCTAssertEqual(
+            try value("store.isDefaultLocation"), "false",
+            "The asserted coding-agent post-condition no longer refuses the shipped location — "
+                + "without this the drive could fold probe entries into the founder's real "
+                + "audit log.")
+    }
+
     /// **Guards the guard.** ``expectedIntentPhraseLifecycle`` must keep describing **a phrase
     /// round trip and the shell refusal**. The fields that cannot weaken:
     ///
@@ -2651,6 +2836,22 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-SHELL\t") {
             return String(line.dropFirst("PROBE-SHELL\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-CODING-AGENT` line's payload — the composed coding-agent drive's report — or
+    /// `nil` when the probe never reported one.
+    ///
+    /// The `PROBE-SHELL` parser shape: the line exists only when `exerciseCodingAgent()` ran on
+    /// the default-configuration path, so its absence is a missing drive rather than an
+    /// empty report. `VoccaActions` is already covered by the audit drive's witness, so the
+    /// module coverage list alone would not notice a deleted drive — this accessor and its
+    /// assertion are the agent leg's survival guarantee.
+    private func agentPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-CODING-AGENT\t") {
+            return String(line.dropFirst("PROBE-CODING-AGENT\t".count))
         }
         return nil
     }

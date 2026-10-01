@@ -748,16 +748,57 @@ public enum AppBootstrap {
             root.shellWiring = shellWiring
             root.shellExecutor = shellWiring.executor
         }
+
+        // The agent composition (C13 slice 9, R5 — the C11/C12/C13 additive shape, one more
+        // recipe + the root slots above): the coding-agent provider over the shipped registry,
+        // the executor over the **same** audit store, the Actions tab's agent leg, and the
+        // confirmation card's routing. The provider's construction reads the registry file, so
+        // — the shell composition's reason — the wiring composes in a launch task: `configure`
+        // may not block, and an absent file is the empty registry answered at call time, never
+        // here. The engine is the shipped ``ShellExecutor`` (the `agent-execution` decision: no
+        // new engine ships — an agent child is the shell child's sibling, the same fixed-argv
+        // engine, and the transport-permit lint's permitted set stays at exactly two files).
+        // Probe-safe by construction: nothing starts or spawns at composition — the registry
+        // and the stores are read at call time — and the composed default declares
+        // `spawnsSubprocess = false` (the D2 narrowed promise, the `requiresNetwork` analogue,
+        // for the configuration: zero agents, nothing to spawn).
+        let agentRegistry = CodingAgentRegistry(
+            directory: CodingAgentRegistry.defaultDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask).first,
+                home: FileManager.default.homeDirectoryForCurrentUser))
+        root.agentRegistry = agentRegistry
+        Task { @MainActor in
+            let agentProvider = await CodingAgentProvider.load(registry: agentRegistry) {
+                configuration in
+                await ShellExecutor(
+                    configuration: configuration,
+                    clock: ContinuousStdioClock(),
+                    sleeper: TaskStdioPollSleeper()).run()
+            }
+            let agentWiring = AppBootstrap.composeCodingAgentWiring(
+                configStore: actionConfigStore,
+                auditStore: actionAuditStore,
+                registry: agentRegistry,
+                provider: agentProvider,
+                sessionActive: sessionActive,
+                root: root)
+            root.agentWiring = agentWiring
+            root.agentExecutor = agentWiring.executor
+        }
         // The confirmation card's closures, routed by the card's own providerID: a shell card
-        // is answered by the shell wiring's executor, every other card by the action wiring's
-        // — the card is one surface, and the routing reads `shellWiring` lazily (the
-        // composition task above may not have landed; a shell card cannot exist before the
-        // wiring that presented it, so a nil read is quiet either way).
+        // is answered by the shell wiring's executor, an agent card by the agent wiring's,
+        // every other card by the action wiring's — the card is one surface, and the routing
+        // reads `shellWiring`/`agentWiring` lazily (the composition tasks above may not have
+        // landed; a card cannot exist before the wiring that presented it, so a nil read is
+        // quiet either way).
         root.actionConfirm = { @MainActor [weak root] in
             guard let root else { return }
             guard let card = root.widgetStore.state.confirmation?.signal else { return }
             if card.providerID == ShellProvider.providerID {
                 await root.shellWiring?.confirm()
+            } else if card.providerID == CodingAgentProvider.providerID {
+                await root.agentWiring?.confirm()
             } else {
                 await actionWiring.confirm()
             }
@@ -767,6 +808,8 @@ public enum AppBootstrap {
             guard let card = root.widgetStore.state.confirmation?.signal else { return }
             if card.providerID == ShellProvider.providerID {
                 await root.shellWiring?.decline()
+            } else if card.providerID == CodingAgentProvider.providerID {
+                await root.agentWiring?.decline()
             } else {
                 await actionWiring.decline()
             }
@@ -1677,6 +1720,26 @@ public final class DictationLoopRoot {
     /// composition that built no shell wiring.
     public var shellRegistry: ShellCommandRegistry?
 
+    // MARK: - The agent composition (C13 slice 9, coding-agent-handoff)
+
+    /// **The composed agent wiring** (`wiring` aspect): the executor over the coding-agent
+    /// provider and the shared audit store, the Actions tab's agent leg and the agent card's
+    /// closures — composed by `configure` through the probe-safe recipe
+    /// (`composeCodingAgentWiring`; construction only, nothing spawns, reads or starts at
+    /// composition). `nil` until the launch task that reads the registry lands, and in every
+    /// composition that built no agent wiring — every headless harness in the suite.
+    public var agentWiring: CodingAgentWiring<CodingAgentProvider>?
+
+    /// The executor the agent wiring submits through — the agent leg's own caller of
+    /// ``ActionGate``, over the shared audit store and the real `CodingAgentProvider`. `nil`
+    /// until the agent composition's launch task lands.
+    public var agentExecutor: ActionExecutor<CodingAgentProvider>?
+
+    /// The registry the agent wiring reads — the same `coding-agents.json` the agent leg
+    /// renders, reached back from `configure` (the ``modelStore`` precedent). `nil` only in a
+    /// composition that built no agent wiring.
+    public var agentRegistry: CodingAgentRegistry?
+
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
     /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
@@ -1964,19 +2027,28 @@ public final class DictationLoopRoot {
                     loadShellCommands: { [weak self] in
                         await self?.shellWiring?.listCommands() ?? []
                     },
+                    // The agent leg's row source: the registry's agents, read through the
+                    // agent wiring. `nil` wiring (the headless default, or before the agent
+                    // composition's launch task lands) claims nothing — the empty answer.
+                    loadAgents: { [weak self] in
+                        await self?.agentWiring?.listAgents() ?? []
+                    },
                     setToolEnabled: { [weak self] providerID, toolID, enabled in
                         guard let wiring = self?.actionWiring else { return }
                         try await wiring.setToolEnabled(providerID, toolID, enabled)
                     },
                     // The arm and preview bindings, routed by the provider's own id: a shell
-                    // command goes through the shell wiring's executor, everything else through
-                    // the action wiring's — one surface, two per-provider executors, the
-                    // routing read lazily (a nil shell wiring is quiet: no shell row can exist
-                    // before the wiring that lists it).
+                    // command goes through the shell wiring's executor, an agent through the
+                    // agent wiring's, everything else through the action wiring's — one
+                    // surface, three per-provider executors, the routing read lazily (a nil
+                    // shell or agent wiring is quiet: no row can exist before the wiring that
+                    // lists it).
                     armAction: { [weak self] providerID, toolID in
                         guard let self else { return }
                         if providerID == ShellProvider.providerID {
                             try await self.shellWiring?.arm(providerID, toolID)
+                        } else if providerID == CodingAgentProvider.providerID {
+                            try await self.agentWiring?.arm(providerID, toolID)
                         } else {
                             try await self.actionWiring?.arm(providerID, toolID)
                         }
@@ -1985,6 +2057,8 @@ public final class DictationLoopRoot {
                         guard let self else { return nil }
                         if providerID == ShellProvider.providerID {
                             return await self.shellWiring?.preview(providerID, toolID)
+                        } else if providerID == CodingAgentProvider.providerID {
+                            return await self.agentWiring?.preview(providerID, toolID)
                         }
                         return await self.actionWiring?.preview(providerID, toolID)
                     },

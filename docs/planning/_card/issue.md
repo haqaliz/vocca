@@ -1,19 +1,21 @@
-# feat/phrase-intent-resolver — inline brief
+# feat/coding-agent-handoff — inline brief
 
-No GitHub issue filed; the source is the `vocca-next` handoff (2026-09-25).
+No GitHub issue filed; the source is the `vocca-next` handoff (2026-09-30).
 
 ## Brief
 
-Build C13's S1 slice: `PhraseIntentResolver`, the second real `IntentResolver` implementation
-(`docs/planning/intent-layer/prd.md:188`), backed by a user-editable phrase table persisted as
-JSON following the C5 dictionary store conventions (tolerant decode, caps refuse never clamp,
-atomic writes, shape-only). Tests first: an exact phrase resolves `.toolCall` only for an enabled
-tool; a phrase naming a disabled/unknown tool resolves `.none` and never reaches the provider; a
-corrupt/absent file loads as the empty table with one loud log; a phrase hit still flows through
-`ActionGate` withheld and still confirms outward-facing tools (the §8 floor — extend
-`EscapeValveTests`); a probe row inside the zero-network interposer shows the default still
-resolves nothing and `intentShellRows=0`.
+Build C13's last P4 deliverable: voice → a coding agent session seeded with the active
+project as context (ROADMAP.md:239; remaining-machinery list CAPABILITY_ROADMAP.md:551).
+It is the thinnest-specified piece left — no PRD exists; write the design pass first, since
+a stateful agent session does not fit the one-shot describe/invoke tool-call shape. Follow
+the shell-provider precedent: an ActionProvider behind the shared gate/audit machinery,
+enablement default off, a fixed-argv sentence that describe and invoke share, and the D2
+honesty language — a child's egress is unprovable, so the default configuration must still
+spawn nothing. Tests first: a stub agent asserts refusal-without-approval by attempting the
+call, audit reconstruction of every executed handoff, context never leaves the machine
+without its grant, and a PROBE-CODING-AGENT row inside the zero-network interposer
+(spawnsSubprocess=false). Any G5 re-anchor is deliberate, never edit-to-match.
 
-Caveat: letting phrases target shell commands would reverse the arm-surface-only decision
-(founder call). Composing the resolver into the shipped default is a reviewed edit; any G5
-re-anchor is deliberate, never edit-to-match.
+## Labels (proposed)
+
+feat, P4, C13

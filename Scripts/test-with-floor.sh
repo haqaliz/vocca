@@ -2054,8 +2054,62 @@ set -euo pipefail
 # (the verbatim-line assertion joins the existing default-configuration test, not counted) —
 # the count taken from the floor script's own parse in the ratchet commit.
 #
+# The coding-agent-handoff agent-registry RED raise (2859 -> 2882) — the `coding-agents.json`
+# store's twenty-three rows in `CodingAgentRegistryTests`: absent is quietly empty and creates
+# nothing; unreadable/non-object/wrong-version/oversize files are loudly empty with exactly one
+# log each and are never rewritten; unknown keys refused at every level of the shape (a planted
+# `readOnly` at the row level, an `enablement` section at the top level); the F1 no-coercion
+# rows (a `1` or a `true` for a path, a `"30"` for a timeout); the timeout semantics (absent
+# defaults to 30, 0/-5/601 are skipped loudly, 1 and 600 are inclusive); the row caps (argv,
+# environment entries, env key/value length, id length — all refused, never truncated); the
+# empty or relative (including tilde) executable/project paths; duplicate ids first-wins; the
+# save round trip and never-rewrite, the atomic temp-write-then-rename pair, the torn commit,
+# the stray temp file's invisibility, cross-instance agreement, the count and byte caps refusing
+# never clamping on save; sorted-key byte stability; the byte-level pin (canonical empty
+# document, exact populated bytes, key-set pins with no `readOnly` ever); the never-throwing
+# static decoder; and the default directory — the count taken from the floor script's own parse
+# in the ratchet commit.
+#
+# The coding-agent-handoff agent-execution raise (2882 -> 2888) — the six rows in
+# `CodingAgentExecutionTests` that pin the shipped `ShellExecutor` as the agent engine (no new
+# engine ships): an agent-shaped configuration (absolute executable, fixed argv, configured env,
+# the 30 s default) runs to completion with the exit code read back; a raised per-row timeout
+# (120 s) is honored over the injected clock — the run keeps polling past the 30 s mark and
+# resolves only at the configured ceiling, with the 30 s-default counterfactual resolving near
+# its own ~35 s deadline; a hung child is terminated and reaped with the no-orphan acceptance
+# asserted ESRCH on the real pid via `lastProcessIdentifier`; the child receives exactly the
+# configured environment and nothing else (the exact env-set pin); a flooding child is truncated
+# at the 4 KB bound, reported, never fatal; and the registry-shaped row flows into
+# `ShellExecutor.Configuration` (timeoutSeconds `Int` → `timeout` `.seconds(...)`, optional
+# environment → exact environment, absent timeout → the executor's own 30 s default). The
+# transport-permit lint stays at exactly two files — the agent child is an executor child — and
+# the suite names no forbidden family; the count taken from the floor script's own parse in the
+# ratchet commit.
+#
+# The coding-agent-handoff agent-wiring REFACTOR raise (2903 -> 2915) — the composed agent
+# wiring's seven rows in `CodingAgentWiringTests` (the composed default's `agents=0
+# spawnsSubprocess=false` with an absent registry; the seeded round trip — arm → the
+# argv-derived sentence on the card → confirm → the counting engine runs → the audit
+# reconstructs in ordinal order with the binding matched; the in-flight refusal; the
+# binding-mismatch re-prompt with a fresh render; the voice leg — a `dev.vocca.agent` phrase
+# row resolves `.toolCall` only when enabled, a disabled tool resolves `.none` and is declined
+# before any describe, and the intent store refuses only `dev.vocca.shell`, the agent id never;
+# the stale-row reconcile — the per-call registry read shows an edit on the tab while the
+# provider answers the read-only refusal for the stale id, never a trap) and the Actions-tab
+# agent leg's five rows in `ActionsTabTests` (the fold off-by-default with enablement
+# re-applied, the row-toggle flipping row and persisted set together, the arm of an enabled
+# agent row and the refused arm of a disabled one, the D2 copy pin, and the section carrying
+# the D2 copy at the moment of arm); the count taken from the floor script's own parse in the
+# ratchet commit.
+#
+# The coding-agent-handoff agent-probe RED raise (2915 -> 2916; executed 2916) — the
+# PROBE-CODING-AGENT post-condition and its guard-the-guard test grow one test:
+# `testTheAssertedCodingAgentPostConditionStillDescribesTheComposedDefaultAndARoundTripThroughRealBytes`
+# (the verbatim-line additions are constants, not tests) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2859
+MINIMUM_EXECUTED_TESTS=2916
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

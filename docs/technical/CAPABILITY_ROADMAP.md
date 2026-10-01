@@ -559,6 +559,52 @@ was corrected for it.
 No gate passes. SMOKE 154-156 are written and runnable, recorded and never gated. Test floor:
 **2859**.)*
 
+*(Amended by the `coding-agent-handoff` unit, 2026-10-01: **slice 9 of C13 shipped — the
+P4 table's last row**: voice → a one-shot coding-agent run with the active project as
+context, composed onto the proven spine. Shipped:
+- **`CodingAgentRegistry`** (`VoccaActions/Config/`): the user-editable `coding-agents.json`
+  — definitions only, tolerant load / throwing save, caps refuse never clamp, absolute
+  paths only, **no `readOnly`** (an agent is never read-only; `outwardFacing` for every row
+  by construction), `timeoutSeconds` default 30 / cap 600, and the **`environment`** field
+  (explicit key/value entries — key material lives in the file, what reaches the child is
+  exactly what the file says).
+- **`CodingAgentProvider`** (`dev.vocca.agent`, the fifth real `ActionProvider`): the
+  **argv-derived sentence** (one render shared by describe and invoke — a planted argv
+  appears verbatim), the **arguments-refusal pin** (an agent row declares no parameters —
+  any supplied arguments are refused, `agent.unexpectedArguments`), refusal never a trap.
+- **The agent child is the reviewed `ShellExecutor`** — no new engine ships, so the
+  transport-permit lint **stays at exactly two files** (correcting the PRD's R8 phrasing,
+  which had planned a third reviewed entry).
+- **`CodingAgentWiring`** (the additive composition): the Actions-tab **Coding agents**
+  section (own-built rows from the registry, enablement from the shared store, default
+  off, the D2 copy on the surface), the policy floor `.none`, the sentence-bound card with
+  the mismatch re-prompt, every decision recorded, `spawnsSubprocess=false` declared for
+  the composed default (an absent registry is zero rows — **the default configuration
+  cannot create an agent child**).
+- **Voice-reachable**: a phrase row naming `dev.vocca.agent` resolves once the tool is
+  enabled (the store refuses only `dev.vocca.shell`; phrases arm rows, they never carry
+  task text).
+- **PROBE-CODING-AGENT** inside the zero-network interposer.
+
+**The "session" word is retired in the record:** this slice ships **one-shot runs**;
+interactive sessions are deferred with the blocker named (persistent-child/PTY machinery is
+unbuilt and does not fit the one-shot tool-call shape). G5 re-anchored once, deliberately
+(`eba72eaf…` → `092d8ba6…`; dictation digests unchanged).
+
+**What is still NOT built — the remaining C13 machinery:**
+- **reply-text rendering** (the real spoken answer to an agent run — the reply seam's last
+  piece)
+- a **phrase-then-keyword composite resolver**
+- an **audit-tools arm section** in the Actions tab
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load by
+  decision, and reversing it is a founder call)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- the deferred N1/N2: `{{utterance}}` task seeding and `$N` parameter slots (an agent row
+  declares no parameters — the arguments-refusal pin is the shipped record)
+
+No gate passes. SMOKE 157-159 are written and runnable, recorded and never gated; no
+agent-success rate may be quoted until a real run exists. Test floor: **2916**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

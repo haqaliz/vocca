@@ -3182,7 +3182,7 @@ gate pass.
     Actions tab — `audit.clear` (its sentence names the count: "Permanently delete N
     entries from the action audit log. This cannot be undone.") — observe the **widget
     panel card** appear with the sentence, press **Confirm** on the rendered surface, then
-    open the audit artifact (`<applicationSupport>/Vocca/action-audit/` — one file per
+    open the audit artifact (`<applicationSupport>/Vocca/actions/` — one file per
     event, ordinal names) and reconstruct the decision from the entry fields: the confirmed
     invocation, the provider/tool ids, and the sentence. The clear was ordered and its own
     record follows it — the log is never empty.
@@ -3300,7 +3300,7 @@ must actually have been entered before a row means anything.
     *Gesture:* continuing from 148, press **Confirm** on the rendered card. Record which
     spoken ack the build actually produced (the provisional copy is "Done." — the words
     are provisional pending this run, the record is the decision), then open the audit
-    artifact (`<applicationSupport>/Vocca/action-audit/` — one file per event, ordinal
+    artifact (`<applicationSupport>/Vocca/actions/` — one file per event, ordinal
     names) and reconstruct the decision from the entry fields: the confirmed invocation,
     the provider/tool ids, and the sentence. The clear was ordered and its own record
     follows it — the log is never empty afterwards.
@@ -3380,7 +3380,7 @@ actually have been entered before a row means anything.
     the shell command 'whoami': /usr/bin/whoami.` — read off the **rendered** card and
     compared against the definition. Press **Confirm**, verify the command actually ran
     (the output is the command's own answer), then open the audit artifact
-    (`<applicationSupport>/Vocca/action-audit/` — one file per event, ordinal names) and
+    (`<applicationSupport>/Vocca/actions/` — one file per event, ordinal names) and
     reconstruct the decision from the entry fields: the confirmed invocation, the
     provider/tool ids, and the sentence.
 
@@ -3512,6 +3512,132 @@ actually have been entered before a row means anything.
     file is edited**.
 
     *Failure:* a shell card appears, the command runs, or no refusal line is logged.
+
+---
+
+## 25. Coding agents — `coding-agent-handoff`
+
+Nothing in this section runs in CI. The agent leg's spine — the gate-level refusal by
+attempting the call, the argv-derived sentence, dry-run, the audit record — is proven
+headlessly inside the zero-network interposer over the real engine (`PROBE-CODING-AGENT`:
+`store=real store.location=temporary store.isDefaultLocation=false agents=0
+spawnsSubprocess=false seeded=1 card=yes invoked=1 decisions=refused,confirmed,dryRun
+ordinals=1-3 binding=matched`); what these rows observe is the **rendered** surface, the
+**real** engine and the **real** audit artifact on the founder's machine. Three ground
+rules before any of them: **nothing is configured out of the box** (no `coding-agents.json`,
+no enablement — the default configuration cannot create an agent child, and the arm surface
+is not generic: an enablement row alone renders nothing), so each row starts with a
+deliberate, recorded configuration step; **an agent is never read-only** (the registry row
+has **no `readOnly` field** — every row claims `outwardFacing` by construction), so the
+gate always demands the card, under every approval/policy/mode shape; and **no agent-success
+rate may be quoted** — these rows record whether the sentence, the run, the timeout and the
+reconstruction held, never how often anything ran. Recorded — never gated, each under
+**rule 1**: the state must actually have been entered before a row means anything.
+
+157. **Configure + enable a real agent row; the card shows the argv-derived sentence
+    verbatim; confirm → the agent runs in the project directory → the audit reconstructs
+    (C13 slice 9, recorded — never gated).**
+
+    *Gesture:* create `coding-agents.json` under `<applicationSupport>/Vocca/` (the shape
+    is byte-pinned by tests — keep the field names verbatim) with one agent row — the
+    founder's chosen CLI, **absolute executable path** (no PATH, no `~` — the row refuses
+    a non-absolute path) and the **environment entries the binary needs** (key material
+    such as `ANTHROPIC_API_KEY` lives in this file; what reaches the child's environment
+    is exactly what the file says, nothing else), e.g.
+    `{"id": "claude", "executablePath": "/usr/local/bin/claude", "arguments": ["summarize", "the", "open", "PRs"], "projectDirectory": "<the repo you are working in>", "environment": {"ANTHROPIC_API_KEY": "<your key>"}}`,
+    and launch. Verify the Actions tab's **Coding agents** section renders a row for the
+    agent (default off), and enable it. Press the hotkey to arm, and verify the
+    confirmation card shows the **argv-derived sentence** — the fixed argv substituted in
+    place, quoted-sanitised, e.g. `Run the coding agent 'claude': /usr/local/bin/claude
+    summarize the open PRs in <the repo path>.` — read off the **rendered** card and
+    compared against the definition. Press **Confirm**, verify the agent actually ran **in
+    the project directory** (the run's own output — the row's directory is the "active
+    project", founder decision Q2), then open the audit artifact
+    (`<applicationSupport>/Vocca/actions/` — one file per event, ordinal names) and
+    reconstruct the decision from the entry fields: the confirmed invocation, the
+    provider/tool ids, and the sentence.
+
+    *Verify the state was entered:* the registry really loaded (the Coding agents section
+    really rendered the row from the file — a section without the row proves the file was
+    never read), the enablement row was really on, the card was really read off the
+    rendered surface before any confirm, the confirm really ran the agent (the run's own
+    output), and the audit rows were really read off disk.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a configured agent ran
+    through the gate, the card showed the argv-derived sentence, the run happened in the
+    configured project directory, and the audit row reconstructs off disk** — the agent
+    leg's first real observation of the C13 surface.
+
+    *Void — not fail — if:* the Coding agents section rendered no row (the registry was
+    never read — rule 1), the agent was never enabled, or no card appeared.
+
+    *Failure:* a card whose sentence differs from the argv-derived render, a confirm that
+    records nothing or runs a different argv, an agent that ran without a card, a run that
+    happened in the wrong directory, or an audit log that cannot reconstruct the decision.
+
+158. **A phrase row naming `dev.vocca.agent` arms the enabled agent; the spoken round trip
+    confirms and runs it (C13 slice 9, recorded — never gated).**
+
+    *Gesture:* continuing from 157, add a phrase row to `intent-phrases.json` naming the
+    agent — `{"phrase": "summarize the open PRs", "providerID": "dev.vocca.agent", "toolID": "<your agent id>"}` —
+    a phrase **arms** rows, it never carries task text (founder decision Q3; the argv is
+    fixed in the config row). Switch to the CONVERSING surface and say "Summarize the open
+    PRs." Verify the **card appears** (an agent is never read-only — `outwardFacing` by
+    construction — so the gate always confirms; there is no read-only path for an agent
+    row), read the sentence off the **rendered** card and compare it with 157's, press
+    **Confirm**, verify the agent ran as in 157, and reconstruct the confirmed entry off
+    the audit artifact.
+
+    *Verify the state was entered:* the utterance really resolved through the phrase
+    resolver. An echo of your words back means it did not (rule 1). So does a spoken
+    question: the phrase resolver never asks, so an ask means some other resolver
+    answered. And the tool really was enabled — a phrase naming a disabled tool resolves
+    `.none` (the catalog is the enablement).
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a phrase the user wrote
+    armed the user's agent, the card confirmed, and the run reconstructed off disk** — the
+    voice leg's first real agent observation. Record the count of attempts it took to be
+    heard, never a rate.
+
+    *Void — not fail — if:* the utterance was echoed because ASR or cleanup produced
+    different words (record the transcript), or the enablement was not in place.
+
+    *Failure:* an agent run without a card (a silent grant is the fail-open this leg exists
+    to catch), a card whose sentence differs from the argv-derived render, or no audit
+    entry for a run that happened.
+
+159. **The Coding agents section reads the honest D2 copy, and a hung agent dies at its own
+    timeout with the loud failure and no orphan (C13 slice 9, recorded — never gated).**
+
+    *Gesture:* two halves. First the copy: in the Actions tab's **Coding agents** section,
+    verify the honest copy reads at the moment of arm — "Configuring a coding agent runs
+    it on your machine with your configured project; Vocca cannot see inside a program it
+    starts on your behalf — an enabled agent's egress is never provable." Then the timeout
+    path: add a second agent row that hangs — a binary that outlives its own ceiling, e.g.
+    `{"id": "hang", "executablePath": "/bin/sleep", "arguments": ["120"], "projectDirectory": "<a directory>", "timeoutSeconds": 5}` —
+    enable and arm it, **Confirm** on the card, and verify: the run comes back as a **loud
+    failure** (the audit entry carries the engine's bounded reason key `shell.timedOut` —
+    the executor's keys are carried unchanged into the audit; a failure is a returned
+    value, never a hang of Vocca itself), and **no orphan survives**: `kill <pid> 0`
+    answers `-1` with `errno == ESRCH` for the sleep's pid — ESRCH specifically, because
+    a **zombie answers `kill(pid, 0)` successfully**.
+
+    *Verify the state was entered:* the hung row really launched (its pid really existed
+    before the timeout — otherwise "no orphan" is vacuous), the ceiling that fired was the
+    row's own `timeoutSeconds` (5 s here, not the 30 s default), and the no-orphan check
+    was made against the operating system, not assumed.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **the honest copy reads
+    on the surface, a hung agent died at its own timeout with a loud recorded failure, and
+    no orphan survived the run**.
+
+    *Void — not fail — if:* the hung row never launched, or the timeout did not fire
+    (rule 1).
+
+    *Failure:* a hang that outlives its timeout, a silent failure (no audit entry, no
+    returned failure), Vocca itself hanging or refusing to arm, an orphan left behind (a
+    pid that answers `kill(pid, 0)` after the run), or the D2 copy missing from the
+    section.
 
 ---
 

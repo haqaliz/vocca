@@ -35,6 +35,14 @@ public struct ActionsTabState: Sendable, Equatable {
     /// Whether the shell registry's commands have landed — `false` with no rows is "we haven't
     /// looked yet"; `true` with no rows is the honest empty state (nothing configured).
     public var isShellLoaded: Bool
+    /// The rows the Agents section renders (`coding-agent-handoff` wiring): the registry's
+    /// configured agents, with `isEnabled` folded from ``enablement`` exactly like discovery
+    /// rows — default off (M7), absent is off. A registry read, never a discovery and never a
+    /// spawn.
+    public var agentRows: [ActionsToolRow]
+    /// Whether the agent registry's rows have landed — `false` with no rows is "we haven't
+    /// looked yet"; `true` with no rows is the honest empty state (nothing configured).
+    public var isAgentLoaded: Bool
     /// The discovery's one closed three-step, per server.
     public var discovery: ActionsDiscoveryState
     /// The arm state — `awaitingConfirmation` is the wiring's card signal; nothing else on this
@@ -58,20 +66,23 @@ public struct ActionsTabState: Sendable, Equatable {
     public static let initial = ActionsTabState(
         servers: [], enablement: [], toolRows: [], discovery: .idle, arm: .idle, preview: .idle,
         serverNameDraft: "", serverPathDraft: "", editingServerID: nil, isLoaded: false,
-        saveError: nil, shellRows: [], isShellLoaded: false)
+        saveError: nil, shellRows: [], isShellLoaded: false, agentRows: [], isAgentLoaded: false)
 
     public init(
         servers: [ActionsServerRow], enablement: Set<ActionsToolKey>,
         toolRows: [ActionsToolRow], discovery: ActionsDiscoveryState, arm: ActionsArmState,
         preview: ActionsPreviewState, serverNameDraft: String, serverPathDraft: String,
         editingServerID: String?, isLoaded: Bool, saveError: String?,
-        shellRows: [ActionsToolRow] = [], isShellLoaded: Bool = false
+        shellRows: [ActionsToolRow] = [], isShellLoaded: Bool = false,
+        agentRows: [ActionsToolRow] = [], isAgentLoaded: Bool = false
     ) {
         self.servers = servers
         self.enablement = enablement
         self.toolRows = toolRows
         self.shellRows = shellRows
         self.isShellLoaded = isShellLoaded
+        self.agentRows = agentRows
+        self.isAgentLoaded = isAgentLoaded
         self.discovery = discovery
         self.arm = arm
         self.preview = preview
@@ -121,6 +132,9 @@ public enum ActionsTabAction: Sendable, Equatable {
     /// The shell registry answered with its configured commands — the shell leg's row source
     /// (`shell-provider` wiring): a registry read, never a discovery and never a spawn.
     case shellConfigLoaded([ActionsToolRow])
+    /// The agent registry answered with its configured agents — the agent leg's row source
+    /// (`coding-agent-handoff` wiring): a registry read, never a discovery and never a spawn.
+    case agentConfigLoaded([ActionsToolRow])
     /// The add form's name field changed.
     case serverNameFieldEdited(String)
     /// The add form's path field changed.
@@ -182,6 +196,18 @@ public enum ActionsTabReducer {
                 return resolved
             }
             next.isShellLoaded = true
+
+        case .agentConfigLoaded(let tools):
+            // Default off is the reducer's rule, not the wiring's — the same fold discovery
+            // rows obey: an agent that arrives enabled is off unless the persisted enablement
+            // holds its key (M7).
+            next.agentRows = tools.map { row in
+                var resolved = row
+                resolved.isEnabled = next.enablement.contains(
+                    ActionsToolKey(providerID: row.providerID, toolID: row.toolID))
+                return resolved
+            }
+            next.isAgentLoaded = true
 
         case .serverNameFieldEdited(let name):
             next.serverNameDraft = name
@@ -267,8 +293,8 @@ public enum ActionsTabReducer {
         case .toolEnabledChanged(let providerID, let toolID, let enabled):
             // One tool at a time, and only a tool that exists: absent is off, so a flip for a
             // row nobody discovered — or a command the registry never declared — mints nothing
-            // and enables nothing. The shell rows join the search: a shell command's row flips
-            // through the same enablement set, the same draft, the same save.
+            // and enables nothing. The shell rows and the agent rows join the search: their
+            // rows flip through the same enablement set, the same draft, the same save.
             if let index = next.toolRows.firstIndex(where: {
                 $0.providerID == providerID && $0.toolID == toolID
             }) {
@@ -277,6 +303,10 @@ public enum ActionsTabReducer {
                 $0.providerID == providerID && $0.toolID == toolID
             }) {
                 next.shellRows[index].isEnabled = enabled
+            } else if let index = next.agentRows.firstIndex(where: {
+                $0.providerID == providerID && $0.toolID == toolID
+            }) {
+                next.agentRows[index].isEnabled = enabled
             } else {
                 return state
             }
@@ -292,10 +322,10 @@ public enum ActionsTabReducer {
             // The M7 never-read rule at the surface: arming a disabled tool is refused by the
             // reducer — the state does not change, so no confirmation signal can be emitted
             // from it. Only an enabled row, and only from an idle arm, may land on the card.
-            // The shell rows join the search: a shell command is armed through the same gate
-            // the server tools are.
+            // The shell rows and the agent rows join the search: a shell command or an agent
+            // is armed through the same gate the server tools are.
             guard next.arm == .idle,
-                let row = (next.toolRows + next.shellRows).first(where: {
+                let row = (next.toolRows + next.shellRows + next.agentRows).first(where: {
                     $0.providerID == providerID && $0.toolID == toolID
                 }),
                 row.isEnabled
