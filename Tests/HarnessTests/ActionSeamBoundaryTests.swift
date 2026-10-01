@@ -185,6 +185,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // constraint is a sighting for the same reason: the shell surface drives the
                 // same seam + gate and nothing else.
                 "VoccaBootstrap/ShellWiring.swift",
+                // `coding-agent-handoff`'s reviewed widening — the agent recipe mirrors the
+                // shell recipe's shape (`CodingAgentWiring<Provider: ActionProvider>`), so
+                // the generic constraint is a sighting for the same reason: the agent surface
+                // drives the same seam + gate and nothing else.
+                "VoccaBootstrap/CodingAgentWiring.swift",
                 // `action-round-trip`'s reviewed widening — the intent recipe mirrors the
                 // action recipe's shape (`IntentWiring<Provider: ActionProvider>`), so the
                 // generic constraint is a sighting for the same reason: the voice path drives
@@ -259,6 +264,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // preview paths all construct one to submit). It reads the vocabulary to build
                 // the gate's input; it never decides with it.
                 "VoccaBootstrap/ShellWiring.swift",
+                // `coding-agent-handoff`'s reviewed widening — the agent recipe builds
+                // invocations from the agent leg's provider/tool identifiers (the arm,
+                // confirm, decline and preview paths all construct one to submit). It reads
+                // the vocabulary to build the gate's input; it never decides with it.
+                "VoccaBootstrap/CodingAgentWiring.swift",
                 // `intent-seam`'s reviewed widening — the resolution vocabulary carries the
                 // invocation a confident match resolved to. The intent seam reads the action
                 // vocabulary to *name* what would run (`.toolCall(ActionInvocation)`); it never
@@ -334,6 +344,11 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // mismatch re-prompt) to present and re-present. It reads the rendered words to
                 // show them; it never decides with them.
                 "VoccaBootstrap/ShellWiring.swift",
+                // `coding-agent-handoff`'s reviewed widening — the agent recipe reads the
+                // gate's summaries (the arm's card sentence, the preview's dry-run answer,
+                // the mismatch re-prompt) to present and re-present. It reads the rendered
+                // words to show them; it never decides with them.
+                "VoccaBootstrap/CodingAgentWiring.swift",
                 // `probe`'s reviewed widening — the voice round trip's call-logged provider
                 // renders a summary from its `describe`. One of the five rows the conformance
                 // costs.

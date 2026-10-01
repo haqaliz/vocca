@@ -103,6 +103,28 @@ struct ActionsTabPage: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section(ActionsTabCopy.agentsSectionTitle) {
+                // The D2 copy at the moment of arm: this section's rows run a program on the
+                // user's machine with the user's configured project, and the narrowed promise —
+                // that configuring a coding agent is trust extended to the file's author, and
+                // that an enabled agent's egress is never provable — belongs where the agent
+                // is armed.
+                Text(ActionsTabCopy.agentD2TrustCopy)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if state.isAgentLoaded && state.agentRows.isEmpty {
+                    Text(ActionsTabCopy.emptyAgents)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(state.agentRows) { row in
+                    toolRow(row)
+                }
+                Text(ActionsTabCopy.defaultOffDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if let saveError = state.saveError {
                 Section {
                     Text(ActionsTabCopy.saveError(saveError))
@@ -115,6 +137,7 @@ struct ActionsTabPage: View {
         .task {
             await load()
             await loadShellCommands()
+            await loadAgents()
         }
     }
 
@@ -353,5 +376,12 @@ struct ActionsTabPage: View {
     private func loadShellCommands() async {
         let rows = await bindings.loadShellCommands()
         state = ActionsTabReducer.reduce(state, .shellConfigLoaded(rows))
+    }
+
+    /// The agent registry's agents, folded once per opening — the agent leg's row source,
+    /// read through the wiring like the config is. A registry read; no discovery, no spawn.
+    private func loadAgents() async {
+        let rows = await bindings.loadAgents()
+        state = ActionsTabReducer.reduce(state, .agentConfigLoaded(rows))
     }
 }

@@ -27,6 +27,15 @@ public enum ActionsTabCopy {
     /// registry's configured commands, armable like any other tool row.
     public static let shellSectionTitle = "Shell commands"
 
+    /// The agents section's title (`coding-agent-handoff` wiring) — the section that lists
+    /// the registry's configured agents, armable like any other tool row.
+    public static let agentsSectionTitle = "Coding agents"
+
+    /// The agents section's empty state — honest about why it is empty: nothing is configured
+    /// out of the box, and an absent `coding-agents.json` is the empty registry.
+    public static let emptyAgents =
+        "No coding agents configured. Add them to coding-agents.json to arm them here."
+
     /// The shell section's empty state — honest about why it is empty: nothing is configured
     /// out of the box, and an absent `shell-commands.json` is the empty registry.
     public static let emptyShellCommands =
@@ -39,6 +48,16 @@ public enum ActionsTabCopy {
     public static let shellD2TrustCopy =
         "Configuring a shell command runs that command on your machine; Vocca cannot see "
         + "inside a program it starts on your behalf."
+
+    /// **The agent leg's D2 copy, exact-in-spirit** (the shell copy above): configuring a
+    /// coding agent runs it on the user's machine with the user's configured project — and
+    /// Vocca's check watches its own process and cannot see inside a program Vocca starts on
+    /// its behalf, so an enabled agent's egress is never provable. Placed in the agents
+    /// section, the moment of arm.
+    public static let agentD2TrustCopy =
+        "Configuring a coding agent runs it on your machine with your configured project; "
+        + "Vocca cannot see inside a program it starts on your behalf — an enabled agent's "
+        + "egress is never provable."
 
     /// The empty state — honest about why it is empty.
     public static let emptyServers =
