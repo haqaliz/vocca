@@ -3182,7 +3182,7 @@ gate pass.
     Actions tab — `audit.clear` (its sentence names the count: "Permanently delete N
     entries from the action audit log. This cannot be undone.") — observe the **widget
     panel card** appear with the sentence, press **Confirm** on the rendered surface, then
-    open the audit artifact (`<applicationSupport>/Vocca/action-audit/` — one file per
+    open the audit artifact (`<applicationSupport>/Vocca/actions/` — one file per
     event, ordinal names) and reconstruct the decision from the entry fields: the confirmed
     invocation, the provider/tool ids, and the sentence. The clear was ordered and its own
     record follows it — the log is never empty.
@@ -3300,7 +3300,7 @@ must actually have been entered before a row means anything.
     *Gesture:* continuing from 148, press **Confirm** on the rendered card. Record which
     spoken ack the build actually produced (the provisional copy is "Done." — the words
     are provisional pending this run, the record is the decision), then open the audit
-    artifact (`<applicationSupport>/Vocca/action-audit/` — one file per event, ordinal
+    artifact (`<applicationSupport>/Vocca/actions/` — one file per event, ordinal
     names) and reconstruct the decision from the entry fields: the confirmed invocation,
     the provider/tool ids, and the sentence. The clear was ordered and its own record
     follows it — the log is never empty afterwards.
@@ -3380,7 +3380,7 @@ actually have been entered before a row means anything.
     the shell command 'whoami': /usr/bin/whoami.` — read off the **rendered** card and
     compared against the definition. Press **Confirm**, verify the command actually ran
     (the output is the command's own answer), then open the audit artifact
-    (`<applicationSupport>/Vocca/action-audit/` — one file per event, ordinal names) and
+    (`<applicationSupport>/Vocca/actions/` — one file per event, ordinal names) and
     reconstruct the decision from the entry fields: the confirmed invocation, the
     provider/tool ids, and the sentence.
 
@@ -3553,7 +3553,7 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     compared against the definition. Press **Confirm**, verify the agent actually ran **in
     the project directory** (the run's own output — the row's directory is the "active
     project", founder decision Q2), then open the audit artifact
-    (`<applicationSupport>/Vocca/action-audit/` — one file per event, ordinal names) and
+    (`<applicationSupport>/Vocca/actions/` — one file per event, ordinal names) and
     reconstruct the decision from the entry fields: the confirmed invocation, the
     provider/tool ids, and the sentence.
 
