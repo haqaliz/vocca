@@ -276,5 +276,5 @@ public enum AgentAuthoringConstants {
     public static let taskPlaceholder = "<task>"
     /// ``CodingAgentProvider/providerID`` — the enablement keys the agent rows cascade on
     /// edit-rename and remove.
-    public static let agentProviderID = "dev.vocca.agent"
+    public static let agentProviderID = "vocca.agent"
 }

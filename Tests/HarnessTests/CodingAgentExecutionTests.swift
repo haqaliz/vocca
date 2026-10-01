@@ -62,6 +62,18 @@ final class CodingAgentExecutionTests: XCTestCase {
     /// normally, which is what separates "bounded capture" from "the timeout did the bounding".
     private static let floodingAgent = "/usr/bin/seq"
 
+    /// The physical path a child's `getcwd` prints for a given URL.
+    ///
+    /// The kernel resolves symlinked components on `chdir`, so `/bin/pwd` prints the physical
+    /// path — `/private/var/...` for a directory under `/var/folders/...`. Foundation's
+    /// `resolvingSymlinksInPath()` leaves `/var` unresolved on this macOS (measured
+    /// 2026-10-01), so the ground truth both sides agree on is `realpath`.
+    private static func physicalPath(of url: URL) -> String {
+        guard let resolved = url.path.withCString({ realpath($0, nil) }) else { return url.path }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
     // MARK: - Acceptance 1: an agent-shaped configuration runs to completion
 
     /// An agent-shaped configuration — absolute executable, fixed argv, a configured environment
@@ -256,6 +268,42 @@ final class CodingAgentExecutionTests: XCTestCase {
             result.standardOutput.count,
             ShellExecutor.Configuration.defaultMaximumOutputBytes,
             "a flood must fill the cap exactly — truncation lands on the bound, not short of it")
+    }
+
+    // MARK: - Acceptance 6: the child runs in the configured working directory
+
+    /// The child starts in the configured working directory — `/bin/pwd` prints the directory
+    /// the configuration named.
+    ///
+    /// This is the project-directory contract of the agent shape: a row's `projectDirectory`
+    /// must reach the child as its working directory, or the sentence "in <directory>" is a
+    /// lie. The directory is a **real** temp directory (created, never assumed), and the
+    /// captured stdout is compared against its `realpath` — the physical path, which is what
+    /// a child's `getcwd` prints after the kernel resolves the `/var` symlink.
+    func testTheChildRunsInTheConfiguredWorkingDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-coding-agent-cwd-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let executor = ShellExecutor(
+            configuration: .init(
+                executablePath: "/bin/pwd",
+                currentDirectoryURL: directory),
+            clock: ContinuousStdioClock(),
+            sleeper: TaskStdioPollSleeper())
+        let result = await executor.run()
+        XCTAssertEqual(
+            result.status, .succeeded(exitCode: 0),
+            "'/bin/pwd' in a real directory must run to completion")
+        XCTAssertEqual(
+            String(decoding: result.standardOutput, as: UTF8.self),
+            Self.physicalPath(of: directory) + "\n",
+            """
+            the child must print the configured directory — the row's projectDirectory is \
+            where the agent actually runs, never the caller's working directory. Got: \
+            \(String(decoding: result.standardOutput, as: UTF8.self))
+            """)
     }
 
     // MARK: - The seam row: the registry shape flows into the executor configuration

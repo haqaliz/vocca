@@ -99,6 +99,15 @@ public actor ShellExecutor {
         /// default**: the child gets a scrubbed environment, never the caller's (N2).
         public let environment: [String: String]
 
+        /// The directory the child runs in, or `nil` for the caller's working directory.
+        ///
+        /// The coding-agent shape's project-directory contract: a row's `projectDirectory`
+        /// reaches the child as its working directory, so the sentence "in <directory>" is
+        /// only true if the child actually starts there. `nil` — the default, and therefore
+        /// the shell slice's unchanged behavior — leaves the child in the caller's working
+        /// directory.
+        public let currentDirectoryURL: URL?
+
         /// How long one run may take before the child is terminated.
         public let timeout: Duration
 
@@ -112,6 +121,7 @@ public actor ShellExecutor {
             executablePath: String,
             arguments: [String] = [],
             environment: [String: String] = [:],
+            currentDirectoryURL: URL? = nil,
             timeout: Duration = Configuration.defaultTimeout,
             pollInterval: Duration = Configuration.defaultPollInterval,
             maximumOutputBytes: Int = Configuration.defaultMaximumOutputBytes
@@ -119,6 +129,7 @@ public actor ShellExecutor {
             self.executablePath = executablePath
             self.arguments = arguments
             self.environment = environment
+            self.currentDirectoryURL = currentDirectoryURL
             self.timeout = timeout
             self.pollInterval = pollInterval
             self.maximumOutputBytes = maximumOutputBytes
@@ -185,6 +196,10 @@ public actor ShellExecutor {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: configuration.executablePath)
+        // The working directory: the configured directory when named, the caller's otherwise
+        // (`nil` leaves Foundation's default). An agent row's projectDirectory must reach the
+        // child as where it starts — the sentence "in <directory>" depends on it.
+        process.currentDirectoryURL = configuration.currentDirectoryURL
         process.arguments = configuration.arguments
         // The scrubbed environment: exactly the configured variables, never the caller's.
         process.environment = configuration.environment

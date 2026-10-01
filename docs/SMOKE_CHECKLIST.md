@@ -3575,11 +3575,11 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     records nothing or runs a different argv, an agent that ran without a card, a run that
     happened in the wrong directory, or an audit log that cannot reconstruct the decision.
 
-158. **A phrase row naming `dev.vocca.agent` arms the enabled agent; the spoken round trip
+158. **A phrase row naming `vocca.agent` arms the enabled agent; the spoken round trip
     confirms and runs it (C13 slice 9, recorded — never gated).**
 
     *Gesture:* continuing from 157, add a phrase row to `intent-phrases.json` naming the
-    agent — `{"phrase": "summarize the open PRs", "providerID": "dev.vocca.agent", "toolID": "<your agent id>"}` —
+    agent — `{"phrase": "summarize the open PRs", "providerID": "vocca.agent", "toolID": "<your agent id>"}` —
     a phrase **arms** rows, it never carries task text (founder decision Q3; the argv is
     fixed in the config row). Switch to the CONVERSING surface and say "Summarize the open
     PRs." Verify the **card appears** (an agent is never read-only — `outwardFacing` by

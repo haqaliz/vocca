@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Foundation
 import VoccaCore
 
 /// A configured coding agent behind the action seam — **the fifth real ``ActionProvider``**
@@ -65,9 +66,10 @@ import VoccaCore
 /// real ``ShellExecutor`` — the same engine the shell slice uses, inherited for the agent
 /// child (the `agent-execution` decision: no new engine ships, the transport-permit lint keeps
 /// its permitted set at exactly the stdio transport and the executor). This file names no
-/// transport family: the row's timeout flows into the configuration's timeout and the row's
+/// transport family: the row's timeout flows into the configuration's timeout, the row's
 /// environment map into the configuration's environment — exactly those variables and nothing
-/// else (the executor scrubs).
+/// else (the executor scrubs) — and the row's `projectDirectory` into the configuration's
+/// `currentDirectoryURL`, so the child starts where the sentence says it will.
 ///
 /// ## What it is not
 ///
@@ -85,7 +87,7 @@ public actor CodingAgentProvider: ActionProvider {
     /// site that spelled the string itself would drift from the one the audit log attributes
     /// entries to. **The real id of this unit** — the registry's own documentation carries it
     /// too, so the enablement store, the phrase store and the surface all name one value.
-    public static let providerID = "dev.vocca.agent"
+    public static let providerID = "vocca.agent"
 
     /// A row the registry never declared. Bounded key, never a message — the audit entry is
     /// byte-pinned and free-form text would smuggle unbounded bytes onto disk.
@@ -211,6 +213,7 @@ public actor CodingAgentProvider: ActionProvider {
             executablePath: agent.executablePath,
             arguments: agent.arguments,
             environment: agent.environment ?? [:],
+            currentDirectoryURL: URL(fileURLWithPath: agent.projectDirectory),
             timeout: .seconds(agent.timeoutSeconds))
         let result = await run(configuration)
         return Self.outcome(from: result)

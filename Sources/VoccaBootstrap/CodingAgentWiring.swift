@@ -50,7 +50,7 @@ import VoccaUI
 ///
 /// ``listAgents`` reads the registry and the config store at call time — the rows are the
 /// configured agents with `isEnabled` folded from the persisted enablement (providerID
-/// `dev.vocca.agent` + agent id), **absent is off** (M7). An absent `coding-agents.json` is
+/// `vocca.agent` + agent id), **absent is off** (M7). An absent `coding-agents.json` is
 /// the empty registry — nothing is configured out of the box, and the row source is a registry
 /// read, never a discovery and never a spawn. The per-call registry read is also the stale-row
 /// reconcile: an agent edited after the provider's construction shows on the tab (the surface's
@@ -262,7 +262,7 @@ extension AppBootstrap {
         let confirmationDismissed: @Sendable @MainActor () -> Void = {}
 
         // The agent leg's row source: the registry's agents, with `isEnabled` folded from the
-        // shared enablement (providerID `dev.vocca.agent` + agent id, absent is off). The
+        // shared enablement (providerID `vocca.agent` + agent id, absent is off). The
         // radius is `outwardFacing` for every row by construction — the registry row has no
         // `readOnly` field, so an agent is never read-only — and the summary is the fixed
         // argv, never authored prose. The registry is read per call, so an edit to the file
