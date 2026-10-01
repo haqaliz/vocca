@@ -27,13 +27,26 @@ import VoccaCore
 ///
 /// ## The sentence is derived from the argv, never authored prose (founder decision)
 ///
-/// ``describe(_:)`` renders the agent id, the fixed argv verbatim, the project directory and
-/// the author's optional clause appended last. A planted argv appears verbatim and a
-/// misleading clause cannot hide it — the card confirms what actually runs, not what the
+/// ``describe(_:)`` renders the agent id, the fixed argv verbatim, the resolved project
+/// directory and the author's optional clause appended last. A planted argv appears verbatim
+/// and a misleading clause cannot hide it — the card confirms what actually runs, not what the
 /// author wrote about it. The clause is untrusted prose rendered into a safety dialog, so it
 /// is sanitised exactly like a value: a control character inside it must not be able to forge
 /// a new line of the dialog it appears in. The rendering lives in ``CodingAgentSentences``,
 /// one place, shared with the invoke path so the sentence and the argv that runs cannot drift.
+///
+/// ## One resolution, both halves (`invocation-carrier`, PRD R2)
+///
+/// The directory is resolved exactly once, per invocation, at arm time and carried on the
+/// invocation itself: both halves read `invocation.resolvedDirectory ?? agent.projectDirectory`
+/// — the invocation's resolved value wins, else the row's. Describe feeds that one value to
+/// the sentence's `in <dir>` clause; invoke feeds the same value to the configuration's
+/// `currentDirectoryURL`, so the child starts where the sentence says it will. When the
+/// resolution is nil the sentence renders clause-less (S1 — the child runs in Vocca's cwd,
+/// visible in the sentence, never hidden) and the configuration is built without a
+/// `currentDirectoryURL`. Through the shipped row shape the resolution is never nil — the
+/// row's `projectDirectory` is required — so the nil leg is the contract written ahead of the
+/// shape that can produce it (R3's empty-row arm-time resolution).
 ///
 /// ## An agent is never read-only
 ///
@@ -68,7 +81,8 @@ import VoccaCore
 /// its permitted set at exactly the stdio transport and the executor). This file names no
 /// transport family: the row's timeout flows into the configuration's timeout, the row's
 /// environment map into the configuration's environment — exactly those variables and nothing
-/// else (the executor scrubs) — and the row's `projectDirectory` into the configuration's
+/// else (the executor scrubs) — and the **resolved** directory
+/// (`invocation.resolvedDirectory ?? agent.projectDirectory`) into the configuration's
 /// `currentDirectoryURL`, so the child starts where the sentence says it will.
 ///
 /// ## What it is not
@@ -175,10 +189,11 @@ public actor CodingAgentProvider: ActionProvider {
                 blastRadius: .outwardFacing)
         }
 
+        let resolvedDirectory: String? = invocation.resolvedDirectory ?? agent.projectDirectory
         return ActionSummary(
             sentence: CodingAgentSentences.sentence(
                 id: agent.id, executablePath: agent.executablePath,
-                arguments: agent.arguments, projectDirectory: agent.projectDirectory,
+                arguments: agent.arguments, projectDirectory: resolvedDirectory,
                 clause: agent.clause),
             blastRadius: .outwardFacing)
     }
@@ -209,12 +224,22 @@ public actor CodingAgentProvider: ActionProvider {
             return .failed(reasonKey: Self.unexpectedArgumentsReasonKey)
         }
 
-        let configuration = ShellExecutor.Configuration(
-            executablePath: agent.executablePath,
-            arguments: agent.arguments,
-            environment: agent.environment ?? [:],
-            currentDirectoryURL: URL(fileURLWithPath: agent.projectDirectory),
-            timeout: .seconds(agent.timeoutSeconds))
+        let resolvedDirectory: String? = invocation.resolvedDirectory ?? agent.projectDirectory
+        let configuration: ShellExecutor.Configuration
+        if let resolvedDirectory {
+            configuration = ShellExecutor.Configuration(
+                executablePath: agent.executablePath,
+                arguments: agent.arguments,
+                environment: agent.environment ?? [:],
+                currentDirectoryURL: URL(fileURLWithPath: resolvedDirectory),
+                timeout: .seconds(agent.timeoutSeconds))
+        } else {
+            configuration = ShellExecutor.Configuration(
+                executablePath: agent.executablePath,
+                arguments: agent.arguments,
+                environment: agent.environment ?? [:],
+                timeout: .seconds(agent.timeoutSeconds))
+        }
         let result = await run(configuration)
         return Self.outcome(from: result)
     }

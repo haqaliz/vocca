@@ -19,10 +19,12 @@
 /// ## The sentence is derived from the argv, never authored prose
 ///
 /// The founder decision the shell slice pinned, carried over whole: a confirmation shows the
-/// agent's id, the fixed argv verbatim and the project directory, with the author's optional
-/// clause appended **last**, sanitised. A planted argv appears verbatim in the sentence, and a
-/// misleading clause cannot hide it: the card confirms what actually runs, not what the author
-/// wrote about it.
+/// agent's id, the fixed argv verbatim and the resolved project directory, with the author's
+/// optional clause appended **last**, sanitised. A planted argv appears verbatim in the
+/// sentence, and a misleading clause cannot hide it: the card confirms what actually runs, not
+/// what the author wrote about it. When the resolution — `invocation.resolvedDirectory ??
+/// agent.projectDirectory` — is nil, no `in` clause renders at all (S1): the child runs in
+/// Vocca's cwd and the sentence says so by saying nothing about a directory.
 ///
 /// ## Everything that reaches a dialog line is sanitised
 ///
@@ -43,8 +45,14 @@ public enum CodingAgentSentences {
     // MARK: - Sentences
 
     /// The concrete sentence for a resolved invocation: the agent id, the fixed argv verbatim,
-    /// the project directory, and the author's clause appended last — the clause can describe,
-    /// never hide.
+    /// the resolved project directory, and the author's clause appended last — the clause can
+    /// describe, never hide.
+    ///
+    /// **The directory is optional (`invocation-carrier`, PRD R2/S1):** when the resolution —
+    /// `invocation.resolvedDirectory ?? agent.projectDirectory` — is nil, the sentence renders
+    /// **without** the `in <dir>` clause: the child will run in Vocca's own cwd, and the card
+    /// says so by saying nothing about a directory, never a dishonest `in .`. The with-directory
+    /// render is byte-identical to the pre-carrier shape.
     ///
     /// An empty argv renders as the executable alone — a binary that needs no arguments is a
     /// valid agent — so the sentence never carries a dangling space.
@@ -52,15 +60,16 @@ public enum CodingAgentSentences {
         id: String,
         executablePath: String,
         arguments: [String],
-        projectDirectory: String,
+        projectDirectory: String?,
         clause: String?
     ) -> String {
         let argvRendering = arguments.isEmpty
             ? sanitised(executablePath)
             : sanitised(executablePath) + " " + arguments.map { sanitised($0) }.joined(separator: " ")
-        var sentence =
-            "Run the coding agent '\(sanitised(id))': \(argvRendering) in "
-            + sanitised(projectDirectory)
+        var sentence = "Run the coding agent '\(sanitised(id))': \(argvRendering)"
+        if let projectDirectory {
+            sentence += " in " + sanitised(projectDirectory)
+        }
         sentence += "."
         if let clause, !clause.isEmpty {
             sentence += " " + sanitised(clause)

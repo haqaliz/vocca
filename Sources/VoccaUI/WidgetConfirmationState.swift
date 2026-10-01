@@ -47,7 +47,10 @@ public struct WidgetConfirmationState: Equatable, Sendable {
 /// sentence belongs to, for the card's heading. `generation` is the invocation's token, minted
 /// by the wiring at presentation: the store refuses a confirm whose generation does not match
 /// the current card's, so a stale card cannot confirm after the state moved on (spec acceptance
-/// 4) — the wiring supplies it, the reducer and store only compare it.
+/// 4) — the wiring supplies it, the reducer and store only compare it. `resolvedDirectory` is
+/// the invocation's arm-time directory (`invocation-carrier`, PRD R2), carried so the confirm
+/// path can rebuild the identical invocation — the directory shown on the card is the directory
+/// the child runs in, under the binding; absent (`nil`) for a call that carries none.
 public struct WidgetConfirmationSignal: Equatable, Sendable {
     /// The provider's rendered sentence, shown verbatim.
     public let sentence: String
@@ -57,11 +60,18 @@ public struct WidgetConfirmationSignal: Equatable, Sendable {
     public let toolID: String
     /// The invocation's generation token — the stale-card guard.
     public let generation: Int
+    /// The invocation's arm-time resolved directory, or `nil` when the call carries none —
+    /// the confirm path rebuilds the invocation with it.
+    public let resolvedDirectory: String?
 
-    public init(sentence: String, providerID: String, toolID: String, generation: Int) {
+    public init(
+        sentence: String, providerID: String, toolID: String, generation: Int,
+        resolvedDirectory: String? = nil
+    ) {
         self.sentence = sentence
         self.providerID = providerID
         self.toolID = toolID
         self.generation = generation
+        self.resolvedDirectory = resolvedDirectory
     }
 }
