@@ -2189,8 +2189,17 @@ set -euo pipefail
 # (nil default, equality includes the field), and the empty refusal so absence has one
 # spelling.
 #
+# agent-wiring-cwd (2026-10-01) adds seven: the composed round trip over an empty row
+# (arm → the resolved directory verbatim on the card → confirm runs in it → the audit
+# sentence shows it), the explicit row's zero-calls proof, the one-resolution-per-arm
+# count across the whole round trip, the mid-card stability (the fake's answer changed
+# after the card, the run stays in the arm-time value), the voice leg's detection
+# (phrase → intent leg enrichment → the card carries the resolution → the confirm runs in
+# it), the unwired voice leg's clause-less sentence, and the composed-default facts plus
+# the R4 caption pin. The floor moves 2976 → 2983.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2976
+MINIMUM_EXECUTED_TESTS=2983
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

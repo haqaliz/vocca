@@ -376,6 +376,12 @@ final class AgentPresetsInvariantTests: XCTestCase {
     /// the pin read again, deliberately, with the authoring surface in the tree. The two
     /// dictation files are byte-for-byte untouched; the composition root carries the
     /// re-anchor `092d8ba6…` → `c7d6767c…` (computed, never edited-to-match).
+    ///
+    /// Re-anchored once more, deliberately, on 2026-10-01 by the `agent-wiring-cwd` REFACTOR
+    /// (`c7d6767c…` → `641b6445…`, computed with `shasum -a 256`, never edited-to-match):
+    /// the composition root gained the metadata lane's closure (the arm-time and voice-turn
+    /// resolution over `AccessibilityContext.workingDirectory()`) and threaded it into the
+    /// intent and agent compositions. The two dictation digests are unchanged.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -389,7 +395,7 @@ final class AgentPresetsInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "c7d6767c8b3fbfbcbc9dd2fb1e7c5d2d6cc277c55febaf82dd1447adef1aa69b"
+                "641b6445fd163dde55561a242da4e745f79dd7fd61aedcac7c9aff123dd4d237"
             ),
         ]
         for (file, expected) in pinned {
