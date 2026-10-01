@@ -2163,8 +2163,19 @@ set -euo pipefail
 # `getcwd` is physical) and `CodingAgentProviderTests` grows the run-closure row asserting
 # `currentDirectoryURL == URL(fileURLWithPath: row.projectDirectory)`.
 #
+# The working-directory-source raise (2958 -> 2967; executed 2967) — the cwd read's contract
+# suite grows nine tests in `WorkingDirectoryReadTests`: the seam returns the injected
+# libproc closure's answer unchanged and nil for nil, the recording fake proves the exact
+# call shape (the pid in, one call, nothing else), the real adapter's grant-free failure
+# path answers nil for a pid that cannot exist, the Secure Input refusal answers nil before
+# any pid read (the refusal-first ordering, the pid read never consulted), no focused app
+# answers nil without consulting the libproc seam, a libproc failure answers nil quietly,
+# the focused pid reaches the libproc seam exactly once, and the cwd read never joins the
+# snapshot (resolution byte-identical, the metadata lane separate) — the count taken from
+# the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2958
+MINIMUM_EXECUTED_TESTS=2967
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
