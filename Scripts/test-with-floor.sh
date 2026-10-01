@@ -2198,8 +2198,21 @@ set -euo pipefail
 # it), the unwired voice leg's clause-less sentence, and the composed-default facts plus
 # the R4 caption pin. The floor moves 2976 → 2983.
 #
+# The agent-pins raise (2983 -> 2991; executed 2991) — the invariant suite of the
+# `active-project-detection` unit: `ActiveProjectInvariantTests` (8 — the PROBE-CODING-AGENT
+# line run under the interposer and asserted verbatim with the unit's files in the tree, the
+# module-coverage cross-check recomputed from the manifest and pinned to the same twelve
+# library modules with the cross-check's own equality re-asserted, the transport permitted
+# set read off the pin file still exactly the two entries, the FileManager seam table read
+# off the pin file still exactly the eight seams, the AX family still the two one-file seams
+# with the context seam's entry still AXContextSource.swift plus the new file's own naming
+# contract, the Family A/B tables and the policy no-default read off the pin file, the G5
+# digests recomputed with AppBootstrap at the wiring REFACTOR's re-anchored literal, and the
+# zero-network default drive with the cwd read composed asserting the two zeroes) — the count
+# taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2983
+MINIMUM_EXECUTED_TESTS=2991
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
