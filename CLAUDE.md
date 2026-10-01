@@ -9,6 +9,31 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`agent-presets` (C13 slice 10, shipped 2026-10-01):** the authoring surface — **a row
+> is now authored in-app, never by hand** — the first slice that makes the agent arm
+> reachable without touching a file. `KnownAgentPresets` ships **eight pinned presets**
+> (claude/codex/gemini/opencode/aider/cursor/q/crush with their non-interactive argv
+> templates and the **`taskPlaceholder`** constant — a string the editor pre-fills and
+> the user may edit, **never substituted** (N1 stays deferred); the eighth, crush,
+> reviewed in during planning); `AgentCLIDetection` resolves **Detected / not detected**
+> facts on section open (Q3) over the injected `ActionConfigFileSystem.fileExists` seam —
+> no new FileManager-naming file — against the **MVP candidate paths**
+> (`/opt/homebrew/bin`, `/usr/local/bin`, `/usr/local/sbin`; the `~` directories are kept
+> out — the seam has no home accessor, recorded) **and the app's own PATH** (absolute
+> components only; the PATH leg shipped), the honest fact on the surface: "detected" =
+> the binary exists at that path, never that it runs; the **row editor** (Q2: a preset
+> pick pre-fills every field), validation before save with the **duplicate-id refusal**
+> and the **`<task>`-placeholder Save refusal** (loud, at Save, never at confirm),
+> **edit/remove shipped** (S1) with the enablement cascade, the in-memory remembered
+> project directory (S2; persistence deferred), and the module-boundary deviation
+> recorded: `VoccaUI` cannot name `VoccaActions` types, so `AppBootstrap.agentFile(from:)`
+> maps the tab's `ActionsAgentFile` at the root (the `ActionsConfigDraft` precedent). G5
+> re-anchored once, deliberately (`092d8ba6…` → `c7d6767c…`, dictation digests unchanged).
+> **No gate passes** (fourteenth unit ahead of the uncleared gates); the composed default
+> still reads `agents=0 spawnsSubprocess=false` (PROBE-CODING-AGENT post-condition
+> unchanged), the lints untouched (transport two files, FileManager eight seams). SMOKE
+> 160 is **written and runnable** — recorded, never gated. Test floor: **2956**.
+>
 > **`coding-agent-handoff` (C13 slice 9, shipped 2026-10-01):** the P4 table's last row —
 > voice → a one-shot coding-agent run with the active project as context, composed onto the
 > proven spine. `CodingAgentRegistry` persists **`coding-agents.json`** (definitions only,
@@ -455,7 +480,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2916 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 2956 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
