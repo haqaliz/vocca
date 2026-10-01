@@ -2108,8 +2108,19 @@ set -euo pipefail
 # (the verbatim-line additions are constants, not tests) — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The agent-catalog raise (2916 -> 2923; executed 2923) — the known-agents catalog's pin suite
+# grows seven tests in `KnownAgentPresetsTests`: the closed set (exactly eight presets, ids and
+# display names pinned, ids unique), the argv templates pinned verbatim element by element, the
+# planted-wrong-template control (a changed flag, a changed placeholder spelling, a dropped or
+# reordered argument must disagree with the shipped catalog), the candidate-name bounds (>=1 per
+# preset, non-empty, <=64 chars), the placeholder contract (every template non-empty with exactly
+# one `<task>` occurrence, the placeholder spelling pinned) and the pure-data pin (the shipped
+# file names no transport family under the `ActionTransportProhibitionTests` detector, no
+# `FileManager` spelling, and imports nothing) — the count taken from the floor script's own
+# parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2916
+MINIMUM_EXECUTED_TESTS=2923
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
