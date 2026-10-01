@@ -105,7 +105,7 @@ final class AgentCLIDetectionTests: XCTestCase {
         let result = await AgentCLIDetection.detect(
             catalog: [preset("codex", names: ["codex"], arguments: ["exec", "<task>"])],
             fileExists: fake.fileExists,
-            path: "/opt/tools:/relative:~/bin::/opt/other")
+            path: "/opt/tools:relative:~/bin::/opt/other")
 
         XCTAssertEqual(
             result, ["codex": .detected(path: "/opt/other/codex")],
