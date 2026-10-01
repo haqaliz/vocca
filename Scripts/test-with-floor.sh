@@ -2133,8 +2133,20 @@ set -euo pipefail
 # and importing nothing — the count taken from the floor script's own parse in the ratchet
 # commit.
 #
+# The agent-authoring raise (2931 -> 2949; executed 2949) — the authoring surface of the
+# `agent-presets` unit: `AgentAuthoringTests` (13 — the save round trip through the real
+# registry and the shipped root mapping, the stable id minted once with in-place edit and the
+# enablement cascade on rename and remove, the duplicate-id and placeholder refusals with the
+# loud copy, the invalid-row battery and the caps refusals, the environment-pairs fold, the
+# draft kept on failure and cleared on success, the preset pick pre-filling from the detection
+# fact, the remembered project directory, and the composed default unchanged) and
+# `AgentAuthoringSurfaceTests` (5 — the authoring copy pins, the vocabulary-agreement pin
+# between the surface's constants and the action layer's own, the unchanged D2 copy, the
+# agents-section shape scan, and the binding defaults claiming nothing) — the count taken from
+# the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2931
+MINIMUM_EXECUTED_TESTS=2949
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
