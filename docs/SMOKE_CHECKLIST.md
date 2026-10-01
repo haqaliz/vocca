@@ -3639,6 +3639,64 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     pid that answers `kill(pid, 0)` after the run), or the D2 copy missing from the
     section.
 
+160. **A row is authored in-app, never by hand: the Coding agents section's detection
+    facts, the preset-prefilled editor, the saved and rendered row, and the enabled
+    run with the audit reconstruction (`agent-presets`, recorded — never gated).**
+
+    *Gesture:* open the Actions tab's **Coding agents** section. Verify the section
+    renders the eight known presets with their detection facts — "Detected — <path>" or
+    "not detected", read off the surface: **"detected" means the binary exists at that
+    path, never that it runs or its version** (a stale, wrong-arch or signed-out binary
+    still says "Detected"; the run's failure is a loud returned value, never a detection
+    lie). Pick the preset for the founder's installed CLI (e.g. `claude` or `opencode` —
+    the one whose fact says Detected). Verify the editor **pre-fills** from the preset:
+    the id, the executable path (the first existence the resolver found — the candidate
+    path list first, then the app's own PATH, absolute components only), and the preset's
+    argv template with its `<task>` placeholder — e.g. claude: `-p <task>`, codex:
+    `exec <task>`, opencode: `run <task>`. Replace the placeholder with a concrete task,
+    add the **project directory** (an absolute path), the **environment** entries the
+    binary needs (key material such as `ANTHROPIC_API_KEY`), and Save. Verify the row
+    now **renders in the section from the editor's own save** — no file was hand-edited
+    (the editor wrote the same `coding-agents.json` the tolerant loader reads; a
+    hand-edit shows up on next open, and the editor reflects it — load is per-call).
+    Enable the row, press the hotkey to arm, read the sentence off the **rendered** card
+    (the argv-derived render — the saved argv in place, quoted-sanitised), **Confirm**,
+    verify the agent actually ran **in the configured project directory** (the run's own
+    output), then open the audit artifact (`<applicationSupport>/Vocca/actions/` — one
+    file per event, ordinal names) and reconstruct the decision from the entry fields:
+    the confirmed invocation, the provider/tool ids, and the sentence.
+
+    *Verify the state was entered:* the detection facts really resolved on section open
+    (a section that never showed "Detected — <path>" proves detection never ran), the
+    editor really pre-filled from the preset pick (a blank editor means the pick did not
+    reach the reducer), the row really rendered from the editor's save (a section without
+    the row proves the save never reached the file), the enablement row was really on,
+    the card was really read off the rendered surface before any confirm, the confirm
+    really ran the agent (the run's own output), and the audit rows were really read off
+    disk. Record the refusal checks too: saving with the `<task>` placeholder still in
+    the argv is refused loudly with the editor kept open, and saving a duplicate id is
+    refused loudly naming the id — both without ever reaching the file.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a row was authored
+    end to end in the app — the detection facts rendered, the preset pre-filled the
+    editor, the save wrote a real row the section rendered without a file hand-edit, and
+    the enabled agent ran through the gate with the audit reconstructing off disk** —
+    the authoring surface's first real observation. Record the counts (how many presets
+    showed Detected), never a rate.
+
+    *Void — not fail — if:* no preset showed "Detected" (the founder's CLIs live outside
+    the candidate path list and the app's PATH — rule 1: the detection leg was never
+    entered), the section rendered no preset chooser, or the save refusal checks never
+    ran.
+
+    *Failure:* a detection fact for a binary that does not exist at the shown path, a
+    preset pick that pre-fills a wrong id/argv (a drift between the catalog and the
+    editor), a save that writes a row different from what the editor showed, a row that
+    renders but was never written to the file (or vice versa), a placeholder or duplicate
+    save that was not refused, a run without a card, a card whose sentence differs from
+    the argv-derived render, a run in the wrong directory, or an audit log that cannot
+    reconstruct the decision.
+
 ---
 
 ## When this file is wrong

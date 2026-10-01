@@ -128,6 +128,117 @@ and none may be quoted.
   rows' precondition: a real agent row configured in `coding-agents.json` with an absolute
   executable path + env).
 
+**The `agent-presets` unit shipped 2026-10-01 — C13 slice 10: the authoring surface —
+rows are authored in-app (a catalog, detection, and the editor), the first slice that
+makes the agent arm reachable without touching a file; no gate passes.**
+`feat/agent-presets/aliz`. Five aspects (the record aspect is this entry). Floor
+**2916 → 2956** (executed 2956).
+
+**What shipped, per aspect.**
+*agent-catalog* — **`KnownAgentPresets`** (`VoccaActions/Config/`): the code-level seed,
+**exactly eight** presets pinned verbatim by `KnownAgentPresetsTests` (the
+`EngineCandidate`/intent-synonym precedent — a reviewed edit, never a runtime discovery),
+each `{id, displayName, candidateNames, arguments}`: claude `["-p", "<task>"]`, codex
+`["exec", "<task>"]`, gemini `["-p", "<task>"]`, opencode `["run", "<task>"]`, aider
+`["--message", "<task>"]`, cursor `["run", "<task>"]`, q (Amazon Q) `["-p", "<task>"]`,
+and **crush — the eighth, reviewed in during planning** (Q1: the wider catalog). The
+**`taskPlaceholder`** constant = `<task>` — a *string the editor pre-fills and the user
+may edit*; **never substituted this slice** (N1 stays deferred), so a template can never
+be executed as a substitution, and the pin asserts one placeholder occurrence per
+template. Pure data: no file system, no transport, no runtime behaviour — the composed
+default's `spawnsSubprocess=false` is untouched by the catalog's existence. Floor
+2916→2923.
+*agent-detection* — **`AgentCLIDetection`** (`VoccaActions/Config/`): the pure resolver
+over the **injected `ActionConfigFileSystem.fileExists` seam** — no new
+FileManager-naming file, no lint-table edit; `AgentDetection = .detected(path:) |
+.notDetected`, first existence wins in the pinned order. Per preset, per candidate name:
+(1) the **candidate path list — the MVP cap**: `/opt/homebrew/bin`, `/usr/local/bin`,
+`/usr/local/sbin` — the spec's `~/.local/bin`, `~/.cargo/bin`, `~/.nix-profile/bin`
+**kept out**: expanding `~` needs a home directory the seam exposes none of, and naming
+the file system to find one would be a lint-table widening (a home-injecting widening is
+a reviewed edit when the seam grows a home accessor); (2) **the PATH leg shipped** — the
+injected PATH string split on `:`, **absolute components only** (empty, relative and
+`~`-prefixed components are skipped, never checked); a `~`-prefixed entry can never join
+the list. Detection spawns nothing, versions nothing — the honest fact is **exists-at-
+path only**, and the surface copy says exactly that ("Detected — <path>"; R-A: a stale,
+wrong-arch or signed-out binary still says Detected, and the run's failure is a loud
+returned value, never a detection lie). Runs on section open (Q3). Floor 2923→2931.
+*agent-authoring* — the row editor and the save path: **`SettingsBindings`** gains
+`loadAgentPresets`/`detectAgents`/`loadAgentDefinitions`/`saveAgents` (no-op defaults,
+the bindings doctrine); `AppBootstrap.showSettings` fills them from the catalog, the
+detection resolver and `agentRegistry`. **The module-boundary deviation, deliberate and
+recorded:** `VoccaUI` cannot import `VoccaActions` types, so the tab speaks the plain
+`ActionsAgentFile` and **`AppBootstrap.agentFile(from:)`** translates at the root — the
+`ActionsConfigDraft` precedent; the shipped `saveAgents` binding and the authoring
+round-trip suite drive the same mapping, and a row that still fails the registry's
+contract is a refused save (`CodingAgentAuthoringError.invalidRow`), never a silently
+dropped row. The reducer gains the Servers-editor pattern: the drafts
+(id/executablePath/arguments/projectDirectory/timeoutSeconds/environment pairs/clause),
+`editingAgentID`, `.agentEditorOpened(presetID:)` — **a preset pick pre-fills the full
+row editor** (Q2), blank option included — `.agentDraftFieldEdited`,
+`.agentSaveRequested`, `.agentEditStarted`/`.agentEditCancelled`, `.agentRemoved(id:)`
+(the enablement row goes with it, on both halves), the stable UUID minted once (an edit
+never looks like delete-plus-add), `saveSucceeded`/`saveFailed` (failure loud, draft
+kept). **Validation before save**, the definition's own init rules: the **duplicate-id
+refusal** (the registry's first-wins would silently skip — the editor refuses loudly,
+naming the id), and **the `<task>`-placeholder Save refusal** (the critique-gap
+resolution: a save whose argv still carries the placeholder is refused with the loud
+copy — "a row that means something cannot save a placeholder" — at Save, never at
+confirm; the honest-sentence principle). **Edit/remove SHIPPED** (S1 — rides the same
+editor, `agentRow`'s edit button and the remove with the enablement cascade); the
+**remembered project directory ships in-memory** (S2; persistence deferred). **G5
+re-anchored once, deliberately in this aspect's REFACTOR** (`092d8ba6…` →
+`c7d6767c…`, full literal
+`c7d6767c8b3fbfbfbcbc9dd2fb1e7c5d2d6cc277c55febaf82dd1447adef1aa69b`, computed with
+shasum, never edited-to-match; the dictation digests unchanged — `1baeb2de…`,
+`ce70ca10…`). Floor 2931→2949.
+*agent-pins* — the invariant suite (`AgentPresetsInvariantTests`): **the
+PROBE-CODING-AGENT post-condition is unchanged** — `agents=0 spawnsSubprocess=false`,
+the drive and its expected lifecycle constant verbatim, the guard-the-guard verified;
+the saved-row round trip through the **composed** wiring (a row written through the
+editor's save path renders through `listAgents`, enablement default off); **lint
+immobility** — the transport permitted set still exactly the two files, the FileManager
+seam table still exactly the eight seams, Family A/B and the `policy:` no-default call
+sites unchanged; the catalog and detection **do nothing by themselves** (over a recording
+seam: exactly the 24 existence checks and nothing else — no file written, no spawn, no
+network); the G5 digests recomputed with the authoring REFACTOR's re-anchored literal.
+Floor 2949→2956.
+
+**Measured (recorded, never gated):** nothing was measured. The only figures are test
+counts: **2956** executed through the floor script (`N == E`). No agent-success rate
+exists and none may be quoted.
+
+**The honesty block:**
+- **No gate passes.** The fourteenth unit built ahead of the uncleared gates under the
+  recorded posture. This slice makes the C13 surface authorable; it does not make any
+  agent run.
+- **The detection facts are existence facts only** — never a version, never "ready to
+  run". A detected binary may be stale, wrong-arch, or require sign-in (R-A); the copy
+  says where the claim stops and the run's failure is the loud returned value the parent
+  unit shipped.
+- **The preset argv templates are seeds, pinned verbatim** — never a claim about the
+  CLI's real behaviour (R-B); a retune is a reviewed edit to `KnownAgentPresets.swift`,
+  and the form lets a user fix argv per row without a code change.
+- **The editor and the hand-edited file stay one file** (R-C): the editor writes the
+  same `coding-agents.json` the tolerant loader reads, through the same registry; no
+  second store; load is per-call, so a hand-edit shows up on next open and the byte pin
+  is unchanged.
+- **Deferrals, with their blockers.** N1 `{{task}}` substitution (the placeholder is a
+  string the editor pre-fills; a template can never be executed as a substitution — the
+  parent's `{{utterance}}`/`$N` deferral unchanged); **persisted last-project** (the
+  in-memory remember ships; persistence is a later call); the **re-detect affordance**
+  (N2 — detection runs on section open; a refresh after installing a CLI is a later
+  call); **tilde paths** pending a home accessor on the file-system seam.
+- **R8 mitigated, not retired** — unchanged from the parent: every decision is recorded
+  and reconstructs the action; the gate is the bound, never the classifier.
+- **SMOKE 160 is written and runnable** — recorded, never gated, executed by nothing in
+  CI. It records whether the detection facts, the pre-fill, the save refusals, the
+  rendered row, the run and the reconstruction held on the founder's machine, never a
+  rate.
+- **ARCHITECTURE.md was not touched**: no new seam ships, no lint widens — the
+  `VoccaActions`→`VoccaUI` mapping (`AppBootstrap.agentFile(from:)`) is a binding fact,
+  not a seam, and the seam tables already record the agent surface this slice rides.
+
 **The `phrase-intent-resolver` unit shipped 2026-09-25 — C13 slice 8 (the intent layer's S1):
 the second real `IntentResolver`, the user's own phrase table, and the N1 flip of the composed
 default; no gate passes.**

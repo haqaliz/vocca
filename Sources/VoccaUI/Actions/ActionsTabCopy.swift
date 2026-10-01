@@ -32,9 +32,90 @@ public enum ActionsTabCopy {
     public static let agentsSectionTitle = "Coding agents"
 
     /// The agents section's empty state — honest about why it is empty: nothing is configured
-    /// out of the box, and an absent `coding-agents.json` is the empty registry.
+    /// out of the box, and an absent `coding-agents.json` is the empty registry. It points at
+    /// the in-app affordance, which is where a row is authored since `agent-authoring`.
     public static let emptyAgents =
-        "No coding agents configured. Add them to coding-agents.json to arm them here."
+        "No coding agents configured. Add one to arm it here."
+
+    // MARK: - The agent authoring surface (agent-presets)
+
+    /// The agents section's add affordance — the header of the preset chooser.
+    public static let agentAddButton = "Add coding agent"
+
+    /// The preset chooser's title — the rows below it are the known agents.
+    public static let agentChooserTitle = "Preset"
+
+    /// The chooser's blank row — a pick that starts the editor empty.
+    public static let agentBlankOption = "Blank"
+
+    /// The editor's executable path field.
+    public static let agentExecutablePathLabel = "Executable path"
+
+    /// The editor's arguments field — the fixed argv, space-separated.
+    public static let agentArgumentsLabel = "Arguments"
+
+    /// The editor's project directory field.
+    public static let agentProjectDirectoryLabel = "Project directory"
+
+    /// The editor's timeout field.
+    public static let agentTimeoutLabel = "Timeout (seconds)"
+
+    /// The editor's environment section title.
+    public static let agentEnvironmentLabel = "Environment"
+
+    /// The editor's clause field.
+    public static let agentClauseLabel = "Clause"
+
+    /// The editor's add-an-environment-entry control.
+    public static let agentAddEnvironmentEntry = "Add environment entry"
+
+    /// One preset's detection fact, when the binary exists at a path — **the honest copy**:
+    /// "detected" means the binary exists at that path, never that it runs or its version
+    /// (`agent-detection` R-A).
+    public static func agentDetected(_ path: String) -> String {
+        "Detected — \(path)"
+    }
+
+    /// One preset's detection fact, when the binary exists nowhere the resolver may look.
+    public static let agentNotDetected = "not detected"
+
+    /// **The `<task>` placeholder warning** (PRD critique gap 1): a save whose argv still
+    /// carries the placeholder is refused with the loud explanation — the row the user saves
+    /// must be a row that means something (the honest-sentence principle; the refusal is at
+    /// Save, never at confirm).
+    public static let agentPlaceholderWarning =
+        "Save refused: the arguments still contain \(AgentAuthoringConstants.taskPlaceholder). "
+        + "A row that means something cannot save a placeholder — replace "
+        + "\(AgentAuthoringConstants.taskPlaceholder) with a concrete task, or remove it from "
+        + "the arguments."
+
+    /// A save refused because its id matches an existing row — the registry's first-wins
+    /// would silently skip the duplicate, so the editor refuses it loudly, naming the id.
+    public static func agentDuplicateID(_ id: String) -> String {
+        "Save refused: an agent named \"\(id)\" already exists. Every agent id is unique."
+    }
+
+    /// A save refused because the draft violates the row's own contract, with the reason.
+    public static func agentInvalidRow(_ reason: String) -> String {
+        "Save refused: \(reason)"
+    }
+
+    /// The reasons the editor refuses with — the definition's own init rules, in words.
+    public static let agentEmptyIDReason = "the id cannot be empty"
+    public static let agentOverlongIDReason =
+        "the id is longer than \(AgentAuthoringConstants.maximumIDLength) characters"
+    public static let agentExecutablePathReason =
+        "the executable path must be absolute and must not start with ~"
+    public static let agentProjectDirectoryReason =
+        "the project directory must be absolute and must not start with ~"
+    public static let agentTimeoutReason =
+        "the timeout must be a number between 1 and \(AgentAuthoringConstants.maximumTimeoutSeconds) seconds"
+    public static let agentArgumentCountReason =
+        "more than \(AgentAuthoringConstants.maximumArgumentCount) arguments"
+    public static let agentEnvironmentCountReason =
+        "more than \(AgentAuthoringConstants.maximumEnvironmentEntries) environment entries"
+    public static let agentEnvironmentLengthReason =
+        "an environment key or value is longer than \(AgentAuthoringConstants.maximumEnvironmentValueLength) characters"
 
     /// The shell section's empty state — honest about why it is empty: nothing is configured
     /// out of the box, and an absent `shell-commands.json` is the empty registry.

@@ -2108,8 +2108,56 @@ set -euo pipefail
 # (the verbatim-line additions are constants, not tests) — the count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# The agent-catalog raise (2916 -> 2923; executed 2923) — the known-agents catalog's pin suite
+# grows seven tests in `KnownAgentPresetsTests`: the closed set (exactly eight presets, ids and
+# display names pinned, ids unique), the argv templates pinned verbatim element by element, the
+# planted-wrong-template control (a changed flag, a changed placeholder spelling, a dropped or
+# reordered argument must disagree with the shipped catalog), the candidate-name bounds (>=1 per
+# preset, non-empty, <=64 chars), the placeholder contract (every template non-empty with exactly
+# one `<task>` occurrence, the placeholder spelling pinned) and the pure-data pin (the shipped
+# file names no transport family under the `ActionTransportProhibitionTests` detector, no
+# `FileManager` spelling, and imports nothing) — the count taken from the floor script's own
+# parse in the ratchet commit.
+#
+# The agent-detection raise (2923 -> 2931; executed 2931) — the detection resolver's contract
+# suite grows eight tests in `AgentCLIDetectionTests`: the first-candidate-path resolution (and
+# the one-check early exit the recording fake proves), the first-wins ordering across two
+# candidate paths, the injected-PATH resolution with the exact check set (candidate paths first,
+# then the PATH's absolute components — the relative, `~`-prefixed and empty segments are
+# provably never asked about), the name-major candidate-name order, absent-everywhere resolving
+# quietly to `.notDetected` with and without an injected PATH, the exact-check-set pin over the
+# shipped catalog (8 presets x 1 name x 3 candidate paths = 24 checks, nothing more, with a
+# skipped-only PATH widening nothing), the candidate-path constants pinned verbatim (the spec's
+# `~` trio kept out of the MVP — the seam exposes no home directory — pinned as never joining
+# the list), and the shipped resolver file naming no transport family, no file-system spelling
+# and importing nothing — the count taken from the floor script's own parse in the ratchet
+# commit.
+#
+# The agent-authoring raise (2931 -> 2949; executed 2949) — the authoring surface of the
+# `agent-presets` unit: `AgentAuthoringTests` (13 — the save round trip through the real
+# registry and the shipped root mapping, the stable id minted once with in-place edit and the
+# enablement cascade on rename and remove, the duplicate-id and placeholder refusals with the
+# loud copy, the invalid-row battery and the caps refusals, the environment-pairs fold, the
+# draft kept on failure and cleared on success, the preset pick pre-filling from the detection
+# fact, the remembered project directory, and the composed default unchanged) and
+# `AgentAuthoringSurfaceTests` (5 — the authoring copy pins, the vocabulary-agreement pin
+# between the surface's constants and the action layer's own, the unchanged D2 copy, the
+# agents-section shape scan, and the binding defaults claiming nothing) — the count taken from
+# the floor script's own parse in the ratchet commit.
+#
+# The agent-pins raise (2949 -> 2956; executed 2956) — the invariant suite of the
+# `agent-presets` unit: `AgentPresetsInvariantTests` (7 — the PROBE-CODING-AGENT line run
+# under the interposer and asserted verbatim with the unit's files in the tree, the saved-row
+# round trip rendering through the composed wiring with enablement default off, the transport
+# permitted set read off the pin file still exactly the two entries, the FileManager seam
+# table read off the pin file still exactly the eight seams, the Family A/B tables and the
+# policy no-default read off the pin file, the G5 digests recomputed with AppBootstrap at the
+# authoring REFACTOR's re-anchored literal, and catalog+detection over a recording seam
+# proving exactly the 24 existence checks and nothing else) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2916
+MINIMUM_EXECUTED_TESTS=2956
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

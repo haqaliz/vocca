@@ -330,6 +330,13 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
     /// agent-wiring REFACTOR (`eba72eaf…` → `092d8ba6…`, computed with `shasum -a 256`,
     /// never edited-to-match): the composition root grew the agent wiring, the card routing
     /// and the Actions-tab bindings. The two dictation digests are unchanged.
+    ///
+    /// Re-anchored once more, deliberately, on 2026-10-01 by the `agent-presets`
+    /// agent-authoring REFACTOR (`092d8ba6…` → `c7d6767c…`, computed with `shasum -a 256`,
+    /// never edited-to-match): the composition root grew the authoring bindings (the preset
+    /// catalog, the detection facts over the injected seam and the app process's own PATH,
+    /// the definitions read, and the save mapped at the root). The two dictation digests
+    /// are unchanged.
     func testTheDictationPathIsByteForByteUntouched() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -343,7 +350,7 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "092d8ba6671767932d0ba41d55f4eb29653196e8aa146631ceac38d06dc0af5b"
+                "c7d6767c8b3fbfbcbc9dd2fb1e7c5d2d6cc277c55febaf82dd1447adef1aa69b"
             ),
         ]
 

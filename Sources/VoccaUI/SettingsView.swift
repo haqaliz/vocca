@@ -223,6 +223,20 @@ public struct SettingsBindings {
     /// (`coding-agent-handoff` wiring). A registry read, never a discovery and never a spawn.
     /// The empty answer is the honest default: no agent is configured out of the box.
     public var loadAgents: () async -> [ActionsToolRow]
+    /// The known presets as the chooser renders them (`agent-presets`) — the catalog's rows,
+    /// read through the wiring. The empty answer is the honest default: nothing is claimed
+    /// before the wiring fills the slot.
+    public var loadAgentPresets: () async -> [ActionsAgentPreset]
+    /// Each preset's detection fact — the chooser's honest "detected — <path>" / "not
+    /// detected" rows. The empty answer claims no facts.
+    public var detectAgents: () async -> ActionsAgentDetectionResult
+    /// The agent registry's full rows as the editor reads them — the edit/remove row source.
+    /// The empty answer is the honest default: no agent is configured out of the box.
+    public var loadAgentDefinitions: () async -> [ActionsAgentDefinition]
+    /// Writes the whole agent file back — the rows the table shows, in one save, so what the
+    /// table shows and what `coding-agents.json` holds cannot drift. Throws what the registry
+    /// throws: an agent the user believes configured must be configured.
+    public var saveAgents: (ActionsAgentFile) async throws -> Void
     /// Flips one tool's enablement row. Persisted as membership; absent is off (PRD M7).
     public var setToolEnabled: (String, String, Bool) async throws -> Void
     /// Runs the armed action through the gate — the wiring's half of the arm path, behind the
@@ -320,6 +334,15 @@ public struct SettingsBindings {
         discoverTools: @escaping (String) async -> ActionsDiscoveryResult = { _ in .succeeded([]) },
         loadShellCommands: @escaping () async -> [ActionsToolRow] = { [] },
         loadAgents: @escaping () async -> [ActionsToolRow] = { [] },
+        // The authoring defaults claim **nothing** and change **nothing**, for the same
+        // reason: an empty preset list renders the honest chooser, an empty detection map
+        // claims no facts, an empty definitions list renders the honest empty state, and a
+        // save that goes nowhere changes nothing — a default that reported a save nothing
+        // performed would let the page tell a user their agent was stored when it was not.
+        loadAgentPresets: @escaping () async -> [ActionsAgentPreset] = { [] },
+        detectAgents: @escaping () async -> ActionsAgentDetectionResult = { [:] },
+        loadAgentDefinitions: @escaping () async -> [ActionsAgentDefinition] = { [] },
+        saveAgents: @escaping (ActionsAgentFile) async throws -> Void = { _ in },
         setToolEnabled: @escaping (String, String, Bool) async throws -> Void = { _, _, _ in },
         armAction: @escaping (String, String) async throws -> Void = { _, _ in },
         previewAction: @escaping (String, String) async -> String? = { _, _ in nil },
@@ -367,6 +390,10 @@ public struct SettingsBindings {
         self.discoverTools = discoverTools
         self.loadShellCommands = loadShellCommands
         self.loadAgents = loadAgents
+        self.loadAgentPresets = loadAgentPresets
+        self.detectAgents = detectAgents
+        self.loadAgentDefinitions = loadAgentDefinitions
+        self.saveAgents = saveAgents
         self.setToolEnabled = setToolEnabled
         self.armAction = armAction
         self.previewAction = previewAction

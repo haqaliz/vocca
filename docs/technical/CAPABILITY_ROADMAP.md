@@ -605,6 +605,57 @@ unbuilt and does not fit the one-shot tool-call shape). G5 re-anchored once, del
 No gate passes. SMOKE 157-159 are written and runnable, recorded and never gated; no
 agent-success rate may be quoted until a real run exists. Test floor: **2916**.)*
 
+*(Amended by the `agent-presets` unit, 2026-10-01: **slice 10 of C13 shipped — the
+authoring surface**, the first slice that makes the agent arm reachable without touching
+a file. Shipped:
+- **`KnownAgentPresets`** (`VoccaActions/Config/`): the code-level catalog of **exactly
+  eight** presets — claude/codex/gemini/opencode/aider/cursor/q/crush with their
+  non-interactive argv templates and the **`taskPlaceholder`** constant — pinned verbatim
+  by tests (a retune is a reviewed edit); the eighth, crush, reviewed in during planning
+  (Q1). The placeholder is a string the editor pre-fills and the user may edit —
+  **never substituted** (N1 stays deferred), so a template can never be executed as a
+  substitution.
+- **`AgentCLIDetection`**: pure detection over the injected `ActionConfigFileSystem`
+  seam (no new FileManager-naming file, no lint-table edit) — the **MVP candidate
+  paths** (`/opt/homebrew/bin`, `/usr/local/bin`, `/usr/local/sbin`; the `~` directories
+  are kept out: the seam has no home accessor, recorded) **plus the app's own PATH**
+  (absolute components only; the PATH leg shipped). The honest fact: **"detected" = the
+  binary exists at that path**, never that it runs. Runs on section open (Q3).
+- **The row editor** (Q2): "Add coding agent" — a preset pick **pre-fills every field**,
+  blank option included; validation before save with the **duplicate-id refusal** and
+  the **`<task>`-placeholder Save refusal** (loud, at Save, never at confirm);
+  **edit/remove shipped** (S1) with the enablement cascade; the in-memory remembered
+  project directory (S2; persistence deferred); `saveSucceeded`/`saveFailed` (failure
+  loud, draft kept).
+- **The save path**: `SettingsBindings.saveAgents` → `CodingAgentRegistry.save` through
+  **`AppBootstrap.agentFile(from:)`** — the recorded module-boundary deviation
+  (`VoccaUI` cannot name `VoccaActions` types; the `ActionsConfigDraft` precedent).
+- **The invariants held**: PROBE-CODING-AGENT post-condition unchanged (`agents=0
+  spawnsSubprocess=false`), the transport lint still exactly two files, the FileManager
+  seam table still exactly eight seams, Family A/B unchanged; the catalog and detection
+  do nothing by themselves (exactly the 24 existence checks over a recording seam).
+
+G5 re-anchored once, deliberately (`092d8ba6…` → `c7d6767c…`; dictation digests
+unchanged). No gate passes.
+
+**What is still NOT built — the remaining C13 machinery:**
+- **reply-text rendering** (the real spoken answer to an agent run — the reply seam's last
+  piece)
+- a **phrase-then-keyword composite resolver**
+- an **audit-tools arm section** in the Actions tab
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load by
+  decision, and reversing it is a founder call)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- the deferred N1/N2: `{{utterance}}` task seeding and `$N` parameter slots (an agent row
+  declares no parameters — the arguments-refusal pin is the shipped record)
+- the follow-ons this unit recorded: `{{task}}` substitution (N1 — the placeholder is a
+  string the editor pre-fills), **persisted last-project** (the in-memory remember
+  ships), a **re-detect affordance** (N2 — detection runs on section open), and **tilde
+  paths** in detection (pending a home accessor on the file-system seam)
+
+SMOKE 160 is written and runnable, recorded and never gated; no agent-success rate may
+be quoted until a real run exists. Test floor: **2956**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

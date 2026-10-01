@@ -112,13 +112,22 @@ struct ActionsTabPage: View {
                 Text(ActionsTabCopy.agentD2TrustCopy)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if state.isAgentLoaded && state.agentRows.isEmpty {
+                if state.isAgentLoaded && state.agentDefinitions.isEmpty {
                     Text(ActionsTabCopy.emptyAgents)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                ForEach(state.agentRows) { row in
-                    toolRow(row)
+                ForEach(state.agentDefinitions) { agent in
+                    if state.editingAgentID == agent.id {
+                        agentEditor()
+                    } else {
+                        agentRow(agent)
+                    }
+                }
+                if state.isAgentEditorOpen && state.editingAgentID == nil {
+                    agentEditor()
+                } else if state.editingAgentID == nil {
+                    addAgentForm()
                 }
                 Text(ActionsTabCopy.defaultOffDetail)
                     .font(.caption)
@@ -138,6 +147,9 @@ struct ActionsTabPage: View {
             await load()
             await loadShellCommands()
             await loadAgents()
+            await loadAgentPresets()
+            await loadAgentDefinitions()
+            await detectAgents()
         }
     }
 
@@ -283,6 +295,199 @@ struct ActionsTabPage: View {
         }
     }
 
+    // MARK: - The agents section
+
+    /// One configured agent: its id and executable, the enablement toggle (off by default —
+    /// the arm surface's row), the two row actions, and — when enabled — the arm rows.
+    private func agentRow(_ agent: ActionsAgentDefinition) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(agent.id)
+                    Text(agent.executablePath)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let row = state.agentRows.first(where: { $0.toolID == agent.id }) {
+                    Toggle(
+                        "",
+                        isOn: Binding(
+                            get: { row.isEnabled },
+                            set: { enabled in
+                                setEnabled(row, enabled)
+                            })
+                    )
+                    .labelsHidden()
+                }
+                Button(ActionsTabCopy.editServerButton) {
+                    state = ActionsTabReducer.reduce(state, .agentEditStarted(id: agent.id))
+                }
+                Button(ActionsTabCopy.removeServerButton) {
+                    removeAgent(agent)
+                }
+            }
+            if let row = state.agentRows.first(where: { $0.toolID == agent.id }), row.isEnabled {
+                HStack {
+                    Button(ActionsTabCopy.previewButton) { preview(row) }
+                    Button(ActionsTabCopy.invokeButton) { arm(row) }
+                }
+                .controlSize(.small)
+            }
+            if case .showing(_, _, let sentence) = state.preview {
+                Text(ActionsTabCopy.previewSentence(sentence))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The open agent editor — every row field, bound to the drafts through the reducer. Save
+    /// validates through the reducer first: a refused save (an invalid row, a duplicate id, a
+    /// still-placeholder argv) keeps the editor open with the loud reason and never reaches
+    /// the file; a folded save closes the editor and writes through.
+    private func agentEditor() -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField(ActionsTabCopy.nameFieldLabel, text: draftBinding(.id))
+            TextField(ActionsTabCopy.agentExecutablePathLabel, text: draftBinding(.executablePath))
+            TextField(ActionsTabCopy.agentArgumentsLabel, text: draftBinding(.arguments))
+            TextField(ActionsTabCopy.agentProjectDirectoryLabel, text: draftBinding(.projectDirectory))
+            TextField(ActionsTabCopy.agentTimeoutLabel, text: draftBinding(.timeoutSeconds))
+            Text(ActionsTabCopy.agentEnvironmentLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(state.agentEnvironmentDrafts) { pair in
+                HStack {
+                    TextField("Key", text: environmentKeyBinding(pair))
+                    TextField("Value", text: environmentValueBinding(pair))
+                }
+            }
+            Button(ActionsTabCopy.agentAddEnvironmentEntry) {
+                state = ActionsTabReducer.reduce(state, .agentEnvironmentPairAdded)
+            }
+            TextField(ActionsTabCopy.agentClauseLabel, text: draftBinding(.clause))
+            HStack {
+                Button(ActionsTabCopy.saveServerButton) { saveAgent() }
+                Button(ActionsTabCopy.cancelButton) { cancelAgentEdit() }
+            }
+        }
+    }
+
+    /// The add affordance — the preset chooser: each known preset with its detection fact,
+    /// and the blank row. A pick opens the pre-filled editor through the reducer; nothing
+    /// here touches the file.
+    private func addAgentForm() -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(ActionsTabCopy.agentAddButton)
+                .font(.callout)
+            Text(ActionsTabCopy.agentChooserTitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(state.agentPresets) { preset in
+                Button {
+                    state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: preset.id))
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(preset.displayName)
+                        Text(detectionFact(for: preset.id))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Button {
+                state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: nil))
+            } label: {
+                Text(ActionsTabCopy.agentBlankOption)
+            }
+        }
+    }
+
+    /// One preset's honest fact: the binary exists at that path — never that it runs.
+    private func detectionFact(for presetID: String) -> String {
+        switch state.agentDetection[presetID] {
+        case .detected(let path): return ActionsTabCopy.agentDetected(path)
+        case .notDetected, nil: return ActionsTabCopy.agentNotDetected
+        }
+    }
+
+    /// One draft field's binding — every keystroke folds through the reducer.
+    private func draftBinding(_ field: AgentDraftField) -> Binding<String> {
+        Binding(
+            get: {
+                switch field {
+                case .id: return state.agentIDDraft
+                case .executablePath: return state.agentExecutablePathDraft
+                case .arguments: return state.agentArgumentsDraft
+                case .projectDirectory: return state.agentProjectDirectoryDraft
+                case .timeoutSeconds: return state.agentTimeoutDraft
+                case .clause: return state.agentClauseDraft
+                case .environmentKey, .environmentValue: return ""
+                }
+            },
+            set: { state = ActionsTabReducer.reduce(state, .agentDraftFieldEdited(field, $0)) })
+    }
+
+    /// One environment pair's key binding — the pair is located by its UI-side identity, so
+    /// the reducer's index is always the pair the user is typing in.
+    private func environmentKeyBinding(_ pair: ActionsAgentEnvironmentPairDraft) -> Binding<String> {
+        Binding(
+            get: { state.agentEnvironmentDrafts.first(where: { $0.id == pair.id })?.key ?? "" },
+            set: {
+                guard let index = state.agentEnvironmentDrafts.firstIndex(where: { $0.id == pair.id })
+                else { return }
+                state = ActionsTabReducer.reduce(
+                    state, .agentDraftFieldEdited(.environmentKey(index), $0))
+            })
+    }
+
+    /// One environment pair's value binding — the key binding's mirror.
+    private func environmentValueBinding(_ pair: ActionsAgentEnvironmentPairDraft) -> Binding<String> {
+        Binding(
+            get: { state.agentEnvironmentDrafts.first(where: { $0.id == pair.id })?.value ?? "" },
+            set: {
+                guard let index = state.agentEnvironmentDrafts.firstIndex(where: { $0.id == pair.id })
+                else { return }
+                state = ActionsTabReducer.reduce(
+                    state, .agentDraftFieldEdited(.environmentValue(index), $0))
+            })
+    }
+
+    /// The editor's Save: the reducer validates and folds first — a refused save keeps the
+    /// editor open with the loud reason and never reaches the file; a folded save closes the
+    /// editor and writes the whole table through.
+    private func saveAgent() {
+        state = ActionsTabReducer.reduce(state, .agentSaveRequested)
+        guard !state.isAgentEditorOpen else { return }
+        persistAgents()
+    }
+
+    /// The editor's way out, which leaves every row exactly as it was.
+    private func cancelAgentEdit() {
+        state = ActionsTabReducer.reduce(
+            state, state.editingAgentID == nil ? .agentEditorClosed : .agentEditCancelled)
+    }
+
+    /// Removes the agent; its enablement row goes with it, on both halves.
+    private func removeAgent(_ agent: ActionsAgentDefinition) {
+        state = ActionsTabReducer.reduce(state, .agentRemoved(id: agent.id))
+        persistAgents()
+    }
+
+    /// Writes the whole agent table through — the `persist()` rule: a write the user asked
+    /// for that did not reach the file must say so.
+    private func persistAgents() {
+        let file = ActionsAgentFile(agents: state.agentDefinitions)
+        Task {
+            do {
+                try await bindings.saveAgents(file)
+                state = ActionsTabReducer.reduce(state, .saveSucceeded)
+            } catch {
+                state = ActionsTabReducer.reduce(state, .saveFailed(error.localizedDescription))
+            }
+        }
+    }
+
     // MARK: - The gestures
 
     /// The explicit, user-initiated spawn: fold `discovering`, ask the wiring, fold the answer.
@@ -383,5 +588,24 @@ struct ActionsTabPage: View {
     private func loadAgents() async {
         let rows = await bindings.loadAgents()
         state = ActionsTabReducer.reduce(state, .agentConfigLoaded(rows))
+    }
+
+    /// The known presets, folded once per opening — the chooser's rows.
+    private func loadAgentPresets() async {
+        let presets = await bindings.loadAgentPresets()
+        state = ActionsTabReducer.reduce(state, .agentPresetsLoaded(presets))
+    }
+
+    /// The agent registry's full rows, folded once per opening — the authoring surface's row
+    /// source. A registry read; no discovery, no spawn.
+    private func loadAgentDefinitions() async {
+        let definitions = await bindings.loadAgentDefinitions()
+        state = ActionsTabReducer.reduce(state, .agentDefinitionsLoaded(definitions))
+    }
+
+    /// Each preset's detection fact, folded once per opening — the chooser's honest rows.
+    private func detectAgents() async {
+        let detection = await bindings.detectAgents()
+        state = ActionsTabReducer.reduce(state, .agentDetectionLoaded(detection))
     }
 }

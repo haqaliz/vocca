@@ -160,7 +160,46 @@ public enum CodingAgentWiringError: Error, Equatable {
     case sessionInFlight
 }
 
+/// What the authoring save path refuses with — the root-side backstop of the editor's own
+/// validation. The editor refuses an invalid row loudly before anything reaches the file, so
+/// this is the composition's honest second line: a row that still fails the registry's
+/// contract is a refused save, never a silently dropped row.
+public enum CodingAgentAuthoringError: Error, Equatable {
+    /// A row the registry's own contract refuses, named by its id.
+    case invalidRow(String)
+}
+
 extension AppBootstrap {
+
+    /// **The tab's agent file, translated at the root** (`agent-authoring`): the one mapping
+    /// between the tab's plain spelling and the registry's. `VoccaUI` may not name the action
+    /// layer's types (the module boundary), so the translation lives where both modules are
+    /// nameable — the ``ActionWiring`` `ActionsConfigDraft` precedent — and the shipped
+    /// `saveAgents` binding and the authoring round-trip suite drive the same mapping.
+    ///
+    /// The definition's failable init answers `nil` only for a row the editor's own
+    /// validation already refused, so a failure here throws
+    /// ``CodingAgentAuthoringError/invalidRow(_:)`` — the loud refusal — never a silently
+    /// dropped row.
+    public static func agentFile(from file: ActionsAgentFile) throws -> CodingAgentFile {
+        CodingAgentFile(
+            version: file.version,
+            agents: try file.agents.map { definition in
+                guard
+                    let row = CodingAgentDefinition(
+                        id: definition.id,
+                        executablePath: definition.executablePath,
+                        arguments: definition.arguments,
+                        projectDirectory: definition.projectDirectory,
+                        timeoutSeconds: definition.timeoutSeconds,
+                        environment: definition.environment,
+                        clause: definition.clause)
+                else {
+                    throw CodingAgentAuthoringError.invalidRow(definition.id)
+                }
+                return row
+            })
+    }
 
     /// The generation tokens the card's stale-guard compares — minted here, at presentation.
     ///
