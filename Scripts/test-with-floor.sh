@@ -2145,8 +2145,19 @@ set -euo pipefail
 # agents-section shape scan, and the binding defaults claiming nothing) — the count taken from
 # the floor script's own parse in the ratchet commit.
 #
+# The agent-pins raise (2949 -> 2956; executed 2956) — the invariant suite of the
+# `agent-presets` unit: `AgentPresetsInvariantTests` (7 — the PROBE-CODING-AGENT line run
+# under the interposer and asserted verbatim with the unit's files in the tree, the saved-row
+# round trip rendering through the composed wiring with enablement default off, the transport
+# permitted set read off the pin file still exactly the two entries, the FileManager seam
+# table read off the pin file still exactly the eight seams, the Family A/B tables and the
+# policy no-default read off the pin file, the G5 digests recomputed with AppBootstrap at the
+# authoring REFACTOR's re-anchored literal, and catalog+detection over a recording seam
+# proving exactly the 24 existence checks and nothing else) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2949
+MINIMUM_EXECUTED_TESTS=2956
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
