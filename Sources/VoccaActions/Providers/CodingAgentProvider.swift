@@ -85,7 +85,7 @@ public actor CodingAgentProvider: ActionProvider {
     /// site that spelled the string itself would drift from the one the audit log attributes
     /// entries to. **The real id of this unit** — the registry's own documentation carries it
     /// too, so the enablement store, the phrase store and the surface all name one value.
-    public static let providerID = "dev.vocca.agent"
+    public static let providerID = "vocca.agent"
 
     /// A row the registry never declared. Bounded key, never a message — the audit entry is
     /// byte-pinned and free-form text would smuggle unbounded bytes onto disk.

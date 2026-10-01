@@ -24,7 +24,7 @@ import Foundation
 /// is told, the **absolute** project directory it works in, a timeout with a default, an optional
 /// environment and an optional plain-text clause. **There is no enablement field, no timestamp,
 /// and no `readOnly` field**: enablement is membership in `ActionConfigStore` (providerID
-/// `dev.vocca.agent` + agent id), and an agent is never read-only — its blast radius is
+/// `vocca.agent` + agent id), and an agent is never read-only — its blast radius is
 /// `outwardFacing` for every row by construction (founder decision, the spec's "No `readOnly`
 /// field" row). The byte-pin in `CodingAgentRegistryTests` asserts the key set on the artifact,
 /// and a hand-edited file that grows such a key is refused rather than read.

@@ -30,7 +30,7 @@ import XCTest
 /// argv-derived sentence on the widget card → confirm with the exact sentence shown → the
 /// engine runs (counted) → the audit entry reconstructs — plus the composed default's facts
 /// (`agents=0`, `spawnsSubprocess=false`), the in-flight refusal, the binding-mismatch
-/// re-prompt, the voice leg (a phrase row naming `dev.vocca.agent` resolves only when
+/// re-prompt, the voice leg (a phrase row naming `vocca.agent` resolves only when
 /// enabled, and the intent store refuses only `dev.vocca.shell`) and the stale-row reconcile
 /// (the surface reads the registry per call; the provider's tool list is fixed at
 /// construction, and a late row describes as the read-only refusal, never a trap).
@@ -254,7 +254,7 @@ final class CodingAgentWiringTests: XCTestCase {
 
     // MARK: - Acceptance 5: the voice leg
 
-    /// **A phrase row naming `dev.vocca.agent` resolves `.toolCall` only for an enabled
+    /// **A phrase row naming `vocca.agent` resolves `.toolCall` only for an enabled
     /// tool**: while the tool is disabled the phrase resolves to nothing and the provider is
     /// never reached (a direct action attempt is declined by the gate with the bounded key
     /// before any describe, and the engine's log stays empty); once enabled, the phrase
@@ -340,7 +340,7 @@ final class CodingAgentWiringTests: XCTestCase {
     }
 
     /// **The intent store refuses only `dev.vocca.shell`** — a phrase row naming
-    /// `dev.vocca.agent` is accepted at load (the voice leg can reach an enabled agent), and
+    /// `vocca.agent` is accepted at load (the voice leg can reach an enabled agent), and
     /// the shell refusal is the store's one loud refusal.
     func testTheIntentStoreRefusesOnlyTheShellProvider() throws {
         let refusals = RefusalRecorder()

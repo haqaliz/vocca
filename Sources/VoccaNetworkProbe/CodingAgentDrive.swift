@@ -210,7 +210,7 @@ extension VoccaNetworkProbe {
         // THE SEED: one benign agent (`/bin/echo` — a real child of the probe process that
         // makes no network call; `outwardFacing` by construction, the row declares no
         // `readOnly`, so the gate demands the card before anything runs) and the enablement
-        // row in the shared config store (providerID `dev.vocca.agent`; absent is off until
+        // row in the shared config store (providerID `vocca.agent`; absent is off until
         // this row lands).
         let projectDirectory = base.appendingPathComponent("project")
         // The row is valid by construction — every field is within the registry's caps — so

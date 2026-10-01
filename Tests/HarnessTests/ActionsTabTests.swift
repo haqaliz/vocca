@@ -597,10 +597,10 @@ final class ActionsTabTests: XCTestCase {
     /// cannot arm an agent on arrival.
     func testAgentConfigLoadFoldsRowsOffByDefaultAndReappliesEnablement() {
         var state = loaded(
-            enablement: [ActionsToolKey(providerID: "dev.vocca.agent", toolID: "remembered")])
+            enablement: [ActionsToolKey(providerID: "vocca.agent", toolID: "remembered")])
         let rows = [
-            tool("dev.vocca.agent", "fresh", enabled: true, radius: .outwardFacing),
-            tool("dev.vocca.agent", "remembered", enabled: true, radius: .outwardFacing),
+            tool("vocca.agent", "fresh", enabled: true, radius: .outwardFacing),
+            tool("vocca.agent", "remembered", enabled: true, radius: .outwardFacing),
         ]
         state = ActionsTabReducer.reduce(state, .agentConfigLoaded(rows))
 
@@ -619,25 +619,25 @@ final class ActionsTabTests: XCTestCase {
     func testAnAgentRowsEnablementFlipsTheRowAndThePersistedSet() {
         var state = loaded()
         state = ActionsTabReducer.reduce(
-            state, .agentConfigLoaded([tool("dev.vocca.agent", "fix-agent")]))
+            state, .agentConfigLoaded([tool("vocca.agent", "fix-agent")]))
 
         state = ActionsTabReducer.reduce(
             state,
             .toolEnabledChanged(
-                providerID: "dev.vocca.agent", toolID: "fix-agent", enabled: true))
+                providerID: "vocca.agent", toolID: "fix-agent", enabled: true))
         XCTAssertTrue(state.agentRows[0].isEnabled)
         XCTAssertTrue(
             state.enablement.contains(
-                ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fix-agent")))
+                ActionsToolKey(providerID: "vocca.agent", toolID: "fix-agent")))
 
         state = ActionsTabReducer.reduce(
             state,
             .toolEnabledChanged(
-                providerID: "dev.vocca.agent", toolID: "fix-agent", enabled: false))
+                providerID: "vocca.agent", toolID: "fix-agent", enabled: false))
         XCTAssertFalse(state.agentRows[0].isEnabled)
         XCTAssertFalse(
             state.enablement.contains(
-                ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fix-agent")))
+                ActionsToolKey(providerID: "vocca.agent", toolID: "fix-agent")))
     }
 
     /// Arming an enabled agent row yields `awaitingConfirmation` — the agent rows are arm
@@ -646,19 +646,19 @@ final class ActionsTabTests: XCTestCase {
     func testArmingAnEnabledAgentRowYieldsAwaitingConfirmation() {
         var state = loaded()
         state = ActionsTabReducer.reduce(
-            state, .agentConfigLoaded([tool("dev.vocca.agent", "fix-agent")]))
+            state, .agentConfigLoaded([tool("vocca.agent", "fix-agent")]))
         state = ActionsTabReducer.reduce(
             state,
-            .toolEnabledChanged(providerID: "dev.vocca.agent", toolID: "fix-agent", enabled: true))
+            .toolEnabledChanged(providerID: "vocca.agent", toolID: "fix-agent", enabled: true))
 
         state = ActionsTabReducer.reduce(
-            state, .armRequested(providerID: "dev.vocca.agent", toolID: "fix-agent"))
+            state, .armRequested(providerID: "vocca.agent", toolID: "fix-agent"))
         XCTAssertEqual(
-            state.arm, .awaitingConfirmation(providerID: "dev.vocca.agent", toolID: "fix-agent"))
+            state.arm, .awaitingConfirmation(providerID: "vocca.agent", toolID: "fix-agent"))
 
         let before = state
         state = ActionsTabReducer.reduce(
-            state, .armRequested(providerID: "dev.vocca.agent", toolID: "never-enabled"))
+            state, .armRequested(providerID: "vocca.agent", toolID: "never-enabled"))
         XCTAssertEqual(
             state, before,
             "a disabled agent's arm is refused by the reducer — the M7 never-read rule at "

@@ -10,6 +10,32 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `vocca-agent-id` rename shipped 2026-10-01 — the coding-agent provider's identifier
+is `vocca.agent`, never `dev.vocca.agent`; a persisted-vocabulary rename, recorded.**
+
+`CodingAgentProvider.providerID` and the VoccaUI-side mirrored constant
+(`ActionsTabModel.agentProviderID` — the module-boundary agreement pin) changed from
+`dev.vocca.agent` to **`vocca.agent`**; every test literal, source doc comment, the SMOKE
+158 phrase-row example and `ARCHITECTURE.md`'s current-state row were renamed with it.
+What this changes and what it does not:
+- **New rows carry the new id.** Enablement rows the app writes, phrase rows the user
+  writes, and audit entries recorded from now on name `vocca.agent`.
+- **Historical rows keep the old id** — append-only honesty: audit entries already on
+  disk, and any enablement row persisted before the rename, still say
+  `dev.vocca.agent`. The config store tolerates stale ids, never prunes (the MCP
+  precedent), so a leftover old-id enablement row is inert, not deleted; a user who had
+  enabled an agent row before the rename re-enables it once. The founder's machine held
+  no such rows at the time of the rename.
+- **The `dev.vocca.shell` refusal is untouched** — the intent store refuses only the
+  shell id; `vocca.agent` remains voice-reachable once enabled.
+- Docs: `docs/STATUS.md`'s historical unit entries and `docs/planning/*` keep the old id
+  as the record of what shipped then; `docs/SMOKE_CHECKLIST.md` and
+  `docs/technical/ARCHITECTURE.md` (current-state instructions and tables) were synced.
+- Floor unchanged (2956). The rename is byte-visible in the audit vocabulary's future
+  rows, never in its past.
+
+---
+
 **The `coding-agent-handoff` unit shipped 2026-10-01 — C13 slice 9 (the P4 table's last
 row): voice → a one-shot coding-agent run with the active project as context, composed onto
 the proven spine; no gate passes.**

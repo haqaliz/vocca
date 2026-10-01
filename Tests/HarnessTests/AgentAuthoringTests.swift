@@ -198,7 +198,7 @@ final class AgentAuthoringTests: XCTestCase {
             state,
             .configLoaded(
                 servers: [],
-                enablement: [ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fixer")]))
+                enablement: [ActionsToolKey(providerID: "vocca.agent", toolID: "fixer")]))
 
         state = ActionsTabReducer.reduce(state, .agentEditStarted(id: "fixer"))
         state = ActionsTabReducer.reduce(state, .agentDraftFieldEdited(.id, "fixer-2"))
@@ -209,11 +209,11 @@ final class AgentAuthoringTests: XCTestCase {
             "the edit mutates the row in place — never a delete-plus-add")
         XCTAssertTrue(
             state.enablement.contains(
-                ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fixer-2")),
+                ActionsToolKey(providerID: "vocca.agent", toolID: "fixer-2")),
             "the renamed row carries its enablement with it")
         XCTAssertFalse(
             state.enablement.contains(
-                ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fixer")),
+                ActionsToolKey(providerID: "vocca.agent", toolID: "fixer")),
             "the old key never dangles")
     }
 
@@ -228,8 +228,8 @@ final class AgentAuthoringTests: XCTestCase {
             .configLoaded(
                 servers: [],
                 enablement: [
-                    ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fixer"),
-                    ActionsToolKey(providerID: "dev.vocca.agent", toolID: "keeper"),
+                    ActionsToolKey(providerID: "vocca.agent", toolID: "fixer"),
+                    ActionsToolKey(providerID: "vocca.agent", toolID: "keeper"),
                 ]))
 
         state = ActionsTabReducer.reduce(state, .agentRemoved(id: "fixer"))
@@ -237,11 +237,11 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertEqual(state.agentDefinitions.map(\.id), ["keeper"])
         XCTAssertFalse(
             state.enablement.contains(
-                ActionsToolKey(providerID: "dev.vocca.agent", toolID: "fixer")),
+                ActionsToolKey(providerID: "vocca.agent", toolID: "fixer")),
             "the removed agent's enablement row goes with it — the next save must not re-add it")
         XCTAssertTrue(
             state.enablement.contains(
-                ActionsToolKey(providerID: "dev.vocca.agent", toolID: "keeper")),
+                ActionsToolKey(providerID: "vocca.agent", toolID: "keeper")),
             "the other rows' enablement is untouched")
     }
 
