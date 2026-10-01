@@ -10,6 +10,124 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `coding-agent-handoff` unit shipped 2026-10-01 — C13 slice 9 (the P4 table's last
+row): voice → a one-shot coding-agent run with the active project as context, composed onto
+the proven spine; no gate passes.**
+`feat/coding-agent-handoff/aliz`. Six aspects (the record aspect is this entry). Floor
+**2859 → 2916** (executed 2916).
+
+**What shipped, per aspect.**
+*agent-registry* — **`CodingAgentRegistry`** (`VoccaActions/Config/`) persists
+**`coding-agents.json`** — definitions only, no enablement (enablement is membership in the
+shared `ActionConfigStore`, providerID `dev.vocca.agent` + agent id):
+`{id, executablePath, arguments, projectDirectory, timeoutSeconds?, environment?, clause?}`.
+Shape-only, tolerant load / throwing save, atomic tmp+rename, byte pins; caps refuse never
+clamp (16 agents, 64 KB, 128-char ids, 64 argv elements, 16 environment entries, 256-char
+keys/values); a row over a cap is skipped loudly, never truncated. **No `readOnly` field** —
+an agent is never read-only, `outwardFacing` for every row by construction (founder decision
+Q4); a hand-edited file that grows the key is refused rather than read (byte-pin).
+`executablePath` and `projectDirectory` must be absolute — no PATH, no `~` (MCP precedent;
+**the configured project root is the "active project"**, founder decision Q2).
+**`timeoutSeconds` defaults to 30, hard cap 600** (founder decision Q5). **The `environment`
+field** (the planning refinement): explicit key/value entries — key material such as
+`ANTHROPIC_API_KEY` lives in the file (the file is the trust surface); what reaches the
+child's environment is exactly what the file says, nothing else (the executor scrubs). The
+failable initializer refuses over-cap values. Floor 2859→2882.
+*agent-execution* — **no new engine ships**: the agent child is the reviewed
+**`ShellExecutor`** (fixed argv, never `/bin/sh -c`; the row's timeout over the injected
+clock with the counted wait; terminate→poll→SIGKILL→poll reaping, never `waitUntilExit`;
+no-orphan asserted `ESRCH` on a real child; bounded capture; scrubbed environment; stdin
+`/dev/null`) — the provider resolves the row into a `ShellExecutor.Configuration`, so the
+transport-permit lint **stays at exactly two files** (`StdioMCPTransport.swift`,
+`ShellExecutor.swift`). This corrects the PRD's R8 phrasing, which had planned a third
+reviewed entry: the execution work found none was needed — the engine was already reviewed,
+already bounded, already reaped — and the D2 answer is the shell slice's, unchanged (an
+*enabled* agent's egress is never provable; the agent child is the same blind hop). Floor
+2882→2888.
+*agent-provider* — **`CodingAgentProvider`** (`VoccaActions/Providers/`, actor, the
+`ShellProvider` shape) — **the fifth real `ActionProvider`** (providerID `dev.vocca.agent`,
+toolIDs fixed at construction, registry read once), describe and invoke sharing one
+**argv-derived sentence** (`CodingAgentSentences`, one render — `Run the coding agent
+'<id>': <executable> <argv…> in <projectDirectory>.`, the sanitised clause appended last;
+the shell precedent: a planted argv appears verbatim, a clause cannot hide it), unknown row
+refused at `.readOnly` (`agent.unknownTool`), **the arguments-refusal pin** (the gap-1 pin:
+an agent row declares no parameters — `{{utterance}}`/`$N` are deferred (N1/N2) — so *any*
+supplied arguments are refused at `agent.unexpectedArguments`, described at `outwardFacing`
+never de-escalated), the injected engine closure (tests record without spawning), never
+constructs a confirmation. Family A grows exactly **five rows** for the provider file (the
+reviewed widening — the conformance's signatures force them) and **three rows** for the
+wiring file. Floor 2902→2903.
+*wiring* — **`CodingAgentWiring`** (`composeCodingAgentWiring`, the `ShellWiring` shape):
+the Actions tab's **Coding agents** section (own-built rows from the registry — the "arm
+surface is not generic" precedent — enablement folded from the shared store, default off,
+absent is off, the **D2 copy** on the surface at the moment of arm: "Configuring a coding
+agent runs it on your machine with your configured project; Vocca cannot see inside a
+program it starts on your behalf — an enabled agent's egress is never provable"), the
+policy floor **`.none`, recorded as a decision** (an agent is never read-only, so the
+gate's own branch point already confirms every row), the in-flight arm refusal, the
+re-render-after-record card, the `approvedSentence` binding with the mismatch re-prompt,
+every decision recorded, **`spawnsSubprocess=false` declared for the configuration** (an
+absent registry is zero rows — the default configuration cannot create an agent child), the
+root slots `agentWiring`/`agentExecutor`/`agentRegistry` and the card-routing branch by
+providerID in `AppBootstrap` — **G5 re-anchored once, deliberately** (`eba72eaf…` →
+`092d8ba6…`, full literal
+`092d8ba6671767932d0ba41d55f4eb29653196e8aa146631ceac38d06dc0af5b`, computed with shasum,
+never edited-to-match; the dictation digests unchanged — `1baeb2de…`, `ce70ca10…`).
+**The gap-3 stale-row reconcile** (the planning refinement): the per-call registry read
+shows an edit on the tab while the provider's fixed tool list answers the read-only refusal
+for the stale id — never pruned, never a trap. **The voice leg (voice-reachable, founder
+decision Q4):** `IntentPhraseStore` is untouched — a phrase row naming `dev.vocca.agent`
+resolves `.toolCall` once the tool is enabled (the store refuses only `dev.vocca.shell`);
+phrases arm rows, they never carry task text (fixed argv, founder decision Q3). Floor
+2903→2915.
+*probe* — **PROBE-CODING-AGENT** inside the zero-network interposer:
+`store=real store.location=temporary store.isDefaultLocation=false agents=0
+spawnsSubprocess=false seeded=1 card=yes invoked=1 decisions=refused,confirmed,dryRun
+ordinals=1-3 binding=matched` — every field an effect of the run: the composed default's
+facts read off a wiring over an **absent** registry (the true first-launch default — nothing
+is configured out of the box, D2), then a seeded round trip (`/bin/echo`, outwardFacing by
+construction) through the real store, the real provider, the card and the surface's own
+confirm, with the engine the real `ShellExecutor` behind a counting closure — the slice's
+second route to a real child under the interposer, and the same D2 note: the line proves
+the default cannot spawn, never that an enabled agent cannot egress. The guard-the-guard was
+verified by planting a field and watching the pin fail, then reverting. Floor 2915→2916.
+
+**Measured (recorded, never gated):** nothing was measured. The only figures are test
+counts: **2916** executed through the floor script (`N == E`). No agent-success rate exists
+and none may be quoted.
+
+**The honesty block:**
+- **No gate passes.** The thirteenth unit built ahead of the uncleared gates under the
+  recorded posture. Demand: roadmap push, not demand pull. The P4 table's last row
+  (`ROADMAP.md:239`) has shipped machinery, not a finished capability.
+- **The "session" word, retired.** The roadmap says session; this slice ships **one-shot
+  runs**. Interactive sessions are deferred with the blocker named: persistent-child/PTY
+  machinery is unbuilt and does not fit the one-shot tool-call shape (R-C). An agent run's
+  spoken answer comes back through the reply seam, whose real rendering is the separate
+  remaining C13 item.
+- **The D2 answer is unchanged, narrowed in writing.** The default configuration cannot
+  create an agent child (absent registry = zero rows = `spawnsSubprocess=false`); an
+  *enabled* agent's egress is never provable from inside Vocca, and the surface copy says
+  where the claim stops. **The mayEgress question resolved as "copy is enough"**: no
+  declared egress field — the provider carries no such fact, and the D2 copy carries the
+  limit (an egress claim would be a promise no mechanism could keep).
+- **The transport lint stays at exactly two files** — no third entry was needed because
+  the agent engine is the reviewed `ShellExecutor`. This corrects the PRD's R8 phrasing,
+  which had planned three.
+- **R8 mitigated, not retired.** Every decision — confirmed, refused, dry-run — is
+  recorded and reconstructs the action; the gate is the bound, never the classifier. **N2
+  restated:** an approval asserts a human said yes and cannot verify it.
+- **`{{utterance}}` seeding and `$N` parameter slots are deferred** (N1/N2) with their
+  blocker: the phrase resolver carries no arguments, and an agent row declares no
+  parameters — the arguments-refusal pin is the shipped record.
+- **Time-boxed and decaying per-tool trust** (§8) remain decided-and-deferred with their
+  blockers (persisted trust state, changed approval semantics, M4a).
+- **SMOKE 157-159 are written and runnable** — recorded, never gated, executed by nothing
+  in CI. They record whether the sentence, the run, the timeout and the reconstruction
+  held, never a rate; **no agent-success rate may be quoted until a real run exists** (the
+  rows' precondition: a real agent row configured in `coding-agents.json` with an absolute
+  executable path + env).
+
 **The `phrase-intent-resolver` unit shipped 2026-09-25 — C13 slice 8 (the intent layer's S1):
 the second real `IntentResolver`, the user's own phrase table, and the N1 flip of the composed
 default; no gate passes.**

@@ -2,12 +2,42 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-09-25).** The skeleton exists; **the product does not.**
+> **Status (2026-10-01).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`coding-agent-handoff` (C13 slice 9, shipped 2026-10-01):** the P4 table's last row —
+> voice → a one-shot coding-agent run with the active project as context, composed onto the
+> proven spine. `CodingAgentRegistry` persists **`coding-agents.json`** (definitions only,
+> tolerant, caps refuse never clamp, **no `readOnly`** — an agent is never read-only,
+> `outwardFacing` for every row by construction; `timeoutSeconds` default 30 / cap 600;
+> the **`environment`** field — key material lives in the file, what reaches the child is
+> exactly what the file says); the agent child is the **reviewed `ShellExecutor`** — no new
+> engine, so **the transport-permit lint stays at exactly two files** (correcting the PRD's
+> R8 phrasing); `CodingAgentProvider` (`dev.vocca.agent`, the fifth real `ActionProvider`)
+> with the **argv-derived sentence** (describe and invoke share one render), the
+> **arguments-refusal pin** (an agent row declares no parameters — `{{utterance}}`/`$N`
+> deferred with their blocker — so any supplied arguments are refused,
+> `agent.unexpectedArguments`), and the **gap-3 stale-row reconcile** (per-call registry
+> read, never pruned); the additive `composeCodingAgentWiring` (the Actions-tab **Coding
+> agents** section with the D2 copy — "an enabled agent's egress is never provable" —
+> policy floor `.none`, in-flight refusal, the sentence-bound card with the mismatch
+> re-prompt, `spawnsSubprocess=false` declared for the composed default) and the root
+> slots; **voice-reachable** — a phrase row naming `dev.vocca.agent` resolves once the
+> tool is enabled (the store refuses only `dev.vocca.shell`; phrases arm rows, never task
+> text). `PROBE-CODING-AGENT` runs inside the zero-network interposer (`agents=0
+> spawnsSubprocess=false seeded=1 card=yes invoked=1 decisions=refused,confirmed,dryRun
+> ordinals=1-3 binding=matched`). **The "session" word is retired:** one-shot runs ship;
+> interactive sessions are deferred with the blocker named (persistent-child/PTY machinery
+> is unbuilt and does not fit the one-shot tool-call shape). G5 re-anchored once,
+> deliberately (`eba72eaf…` → `092d8ba6…`, dictation digests unchanged). **No gate passes**
+> (thirteenth unit ahead of the uncleared gates); the mayEgress question resolved as "copy
+> is enough" (no declared egress field — the D2 copy carries the limit); R8 mitigated not
+> retired; no agent-success rate exists until a real run. SMOKE 157-159 are **written and
+> runnable** — recorded, never gated. Test floor: **2916**.
 >
 > **`phrase-intent-resolver` (C13 slice 8, shipped 2026-09-25):** the intent layer's S1 —
 > **`PhraseIntentResolver`**, the second *real* `IntentResolver` (exact match under one public
@@ -425,7 +455,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2859 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 2916 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
