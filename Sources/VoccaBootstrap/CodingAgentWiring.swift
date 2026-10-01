@@ -231,6 +231,19 @@ extension AppBootstrap {
     /// the floor. Escalate-only means the floor can only raise; `.none` is the minimal honest
     /// floor.
     ///
+    /// ## The injected directory resolution (`agent-wiring-cwd`, PRD R3/G2/G3)
+    ///
+    /// `activeProjectDirectory` is the arm-time resolution over the focused app's working
+    /// directory — the metadata lane's read, injected with a **nil-shaped default**: a
+    /// composition that does not wire it is byte-identical to today (an empty row resolves
+    /// to nothing, exactly as before). At arm, a row whose `projectDirectory` is blank —
+    /// or a row the loaded registry lacks (the tolerant decode skips blank-directory rows
+    /// — the F1 shape rule, so "the row lacks one" is the honest reachable spelling of
+    /// "empty" in this tree) — is resolved **exactly once** and carried on the invocation;
+    /// an explicit row is never re-resolved (G2). The card signal carries the value and
+    /// the confirm path rebuilds the identical invocation from it — one resolution, four
+    /// identical renders (G3); a focus change mid-card cannot move the run directory.
+    ///
     /// ## Probe-safe by construction (the ``ActionWiring`` doc contract)
     ///
     /// Nothing here starts, reads or provisions at composition time: the executor's construction
@@ -245,7 +258,8 @@ extension AppBootstrap {
         registry: CodingAgentRegistry,
         provider: Provider,
         sessionActive: @escaping @Sendable @MainActor () -> Bool,
-        root: DictationLoopRoot
+        root: DictationLoopRoot,
+        activeProjectDirectory: @escaping @Sendable () async -> String? = { nil }
     ) -> CodingAgentWiring<Provider> {
         let executor = ActionExecutor(provider: provider, store: auditStore)
         let generation = CodingAgentGeneration()
@@ -292,7 +306,24 @@ extension AppBootstrap {
                     "agent-wiring: refusing to arm \(providerID)/\(toolID) while a session is in flight")
                 throw CodingAgentWiringError.sessionInFlight
             }
-            guard let invocation = ActionInvocation(providerID: providerID, toolID: toolID)
+            // The arm-time resolution (`agent-wiring-cwd` R3): the row is read per call —
+            // the `listAgents` reconcile — and a row whose project directory is blank (or
+            // that the loaded registry lacks — the tolerant decode's skip, the honest
+            // "empty" spelling in this tree) is resolved **exactly once** and carried on
+            // the invocation; an explicit row is never re-resolved (G2 — detection is
+            // never consulted for a row that names its own directory).
+            let file = await registry.load()
+            let agent = file.agents.first { $0.id == toolID }
+            let resolvedDirectory: String?
+            if let agent, !AppBootstrap.isBlankProjectDirectory(agent.projectDirectory) {
+                resolvedDirectory = nil
+            } else {
+                resolvedDirectory = await activeProjectDirectory()
+            }
+            guard
+                let invocation = ActionInvocation(
+                    providerID: providerID, toolID: toolID,
+                    resolvedDirectory: resolvedDirectory)
             else { return }
             let enablement = await configStore.loadEnablement()
             let decision = await executor.submit(
@@ -308,7 +339,8 @@ extension AppBootstrap {
                 root.widgetStore.presentActionConfirmation(
                     WidgetConfirmationSignal(
                         sentence: fresh.sentence, providerID: providerID, toolID: toolID,
-                        generation: generation.next()))
+                        generation: generation.next(),
+                        resolvedDirectory: invocation.resolvedDirectory))
                 confirmationPresented()
             case .invoked, .previewed, .declined:
                 // An agent never auto-runs (outwardFacing always — the gate demands the card
@@ -338,7 +370,8 @@ extension AppBootstrap {
             guard root.widgetStore.confirmActionConfirmation(signal) else { return }
             guard
                 let invocation = ActionInvocation(
-                    providerID: signal.providerID, toolID: signal.toolID)
+                    providerID: signal.providerID, toolID: signal.toolID,
+                    resolvedDirectory: signal.resolvedDirectory)
             else { return }
             let enablement = await configStore.loadEnablement()
             let decision = await executor.submit(
@@ -354,7 +387,8 @@ extension AppBootstrap {
                 root.widgetStore.presentActionConfirmation(
                     WidgetConfirmationSignal(
                         sentence: fresh.sentence, providerID: signal.providerID,
-                        toolID: signal.toolID, generation: generation.next()))
+                        toolID: signal.toolID, generation: generation.next(),
+                        resolvedDirectory: invocation.resolvedDirectory))
                 confirmationPresented()
             case .invoked, .previewed, .confirmationRequired, .declined:
                 break
@@ -369,7 +403,8 @@ extension AppBootstrap {
             root.widgetStore.dismissActionConfirmation()
             guard
                 let invocation = ActionInvocation(
-                    providerID: signal.providerID, toolID: signal.toolID)
+                    providerID: signal.providerID, toolID: signal.toolID,
+                    resolvedDirectory: signal.resolvedDirectory)
             else { return }
             let enablement = await configStore.loadEnablement()
             // The refused decision, recorded: a withheld submission is the stop for want of a
@@ -391,5 +426,14 @@ extension AppBootstrap {
             confirmationDismissed: confirmationDismissed,
             executor: executor,
             spawnsSubprocess: false)
+    }
+
+    /// **The empty spelling of a row's project directory** (`agent-wiring-cwd` R3): the
+    /// editor's empty draft — `""` or whitespace-only — is the row that detects at arm
+    /// time. Foundation-free by construction (`allSatisfy` — the module's vocabulary);
+    /// shared by the agent arm and the intent leg's enrichment, so the two spell the same
+    /// check.
+    static func isBlankProjectDirectory(_ directory: String) -> Bool {
+        directory.allSatisfy(\.isWhitespace)
     }
 }

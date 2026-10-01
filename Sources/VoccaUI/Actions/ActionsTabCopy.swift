@@ -57,6 +57,12 @@ public enum ActionsTabCopy {
     /// The editor's project directory field.
     public static let agentProjectDirectoryLabel = "Project directory"
 
+    /// The editor's project directory field's caption (`agent-wiring-cwd` R4) — what an
+    /// empty field means: the arm-time resolution detects the focused app's working
+    /// directory (the metadata lane's read), and the confirmation sentence shows it.
+    public static let agentProjectDirectoryCaption =
+        "leave empty to detect the focused app's project"
+
     /// The editor's timeout field.
     public static let agentTimeoutLabel = "Timeout (seconds)"
 

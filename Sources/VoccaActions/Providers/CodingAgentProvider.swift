@@ -46,7 +46,11 @@ import VoccaCore
 /// visible in the sentence, never hidden) and the configuration is built without a
 /// `currentDirectoryURL`. Through the shipped row shape the resolution is never nil — the
 /// row's `projectDirectory` is required — so the nil leg is the contract written ahead of the
-/// shape that can produce it (R3's empty-row arm-time resolution).
+/// shape that can produce it (R3's empty-row arm-time resolution). The
+/// `agent-wiring-cwd` completion: the row's **blank** spelling (the editor's empty draft,
+/// `""` or whitespace-only) resolves to nil too — the same clause-less sentence and the
+/// same no-directory configuration, so an empty row without detection runs in Vocca's cwd,
+/// visible in the sentence, never hidden.
 ///
 /// ## An agent is never read-only
 ///
@@ -189,7 +193,8 @@ public actor CodingAgentProvider: ActionProvider {
                 blastRadius: .outwardFacing)
         }
 
-        let resolvedDirectory: String? = invocation.resolvedDirectory ?? agent.projectDirectory
+        let resolvedDirectory = Self.resolvedDirectory(
+            carried: invocation.resolvedDirectory, rowDirectory: agent.projectDirectory)
         return ActionSummary(
             sentence: CodingAgentSentences.sentence(
                 id: agent.id, executablePath: agent.executablePath,
@@ -224,7 +229,8 @@ public actor CodingAgentProvider: ActionProvider {
             return .failed(reasonKey: Self.unexpectedArgumentsReasonKey)
         }
 
-        let resolvedDirectory: String? = invocation.resolvedDirectory ?? agent.projectDirectory
+        let resolvedDirectory = Self.resolvedDirectory(
+            carried: invocation.resolvedDirectory, rowDirectory: agent.projectDirectory)
         let configuration: ShellExecutor.Configuration
         if let resolvedDirectory {
             configuration = ShellExecutor.Configuration(
@@ -257,5 +263,17 @@ public actor CodingAgentProvider: ActionProvider {
         case .failed(let reasonKey):
             return .failed(reasonKey: reasonKey)
         }
+    }
+
+    /// **The one resolution, both halves share** (`invocation-carrier` R2 + `agent-wiring-cwd`
+    /// R3): the invocation's carried arm-time value wins; else the row's own directory —
+    /// with the row's **blank** spelling (the editor's empty draft) resolving to nil, so the
+    /// clause-less sentence and the no-`currentDirectoryURL` configuration are one resolution
+    /// (S1). A non-blank row resolves byte-identically to the pre-carrier shape.
+    private static func resolvedDirectory(
+        carried: String?, rowDirectory: String
+    ) -> String? {
+        if let carried { return carried }
+        return rowDirectory.allSatisfy(\.isWhitespace) ? nil : rowDirectory
     }
 }
