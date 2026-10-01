@@ -2102,8 +2102,14 @@ set -euo pipefail
 # the D2 copy at the moment of arm); the count taken from the floor script's own parse in the
 # ratchet commit.
 #
+# The coding-agent-handoff agent-probe RED raise (2915 -> 2916; executed 2916) — the
+# PROBE-CODING-AGENT post-condition and its guard-the-guard test grow one test:
+# `testTheAssertedCodingAgentPostConditionStillDescribesTheComposedDefaultAndARoundTripThroughRealBytes`
+# (the verbatim-line additions are constants, not tests) — the count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2915
+MINIMUM_EXECUTED_TESTS=2916
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
