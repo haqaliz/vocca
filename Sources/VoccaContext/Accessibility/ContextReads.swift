@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Darwin
+
 /// **The raw context answer, as the AX system reported it** — the focused application's bundle
 /// identifier, its focused window's title, and its selection, before any decision about what
 /// they mean.
@@ -60,6 +62,17 @@ public protocol ContextAXReading: AnyObject, Sendable {
     /// The focused application's identity and selection, raw; `nil` when any part cannot be
     /// read (including a timeout).
     func readContext() -> RawContextRead?
+
+    /// The focused application's process identifier, raw — the pid the bundle-identifier
+    /// walk resolves from (`AXUIElementGetPid` → `NSRunningApplication`, the one AppKit hop
+    /// `AXContextSource` makes), carried out of the adapter before the translation so the
+    /// `working-directory-source` seam can ask libproc about it. `nil` when nothing is
+    /// focused or the pid copy fails (including a timeout).
+    ///
+    /// The pid is the AX half of the working-directory read: the cwd is a fact about the
+    /// *process*, and the process is a fact the AX walk reports — so it leaves the AX file
+    /// through this witness, never through an identifier the AX-family lint would confine.
+    func focusedProcessIdentifier() -> pid_t?
 }
 
 /// **The seam for "is Secure Input in force right now"** — the Carbon read, taken out of the

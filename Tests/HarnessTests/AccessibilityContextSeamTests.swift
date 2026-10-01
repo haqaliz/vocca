@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Darwin
 import VoccaContext
 import VoccaCore
 import XCTest
@@ -55,6 +56,10 @@ final class AccessibilityContextSeamTests: XCTestCase {
         func readContext() -> RawContextRead? {
             readCount += 1
             return answer
+        }
+
+        func focusedProcessIdentifier() -> pid_t? {
+            nil
         }
     }
 

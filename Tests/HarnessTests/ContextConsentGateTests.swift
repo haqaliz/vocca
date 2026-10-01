@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Darwin
 import VoccaContext
 import VoccaCore
 import XCTest
@@ -156,6 +157,10 @@ private final class RecordingContentRead: ContextAXReading, @unchecked Sendable 
         return RawContextRead(
             bundleID: "com.example.app", windowTitle: "Untitled",
             selectedText: "the quick brown fox")
+    }
+
+    func focusedProcessIdentifier() -> pid_t? {
+        nil
     }
 }
 
