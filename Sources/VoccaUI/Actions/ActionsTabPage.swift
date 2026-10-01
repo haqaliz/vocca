@@ -393,12 +393,14 @@ struct ActionsTabPage: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             Button {
                 state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: nil))
             } label: {
                 Text(ActionsTabCopy.agentBlankOption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
