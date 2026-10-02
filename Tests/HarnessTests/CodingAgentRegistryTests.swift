@@ -24,13 +24,21 @@ import XCTest
 ///
 /// ## What the file may and may not hold
 ///
-/// The file holds **definitions only**: id, absolute executable path, fixed argv, absolute
-/// project directory, a timeout with a default, an optional environment, and an optional
-/// plain-text clause. **No enablement, no timestamps and no `readOnly` ever reach it** —
+/// The file holds **definitions only**: id, absolute executable path, fixed argv, an optional
+/// absolute project directory, a timeout with a default, an optional environment, and an
+/// optional plain-text clause. **No enablement, no timestamps and no `readOnly` ever reach it** —
 /// enablement lives in `action-config.json`, and an agent is never read-only by construction.
 /// The byte pin below asserts the key sets on the artifact, and a hand-edited file that grows
 /// such a key is refused rather than read (the wildcard-key refusal precedent,
 /// `ActionConfig.swift:57-71`).
+///
+/// ## The project directory is optional — absence is a row, not a violation
+///
+/// A row without a `projectDirectory` key — or with a blank one — is the **nil-directory
+/// row**: valid, loading quietly, the arm-time resolution's row (an empty editor field
+/// resolves the focused app's project at arm). Only a **filled-in** directory is judged: it
+/// must be absolute and must not start with `~`, and a row that violates that is skipped
+/// loudly. The encoder writes the absent spelling only — nil never becomes a blank key.
 ///
 /// ## The two tolerances are one policy
 ///
@@ -80,7 +88,7 @@ final class CodingAgentRegistryTests: XCTestCase {
     /// omit exactly the field under test.
     private func agent(
         _ id: String, executable: String = "/usr/local/bin/code-agent",
-        arguments: [String] = ["-serve"], projectDirectory: String = "/Users/alice/Projects/work",
+        arguments: [String] = ["-serve"], projectDirectory: String? = "/Users/alice/Projects/work",
         timeout: Int? = 30, environment: [String: String]? = ["ANTHROPIC_API_KEY": "sk-test"],
         clause: String? = "Runs the coding agent."
     ) -> String {
@@ -89,8 +97,8 @@ final class CodingAgentRegistryTests: XCTestCase {
             "executablePath": jsonString(executable),
             "arguments":
                 "[" + arguments.map { jsonString($0) }.joined(separator: ", ") + "]",
-            "projectDirectory": jsonString(projectDirectory),
         ]
+        if let projectDirectory { fields["projectDirectory"] = jsonString(projectDirectory) }
         if let timeout { fields["timeoutSeconds"] = "\(timeout)" }
         if let environment {
             fields["environment"] =
@@ -112,7 +120,7 @@ final class CodingAgentRegistryTests: XCTestCase {
     /// all within the row's own contract.
     private func makeAgent(
         id: String, executablePath: String = "/usr/local/bin/code-agent",
-        arguments: [String] = ["-serve"], projectDirectory: String = "/Users/alice/Projects/work",
+        arguments: [String] = ["-serve"], projectDirectory: String? = "/Users/alice/Projects/work",
         timeoutSeconds: Int = 30, environment: [String: String]? = ["ANTHROPIC_API_KEY": "sk-test"],
         clause: String? = "Runs the coding agent."
     ) -> CodingAgentDefinition {
@@ -339,16 +347,18 @@ final class CodingAgentRegistryTests: XCTestCase {
 
     // MARK: - The row-shape rules: absolute, non-empty paths
 
-    /// `executablePath` and `projectDirectory` are **absolute** — no PATH lookup, the MCP
-    /// precedent — and non-empty; a row that violates either is skipped loudly.
-    func testAnEmptyOrRelativeExecutablePathOrProjectDirectoryIsSkipped() async throws {
+    /// `executablePath` is **absolute** — no PATH lookup, the MCP precedent — and non-empty;
+    /// a **filled-in** `projectDirectory` is absolute too. A row that violates either is
+    /// skipped loudly — but a row with no project directory at all (the blank spelling) is a
+    /// **valid** nil-directory row: the arm-time resolution's row, never a violation.
+    func testAnEmptyExecutableOrRelativePathIsSkippedAndABlankProjectDirectoryIsValid() async throws {
         let directory = Self.tempDirectory()
         try writeRaw(
             file([
                 agent("empty-exec", executable: ""),
                 agent("relative-exec", executable: "code-agent"),
                 agent("tilde-exec", executable: "~/bin/code-agent"),
-                agent("empty-project", projectDirectory: ""),
+                agent("blank-project", projectDirectory: ""),
                 agent("relative-project", projectDirectory: "Projects/work"),
                 agent("keeper"),
             ]),
@@ -358,9 +368,43 @@ final class CodingAgentRegistryTests: XCTestCase {
         let loaded = await CodingAgentRegistry(directory: directory, log: complaints.log).load()
 
         XCTAssertEqual(
-            loaded.agents.map(\.id), ["keeper"],
-            "a binary that must be found through a PATH is a different contract — refused")
+            loaded.agents.map(\.id), ["blank-project", "keeper"],
+            "a binary that must be found through a PATH is a different contract — refused; a "
+                + "blank project directory is the valid nil-directory row, never a violation")
+        XCTAssertNil(
+            loaded.agents[0].projectDirectory,
+            "the blank spelling is the nil-directory row — the arm-time resolution's row")
         XCTAssertEqual(complaints.recorded.count, 5, "one loud complaint per skipped row")
+    }
+
+    /// **A blank or absent `projectDirectory` key is a valid nil-directory row, loading
+    /// quietly** — the blank spelling (a hand-edit of the same fact) and the absent spelling
+    /// are one row: valid, nil-directory, and no louder than any other valid row. The F1
+    /// reading: a blank directory is the *same fact* as an absent one (unlike
+    /// `timeoutSeconds: 0`, which the pinned tests call a different fact from absent), so
+    /// nothing is being read as a different value, and nothing is owed a log.
+    func testABlankOrAbsentProjectDirectoryKeyIsAValidNilDirectoryRow() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try writeRaw(
+            file([
+                #"{"id": "blank", "executablePath": "/usr/local/bin/code-agent", "arguments": ["-serve"], "projectDirectory": "", "timeoutSeconds": 30}"#,
+                #"{"id": "absent", "executablePath": "/usr/local/bin/code-agent", "arguments": ["-serve"], "timeoutSeconds": 30}"#,
+            ]),
+            in: directory)
+        let complaints = ComplaintRecorder()
+
+        let loaded = await CodingAgentRegistry(directory: directory, log: complaints.log).load()
+
+        XCTAssertEqual(
+            loaded.agents.map(\.id), ["blank", "absent"],
+            "a blank or absent project directory is the valid nil-directory row — the "
+                + "arm-time resolution's row, not a row to skip")
+        XCTAssertNil(loaded.agents[0].projectDirectory, "the blank spelling reads as nil")
+        XCTAssertNil(loaded.agents[1].projectDirectory, "the absent spelling reads as nil")
+        XCTAssertEqual(
+            complaints.recorded, [],
+            "a valid row is not a failure — the quiet load is the honest load")
     }
 
     // MARK: - Acceptance 7 — save round trip and atomicity
@@ -401,6 +445,33 @@ final class CodingAgentRegistryTests: XCTestCase {
             unchangedBytes, savedBytes,
             "loading must never rewrite the file — a failed parse or a skipped row must not "
                 + "change the bytes a user can see and edit")
+    }
+
+    /// **A nil-directory row round-trips with absence as its one spelling** — the row the
+    /// editor's empty Project directory field saves (the arm-time resolution's row): save,
+    /// and the file's bytes carry **no** `projectDirectory` key at all; reload, and the row
+    /// comes back with nil, exactly as saved. Absence has one spelling — a nil directory is
+    /// never encoded as a blank value.
+    func testANilDirectoryRowRoundTripsWithAbsenceAsTheOneSpelling() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = CodingAgentRegistry(directory: directory)
+
+        let file = CodingAgentFile(agents: [
+            makeAgent(id: "detect-me", projectDirectory: nil, environment: nil, clause: nil)
+        ])
+        try await store.save(file)
+        let text = String(decoding: try XCTUnwrap(bytes(in: directory)), as: UTF8.self)
+        XCTAssertFalse(
+            text.contains("projectDirectory"),
+            "absence has one spelling — a nil directory encodes to no key at all, never a blank")
+
+        let reloaded = await store.load()
+        XCTAssertEqual(reloaded, file, "the reloaded registry is exactly what was saved")
+        XCTAssertEqual(reloaded.agents.count, 1)
+        XCTAssertNil(
+            reloaded.agents[0].projectDirectory,
+            "the nil-directory row survives the round trip as nil")
     }
 
     /// A save is the **atomic temp-write-then-rename pair**, recorded through the injected seam —
@@ -576,8 +647,8 @@ final class CodingAgentRegistryTests: XCTestCase {
     ///
     /// The key-set pins are the strong half: the top level is exactly `agents` + `version`, and
     /// an agent row is exactly its seven fields (five when `environment` and `clause` are
-    /// absent). A `readOnly` field fails here on the day it is added — an agent is never
-    /// read-only, and the file's key set must not contain it.
+    /// absent, four when `projectDirectory` is nil too). A `readOnly` field fails here on the
+    /// day it is added — an agent is never read-only, and the file's key set must not contain it.
     ///
     /// The presence assertions are the defence-in-depth half, and both are made non-vacuous: the
     /// file genuinely carries an environment and a clause, so an absence of the forbidden key is
@@ -593,6 +664,7 @@ final class CodingAgentRegistryTests: XCTestCase {
                 environment: ["ANTHROPIC_API_KEY": "sk-test"],
                 clause: "Plans and edits code in the active project."),
             makeAgent(id: "minimal", arguments: [], environment: nil, clause: nil),
+            makeAgent(id: "detect-me", projectDirectory: nil, environment: nil, clause: nil),
         ])
         XCTAssertFalse(file.agents.isEmpty, "vacuity guard")
 
@@ -609,7 +681,7 @@ final class CodingAgentRegistryTests: XCTestCase {
             on the day it is added. Got: \(Set(object.keys).sorted())
             """)
         let agents = try XCTUnwrap(object["agents"] as? [[String: Any]])
-        XCTAssertEqual(agents.count, 2, "vacuity guard: the pin runs against populated rows")
+        XCTAssertEqual(agents.count, 3, "vacuity guard: the pin runs against populated rows")
         XCTAssertEqual(
             Set(agents[0].keys),
             ["arguments", "clause", "environment", "executablePath", "id", "projectDirectory",
@@ -620,6 +692,11 @@ final class CodingAgentRegistryTests: XCTestCase {
             Set(agents[1].keys),
             ["arguments", "executablePath", "id", "projectDirectory", "timeoutSeconds"],
             "the absent optionals stay absent — five fields, no readOnly: \(agents[1].keys.sorted())")
+        XCTAssertEqual(
+            Set(agents[2].keys),
+            ["arguments", "executablePath", "id", "timeoutSeconds"],
+            "a nil-directory row is exactly its four fields — the key absent, never blank: "
+                + "\(agents[2].keys.sorted())")
 
         XCTAssertTrue(text.contains("ANTHROPIC_API_KEY"), "vacuity guard: env genuinely populated")
         XCTAssertTrue(
@@ -663,6 +740,24 @@ final class CodingAgentRegistryTests: XCTestCase {
             String(decoding: try CodingAgentRegistry.encode(fixed), as: UTF8.self),
             #"{"agents":[{"arguments":["-serve"],"executablePath":"\/usr\/local\/bin\/code-agent","id":"planner","projectDirectory":"\/Users\/alice\/Projects\/work","timeoutSeconds":30}],"version":1}"#,
             "a fixed table is the same bytes every time — sorted keys, optionals absent when nil")
+    }
+
+    /// **The nil-directory row's canonical bytes are pinned whole** — the shape an empty
+    /// Project directory field saves (the arm-time resolution's row): every field but
+    /// `projectDirectory`, which is **absent** — never blank, never a zero-length value.
+    func testTheNilDirectoryRowIsPinnedWhole() throws {
+        let file = CodingAgentFile(agents: [
+            makeAgent(
+                id: "planner", executablePath: "/usr/local/bin/code-agent",
+                arguments: ["-serve"], projectDirectory: nil, timeoutSeconds: 30,
+                environment: nil, clause: nil)
+        ])
+
+        XCTAssertEqual(
+            String(decoding: try CodingAgentRegistry.encode(file), as: UTF8.self),
+            #"{"agents":[{"arguments":["-serve"],"executablePath":"\/usr\/local\/bin\/code-agent","id":"planner","timeoutSeconds":30}],"version":1}"#,
+            "the canonical nil-directory row carries no projectDirectory key — absence has one "
+                + "spelling")
     }
 
     /// The static decoder is **never throwing**, whatever it is handed — "never throws" is only

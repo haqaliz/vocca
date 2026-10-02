@@ -48,11 +48,9 @@ import XCTest
 /// 3. A nil resolution renders the **clause-less** sentence (S1 — the child runs in Vocca's
 ///    cwd, the pre-fix behavior, visible in the sentence, never hidden), and the
 ///    configuration a nil resolution builds on carries **no** `currentDirectoryURL` (the
-///    executor field's own default). Through the shipped row shape the resolution is never
-///    nil — the row's `projectDirectory` is required (`CodingAgentDefinition`) — so the
-///    sentence's nil leg ships here, exercised directly on the shared render, and the
-///    provider's nil leg is written for the resolution's contract, reachable when R3's
-///    empty-row arm-time resolution lands.
+///    executor field's own default). The nil leg is the shipped shape's now — a row without
+///    a `projectDirectory` (the editor's empty field, absent or blank in the file) resolves
+///    to nil on the real path — and the render is exercised directly on the shared sentence.
 /// 4. The **gap-1 pin** holds: `arguments` on an agent invocation is still refused — the
 ///    resolved directory is a separate field, never a payload that buys arguments past the
 ///    refusal.
@@ -148,7 +146,7 @@ final class InvocationCarrierTests: XCTestCase {
         XCTAssertEqual(calls.count, 1)
         XCTAssertEqual(
             calls[0].currentDirectoryURL,
-            URL(fileURLWithPath: Self.commitHelper.projectDirectory),
+            URL(fileURLWithPath: try XCTUnwrap(Self.commitHelper.projectDirectory)),
             "the row's projectDirectory flows into the configuration's currentDirectoryURL — "
                 + "byte-identical to today's run")
     }
@@ -190,7 +188,8 @@ final class InvocationCarrierTests: XCTestCase {
             "invoke runs in the resolved directory — the configuration's currentDirectoryURL "
                 + "is the same value the sentence showed, so what ran is what was confirmed")
         XCTAssertNotEqual(
-            calls[0].currentDirectoryURL, URL(fileURLWithPath: Self.commitHelper.projectDirectory),
+            calls[0].currentDirectoryURL,
+            URL(fileURLWithPath: try XCTUnwrap(Self.commitHelper.projectDirectory)),
             "invoke does not re-resolve from the row — one resolution, shared by both halves")
     }
 
@@ -199,10 +198,10 @@ final class InvocationCarrierTests: XCTestCase {
     /// **A nil resolution renders the clause-less sentence (S1) — the child runs in Vocca's
     /// cwd, and the sentence says so by saying nothing about a directory.**
     ///
-    /// Driven directly on the shared render — through the shipped row shape the provider's
-    /// resolution is never nil (the row's `projectDirectory` is required), so the nil leg of
-    /// the sentence ships here, exercised on the exact render describe and invoke share, and
-    /// is reachable on the real path once R3's empty-row arm-time resolution lands.
+    /// Driven directly on the shared render — the nil leg is the shipped shape's now: a row
+    /// without a `projectDirectory` (the editor's empty field, absent or blank in the file)
+    /// resolves to nil on the real path, so this render is the one describe and invoke share
+    /// for the nil-directory row.
     func testABothNilResolutionRendersTheClauseLessSentence() {
         XCTAssertEqual(
             CodingAgentSentences.sentence(

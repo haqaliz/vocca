@@ -361,10 +361,83 @@ final class CodingAgentProviderTests: XCTestCase {
         XCTAssertEqual(decision.outcome, .succeeded)
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 1)
+        let rowDirectory = try XCTUnwrap(Self.commitHelper.projectDirectory)
         XCTAssertEqual(
-            calls[0].currentDirectoryURL, URL(fileURLWithPath: Self.commitHelper.projectDirectory),
+            calls[0].currentDirectoryURL, URL(fileURLWithPath: rowDirectory),
             "the row's projectDirectory flows into the configuration's currentDirectoryURL — "
                 + "the child starts in the directory the sentence names")
+    }
+
+    /// **A nil-directory row describes the clause-less sentence and invokes without a
+    /// `currentDirectoryURL`** — the row the editor's empty Project directory field saves
+    /// (the arm-time resolution's row): the sentence honestly says nothing about a directory
+    /// (S1 — the child runs in Vocca's cwd), and the configuration carries no directory field
+    /// for the executor's own run-in-cwd fallback. The nil leg, reachable through the shipped
+    /// shape — no decode tolerance required.
+    func testANilDirectoryRowDescribesClauseLessAndInvokesWithoutACurrentDirectoryURL() async throws {
+        let agent = CodingAgentDefinition(
+            id: "detect-me",
+            executablePath: "/usr/bin/true",
+            arguments: [],
+            projectDirectory: nil,
+            timeoutSeconds: 30,
+            environment: nil,
+            clause: nil)!
+        let (provider, runner) = makeProvider(agents: [agent], result: success())
+        let invocation = try makeInvocation(toolID: "detect-me")
+
+        let summary = await provider.describe(invocation)
+        XCTAssertEqual(
+            summary.sentence, "Run the coding agent 'detect-me': /usr/bin/true.",
+            "a nil-directory row renders the clause-less sentence — the child runs in "
+                + "Vocca's own cwd, visible in the sentence, never hidden")
+        XCTAssertFalse(
+            summary.sentence.contains(" in "),
+            "the clause-less render never carries a dangling `in`")
+        XCTAssertEqual(
+            summary.blastRadius, .outwardFacing,
+            "an agent is never read-only — the radius is outwardFacing whatever the directory")
+
+        let decision = await ActionGate.submit(
+            invocation, to: provider, enablement: ActionEnablement([invocation]),
+            policy: .none, approval: .granted, mode: .live)
+        XCTAssertEqual(decision.outcome, .succeeded)
+        let calls = await runner.calls
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertNil(
+            calls[0].currentDirectoryURL,
+            "the nil resolution builds the configuration without a currentDirectoryURL — "
+                + "the executor's own run-in-Vocca's-cwd fallback, exactly what the sentence "
+                + "says by saying nothing")
+    }
+
+    /// **The unexpected-arguments refusal renders no `in` clause for a nil-directory row** —
+    /// the refusal still shows what would have run, but a row with no directory has no
+    /// directory to show.
+    func testTheUnexpectedArgumentsRefusalIsClauseLessForANilDirectoryRow() async throws {
+        let agent = CodingAgentDefinition(
+            id: "detect-me",
+            executablePath: "/usr/bin/true",
+            arguments: [],
+            projectDirectory: nil,
+            timeoutSeconds: 30,
+            environment: nil,
+            clause: nil)!
+        let (provider, _) = makeProvider(agents: [agent], result: success())
+
+        let summary = await provider.describe(
+            try makeInvocation(toolID: "detect-me", arguments: ##"{"Sneaky": "x"}"##))
+
+        XCTAssertTrue(
+            summary.sentence.contains("refused"),
+            "the refusal still says the call will be refused: \(summary.sentence)")
+        XCTAssertTrue(
+            summary.sentence.contains("/usr/bin/true"),
+            "even the refusal renders what would have run: \(summary.sentence)")
+        XCTAssertFalse(
+            summary.sentence.contains(" in "),
+            "a nil-directory row's refusal renders no `in` clause — there is no directory "
+                + "to show")
     }
 
     /// **The engine's bounded failure keys are carried into the outcome unchanged.**

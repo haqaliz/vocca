@@ -314,10 +314,11 @@ final class AgentAuthoringTests: XCTestCase {
     }
 
     /// **An invalid row is refused loudly, before the file ever sees it** — the definition's
-    /// own init rules, spelled on the surface: a relative or `~` executable path, a relative
-    /// or `~` project directory, a timeout outside `1...600` (or not a number at all), an
-    /// empty id. An emptied timeout draft is the definition's *absent* — the 30-second
-    /// default — not a refusal.
+    /// own init rules, spelled on the surface: a relative or `~` executable path, a **filled-in**
+    /// relative or `~` project directory, a timeout outside `1...600` (or not a number at all),
+    /// an empty id. An emptied timeout draft is the definition's *absent* — the 30-second
+    /// default — not a refusal, and an **empty** project directory is the nil-directory row —
+    /// the caption's contract, never a refusal.
     func testAnInvalidRowIsRefusedAtSaveLoudly() {
         let cases: [(String, (ActionsTabState) -> ActionsTabState, String)] = [
             (
@@ -392,6 +393,60 @@ final class AgentAuthoringTests: XCTestCase {
         defaulted = ActionsTabReducer.reduce(defaulted, .agentSaveRequested)
         XCTAssertEqual(defaulted.agentDefinitions.count, 1)
         XCTAssertEqual(defaulted.agentDefinitions[0].timeoutSeconds, 30)
+    }
+
+    /// **An empty Project directory field saves — the nil-directory row, round-tripped
+    /// through the real registry without the key.** The caption's contract: "leave empty to
+    /// detect the focused app's project" — so the blank draft is not a refusal, and the row
+    /// the editor commits carries no `projectDirectory` at all in the file's bytes (absence
+    /// has one spelling), reloading as nil.
+    func testAnEmptyProjectDirectoryFieldSavesAndRoundTripsWithoutTheKey() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let registry = CodingAgentRegistry(directory: directory)
+
+        var state = ActionsTabState.initial
+        state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
+        state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.arguments, "-p fix the bug"))
+        // The project directory stays the blank pre-fill — the empty field is the point.
+        state = ActionsTabReducer.reduce(state, .agentSaveRequested)
+        XCTAssertEqual(state.agentDefinitions.count, 1, "an empty project directory field saves")
+        XCTAssertNil(
+            state.agentDefinitions[0].projectDirectory,
+            "the empty draft is the nil-directory row — the arm-time resolution's row")
+
+        // The shipped save path: the tab's file, mapped at the root, persisted by the registry.
+        let file = ActionsAgentFile(agents: state.agentDefinitions)
+        let mapped = try AppBootstrap.agentFile(from: file)
+        try await registry.save(mapped)
+        let text = String(decoding: try XCTUnwrap(bytes(in: directory)), as: UTF8.self)
+        XCTAssertFalse(
+            text.contains("projectDirectory"),
+            "absence has one spelling — the saved nil-directory row carries no projectDirectory key")
+
+        let reloaded = await registry.load()
+        XCTAssertEqual(reloaded, mapped, "the reloaded registry is exactly what the save wrote")
+        XCTAssertEqual(reloaded.agents.map(\.id), ["claude"])
+        XCTAssertNil(
+            reloaded.agents[0].projectDirectory,
+            "the nil-directory row survives the round trip as nil")
+    }
+
+    /// **A whitespace-only Project directory field is the empty spelling too** — the field
+    /// reads as the nil-directory row, never a refusal and never a mangled relative path.
+    func testAWhitespaceOnlyProjectDirectoryFieldSavesAsTheNilDirectoryRow() {
+        var state = baselineAdd()
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.projectDirectory, "   "))
+        state = ActionsTabReducer.reduce(state, .agentSaveRequested)
+        XCTAssertEqual(state.agentDefinitions.count, 1)
+        XCTAssertNil(
+            state.agentDefinitions[0].projectDirectory,
+            "a whitespace-only field is the empty spelling — the nil-directory row")
     }
 
     /// **A row over the caps is refused loudly, never clamped** — 65 arguments, 17

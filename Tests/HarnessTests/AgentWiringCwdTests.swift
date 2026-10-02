@@ -29,22 +29,19 @@ import XCTest
 /// real temp-directory stores and the **real** `CodingAgentProvider` over a counting engine
 /// closure (nothing here spawns a child).
 ///
-/// ## The empty row's fixture — decoded, never constructed
+/// ## The nil-directory row's fixture — constructed, and reachable through the registry
 ///
-/// The shipped row shape refuses an empty `projectDirectory` at construction **and** at the
-/// registry's validation pass (a blank row is skipped loudly at load — the F1 shape rule).
-/// So the empty spelling is driven the way the carrier aspect recorded the nil leg
-/// ("the contract written ahead of R3's empty-row shape"): the fixture row is **decoded**
-/// shape-tolerantly from JSON with `"projectDirectory": ""` — the F1 no-coercion rule — and
-/// the provider is constructed directly over that decoded row, while the registry file
-/// holds the same row for the wiring's per-call read (whose validation skips it — the
-/// wiring's "the row lacks one" leg, the honest reachable spelling of "empty" in this
-/// tree). The closure's answer is a recording fake — a fixed path, a settable answer, a
-/// counted call log.
+/// A row whose `projectDirectory` is nil is the shipped spelling of the editor's empty field
+/// (the caption's contract — "leave empty to detect the focused app's project"): valid at
+/// construction, valid in the file (the key absent, or blank reading as nil), and served by
+/// the registry's own validation pass. So the fixture is a plain constructed row, the registry
+/// file holds it, and the provider is loaded **from that registry** — the reachable path, not
+/// a double's opinion of it. The closure's answer is a recording fake — a fixed path, a
+/// settable answer, a counted call log.
 ///
 /// ## The contract, acceptance by acceptance
 ///
-/// 1. An **empty** row: arm → the card shows the resolved directory verbatim (the fake's
+/// 1. A **nil-directory** row: arm → the card shows the resolved directory verbatim (the fake's
 ///    fixed path, in the provider's own argv-derived sentence); confirm runs the engine in
 ///    it (`currentDirectoryURL`); the audit record shows the sentence.
 /// 2. An **explicit** row: detection is never consulted — the recording fake proves zero
@@ -54,10 +51,11 @@ import XCTest
 ///    carried value (G3).
 /// 4. A detection change **mid-card** cannot move the run: the confirmation carries the
 ///    arm-time value, and a fake whose answer changed confirms in the original directory.
-/// 5. The **voice leg** (S2): a phrase-armed empty row resolves and runs in the detected
-///    directory through the composed intent wiring; without the closure wired, the same
-///    row renders the clause-less sentence (S1 — the child runs in Vocca's cwd, visible in
-///    the sentence, never hidden).
+/// 5. The **voice leg** (S2): a phrase-armed nil-directory row resolves and runs in the
+///    detected directory through the composed intent wiring; without the closure wired, the
+///    same row renders the clause-less sentence (S1 — the child runs in Vocca's cwd, visible in
+///    the sentence, never hidden). Without **detection**, the direct arm is clause-less too,
+///    and the confirmed run carries no `currentDirectoryURL`.
 /// 6. The **composed default** facts are unchanged (`agents=0 spawnsSubprocess=false` —
 ///    the nil-shaped default composes byte-identically), and the editor caption shipped.
 @MainActor
@@ -65,7 +63,8 @@ final class AgentWiringCwdTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    /// The empty-row fixture's id — the row the editor would spell with an empty directory.
+    /// The nil-directory row fixture's id — the row the editor would spell with an empty
+    /// directory.
     private static let detectID = "detect-me"
 
     /// The recording fake's fixed answer — the "detected project" the arm resolves to.
@@ -88,49 +87,58 @@ final class AgentWiringCwdTests: XCTestCase {
     private static let pinnedSentence =
         "Run the coding agent 'pinned': /usr/bin/agent-fix --project /tmp/work in /tmp/work."
 
-    /// **The empty row — decoded, never constructed**: the shipped definition refuses an
-    /// empty project directory at construction, and the registry's validation pass skips it
-    /// at load (one loud complaint), so the empty spelling exists only through the
-    /// shape-tolerant decode — the F1 rule: value rules are the registry's pass's, never
-    /// the definition's decode.
-    private static let emptyRow: CodingAgentDefinition = {
-        let data = Data(
-            """
-            {"id": "detect-me", "executablePath": "/usr/bin/true", "arguments": [],
-             "projectDirectory": "", "timeoutSeconds": 30}
-            """.utf8)
-        return try! JSONDecoder().decode(CodingAgentDefinition.self, from: data)
-    }()
+    /// **The nil-directory row — constructed, never decoded**: the editor's empty Project
+    /// directory field is this row (the caption's contract), valid at construction and
+    /// served by the registry's own validation pass — the reachable shape, not the
+    /// shape-tolerant decode of a skipped row.
+    private static let emptyRow = CodingAgentDefinition(
+        id: "detect-me",
+        executablePath: "/usr/bin/true",
+        arguments: [],
+        projectDirectory: nil,
+        timeoutSeconds: 30,
+        environment: nil,
+        clause: nil)!
 
-    /// The empty row's sentence once the detection resolved it — the `in <dir>` clause
+    /// The nil-directory row's sentence once the detection resolved it — the `in <dir>` clause
     /// renders the fake's path verbatim.
     private static let detectedSentence =
         "Run the coding agent 'detect-me': /usr/bin/true in /tmp/detected-project."
 
-    /// The empty row's sentence when no detection is available — clause-less (S1).
+    /// The nil-directory row's sentence when no detection is available — clause-less (S1).
     private static let clauseLessSentence =
         "Run the coding agent 'detect-me': /usr/bin/true."
 
     // MARK: - Acceptance 1: the empty row resolves at arm and runs in the detection
 
-    /// **An empty row: arm → the sentence shows the resolved directory verbatim; confirm
+    /// **A nil-directory row: arm → the sentence shows the resolved directory verbatim; confirm
     /// runs in it; the audit record shows the sentence.**
     ///
     /// The fake's fixed path appears in the provider's own argv-derived sentence — the
     /// card a user sees — and the confirmed run's configuration carries the same path as
     /// `currentDirectoryURL`, so the child starts where the sentence said it would; the
-    /// audit entry reconstructs the same sentence (the binding matched).
+    /// audit entry reconstructs the same sentence (the binding matched). The row is served
+    /// through the **registry** — the reachable shape, the one the editor's empty field
+    /// saves.
     func testAnEmptyRowResolvesAtArmAndRunsInTheDetectedDirectory() async throws {
         let runner = CountingAgentRunner()
         let detection = RecordingDetection(answer: Self.detectedPath)
         let harness = await AgentWiringCwdHarness(
             agents: [Self.emptyRow],
-            provider: { _ in
-                CodingAgentProvider(agents: [Self.emptyRow], run: runner.run)
+            provider: { registry in
+                await CodingAgentProvider.load(registry: registry, run: runner.run)
             },
             detection: detection)
         defer { try? FileManager.default.removeItem(at: harness.directory) }
         try await harness.enable(Self.detectID)
+
+        let loaded = await harness.registry.load()
+        XCTAssertEqual(
+            loaded.agents.map(\.id), [Self.detectID],
+            "the registry serves the nil-directory row — the reachable shape, not a skipped one")
+        XCTAssertNil(
+            loaded.agents[0].projectDirectory,
+            "and the served row is the nil-directory row")
 
         try await harness.wiring.arm(CodingAgentProvider.providerID, Self.detectID)
         let card = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
@@ -209,8 +217,8 @@ final class AgentWiringCwdTests: XCTestCase {
         let detection = RecordingDetection(answer: Self.detectedPath)
         let harness = await AgentWiringCwdHarness(
             agents: [Self.emptyRow],
-            provider: { _ in
-                CodingAgentProvider(agents: [Self.emptyRow], run: runner.run)
+            provider: { registry in
+                await CodingAgentProvider.load(registry: registry, run: runner.run)
             },
             detection: detection)
         defer { try? FileManager.default.removeItem(at: harness.directory) }
@@ -241,8 +249,8 @@ final class AgentWiringCwdTests: XCTestCase {
         let detection = RecordingDetection(answer: Self.detectedPath)
         let harness = await AgentWiringCwdHarness(
             agents: [Self.emptyRow],
-            provider: { _ in
-                CodingAgentProvider(agents: [Self.emptyRow], run: runner.run)
+            provider: { registry in
+                await CodingAgentProvider.load(registry: registry, run: runner.run)
             },
             detection: detection)
         defer { try? FileManager.default.removeItem(at: harness.directory) }
@@ -283,8 +291,8 @@ final class AgentWiringCwdTests: XCTestCase {
         let detection = RecordingDetection(answer: Self.detectedPath)
         let harness = await AgentWiringCwdHarness(
             agents: [Self.emptyRow],
-            provider: { _ in
-                CodingAgentProvider(agents: [Self.emptyRow], run: runner.run)
+            provider: { registry in
+                await CodingAgentProvider.load(registry: registry, run: runner.run)
             },
             detection: detection)
         defer { try? FileManager.default.removeItem(at: harness.directory) }
@@ -346,8 +354,8 @@ final class AgentWiringCwdTests: XCTestCase {
         let runner = CountingAgentRunner()
         let harness = await AgentWiringCwdHarness(
             agents: [Self.emptyRow],
-            provider: { _ in
-                CodingAgentProvider(agents: [Self.emptyRow], run: runner.run)
+            provider: { registry in
+                await CodingAgentProvider.load(registry: registry, run: runner.run)
             },
             detection: RecordingDetection(answer: Self.detectedPath))
         defer { try? FileManager.default.removeItem(at: harness.directory) }
@@ -390,6 +398,40 @@ final class AgentWiringCwdTests: XCTestCase {
         XCTAssertEqual(
             runner.callCount, 0,
             "nothing ran — the card is up, the confirm is the only route to the engine")
+    }
+
+    /// **Without detection, the direct arm of a nil-directory row is clause-less, and the
+    /// confirmed run carries no `currentDirectoryURL`** — the detection closure answers nil,
+    /// the card honestly shows no directory (S1: the child runs in Vocca's own cwd, visible
+    /// in the sentence, never hidden), and the configuration the confirm builds omits the
+    /// field entirely — the executor's own run-in-cwd fallback.
+    func testANilDirectoryRowWithoutDetectionIsClauseLessAndRunsWithoutACurrentDirectoryURL() async throws {
+        let runner = CountingAgentRunner()
+        let harness = await AgentWiringCwdHarness(
+            agents: [Self.emptyRow],
+            provider: { registry in
+                await CodingAgentProvider.load(registry: registry, run: runner.run)
+            },
+            detection: RecordingDetection(answer: nil))
+        defer { try? FileManager.default.removeItem(at: harness.directory) }
+        try await harness.enable(Self.detectID)
+
+        try await harness.wiring.arm(CodingAgentProvider.providerID, Self.detectID)
+        let card = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
+        XCTAssertEqual(
+            card.sentence, Self.clauseLessSentence,
+            "no detection → the clause-less sentence — the child runs in Vocca's own cwd, "
+                + "visible in the sentence, never hidden")
+        XCTAssertNil(
+            card.resolvedDirectory,
+            "the nil answer carries no resolution")
+
+        await harness.wiring.confirm()
+        XCTAssertEqual(runner.callCount, 1, "the confirmed run happened")
+        XCTAssertNil(
+            runner.calls.first?.currentDirectoryURL,
+            "the nil resolution builds the configuration without a currentDirectoryURL — "
+                + "Foundation's default, exactly what the clause-less sentence says")
     }
 
     // MARK: - Acceptance 6: the composed default and the caption
@@ -461,10 +503,9 @@ private final class AgentWiringCwdHarness<Provider: ActionProvider> {
     ///   - agents: The agents seeded into the registry's temp directory. `[]` seeds
     ///     nothing — the absent file, the true first-launch default.
     ///   - provider: The provider the wiring submits through — the real
-    ///     `CodingAgentProvider.load` over the seeded registry in the default shape; the
-    ///     empty-row tests pass a provider constructed directly over the decoded fixture
-    ///     (the registry's validation pass refuses blank rows, so the served row must come
-    ///     from the shape-tolerant decode — the F1 rule).
+    ///     `CodingAgentProvider.load` over the seeded registry in the default shape (the
+    ///     nil-directory row is served by the registry's own validation pass — the
+    ///     reachable shape, the one the editor's empty field saves).
     ///   - detection: The recording fake the wiring's `activeProjectDirectory` closure
     ///     rides — the counted, settable answer.
     init(
