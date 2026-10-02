@@ -374,7 +374,7 @@ final class CodingAgentRegistryTests: XCTestCase {
         XCTAssertNil(
             loaded.agents[0].projectDirectory,
             "the blank spelling is the nil-directory row — the arm-time resolution's row")
-        XCTAssertEqual(complaints.recorded.count, 5, "one loud complaint per skipped row")
+        XCTAssertEqual(complaints.recorded.count, 4, "one loud complaint per skipped row")
     }
 
     /// **A blank or absent `projectDirectory` key is a valid nil-directory row, loading
