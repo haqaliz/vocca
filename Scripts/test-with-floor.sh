@@ -2255,8 +2255,21 @@ set -euo pipefail
 # (recorded there); `AppBootstrap.swift` is untouched, so the G5 pin never moved — the count
 # taken from the floor script's own parse in the ratchet commit.
 #
+# `agent-pins` (the `spoken-task-seeding` unit): +8 — `SpokenTaskInvariantTests` (the
+# invariant suite, acceptances 1-5: the PROBE-CODING-AGENT line verbatim-unchanged with the
+# unit's files in the tree, agents=0 + spawnsSubprocess=false field-wise; the lint
+# immobilities read from the lint suites' own literals — transport set exactly two,
+# FileManager seams exactly eight, Family A's seven + Family B's one, the policy no-default;
+# the G5 digests with AppBootstrap still 641b6445… — the threading REFACTOR recorded
+# AppBootstrap never changed, so no re-anchor; the driver's compile pins — the widened
+# handler's signature + silent default, the recipe's passthrough, the utterance-passing call
+# site, the constructible pins; the zero-network default-configuration test green and the
+# module-coverage cross-check set unchanged at the twelve modules — assertions only, no
+# production code, no lint widening; all eight legs green on landing, the honest pins
+# result). The count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3015
+MINIMUM_EXECUTED_TESTS=3023
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
