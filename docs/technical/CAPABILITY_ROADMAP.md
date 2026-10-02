@@ -717,6 +717,57 @@ unchanged). No gate passes.
 SMOKE 161 is written and runnable, recorded and never gated; no resolution rate may be
 quoted. Test floor: **2991**.)*
 
+*(Amended by the `spoken-task-seeding` unit, 2026-10-01: **slice 12 of C13 shipped — the
+N1 retirement**, the spoken task fills the argv: one row, any task, per conversation.
+Shipped:
+- **The carrier**: `ActionInvocation.taskText` (additive, default nil, Foundation-free,
+  **never `arguments`** — the gap-1 pin intact) + `WidgetConfirmationSignal.taskText`.
+- **The one-render substitution**: `CodingAgentSentences.substitutedArguments` — **every**
+  literal `taskPlaceholder` occurrence replaced (the adjacent-pair pin:
+  `omittingEmptySubsequences: false` is the load-bearing half), describe and invoke
+  sharing the one render; `argumentsContainPlaceholder` public (one rule judged in one
+  place); the three loud refusals `agent.taskHasNowhereToGo` / `agent.taskTextMissing` /
+  `agent.taskTextTooLarge` (described at `outwardFacing`, invoked `.failed`, engine count
+  0); the bound = `ActionInvocation.maximumArgumentsUTF8Bytes` (4096, the `arguments`
+  precedent) — refused, never truncated.
+- **The threading**: the driver's `intentActionHandler` widened to
+  `(ActionInvocation, String) async -> String?` (the labeled spelling is not expressible
+  in Swift function types — recorded deviation; the default `{ _, _ in nil }`; the call
+  site passes the cleaned utterance); the intent-leg enrichment — **the full utterance**
+  fills the placeholder when the row carries it (the audit records exactly what was
+  said); the **pre-card refusal** (a placeholder row without an utterance → declined,
+  recorded, never a card); the **surface-arm refusal** (the loud copy at arm, before any
+  submission — nothing recorded as a run, never a card; the editor's `<task>`-Save
+  refusal unchanged).
+- **The invariants held**: PROBE-CODING-AGENT verbatim (`agents=0 spawnsSubprocess=false`),
+  the transport permitted set still exactly two files, the FileManager seam table still
+  eight seams, Family A/B unchanged, the `policy:` no-default call sites unchanged, the
+  zero-network drive green (the substitution happens only in the provider over an
+  invocation field — no new call), the module-coverage cross-check unchanged (twelve
+  modules — a field and a signature, no module files).
+
+G5 **not** re-anchored: `AppBootstrap` never shifted — the digest is recomputed and
+asserted at the prior unit's literal (`641b6445…`), dictation digests unchanged. No gate
+passes.
+
+**What is still NOT built — the remaining C13 machinery:**
+- **reply-text rendering** (the real spoken answer to an agent run — the reply seam's last
+  piece)
+- a **phrase-then-keyword composite resolver**
+- an **audit-tools arm section** in the Actions tab
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load by
+  decision, and reversing it is a founder call)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- **`$N` parameter slots** (an agent row declares no parameters — the arguments-refusal
+  pin is the shipped record; the spoken task rides the additive `taskText` field, never
+  `arguments`)
+- the follow-ons this unit recorded: the **editor checkbox** (a surface affordance to
+  create placeholder rows knowingly — N1 of this unit, caption "filled by your spoken
+  task"; the file may carry them hand-edited meanwhile)
+
+SMOKE 162 is written and runnable, recorded and never gated; no task-seeding rate may be
+quoted. Test floor: **3023**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

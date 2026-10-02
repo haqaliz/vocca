@@ -111,6 +111,123 @@ documented fix, never a rewrite of the historical record.
 
 ---
 
+**The `spoken-task-seeding` unit shipped 2026-10-01 — the N1 retirement: phrases arm
+rows AND the full spoken utterance fills the argv's `<task>` placeholder — one row, any
+task, per conversation; no gate passes.**
+`feat/spoken-task-seeding/aliz`. Four aspects (the record aspect is this entry). Floor
+**3000 → 3023** (executed 3023).
+
+**What shipped, per aspect.**
+*task-carrier* — **`ActionInvocation.taskText: String?`** (additive, default nil — the
+`resolvedDirectory` precedent; every existing construction site compiles unchanged;
+Foundation-free; **never `arguments`** — the gap-1 pin intact, `arguments` beside
+`taskText` on an agent invocation still refused at `agent.unexpectedArguments`);
+**`CodingAgentSentences.substitutedArguments(arguments:taskText:)`** — the pure
+one-render substitution: **every** literal `taskPlaceholder` occurrence in the row's argv
+replaced with the task text, describe and invoke sharing the one render (the argv that
+runs is the argv the sentence showed — G2); the deterministic rule pinned by the
+**two-placeholder acceptance**, an adjacent pair (`<task><task>`) that a split dropping
+empty subsequences would collapse into one substitution — `omittingEmptySubsequences:
+false` is the load-bearing half (Foundation-free by construction — the standard library's
+own split/join); **`argumentsContainPlaceholder`** (public — one rule judged in one
+place: the intent leg enriches exactly a placeholder-row tool, the surface arm refuses
+exactly one); the **three loud refusals**, described at `outwardFacing` (never
+de-escalated) and invoked at `.failed(reasonKey:)` with the engine never reached (engine
+count 0): **`agent.taskHasNowhereToGo`** (a `taskText` with no placeholder in the argv —
+the loud refusal, never a silent ignore), **`agent.taskTextMissing`** (a placeholder with
+no `taskText` — reachable only by a hand-built invocation; the surface refuses earlier),
+**`agent.taskTextTooLarge`** (over the bound, **refused never truncated** — the bound is
+`ActionInvocation.maximumArgumentsUTF8Bytes` (4096, the `arguments` precedent); exactly
+at the bound the substitution still runs; a long utterance never reaches the engine — the
+turn falls through to the echo, R-A); the sentence's audit-summary bound applies naturally
+(S1 — verified, never changed). Floor 3000→3009.
+*utterance-threading* — the **driver widening**: the intent-action handler gains the
+utterance — `intentActionHandler: @escaping @Sendable (ActionInvocation, String) async ->
+String?` (the deliberate-widening precedent); the default closure updates to
+`{ _, _ in nil }` — the unwired driver stays byte-identical; the driver's compile pins
+updated deliberately (`ConverseLoopDriverTests`, `ConverseIntentStepTests`,
+`IntentDriverIntegrationTests`). **The recorded deviation:** the plan's labeled spelling
+— `(ActionInvocation, utterance: String)` — is **not expressible in Swift function
+types**; the label lives at the closure's parameter site (`{ submitted, utterance in …}`),
+never in the type. The call site passes the **cleaned utterance** verbatim
+(`ConverseLoopDriver.swift:390` — in scope at the intent step, the honest change, never a
+re-plumbing). **The enrichment** (`IntentWiring.performAction`): when the resolved tool is
+an agent row whose argv carries the placeholder, the invocation is rebuilt with
+**`taskText: utterance` — the FULL utterance, trigger words and all** (the critique
+resolution: the audit records exactly what was said — "ask claude to summarize the open
+PRs" seeds "ask claude to summarize the open PRs", never a stripped remainder); any other
+tool is rebuilt with `taskText` nil — byte-identical to today; the row is read per call
+(the per-turn registry read — a changed argv next turn is a new render, R-B). **The
+pre-card refusal:** a placeholder row reached **without** an utterance is refused before
+the card — the wiring's own stop (declined, recorded, never a card, never a run; the
+spoken answer is the declined ack) — never the provider's refusal sentence asked of a
+human (critique gap 2). **`WidgetConfirmationSignal.taskText`** (additive — the card
+carries it; confirm/decline rebuild the invocation from the signal). **The surface-arm
+refusal** (PRD R4): arming a placeholder row from the Actions tab refuses loudly before
+any submission — `CodingAgentWiringError.placeholderRow`, the copy: "Arm refused: the
+arguments still contain <task>. A placeholder row cannot run from the tab — its task is
+filled by your spoken words in conversation. Replace <task> with a concrete task in the
+arguments, or remove it." — nothing recorded as a run, never a card; the editor's
+`<task>`-Save refusal unchanged. Floor 3009→3015.
+*agent-pins* — the invariant suite (`SpokenTaskInvariantTests`), run inside the
+zero-network interposer: **PROBE-CODING-AGENT verbatim-unchanged** with the unit's files
+in the tree — the composed default still reads `agents=0 spawnsSubprocess=false` (a field
+and a signature change nothing the probe drives); the lint tables' current state
+re-asserted from the lint suites' own literals (the transport permitted set still exactly
+the two reviewed entries, the FileManager seam table still exactly eight seams, Family A's
+seven families and Family B's single minting file unchanged, the `policy:` parameter still
+has no default — a field is not a file, no lint-table edit); the driver's compile pins
+re-asserted from each file's own source (a reverted or re-widened signature fails here
+first); the zero-network default-configuration drive green (the substitution happens only
+in the provider over an invocation field — no new call); the module-coverage cross-check
+unchanged at the twelve library modules (the unit added a field and wiring, **no module
+files**). Floor 3015→3023 (executed 3023).
+
+**The decisions.** **D1 — the full utterance seeds the task:** the trigger words stay in
+the task — the audit records exactly what was said, and the sentence the human approved
+is the sentence the run used (the binding covers it). **D2 — every occurrence
+substitutes:** the deterministic rule pinned by the adjacent-pair acceptance; describe
+and invoke share the one render (the sentence and the run cannot drift). **D3 — the
+pre-card refusal:** a placeholder row without an utterance is declined and recorded
+before any card — the wiring's own stop, never the provider's refusal asked of a human
+(critique gap 2). **D4 — the surface refuses:** a placeholder row cannot run from the tab
+(no utterance exists there) — the loud refusal at arm, before any submission; the
+editor's Save refusal stays; the two paths cannot disagree because only the voice leg can
+reach a placeholder row (R-C). **D5 — the driver widened deliberately:** the handler's
+new parameter is the honest change (the utterance is in scope at the call site), with the
+recorded deviation that Swift function types cannot spell the label.
+
+**The deferrals, with their blockers.** **The editor checkbox** (this unit's N1 — a
+surface affordance to create placeholder rows knowingly, the caption "filled by your
+spoken task"): deferred — the file may carry placeholder rows hand-edited meanwhile, and
+the editor still refuses `<task>` at Save by design. **`$N` parameter slots** (and the
+`{{utterance}}` spelling): still deferred — an agent row declares no parameters; the
+arguments-refusal pin stands; the spoken task rides the additive `taskText` field, never
+`arguments`. **Interactive sessions**: unchanged — one-shot runs ship;
+persistent-child/PTY machinery is unbuilt and does not fit the one-shot tool-call shape.
+
+**The N1 retirement, named.** The `coding-agent-handoff` and `agent-presets` units
+deferred N1 — "phrases arm rows, never task text" (`coding-agent-handoff` prd.md N1: the
+phrase resolver produces no arguments and the gap-1 pin refuses them; `agent-presets`
+prd.md N1: the `taskPlaceholder` is "never substituted"). This unit retires it:
+**phrases arm rows AND the full spoken utterance fills the argv's `<task>` slot.** What
+stays: the editor's `<task>`-Save refusal (a surface row that means nothing must not
+save) and the "never substituted" claim narrowed to the surface half — the file may carry
+placeholder rows hand-edited, and the voice leg is the only path that fills one.
+
+**No gate passes** (sixteenth unit ahead of the uncleared gates); the composed default
+still reads `agents=0 spawnsSubprocess=false`; zero network; the dictation path
+digest-untouched (the pin proves it). **G5 not re-anchored — the honest actual:** the
+threading REFACTOR verified `AppBootstrap.swift` never shifted, so the pins recompute and
+assert the prior unit's literal — the `AppBootstrap` digest stays `641b6445…`, the
+dictation digests `1baeb2de…`/`ce70ca10…` unchanged. SMOKE 162 is **written and
+runnable** — recorded, never gated; no task-seeding rate may be quoted. The record aspect
+closed the docs sync: `CLAUDE.md`'s status paragraph, `CAPABILITY_ROADMAP.md`'s C13
+amendment; **`ARCHITECTURE.md` untouched — a field and a signature changed no seam fact**
+(the expected non-change, recorded).
+
+---
+
 **The `vocca-agent-id` rename shipped 2026-10-01 — the coding-agent provider's identifier
 is `vocca.agent`, never `dev.vocca.agent`; a persisted-vocabulary rename, recorded.**
 

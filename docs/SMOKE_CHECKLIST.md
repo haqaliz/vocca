@@ -3745,6 +3745,70 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     from the card's, a negative row that refuses or hides instead of showing "in /", or
     a configured-directory row whose run used the detected path instead of the row's.
 
+162. **The full spoken utterance fills the argv's `<task>` placeholder: a hand-edited
+    placeholder row + a phrase row naming it → the card shows the substituted argv with
+    the full utterance → confirm → the agent runs with it → the audit sentence
+    reconstructs; and the tab refuses to arm the row (`spoken-task-seeding`, recorded —
+    never gated).**
+
+    *Gesture:* hand-edit `coding-agents.json` under `<applicationSupport>/Vocca/` (the
+    shape is byte-pinned by tests — keep the field names verbatim) with one placeholder
+    row — the founder's chosen CLI, **absolute executable path** (no PATH, no `~`) and
+    the **environment entries the binary needs** (key material such as
+    `ANTHROPIC_API_KEY` lives in this file), with the argv carrying the `<task>`
+    placeholder verbatim, e.g.
+    `{"id": "claude", "executablePath": "/opt/homebrew/bin/claude", "arguments": ["-p", "<task>"], "projectDirectory": "<the repo you are working in>", "environment": {"ANTHROPIC_API_KEY": "<your key>"}}`.
+    This row is **hand-edited on purpose**: the editor refuses to save `<task>` (a
+    surface row that means nothing must not save) while the file may carry it — the
+    voice leg is the only path that fills one. Launch, verify the Coding agents section
+    renders the row, and enable it. Add a phrase row to `intent-phrases.json` naming
+    it — `{"phrase": "ask claude to summarize the open PRs", "providerID":
+    "vocca.agent", "toolID": "claude"}`. Switch to the CONVERSING surface and say "Ask
+    claude to summarize the open PRs." Verify the **card appears** (an agent is never
+    read-only — `outwardFacing` by construction — so the gate always confirms), read the
+    sentence off the **rendered** card, and verify the substituted argv carries the
+    **full utterance** — trigger words and all, e.g. `Run the coding agent 'claude':
+    /opt/homebrew/bin/claude -p "ask claude to summarize the open PRs" in <the repo
+    path>.` (the words you said are the task; a task missing the trigger words means the
+    substitution dropped them). Press **Confirm**, verify the agent ran with exactly
+    that prompt (the run's own output — a task that prints the prompt it received),
+    then open the audit artifact (`<applicationSupport>/Vocca/actions/` — one file per
+    event, ordinal names) and reconstruct the decision from the entry fields: the
+    confirmed invocation, the provider/tool ids, and the sentence — the audit records
+    exactly what was said. Then the refusal row: in the Actions tab, arm the placeholder
+    row again (it is still enabled) — verify the **loud refusal** reads on the surface —
+    "Arm refused: the arguments still contain <task>. A placeholder row cannot run from
+    the tab — its task is filled by your spoken words in conversation. Replace <task>
+    with a concrete task in the arguments, or remove it." — nothing runs, no card
+    appears, nothing is recorded as a run.
+
+    *Verify the state was entered:* the placeholder row really rendered from the file (a
+    section without the row proves the file was never read — rule 1), the enablement row
+    was really on, the utterance really resolved through the phrase resolver (an echo of
+    your words back means it did not; a spoken question means some other resolver
+    answered), the card was really read off the rendered surface before any confirm, the
+    substituted argv was really compared against the definition plus the utterance, the
+    confirm really ran the agent (the run's own output), the audit rows were really read
+    off disk, and the arm refusal really happened (the copy read off the rendered
+    surface).
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a spoken task filled
+    a hand-edited placeholder row — the card showed the full utterance substituted into
+    the argv, the confirm ran the agent with it, the audit sentence reconstructed off
+    disk, and the tab refused to arm the row loudly** — the N1 retirement's first real
+    observation of the voice round trip. Record the count of attempts it took to be
+    heard, never a rate.
+
+    *Void — not fail — if:* the utterance was echoed because ASR or cleanup produced
+    different words (record the transcript), the enablement was not in place, or the
+    placeholder row never rendered (rule 1).
+
+    *Failure:* a card whose sentence differs from the substituted render (a missing or
+    truncated task — the trigger words gone, or words the user never said), a confirm
+    that runs an argv without the spoken words, a run without a card, no audit entry for
+    a run that happened, an audit sentence that cannot reconstruct the decision, or an
+    arm of the placeholder row that was not refused loudly.
+
 ---
 
 ## When this file is wrong
