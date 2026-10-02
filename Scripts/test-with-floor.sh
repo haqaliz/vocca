@@ -2236,8 +2236,15 @@ set -euo pipefail
 # assertions and the placeholder-refusal test's first leg were rewritten in place, not
 # counted — the count taken from the floor script's own parse in the ratchet commit.
 #
+# `task-carrier` (the `spoken-task-seeding` unit): +9 — `TaskCarrierTests` (the spoken-task
+# substitution contract: no-taskText byte-identity, the single- and two-placeholder
+# substitutions, the three loud refusals, the gap-1 pin beside taskText, the additive
+# vocabulary legs). The carrier field compiles every pre-existing site unchanged — a field,
+# not a file — so Family A/B and the transport lint are untouched — the count taken from the
+# floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3000
+MINIMUM_EXECUTED_TESTS=3009
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
