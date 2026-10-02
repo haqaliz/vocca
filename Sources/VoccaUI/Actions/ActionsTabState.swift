@@ -313,7 +313,14 @@ public enum ActionsTabReducer {
             next.agentClauseDraft = ""
             if let presetID, let preset = next.agentPresets.first(where: { $0.id == presetID }) {
                 next.agentIDDraft = preset.id
-                next.agentArgumentsDraft = preset.arguments.joined(separator: " ")
+                // The editor-side render: every `<task>` placeholder in the draft becomes the
+                // concrete default task, so a pick-then-save commits a row that means
+                // something — the catalog's pinned templates are never substituted.
+                next.agentArgumentsDraft = preset.arguments
+                    .joined(separator: " ")
+                    .replacingOccurrences(
+                        of: AgentAuthoringConstants.taskPlaceholder,
+                        with: ActionsTabCopy.agentDefaultTask)
                 switch next.agentDetection[presetID] {
                 case .detected(let path):
                     // The honest pre-fill: the binary exists at that path.

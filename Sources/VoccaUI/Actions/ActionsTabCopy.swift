@@ -85,6 +85,13 @@ public enum ActionsTabCopy {
     /// One preset's detection fact, when the binary exists nowhere the resolver may look.
     public static let agentNotDetected = "not detected"
 
+    /// **The concrete default task the preset pre-fill renders the `<task>` placeholder
+    /// as** — the editor-side render (the N1 flip): a preset pick pre-fills the arguments
+    /// draft with a row that means something, so a pick-then-save commits immediately and
+    /// the user edits the task per row. The catalog's pinned templates are untouched — the
+    /// substitution happens in the draft, never in the catalog.
+    public static let agentDefaultTask = "Summarize the current project"
+
     /// **The `<task>` placeholder warning** (PRD critique gap 1): a save whose argv still
     /// carries the placeholder is refused with the loud explanation — the row the user saves
     /// must be a row that means something (the honest-sentence principle; the refusal is at
