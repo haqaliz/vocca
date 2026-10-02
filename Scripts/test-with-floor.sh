@@ -2291,8 +2291,20 @@ set -euo pipefail
 # permitted files untouched, and the Family A-B lints' permitted sets are unchanged. The
 # count taken from the floor script's own parse in the ratchet commit.
 #
+# `wiring-baseline` (the `agent-auth-baseline` unit): +11 — `WiringBaselineTests`, the
+# wiring-baseline invariant suite (acceptances 1-5: the HOME baseline wired into both
+# provider constructions — the wiring's fact pinned as the exact composition literal and
+# the wired value read off the configurations the providers build through the gate — the
+# PROBE-CODING-AGENT line verbatim-unchanged under the interposer with the baseline wired
+# and the hints on the surface, the auth hint's render under the Environment field and the
+# root mapping carrying it across the module boundary, the D2 baseline line pinned and
+# placed in the agents section, and the G5 digests with AppBootstrap at the wiring
+# REFACTOR's re-anchored literal) plus the two auth-hint rows in `KnownAgentPresetsTests`
+# (every hint pinned verbatim, the planted-wrong-hint control) — the count taken from the
+# floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3033
+MINIMUM_EXECUTED_TESTS=3044
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

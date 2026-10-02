@@ -440,9 +440,10 @@ final class ActiveProjectInvariantTests: XCTestCase {
     /// `AgentPresetsInvariantTests` pin — the pin read again, deliberately, with the cwd read,
     /// the invocation carrier and the wiring in the tree. The two dictation files are
     /// byte-for-byte untouched; the composition root carries the re-anchor
-    /// `c7d6767c…` → `641b6445…` (computed with `shasum -a 256` on 2026-10-01 by the
-    /// `agent-wiring-cwd` REFACTOR, never edited-to-match — both existing pin sites carry the
-    /// same literal, and this suite is the third).
+    /// `641b6445…` → `4e50ab8d…` (computed with `shasum -a 256` on 2026-10-03 by the
+    /// `wiring-baseline` REFACTOR, never edited-to-match — the REFACTOR wired the HOME
+    /// baseline into both provider constructions; the existing pin sites carry the same
+    /// literal, and this suite is one of them).
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -456,7 +457,7 @@ final class ActiveProjectInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "641b6445fd163dde55561a242da4e745f79dd7fd61aedcac7c9aff123dd4d237"
+                "4e50ab8dde8dd20f3b3b02e8e6ebb4a4fe97705cd58e2120fdb2e2364d8775cf"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")

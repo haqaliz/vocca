@@ -41,9 +41,9 @@ import XCTest
 ///   `ActionSeamBoundaryTests`), which run in this same full-suite run; this leg pins the state
 ///   they enforce so a change to either side fails here first, in review.
 /// - Acceptance 3 recomputes the three G5 digests and asserts the dictation pair is unchanged
-///   and `AppBootstrap.swift` still holds the prior unit's re-anchored literal (`641b6445…`) —
-///   the threading REFACTOR recorded `AppBootstrap.swift` never changed, so the pin was not
-///   re-anchored and this is the honest actual: the composition root's digest, asserted
+///   and `AppBootstrap.swift` holds the wiring REFACTOR's re-anchored literal (`4e50ab8d…`) —
+///   the `wiring-baseline` REFACTOR re-anchored it deliberately (computed, never
+///   edited-to-match), and this asserts the honest actual: the composition root's digest,
 ///   exactly as the tree holds it.
 /// - Acceptance 4 pins the **driver's compile pins**: the widened intent-action handler's
 ///   signature and its silent default (`= { _, _ in nil }` — the unwired driver stays
@@ -296,12 +296,11 @@ final class SpokenTaskInvariantTests: XCTestCase {
     /// `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched`,
     /// `AgentPresetsInvariantTests` and `ActiveProjectInvariantTests` pin — the pin read
     /// again, deliberately, with the task carrier, the substitution and the threading in the
-    /// tree. The two dictation files are byte-for-byte untouched; the composition root still
-    /// carries the active-project-detection unit's re-anchor `641b6445…` — the
-    /// `utterance-threading` REFACTOR recorded `AppBootstrap.swift` never changed (the widened
-    /// handler's default composes the same unwired closures, so the compose call sites did not
-    /// shift), so the G5 pin was not re-anchored and this asserts the honest actual: the value
-    /// the tree holds, never edited-to-match.
+    /// tree. The two dictation files are byte-for-byte untouched; the composition root
+    /// carries the wiring REFACTOR's re-anchor `4e50ab8d…` — the `wiring-baseline`
+    /// REFACTOR (2026-10-03, computed with `shasum -a 256`, never edited-to-match) wired
+    /// the HOME baseline into both provider constructions, so the G5 pin was re-anchored
+    /// deliberately and this asserts the honest actual: the value the tree holds.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -315,7 +314,7 @@ final class SpokenTaskInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "641b6445fd163dde55561a242da4e745f79dd7fd61aedcac7c9aff123dd4d237"
+                "4e50ab8dde8dd20f3b3b02e8e6ebb4a4fe97705cd58e2120fdb2e2364d8775cf"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
