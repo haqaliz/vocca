@@ -2279,8 +2279,20 @@ set -euo pipefail
 # lint stays at exactly two permitted files untouched; the existing scrubbed-env row passes
 # unchanged. The count taken from the floor script's own parse in the ratchet commit.
 #
+# `provider-baseline` (the `agent-auth-baseline` unit): +6 — `ProviderBaselineTests`, the
+# provider half of the baseline contract (both providers carry the injected baseline into
+# every configuration they build): the counting-engine rows asserting the configuration's
+# `baselineEnvironment` — the agent's alongside the row's own environment, the shell's
+# beside an empty row environment — the default-posture rows (a provider constructed
+# without a baseline asks the engine for the empty dictionary, byte-identical to today),
+# and the named consequence rows driven over a real `/usr/bin/env` child: a wired baseline
+# reaches a shell child exactly as wired (nothing beyond the union), the unwired default
+# reaches nothing. Init parameters, not files — the transport lint stays at exactly two
+# permitted files untouched, and the Family A-B lints' permitted sets are unchanged. The
+# count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3027
+MINIMUM_EXECUTED_TESTS=3033
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
