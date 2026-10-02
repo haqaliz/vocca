@@ -193,7 +193,8 @@ public struct ActionsAgentFile: Sendable, Equatable {
 
 /// One known coding-agent preset, as the chooser renders it — the tab's plain spelling of
 /// the catalog's row: the stable id, the display name, the candidate names detection
-/// resolves, and the non-interactive argv template the editor pre-fills.
+/// resolves, the non-interactive argv template the editor pre-fills, and the honest auth
+/// hint the editor renders under the Environment field (`wiring-baseline`).
 public struct ActionsAgentPreset: Sendable, Equatable, Identifiable {
     /// The stable identifier of the preset.
     public let id: String
@@ -203,12 +204,19 @@ public struct ActionsAgentPreset: Sendable, Equatable, Identifiable {
     public let candidateNames: [String]
     /// The argv template the editor pre-fills — with the placeholder, never substituted.
     public let arguments: [String]
+    /// The honest auth copy the editor renders under the Environment field — which
+    /// credentials or sign-in this CLI authenticates with, or nil for none.
+    public let authHint: String?
 
-    public init(id: String, displayName: String, candidateNames: [String], arguments: [String]) {
+    public init(
+        id: String, displayName: String, candidateNames: [String], arguments: [String],
+        authHint: String? = nil
+    ) {
         self.id = id
         self.displayName = displayName
         self.candidateNames = candidateNames
         self.arguments = arguments
+        self.authHint = authHint
     }
 }
 

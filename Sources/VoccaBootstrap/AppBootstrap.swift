@@ -755,7 +755,23 @@ public enum AppBootstrap {
                 home: FileManager.default.homeDirectoryForCurrentUser))
         root.shellRegistry = shellRegistry
         Task { @MainActor in
-            let shellProvider = await ShellProvider.load(registry: shellRegistry)
+            // The wired baseline (`wiring-baseline`): the one environment every child starts
+            // from — the user's HOME, resolved at composition — so subscription-auth CLIs
+            // (claude, codex, gemini, opencode, aider, cursor, q, crush) find their config
+            // exactly as they would in the user's own terminal. The composition root may
+            // name Foundation; VoccaActions never computes home. The `load` factory takes no
+            // baseline, so the provider is constructed through the init — the real engine,
+            // the shipped clock and sleeper, exactly as the factory's default would.
+            let shellFile = await shellRegistry.load()
+            let shellProvider = ShellProvider(
+                commands: shellFile.commands,
+                run: { configuration in
+                    await ShellExecutor(
+                        configuration: configuration,
+                        clock: ContinuousStdioClock(),
+                        sleeper: TaskStdioPollSleeper()).run()
+                },
+                baselineEnvironment: ["HOME": NSHomeDirectory()])
             let shellWiring = AppBootstrap.composeShellWiring(
                 configStore: actionConfigStore,
                 auditStore: actionAuditStore,
@@ -787,13 +803,21 @@ public enum AppBootstrap {
                 home: FileManager.default.homeDirectoryForCurrentUser))
         root.agentRegistry = agentRegistry
         Task { @MainActor in
-            let agentProvider = await CodingAgentProvider.load(registry: agentRegistry) {
-                configuration in
-                await ShellExecutor(
-                    configuration: configuration,
-                    clock: ContinuousStdioClock(),
-                    sleeper: TaskStdioPollSleeper()).run()
-            }
+            // The wired baseline (`wiring-baseline`): the same HOME every agent child starts
+            // from — the shell composition's twin, the one environment value at the root.
+            // The `load` factory takes no baseline, so the provider is constructed through
+            // the init — the real engine, the shipped clock and sleeper, exactly as the
+            // factory's default would.
+            let agentFile = await agentRegistry.load()
+            let agentProvider = CodingAgentProvider(
+                agents: agentFile.agents,
+                run: { configuration in
+                    await ShellExecutor(
+                        configuration: configuration,
+                        clock: ContinuousStdioClock(),
+                        sleeper: TaskStdioPollSleeper()).run()
+                },
+                baselineEnvironment: ["HOME": NSHomeDirectory()])
             let agentWiring = AppBootstrap.composeCodingAgentWiring(
                 configStore: actionConfigStore,
                 auditStore: actionAuditStore,
@@ -2064,7 +2088,8 @@ public final class DictationLoopRoot {
                         KnownAgentPresets.all.map {
                             ActionsAgentPreset(
                                 id: $0.id, displayName: $0.displayName,
-                                candidateNames: $0.candidateNames, arguments: $0.arguments)
+                                candidateNames: $0.candidateNames, arguments: $0.arguments,
+                                authHint: $0.authHint)
                         }
                     },
                     detectAgents: {

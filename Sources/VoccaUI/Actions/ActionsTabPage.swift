@@ -108,8 +108,13 @@ struct ActionsTabPage: View {
                 // user's machine with the user's configured project, and the narrowed promise —
                 // that configuring a coding agent is trust extended to the file's author, and
                 // that an enabled agent's egress is never provable — belongs where the agent
-                // is armed.
+                // is armed. The baseline's D2 line sits beside it (`wiring-baseline`): the
+                // composition hands every agent child the user's home directory, so the trust
+                // being extended reaches the whole home folder.
                 Text(ActionsTabCopy.agentD2TrustCopy)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(ActionsTabCopy.agentBaselineD2Copy)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if state.isAgentLoaded && state.agentDefinitions.isEmpty {
@@ -367,6 +372,17 @@ struct ActionsTabPage: View {
             }
             Button(ActionsTabCopy.agentAddEnvironmentEntry) {
                 state = ActionsTabReducer.reduce(state, .agentEnvironmentPairAdded)
+            }
+            // The picked preset's honest auth copy, under the Environment field
+            // (`wiring-baseline`): which credentials or sign-in this CLI authenticates
+            // with — shown only when the preset declares one, so a blank row or a row
+            // whose id is no preset's renders nothing here.
+            if let hint = state.agentPresets.first(where: { $0.id == state.agentIDDraft })?
+                .authHint
+            {
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             TextField(ActionsTabCopy.agentClauseLabel, text: draftBinding(.clause))
             HStack {
