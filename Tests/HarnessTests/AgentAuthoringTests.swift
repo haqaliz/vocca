@@ -285,14 +285,17 @@ final class AgentAuthoringTests: XCTestCase {
             "the refused edit keeps the editor on the original row")
     }
 
-    /// **A `<task>`-containing argv is refused with the placeholder warning** — the preset
-    /// template pre-fills the placeholder, and a save that still carries it is refused loudly
-    /// with a warning naming the placeholder: the row the user saves must be a row that means
-    /// something. Replacing the placeholder makes the same row save.
+    /// **A `<task>`-containing argv is refused with the placeholder warning** — the guardrail
+    /// holds even though the preset pre-fill now renders the concrete default task: a user
+    /// who types the placeholder back in (any save whose argv still carries it) is refused
+    /// loudly with a warning naming the placeholder — the row the user saves must be a row
+    /// that means something. Replacing the placeholder makes the same row save.
     func testAPlaceholderContainingArgvIsRefusedWithThePlaceholderWarning() {
         var state = ActionsTabState.initial
         state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.arguments, "-p <task>"))
         state = ActionsTabReducer.reduce(
             state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
         state = ActionsTabReducer.reduce(
@@ -548,8 +551,9 @@ final class AgentAuthoringTests: XCTestCase {
 
     /// **A preset pick pre-fills executable/argv from the detection fact** — the detected
     /// path when the binary exists there, the first candidate name unresolved when it does
-    /// not (a visible marker the user must make absolute — Save refuses until then) — and a
-    /// blank pick starts empty.
+    /// not (a visible marker the user must make absolute — Save refuses until then), the
+    /// argv template with its `<task>` placeholder rendered as the concrete default task —
+    /// and a blank pick starts empty.
     func testAPresetPickPrefillsExecutableAndArgvFromTheDetectionFact() {
         var state = ActionsTabState.initial
         state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude, Self.codex]))
@@ -565,7 +569,9 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertEqual(
             state.agentExecutablePathDraft, "/opt/homebrew/bin/claude",
             "the detected path pre-fills the executable")
-        XCTAssertEqual(state.agentArgumentsDraft, "-p <task>", "the argv template pre-fills")
+        XCTAssertEqual(
+            state.agentArgumentsDraft, "-p \(ActionsTabCopy.agentDefaultTask)",
+            "the argv template pre-fills with the concrete default task — never the placeholder")
         XCTAssertEqual(state.agentTimeoutDraft, "30")
 
         state = ActionsTabReducer.reduce(state, .agentEditorClosed)
@@ -573,13 +579,40 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertEqual(
             state.agentExecutablePathDraft, "codex",
             "not detected: the first candidate name, unresolved — never a claim that it runs")
-        XCTAssertEqual(state.agentArgumentsDraft, "exec <task>")
+        XCTAssertEqual(state.agentArgumentsDraft, "exec \(ActionsTabCopy.agentDefaultTask)")
 
         state = ActionsTabReducer.reduce(state, .agentEditorClosed)
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: nil))
         XCTAssertEqual(state.agentExecutablePathDraft, "", "a blank pick starts empty")
         XCTAssertEqual(state.agentArgumentsDraft, "")
         XCTAssertEqual(state.agentIDDraft, "")
+    }
+
+    /// **The preset pick pre-fills a concrete default task — and the save succeeds
+    /// immediately.** The `<task>` placeholder never reaches the draft: the editor-side
+    /// render substitutes the concrete default task (the N1 flip — the substitution is the
+    /// editor's render, the catalog pins untouched), so a pick-then-save commits a row that
+    /// means something, without the user touching the arguments field at all.
+    func testAPresetPickPrefillsTheConcreteDefaultTaskAndSavesImmediately() {
+        var state = ActionsTabState.initial
+        state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
+        state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
+        XCTAssertEqual(
+            state.agentArgumentsDraft, "-p \(ActionsTabCopy.agentDefaultTask)",
+            "the concrete default task pre-fills — never the placeholder")
+        XCTAssertFalse(
+            state.agentArgumentsDraft.contains(AgentAuthoringConstants.taskPlaceholder),
+            "no placeholder survives the pre-fill")
+
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
+        state = ActionsTabReducer.reduce(state, .agentSaveRequested)
+        XCTAssertEqual(state.agentDefinitions.count, 1, "the pre-filled row saves immediately")
+        XCTAssertNil(state.saveError, "no placeholder warning — the concrete task is already there")
+        XCTAssertEqual(
+            state.agentDefinitions[0].arguments,
+            ["-p", "Summarize", "the", "current", "project"],
+            "the saved argv carries the concrete task, split on whitespace")
     }
 
     /// **S2: the editor pre-fills the project directory from a remembered last value** — in

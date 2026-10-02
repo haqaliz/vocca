@@ -52,6 +52,9 @@ final class AgentAuthoringSurfaceTests: XCTestCase {
             "Detected — /opt/homebrew/bin/claude")
         XCTAssertEqual(ActionsTabCopy.agentNotDetected, "not detected")
 
+        // The concrete default task the preset pre-fill renders the placeholder as.
+        XCTAssertEqual(ActionsTabCopy.agentDefaultTask, "Summarize the current project")
+
         // The loud refusals — each names what was refused.
         XCTAssertTrue(
             ActionsTabCopy.agentPlaceholderWarning.hasPrefix("Save refused:"),
