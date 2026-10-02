@@ -35,9 +35,9 @@ import XCTest
 /// read back, a raised per-row timeout honored over the injected clock (the run must not die at
 /// the 30 s default when configured otherwise), the terminate → poll → SIGKILL → poll reaping
 /// with the no-orphan acceptance asserted against the kernel (`kill(pid, 0) == -1 && errno ==
-/// ESRCH` on the real child, via ``ShellExecutor/lastProcessIdentifier``), exactly the
-/// configured environment and nothing else, and bounded capture that truncates, reports and
-/// never fatals.
+/// ESRCH` on the real child, via ``ShellExecutor/lastProcessIdentifier``), exactly the declared
+/// baseline merged with the configured environment — and never beyond — and bounded capture
+/// that truncates, reports and never fatals.
 ///
 /// ## No test here may leave a child behind
 ///
@@ -275,8 +275,8 @@ final class CodingAgentExecutionTests: XCTestCase {
         let executor = ShellExecutor(
             configuration: .init(
                 executablePath: Self.environmentAgent,
-                baselineEnvironment: ["PATH": "/baseline/bin", "HOME": "/baseline/home"],
-                environment: ["PATH": "/configured/bin", "VOCCA_AGENT": "1"]),
+                environment: ["PATH": "/configured/bin", "VOCCA_AGENT": "1"],
+                baselineEnvironment: ["PATH": "/baseline/bin", "HOME": "/baseline/home"]),
             clock: ContinuousStdioClock(),
             sleeper: TaskStdioPollSleeper())
         let result = await executor.run()
@@ -305,8 +305,8 @@ final class CodingAgentExecutionTests: XCTestCase {
         let executor = ShellExecutor(
             configuration: .init(
                 executablePath: Self.environmentAgent,
-                baselineEnvironment: ["HOME": "/real/home", "PATH": "/baseline/bin"],
-                environment: ["HOME": ""]),
+                environment: ["HOME": ""],
+                baselineEnvironment: ["HOME": "/real/home", "PATH": "/baseline/bin"]),
             clock: ContinuousStdioClock(),
             sleeper: TaskStdioPollSleeper())
         let result = await executor.run()
