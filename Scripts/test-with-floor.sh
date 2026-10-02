@@ -2303,8 +2303,22 @@ set -euo pipefail
 # (every hint pinned verbatim, the planted-wrong-hint control) — the count taken from the
 # floor script's own parse in the ratchet commit.
 #
+# `agent-pins` (the `agent-auth-baseline` unit): +8 — `AuthBaselineInvariantTests`, the
+# invariant suite (acceptances 1-5: the PROBE-CODING-AGENT line verbatim-unchanged under
+# the interposer with the baseline in the tree — agents=0 + spawnsSubprocess=false
+# field-wise; the lint immobilities read off the lint suites' own literals — the transport
+# permitted set still exactly the two reviewed entries, the FileManager seams still exactly
+# the eight, Family A's seven families and Family B's single minting file unchanged, and
+# the policy parameter still default-less with all 96 submit call sites supplying it, count
+# pinned; the digests — the dictation pair unchanged, AppBootstrap at the wiring REFACTOR's
+# re-anchored literal 4e50ab8d… with every one of the five pin sites carrying the same
+# value; the module-coverage cross-check green — no new module files; the zero-network
+# default-configuration drive green with the baseline wired — a value in the environment of
+# a child the default never spawns). Assertions only — no production code, no lint
+# widening. The count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3044
+MINIMUM_EXECUTED_TESTS=3052
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
