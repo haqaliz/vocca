@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Darwin
 import VoccaCore
 
 /// **The `ContextProvider` seam's real implementation** — the focused application and its
@@ -49,13 +50,17 @@ import VoccaCore
 public actor AccessibilityContext: ContextProvider {
     private let axRead: any ContextAXReading
     private let secureInputRead: any ContextSecureInputReading
+    private let workingDirectoryRead: @Sendable (pid_t) -> String?
 
     public init(
         axRead: any ContextAXReading,
-        secureInputRead: any ContextSecureInputReading
+        secureInputRead: any ContextSecureInputReading,
+        workingDirectoryRead: @escaping @Sendable (pid_t) -> String? =
+            WorkingDirectoryRead.libprocCwd
     ) {
         self.axRead = axRead
         self.secureInputRead = secureInputRead
+        self.workingDirectoryRead = workingDirectoryRead
     }
 
     /// One resolution: Secure Input refused → the empty snapshot; else the raw read, with `nil`
@@ -69,5 +74,23 @@ public actor AccessibilityContext: ContextProvider {
         }
         return ContextSnapshot(
             bundleID: raw.bundleID, windowTitle: raw.windowTitle, selectedText: raw.selectedText)
+    }
+
+    /// **The metadata lane's read** (`working-directory-source` R1): the focused application's
+    /// working directory — Secure Input refused → `nil` (the refusal stays **first**, the
+    /// `resolveCurrent` ordering — for a password field, never ask); no focused app / failed
+    /// pid resolution → `nil`; then the libproc seam's answer, `nil` on any libproc failure.
+    /// Never a throw.
+    ///
+    /// This is the seam the composition root's arm-time resolution rides
+    /// (`agent-wiring-cwd`): the answer is a directory path — a metadata fact, never persisted,
+    /// never joined to ``ContextSnapshot`` (the BYOK gate never carries it). The libproc seam
+    /// is injected with the real adapter as the default — the additive-default shape (PRD
+    /// R2/R3): every existing construction site compiles unchanged, and the composed default
+    /// is the honest read, not an unwired nil.
+    public nonisolated func workingDirectory() -> String? {
+        guard !secureInputRead.isSecureInputActive() else { return nil }
+        guard let pid = axRead.focusedProcessIdentifier() else { return nil }
+        return workingDirectoryRead(pid)
     }
 }

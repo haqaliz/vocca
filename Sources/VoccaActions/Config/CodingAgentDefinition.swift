@@ -21,25 +21,29 @@ import Foundation
 ///
 /// A row names the agent's stable id, the **absolute** executable that runs it (no PATH lookup —
 /// the MCP precedent: the spawn is a `URL(fileURLWithPath:)`, never a search), the fixed argv it
-/// is told, the **absolute** project directory it works in, a timeout with a default, an optional
-/// environment and an optional plain-text clause. **There is no enablement field, no timestamp,
-/// and no `readOnly` field**: enablement is membership in `ActionConfigStore` (providerID
-/// `vocca.agent` + agent id), and an agent is never read-only — its blast radius is
-/// `outwardFacing` for every row by construction (founder decision, the spec's "No `readOnly`
-/// field" row). The byte-pin in `CodingAgentRegistryTests` asserts the key set on the artifact,
-/// and a hand-edited file that grows such a key is refused rather than read.
+/// is told, the **absolute** project directory it works in — or **none**, the nil-directory row
+/// the arm-time detection resolves (the editor's "leave empty to detect the focused app's
+/// project" contract) — a timeout with a default, an optional environment and an optional
+/// plain-text clause. **There is no enablement field, no timestamp, and no `readOnly` field**:
+/// enablement is membership in `ActionConfigStore` (providerID `vocca.agent` + agent id), and
+/// an agent is never read-only — its blast radius is `outwardFacing` for every row by
+/// construction (founder decision, the spec's "No `readOnly` field" row). The byte-pin in
+/// `CodingAgentRegistryTests` asserts the key set on the artifact, and a hand-edited file that
+/// grows such a key is refused rather than read.
 ///
 /// ## Construction is a contract, decoding is a tolerance
 ///
 /// The failable ``init`` is the caller-facing contract: it returns `nil` on any violation — an
-/// empty or over-long id, an empty or non-absolute path, an over-long argv, a timeout outside
-/// `1...600` (with `nil` resolving to the 30-second default), an over-capped environment —
-/// because a definition a caller believes configured must be one the registry will actually
-/// persist. Decoding is the tolerant half and does **not** apply those rules: a planted
-/// `"timeoutSeconds": 0` decodes (the row is then skipped loudly by the registry's validation
-/// pass, one log per row) so that the loudness is the registry's, never a silent nil. What
-/// decoding does refuse is the shape: a key this build cannot name, or a value of the wrong
-/// type — the F1 no-coercion rule, a `1` where a string belongs is never read as one.
+/// empty or over-long id, an empty or non-absolute executable path, a **filled-in** project
+/// directory that is not absolute (a nil or blank directory is the valid nil-directory row,
+/// never a violation), an over-long argv, a timeout outside `1...600` (with `nil` resolving to
+/// the 30-second default), an over-capped environment — because a definition a caller believes
+/// configured must be one the registry will actually persist. Decoding is the tolerant half and
+/// does **not** apply those rules: a planted `"timeoutSeconds": 0` decodes (the row is then
+/// skipped loudly by the registry's validation pass, one log per row) so that the loudness is
+/// the registry's, never a silent nil. What decoding does refuse is the shape: a key this build
+/// cannot name, or a value of the wrong type — the F1 no-coercion rule, a `1` where a string
+/// belongs is never read as one.
 ///
 /// ## The environment is explicit, capped, and the file's own trust surface
 ///
@@ -58,8 +62,12 @@ public struct CodingAgentDefinition: Codable, Equatable, Sendable {
     /// typed at call time. May be empty: a binary that needs no arguments is a valid agent.
     public let arguments: [String]
 
-    /// The absolute directory the agent works in — the "active project", founder decision Q2.
-    public let projectDirectory: String
+    /// The absolute directory the agent works in — the "active project", founder decision Q2 —
+    /// or `nil` for the **nil-directory row**: the editor's empty field, absent or blank in the
+    /// file, resolved once at arm time by the injected `activeProjectDirectory` closure
+    /// (`invocation.resolvedDirectory ?? agent.projectDirectory`). A filled-in value must be
+    /// absolute and must not start with `~`.
+    public let projectDirectory: String?
 
     /// How long the agent may run, in seconds. Absent in the file means 30; anything below 1 or
     /// above ``CodingAgentRegistry/maximumTimeoutSeconds`` is refused, never clamped.
@@ -73,18 +81,26 @@ public struct CodingAgentDefinition: Codable, Equatable, Sendable {
 
     /// Constructs a definition, **returning `nil` on any violation of the row's contract** — the
     /// caller-facing half of the caps: an empty or over-long id, an empty or non-absolute
-    /// executable or project directory, more than ``CodingAgentRegistry/maximumArgumentCount``
-    /// arguments, a timeout outside `1...600` (`nil` resolves to the 30-second default), or an
-    /// environment over its caps. Decoding does not run this pass — see the type documentation.
+    /// executable, a **filled-in** project directory that is not absolute (a nil or blank
+    /// directory is the valid nil-directory row — the arm-time resolution's row), more than
+    /// ``CodingAgentRegistry/maximumArgumentCount`` arguments, a timeout outside `1...600`
+    /// (`nil` resolves to the 30-second default), or an environment over its caps. Decoding does
+    /// not run this pass — see the type documentation.
     public init?(
         id: String, executablePath: String, arguments: [String] = [],
-        projectDirectory: String, timeoutSeconds: Int? = nil,
+        projectDirectory: String? = nil, timeoutSeconds: Int? = nil,
         environment: [String: String]? = nil, clause: String? = nil
     ) {
         let resolvedTimeout = timeoutSeconds ?? CodingAgentRegistry.defaultTimeoutSeconds
         guard !id.isEmpty, id.count <= CodingAgentRegistry.maximumIDLength else { return nil }
         guard !executablePath.isEmpty, Self.isAbsolute(executablePath) else { return nil }
-        guard !projectDirectory.isEmpty, Self.isAbsolute(projectDirectory) else { return nil }
+        let resolvedDirectory: String?
+        if let directory = projectDirectory, !directory.allSatisfy(\.isWhitespace) {
+            guard Self.isAbsolute(directory) else { return nil }
+            resolvedDirectory = directory
+        } else {
+            resolvedDirectory = nil
+        }
         guard arguments.count <= CodingAgentRegistry.maximumArgumentCount else { return nil }
         guard resolvedTimeout >= 1, resolvedTimeout <= CodingAgentRegistry.maximumTimeoutSeconds
         else {
@@ -104,7 +120,7 @@ public struct CodingAgentDefinition: Codable, Equatable, Sendable {
         self.id = id
         self.executablePath = executablePath
         self.arguments = arguments
-        self.projectDirectory = projectDirectory
+        self.projectDirectory = resolvedDirectory
         self.timeoutSeconds = resolvedTimeout
         self.environment = environment
         self.clause = clause
@@ -118,13 +134,22 @@ public struct CodingAgentDefinition: Codable, Equatable, Sendable {
     /// a property of the file shape, not of a caller remembering to fill one in. Value-level
     /// rules (an out-of-range timeout, an over-long id) are the registry's validation pass's, so
     /// a planted violation is skipped loudly rather than read as a different shape.
+    ///
+    /// ``projectDirectory`` is decoded with `decodeIfPresent`, and a present-but-blank value
+    /// **normalizes to nil silently** — the F1-consistent reading: F1 guards reading a value as
+    /// a *different* value, and a blank directory is the same fact as an absent one (unlike
+    /// `timeoutSeconds: 0`, which the pinned tests call a different fact from absent), so the
+    /// blank is read as the fact it spells. The encoder writes only the absent spelling —
+    /// nil encodes to no key at all, "absence has one spelling" — so the artifact never carries
+    /// a blank.
     public init(from decoder: Decoder) throws {
         try Self.rejectUnknownFields(in: decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(String.self, forKey: .id)
         self.executablePath = try container.decode(String.self, forKey: .executablePath)
         self.arguments = try container.decode([String].self, forKey: .arguments)
-        self.projectDirectory = try container.decode(String.self, forKey: .projectDirectory)
+        self.projectDirectory = try container.decodeIfPresent(String.self, forKey: .projectDirectory)
+            .flatMap { $0.allSatisfy(\.isWhitespace) ? nil : $0 }
         self.timeoutSeconds =
             try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds)
             ?? CodingAgentRegistry.defaultTimeoutSeconds

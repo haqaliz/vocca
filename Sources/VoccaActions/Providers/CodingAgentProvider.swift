@@ -27,13 +27,28 @@ import VoccaCore
 ///
 /// ## The sentence is derived from the argv, never authored prose (founder decision)
 ///
-/// ``describe(_:)`` renders the agent id, the fixed argv verbatim, the project directory and
-/// the author's optional clause appended last. A planted argv appears verbatim and a
-/// misleading clause cannot hide it — the card confirms what actually runs, not what the
+/// ``describe(_:)`` renders the agent id, the fixed argv verbatim, the resolved project
+/// directory and the author's optional clause appended last. A planted argv appears verbatim
+/// and a misleading clause cannot hide it — the card confirms what actually runs, not what the
 /// author wrote about it. The clause is untrusted prose rendered into a safety dialog, so it
 /// is sanitised exactly like a value: a control character inside it must not be able to forge
 /// a new line of the dialog it appears in. The rendering lives in ``CodingAgentSentences``,
 /// one place, shared with the invoke path so the sentence and the argv that runs cannot drift.
+///
+/// ## One resolution, both halves (`invocation-carrier`, PRD R2)
+///
+/// The directory is resolved exactly once, per invocation, at arm time and carried on the
+/// invocation itself: both halves read `invocation.resolvedDirectory ?? agent.projectDirectory`
+/// — the invocation's resolved value wins, else the row's. Describe feeds that one value to
+/// the sentence's `in <dir>` clause; invoke feeds the same value to the configuration's
+/// `currentDirectoryURL`, so the child starts where the sentence says it will. When the
+/// resolution is nil the sentence renders clause-less (S1 — the child runs in Vocca's cwd,
+/// visible in the sentence, never hidden) and the configuration is built without a
+/// `currentDirectoryURL`. The nil leg is the shipped shape's own: a row without a
+/// `projectDirectory` — the editor's empty field, absent or blank in the file (the decoder
+/// normalizes blank to nil) — is the valid nil-directory row, resolved once at arm by the
+/// injected `activeProjectDirectory` closure, and a nil-directory row without detection runs
+/// in Vocca's cwd, visible in the sentence, never hidden.
 ///
 /// ## An agent is never read-only
 ///
@@ -68,7 +83,8 @@ import VoccaCore
 /// its permitted set at exactly the stdio transport and the executor). This file names no
 /// transport family: the row's timeout flows into the configuration's timeout, the row's
 /// environment map into the configuration's environment — exactly those variables and nothing
-/// else (the executor scrubs) — and the row's `projectDirectory` into the configuration's
+/// else (the executor scrubs) — and the **resolved** directory
+/// (`invocation.resolvedDirectory ?? agent.projectDirectory`) into the configuration's
 /// `currentDirectoryURL`, so the child starts where the sentence says it will.
 ///
 /// ## What it is not
@@ -175,10 +191,12 @@ public actor CodingAgentProvider: ActionProvider {
                 blastRadius: .outwardFacing)
         }
 
+        let resolvedDirectory = Self.resolvedDirectory(
+            carried: invocation.resolvedDirectory, rowDirectory: agent.projectDirectory)
         return ActionSummary(
             sentence: CodingAgentSentences.sentence(
                 id: agent.id, executablePath: agent.executablePath,
-                arguments: agent.arguments, projectDirectory: agent.projectDirectory,
+                arguments: agent.arguments, projectDirectory: resolvedDirectory,
                 clause: agent.clause),
             blastRadius: .outwardFacing)
     }
@@ -209,12 +227,23 @@ public actor CodingAgentProvider: ActionProvider {
             return .failed(reasonKey: Self.unexpectedArgumentsReasonKey)
         }
 
-        let configuration = ShellExecutor.Configuration(
-            executablePath: agent.executablePath,
-            arguments: agent.arguments,
-            environment: agent.environment ?? [:],
-            currentDirectoryURL: URL(fileURLWithPath: agent.projectDirectory),
-            timeout: .seconds(agent.timeoutSeconds))
+        let resolvedDirectory = Self.resolvedDirectory(
+            carried: invocation.resolvedDirectory, rowDirectory: agent.projectDirectory)
+        let configuration: ShellExecutor.Configuration
+        if let resolvedDirectory {
+            configuration = ShellExecutor.Configuration(
+                executablePath: agent.executablePath,
+                arguments: agent.arguments,
+                environment: agent.environment ?? [:],
+                currentDirectoryURL: URL(fileURLWithPath: resolvedDirectory),
+                timeout: .seconds(agent.timeoutSeconds))
+        } else {
+            configuration = ShellExecutor.Configuration(
+                executablePath: agent.executablePath,
+                arguments: agent.arguments,
+                environment: agent.environment ?? [:],
+                timeout: .seconds(agent.timeoutSeconds))
+        }
         let result = await run(configuration)
         return Self.outcome(from: result)
     }
@@ -232,5 +261,16 @@ public actor CodingAgentProvider: ActionProvider {
         case .failed(let reasonKey):
             return .failed(reasonKey: reasonKey)
         }
+    }
+
+    /// **The one resolution, both halves share** (`invocation-carrier` R2 + `agent-wiring-cwd`
+    /// R3): the invocation's carried arm-time value wins; else the row's own directory — which
+    /// the type guarantees is nil or a non-blank absolute path, so a nil-directory row resolves
+    /// to nil: the clause-less sentence and the no-`currentDirectoryURL` configuration are one
+    /// resolution (S1). A non-nil row resolves byte-identically to the pre-carrier shape.
+    private static func resolvedDirectory(
+        carried: String?, rowDirectory: String?
+    ) -> String? {
+        carried ?? rowDirectory
     }
 }

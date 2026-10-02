@@ -49,10 +49,13 @@ public enum ActionApproval: Sendable {
 /// win. Enabling and disabling produce new values, so "enabled a moment ago" cannot leak into the
 /// next decision.
 ///
-/// Membership is by whole ``ActionInvocation``, not by tool id alone: two providers may serve the
-/// same tool name, and enabling one of them must not enable the other. It is an array rather than
-/// a `Set` because `ActionInvocation` is `Equatable` and not `Hashable`, and this aspect is not the
-/// place to widen the seam's vocabulary for a membership test over a handful of tools.
+/// Membership is by the tool's **identity** — `providerID` + `toolID` — never by the invocation's
+/// payloads: two providers may serve the same tool name, and enabling one of them must not enable
+/// the other, while an invocation's `arguments` or `resolvedDirectory` describe *what the call
+/// carries*, not *which tool it is* (`agent-wiring-cwd` finding — see ``isEnabled(_:)``). It is an
+/// array rather than a `Set` because `ActionInvocation` is `Equatable` and not `Hashable`, and
+/// this aspect is not the place to widen the seam's vocabulary for a membership test over a
+/// handful of tools.
 public struct ActionEnablement: Sendable, Equatable {
 
     /// Nothing is enabled. The shipped posture, and what a caller with nothing to say should pass.
@@ -68,8 +71,19 @@ public struct ActionEnablement: Sendable, Equatable {
 
     /// Whether `invocation` may act. **Absent is off** — there is no third state between enabled
     /// and disabled for a decision to fall through.
+    ///
+    /// Membership is the tool's **identity** — `providerID` + `toolID` — never its payload. The
+    /// enablement names *which tool may act*; an invocation's `arguments` or `resolvedDirectory`
+    /// describe *what the call carries*. The carrier's arm-time resolution
+    /// (`active-project-detection` R3) rebuilds the invocation with the resolved directory — a
+    /// payload the persisted rows never carry — and a membership by whole-value equality would
+    /// decline that invocation as "not enabled" even though the user enabled exactly this
+    /// provider and tool. The `arguments` payload has the same latent wall, unexercised because
+    /// no shipped path submits it through this set.
     public func isEnabled(_ invocation: ActionInvocation) -> Bool {
-        enabled.contains(invocation)
+        enabled.contains {
+            $0.providerID == invocation.providerID && $0.toolID == invocation.toolID
+        }
     }
 
     /// The same set with `invocation` enabled. Enabling twice is enabling once.

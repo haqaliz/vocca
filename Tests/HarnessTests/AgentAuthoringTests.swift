@@ -285,14 +285,17 @@ final class AgentAuthoringTests: XCTestCase {
             "the refused edit keeps the editor on the original row")
     }
 
-    /// **A `<task>`-containing argv is refused with the placeholder warning** — the preset
-    /// template pre-fills the placeholder, and a save that still carries it is refused loudly
-    /// with a warning naming the placeholder: the row the user saves must be a row that means
-    /// something. Replacing the placeholder makes the same row save.
+    /// **A `<task>`-containing argv is refused with the placeholder warning** — the guardrail
+    /// holds even though the preset pre-fill now renders the concrete default task: a user
+    /// who types the placeholder back in (any save whose argv still carries it) is refused
+    /// loudly with a warning naming the placeholder — the row the user saves must be a row
+    /// that means something. Replacing the placeholder makes the same row save.
     func testAPlaceholderContainingArgvIsRefusedWithThePlaceholderWarning() {
         var state = ActionsTabState.initial
         state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.arguments, "-p <task>"))
         state = ActionsTabReducer.reduce(
             state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
         state = ActionsTabReducer.reduce(
@@ -314,10 +317,11 @@ final class AgentAuthoringTests: XCTestCase {
     }
 
     /// **An invalid row is refused loudly, before the file ever sees it** — the definition's
-    /// own init rules, spelled on the surface: a relative or `~` executable path, a relative
-    /// or `~` project directory, a timeout outside `1...600` (or not a number at all), an
-    /// empty id. An emptied timeout draft is the definition's *absent* — the 30-second
-    /// default — not a refusal.
+    /// own init rules, spelled on the surface: a relative or `~` executable path, a **filled-in**
+    /// relative or `~` project directory, a timeout outside `1...600` (or not a number at all),
+    /// an empty id. An emptied timeout draft is the definition's *absent* — the 30-second
+    /// default — not a refusal, and an **empty** project directory is the nil-directory row —
+    /// the caption's contract, never a refusal.
     func testAnInvalidRowIsRefusedAtSaveLoudly() {
         let cases: [(String, (ActionsTabState) -> ActionsTabState, String)] = [
             (
@@ -392,6 +396,60 @@ final class AgentAuthoringTests: XCTestCase {
         defaulted = ActionsTabReducer.reduce(defaulted, .agentSaveRequested)
         XCTAssertEqual(defaulted.agentDefinitions.count, 1)
         XCTAssertEqual(defaulted.agentDefinitions[0].timeoutSeconds, 30)
+    }
+
+    /// **An empty Project directory field saves — the nil-directory row, round-tripped
+    /// through the real registry without the key.** The caption's contract: "leave empty to
+    /// detect the focused app's project" — so the blank draft is not a refusal, and the row
+    /// the editor commits carries no `projectDirectory` at all in the file's bytes (absence
+    /// has one spelling), reloading as nil.
+    func testAnEmptyProjectDirectoryFieldSavesAndRoundTripsWithoutTheKey() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let registry = CodingAgentRegistry(directory: directory)
+
+        var state = ActionsTabState.initial
+        state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
+        state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.arguments, "-p fix the bug"))
+        // The project directory stays the blank pre-fill — the empty field is the point.
+        state = ActionsTabReducer.reduce(state, .agentSaveRequested)
+        XCTAssertEqual(state.agentDefinitions.count, 1, "an empty project directory field saves")
+        XCTAssertNil(
+            state.agentDefinitions[0].projectDirectory,
+            "the empty draft is the nil-directory row — the arm-time resolution's row")
+
+        // The shipped save path: the tab's file, mapped at the root, persisted by the registry.
+        let file = ActionsAgentFile(agents: state.agentDefinitions)
+        let mapped = try AppBootstrap.agentFile(from: file)
+        try await registry.save(mapped)
+        let text = String(decoding: try XCTUnwrap(bytes(in: directory)), as: UTF8.self)
+        XCTAssertFalse(
+            text.contains("projectDirectory"),
+            "absence has one spelling — the saved nil-directory row carries no projectDirectory key")
+
+        let reloaded = await registry.load()
+        XCTAssertEqual(reloaded, mapped, "the reloaded registry is exactly what the save wrote")
+        XCTAssertEqual(reloaded.agents.map(\.id), ["claude"])
+        XCTAssertNil(
+            reloaded.agents[0].projectDirectory,
+            "the nil-directory row survives the round trip as nil")
+    }
+
+    /// **A whitespace-only Project directory field is the empty spelling too** — the field
+    /// reads as the nil-directory row, never a refusal and never a mangled relative path.
+    func testAWhitespaceOnlyProjectDirectoryFieldSavesAsTheNilDirectoryRow() {
+        var state = baselineAdd()
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.projectDirectory, "   "))
+        state = ActionsTabReducer.reduce(state, .agentSaveRequested)
+        XCTAssertEqual(state.agentDefinitions.count, 1)
+        XCTAssertNil(
+            state.agentDefinitions[0].projectDirectory,
+            "a whitespace-only field is the empty spelling — the nil-directory row")
     }
 
     /// **A row over the caps is refused loudly, never clamped** — 65 arguments, 17
@@ -493,8 +551,9 @@ final class AgentAuthoringTests: XCTestCase {
 
     /// **A preset pick pre-fills executable/argv from the detection fact** — the detected
     /// path when the binary exists there, the first candidate name unresolved when it does
-    /// not (a visible marker the user must make absolute — Save refuses until then) — and a
-    /// blank pick starts empty.
+    /// not (a visible marker the user must make absolute — Save refuses until then), the
+    /// argv template with its `<task>` placeholder rendered as the concrete default task —
+    /// and a blank pick starts empty.
     func testAPresetPickPrefillsExecutableAndArgvFromTheDetectionFact() {
         var state = ActionsTabState.initial
         state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude, Self.codex]))
@@ -510,7 +569,9 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertEqual(
             state.agentExecutablePathDraft, "/opt/homebrew/bin/claude",
             "the detected path pre-fills the executable")
-        XCTAssertEqual(state.agentArgumentsDraft, "-p <task>", "the argv template pre-fills")
+        XCTAssertEqual(
+            state.agentArgumentsDraft, "-p \(ActionsTabCopy.agentDefaultTask)",
+            "the argv template pre-fills with the concrete default task — never the placeholder")
         XCTAssertEqual(state.agentTimeoutDraft, "30")
 
         state = ActionsTabReducer.reduce(state, .agentEditorClosed)
@@ -518,13 +579,40 @@ final class AgentAuthoringTests: XCTestCase {
         XCTAssertEqual(
             state.agentExecutablePathDraft, "codex",
             "not detected: the first candidate name, unresolved — never a claim that it runs")
-        XCTAssertEqual(state.agentArgumentsDraft, "exec <task>")
+        XCTAssertEqual(state.agentArgumentsDraft, "exec \(ActionsTabCopy.agentDefaultTask)")
 
         state = ActionsTabReducer.reduce(state, .agentEditorClosed)
         state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: nil))
         XCTAssertEqual(state.agentExecutablePathDraft, "", "a blank pick starts empty")
         XCTAssertEqual(state.agentArgumentsDraft, "")
         XCTAssertEqual(state.agentIDDraft, "")
+    }
+
+    /// **The preset pick pre-fills a concrete default task — and the save succeeds
+    /// immediately.** The `<task>` placeholder never reaches the draft: the editor-side
+    /// render substitutes the concrete default task (the N1 flip — the substitution is the
+    /// editor's render, the catalog pins untouched), so a pick-then-save commits a row that
+    /// means something, without the user touching the arguments field at all.
+    func testAPresetPickPrefillsTheConcreteDefaultTaskAndSavesImmediately() {
+        var state = ActionsTabState.initial
+        state = ActionsTabReducer.reduce(state, .agentPresetsLoaded([Self.claude]))
+        state = ActionsTabReducer.reduce(state, .agentEditorOpened(presetID: "claude"))
+        XCTAssertEqual(
+            state.agentArgumentsDraft, "-p \(ActionsTabCopy.agentDefaultTask)",
+            "the concrete default task pre-fills — never the placeholder")
+        XCTAssertFalse(
+            state.agentArgumentsDraft.contains(AgentAuthoringConstants.taskPlaceholder),
+            "no placeholder survives the pre-fill")
+
+        state = ActionsTabReducer.reduce(
+            state, .agentDraftFieldEdited(.executablePath, "/opt/homebrew/bin/claude"))
+        state = ActionsTabReducer.reduce(state, .agentSaveRequested)
+        XCTAssertEqual(state.agentDefinitions.count, 1, "the pre-filled row saves immediately")
+        XCTAssertNil(state.saveError, "no placeholder warning — the concrete task is already there")
+        XCTAssertEqual(
+            state.agentDefinitions[0].arguments,
+            ["-p", "Summarize", "the", "current", "project"],
+            "the saved argv carries the concrete task, split on whitespace")
     }
 
     /// **S2: the editor pre-fills the project directory from a remembered last value** — in

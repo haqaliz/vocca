@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Darwin
 import Foundation
 import VoccaContext
 import VoccaCore
@@ -77,6 +78,10 @@ enum ContextResolutionHarness {
 
         func readContext() -> RawContextRead? {
             answer
+        }
+
+        func focusedProcessIdentifier() -> pid_t? {
+            nil
         }
     }
 

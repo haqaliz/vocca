@@ -57,6 +57,12 @@ public enum ActionsTabCopy {
     /// The editor's project directory field.
     public static let agentProjectDirectoryLabel = "Project directory"
 
+    /// The editor's project directory field's caption (`agent-wiring-cwd` R4) — what an
+    /// empty field means: the arm-time resolution detects the focused app's working
+    /// directory (the metadata lane's read), and the confirmation sentence shows it.
+    public static let agentProjectDirectoryCaption =
+        "leave empty to detect the focused app's project"
+
     /// The editor's timeout field.
     public static let agentTimeoutLabel = "Timeout (seconds)"
 
@@ -78,6 +84,13 @@ public enum ActionsTabCopy {
 
     /// One preset's detection fact, when the binary exists nowhere the resolver may look.
     public static let agentNotDetected = "not detected"
+
+    /// **The concrete default task the preset pre-fill renders the `<task>` placeholder
+    /// as** — the editor-side render (the N1 flip): a preset pick pre-fills the arguments
+    /// draft with a row that means something, so a pick-then-save commits immediately and
+    /// the user edits the task per row. The catalog's pinned templates are untouched — the
+    /// substitution happens in the draft, never in the catalog.
+    public static let agentDefaultTask = "Summarize the current project"
 
     /// **The `<task>` placeholder warning** (PRD critique gap 1): a save whose argv still
     /// carries the placeholder is refused with the loud explanation — the row the user saves
@@ -107,7 +120,7 @@ public enum ActionsTabCopy {
     public static let agentExecutablePathReason =
         "the executable path must be absolute and must not start with ~"
     public static let agentProjectDirectoryReason =
-        "the project directory must be absolute and must not start with ~"
+        "the project directory, when filled in, must be absolute and must not start with ~"
     public static let agentTimeoutReason =
         "the timeout must be a number between 1 and \(AgentAuthoringConstants.maximumTimeoutSeconds) seconds"
     public static let agentArgumentCountReason =

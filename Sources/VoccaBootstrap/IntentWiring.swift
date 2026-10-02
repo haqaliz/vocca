@@ -166,11 +166,13 @@ extension AppBootstrap {
         provider: Provider,
         executor: ActionExecutor<Provider>,
         resolver: any IntentResolver,
-        root: DictationLoopRoot
+        root: DictationLoopRoot,
+        activeProjectDirectory: @escaping @Sendable () async -> String? = { nil }
     ) -> IntentWiring<Provider> {
         composeIntentWiring(
             configStore: configStore, provider: provider, executor: executor,
-            resolverProvider: { resolver }, root: root)
+            resolverProvider: { resolver }, root: root,
+            activeProjectDirectory: activeProjectDirectory)
     }
 
     /// **The intent wiring recipe over a per-turn resolver** (`phrase-intent-resolver` R5): the
@@ -180,13 +182,21 @@ extension AppBootstrap {
     /// an edit on the next turn without a relaunch, and composing the recipe reads nothing. The
     /// catalog is built first, from the enablement, so a disabled tool is filtered whatever the
     /// resolver holds.
+    ///
+    /// `activeProjectDirectory` is the arm-time resolution's twin (`agent-wiring-cwd` S2) —
+    /// the same injected closure the agent arm rides, with the same nil-shaped default: the
+    /// action leg enriches an empty-row invocation with the focused app's working directory,
+    /// one resolution per turn, and a composition that does not wire it is byte-identical to
+    /// today. The row is read through the root's `agentRegistry` slot per call — never at
+    /// composition — and an explicit row is never re-resolved (G2).
     @MainActor
     public static func composeIntentWiring<Provider: ActionProvider>(
         configStore: ActionConfigStore,
         provider: Provider,
         executor: ActionExecutor<Provider>,
         resolverProvider: @escaping @Sendable @MainActor () async -> any IntentResolver,
-        root: DictationLoopRoot
+        root: DictationLoopRoot,
+        activeProjectDirectory: @escaping @Sendable () async -> String? = { nil }
     ) -> IntentWiring<Provider> {
         let generation = IntentGeneration()
         let logger = Logger(subsystem: "dev.vocca.Vocca", category: "intent-wiring")
@@ -216,13 +226,35 @@ extension AppBootstrap {
         }
 
         let performAction: @Sendable @MainActor (ActionInvocation) async -> String? = {
-            invocation in
+            submitted in
             // The card-up guard, read lazily per call: one card at a time, and a second voice
             // action while a card is up refuses to present — no submission, no record, no swap.
             guard root.widgetStore.state.confirmation == nil else {
                 logger.error(
                     "intent-wiring: refusing a second voice action while a confirmation card is up")
                 return nil
+            }
+
+            // The S2 enrichment (`agent-wiring-cwd`, PRD R3/S1): a row whose project
+            // directory is nil — the absent or blank spelling, a valid row of the file's
+            // shape — is resolved **once per turn** and the invocation is rebuilt with the
+            // detection; an explicit row is never re-resolved (G2). The row source is the
+            // root's `agentRegistry` slot, read lazily per call — a nil read (a composition
+            // that never filled the slot) enriches nothing, so the voice leg degrades to
+            // the provider's own render.
+            var invocation = submitted
+            if let registry = root.agentRegistry {
+                let file = await registry.load()
+                let agent = file.agents.first { $0.id == submitted.toolID }
+                let blank = agent.map { $0.projectDirectory == nil } ?? true
+                if blank,
+                    let resolved = await activeProjectDirectory(),
+                    let rebuilt = ActionInvocation(
+                        providerID: submitted.providerID, toolID: submitted.toolID,
+                        resolvedDirectory: resolved)
+                {
+                    invocation = rebuilt
+                }
             }
 
             let enablement = await configStore.loadEnablement()
@@ -250,7 +282,8 @@ extension AppBootstrap {
                 root.widgetStore.presentActionConfirmation(
                     WidgetConfirmationSignal(
                         sentence: fresh.sentence, providerID: invocation.providerID,
-                        toolID: invocation.toolID, generation: generation.next()))
+                        toolID: invocation.toolID, generation: generation.next(),
+                        resolvedDirectory: invocation.resolvedDirectory))
                 return nil
             case .invoked(_, let outcome):
                 // A read-only tool ran directly (M3) — the voice path's confirmed shape. The

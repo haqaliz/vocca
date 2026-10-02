@@ -2163,8 +2163,81 @@ set -euo pipefail
 # `getcwd` is physical) and `CodingAgentProviderTests` grows the run-closure row asserting
 # `currentDirectoryURL == URL(fileURLWithPath: row.projectDirectory)`.
 #
+# The working-directory-source raise (2958 -> 2967; executed 2967) — the cwd read's contract
+# suite grows nine tests in `WorkingDirectoryReadTests`: the seam returns the injected
+# libproc closure's answer unchanged and nil for nil, the recording fake proves the exact
+# call shape (the pid in, one call, nothing else), the real adapter's grant-free failure
+# path answers nil for a pid that cannot exist, the Secure Input refusal answers nil before
+# any pid read (the refusal-first ordering, the pid read never consulted), no focused app
+# answers nil without consulting the libproc seam, a libproc failure answers nil quietly,
+# the focused pid reaches the libproc seam exactly once, and the cwd read never joins the
+# snapshot (resolution byte-identical, the metadata lane separate) — the count taken from
+# the floor script's own parse in the ratchet commit.
+#
+# The invocation-carrier raise (2967 -> 2976; executed 2976) — the resolved-directory
+# contract suite of the `active-project-detection` unit grows nine tests in
+# `InvocationCarrierTests`: without resolvedDirectory byte-identical to today (the row's
+# directory renders and runs, sentence asserted byte-for-byte), with it verbatim in both
+# halves (the sentence shows the resolved value, never the row's, and the recording runner
+# receives the same value as currentDirectoryURL — one resolution, describe and invoke),
+# the both-nil clause-less sentence exercised directly on the shared render (the shipped
+# row shape's resolution is never nil — the row's projectDirectory is required — so the
+# nil leg of the sentence ships here and the configuration half pins the executor field's
+# nil default, the pre-fix fallback), the gap-1 pin holding with arguments AND a resolved
+# directory on the same invocation, the signal carrying the field through a reducer round
+# trip with the confirm path rebuilding the identical invocation, the additive vocabulary
+# (nil default, equality includes the field), and the empty refusal so absence has one
+# spelling.
+#
+# agent-wiring-cwd (2026-10-01) adds seven: the composed round trip over an empty row
+# (arm → the resolved directory verbatim on the card → confirm runs in it → the audit
+# sentence shows it), the explicit row's zero-calls proof, the one-resolution-per-arm
+# count across the whole round trip, the mid-card stability (the fake's answer changed
+# after the card, the run stays in the arm-time value), the voice leg's detection
+# (phrase → intent leg enrichment → the card carries the resolution → the confirm runs in
+# it), the unwired voice leg's clause-less sentence, and the composed-default facts plus
+# the R4 caption pin. The floor moves 2976 → 2983.
+#
+# The agent-pins raise (2983 -> 2991; executed 2991) — the invariant suite of the
+# `active-project-detection` unit: `ActiveProjectInvariantTests` (8 — the PROBE-CODING-AGENT
+# line run under the interposer and asserted verbatim with the unit's files in the tree, the
+# module-coverage cross-check recomputed from the manifest and pinned to the same twelve
+# library modules with the cross-check's own equality re-asserted, the transport permitted
+# set read off the pin file still exactly the two entries, the FileManager seam table read
+# off the pin file still exactly the eight seams, the AX family still the two one-file seams
+# with the context seam's entry still AXContextSource.swift plus the new file's own naming
+# contract, the Family A/B tables and the policy no-default read off the pin file, the G5
+# digests recomputed with AppBootstrap at the wiring REFACTOR's re-anchored literal, and the
+# zero-network default drive with the cwd read composed asserting the two zeroes) — the count
+# taken from the floor script's own parse in the ratchet commit.
+#
+# The nil-directory-row raise (2991 -> 2999; executed 2999) — the working-directory defect's
+# fix, `projectDirectory` optional end to end: `CodingAgentRegistryTests` grows 3 (a
+# nil-directory row round-trips with absence as its one spelling — no key in the bytes, nil
+# on reload; a blank or absent projectDirectory key is a valid nil-directory row loading
+# quietly; the nil-directory row's canonical bytes pinned whole), `AgentAuthoringTests`
+# grows 2 (an empty Project directory field saves and round-trips without the key; a
+# whitespace-only field saves as nil), `AgentWiringCwdTests` grows 1 (a nil-directory row
+# without detection is clause-less and the confirmed run carries no currentDirectoryURL),
+# and `CodingAgentProviderTests` grows 2 (a nil-directory row describes clause-less and
+# invokes without a currentDirectoryURL; the unexpected-arguments refusal is clause-less
+# for a nil-directory row). The row-shape row was rewritten in place, not counted — the
+# blank-project row flipped from skipped to valid. The lints and the G5 digests are
+# untouched (AppBootstrap.swift unchanged) — the count taken from the floor script's own
+# parse in the ratchet commit.
+#
+# The concrete-task pre-fill raise (2999 -> 3000; executed 3000) — the agent-authoring
+# polish patch (`feat/active-project-detection/aliz`): a preset pick now pre-fills the
+# arguments draft with the concrete default task (`ActionsTabCopy.agentDefaultTask` —
+# "Summarize the current project"), rendered from the catalog's `<task>` placeholder, so
+# a pick-then-save commits immediately; the executable pre-fill, the catalog pins and the
+# `<task>`-Save refusal are untouched. `AgentAuthoringTests` grows 1 (the pre-filled row
+# saves immediately with no placeholder in the draft or the row); the pre-fill test's two
+# assertions and the placeholder-refusal test's first leg were rewritten in place, not
+# counted — the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2958
+MINIMUM_EXECUTED_TESTS=3000
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

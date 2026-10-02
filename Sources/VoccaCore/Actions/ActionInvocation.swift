@@ -15,10 +15,10 @@
 /// Which tool, on which provider, and with what — the plain-data descriptor every operation on
 /// the action seam takes (`action-safety-spine` PRD M2).
 ///
-/// Two identifiers and an optional payload. The identifiers are what the seam, the gate and the
-/// audit log all need in common: the *name* of what is about to happen, which is enough to
-/// render a concrete sentence and to attribute an entry afterwards. The payload arrived later
-/// and for one reason — see ``arguments``.
+/// Two identifiers and two additive payloads. The identifiers are what the seam, the gate and
+/// the audit log all need in common: the *name* of what is about to happen, which is enough to
+/// render a concrete sentence and to attribute an entry afterwards. Each payload arrived later,
+/// additively, and for its own reason — see ``arguments`` and ``resolvedDirectory``.
 ///
 /// Identifiers are `String` because `VoccaCore` imports nothing — not even Foundation, so no
 /// `UUID` and no `URL` (`CoreBoundaryTests.swift:116` enforces the empty allow-list).
@@ -61,6 +61,33 @@ public struct ActionInvocation: Sendable, Equatable {
     /// against the file bytes in `ActionAuditStoreTests`.
     public let arguments: String?
 
+    /// The directory the action should run in, **resolved at arm time** (`invocation-carrier`,
+    /// the `active-project-detection` unit, 2026-10-01), or `nil` when the call carries none.
+    ///
+    /// ## Why the field exists at all
+    ///
+    /// The coding-agent sentence binding demands four byte-identical renders of the directory
+    /// the child will run in — the card, the gate's render, the audit record and the run itself.
+    /// Re-resolving at each render invites mismatch loops and a wrong-directory run race, so the
+    /// resolved value is fixed once, at arm time, and carried: the provider's
+    /// `invocation.resolvedDirectory ?? agent.projectDirectory` is the **one resolution**
+    /// feeding the sentence's `in <dir>` clause and the configuration's `currentDirectoryURL`
+    /// (PRD R2 — the argv-that-runs doctrine extended to the directory).
+    ///
+    /// ## It is a directory, never arguments
+    ///
+    /// This is a separate field from ``arguments`` on purpose: the agent provider refuses any
+    /// invocation that carries argument text (the gap-1 pin — an agent row declares no
+    /// parameters), and a directory smuggled inside `arguments` would be a payload that bought
+    /// itself past that refusal. The two spell different facts about the same call.
+    ///
+    /// ## It is never persisted
+    ///
+    /// The audit entry records the rendered summary — the sentence a person was actually asked
+    /// to approve — and never this text, exactly as with ``arguments``. A resolved directory is
+    /// visible in the record inside the sentence, never as a raw path beside it.
+    public let resolvedDirectory: String?
+
     // MARK: - The bound
 
     /// The largest argument payload an invocation may carry, in UTF-8 bytes.
@@ -72,7 +99,7 @@ public struct ActionInvocation: Sendable, Equatable {
     public static let maximumArgumentsUTF8Bytes = 4096
 
     /// Builds an invocation, or `nil` when either identifier is empty, or when the argument text
-    /// is empty or over ``maximumArgumentsUTF8Bytes``.
+    /// is empty or over ``maximumArgumentsUTF8Bytes``, or when the resolved directory is empty.
     ///
     /// **The refusal is at construction, never a validity flag carried alongside.** An
     /// invocation that exists is one the confirmation sentence can be concrete about (M2) and
@@ -84,12 +111,14 @@ public struct ActionInvocation: Sendable, Equatable {
     /// that is meaningful only after normalisation is a provider id the audit log would record
     /// differently from the one the user confirmed.
     ///
-    /// ## The two refusals the payload adds
+    /// ## The two refusals the payloads add
     ///
     /// **Empty argument text is refused, so absence has one spelling.** `nil` means "no
     /// arguments"; `""` would be a second way to say the same thing, and two spellings of one
     /// state are two cases every consumer has to treat alike — the shape in which one of them
-    /// eventually does not.
+    /// eventually does not. The resolved directory follows the same rule: `nil` means "no
+    /// resolved directory" (the sentence renders without an `in` clause), and `""` would render
+    /// a dishonest `in .` on a card nobody confirmed.
     ///
     /// **Oversized argument text is refused, never truncated** — and the difference from
     /// `ActionAuditEntry`'s summary, which truncates, is the point. A truncated *sentence* is a
@@ -103,14 +132,25 @@ public struct ActionInvocation: Sendable, Equatable {
     ///   - arguments: JSON text the provider will parse, or `nil` for a call that carries none.
     ///     Defaults to `nil`, so every construction site written before this field existed keeps
     ///     compiling and keeps meaning exactly what it meant.
-    public init?(providerID: String, toolID: String, arguments: String? = nil) {
+    ///   - resolvedDirectory: The directory the action should run in, resolved at arm time, or
+    ///     `nil` for a call that carries none. Defaults to `nil`, so every construction site
+    ///     written before this field existed keeps compiling and keeps meaning exactly what it
+    ///     meant.
+    public init?(
+        providerID: String, toolID: String, arguments: String? = nil,
+        resolvedDirectory: String? = nil
+    ) {
         guard !providerID.isEmpty, !toolID.isEmpty else { return nil }
         if let arguments {
             guard !arguments.isEmpty else { return nil }
             guard arguments.utf8.count <= Self.maximumArgumentsUTF8Bytes else { return nil }
         }
+        if let resolvedDirectory {
+            guard !resolvedDirectory.isEmpty else { return nil }
+        }
         self.providerID = providerID
         self.toolID = toolID
         self.arguments = arguments
+        self.resolvedDirectory = resolvedDirectory
     }
 }

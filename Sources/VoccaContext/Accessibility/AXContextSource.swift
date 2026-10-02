@@ -87,6 +87,23 @@ public final class AXContextSource: ContextAXReading, Sendable {
         }
     }
 
+    /// The focused application's process identifier, raw — the pid the bundle-identifier walk
+    /// resolves from, handed out before the AppKit translation so the `working-directory-source`
+    /// seam can ask libproc about it. `nil` when the system answers "nothing focused" or the
+    /// pid copy fails (including a timeout).
+    ///
+    /// This is the pid that currently dies inside ``bundleIdentifier(of:)``, exposed through
+    /// the ``ContextAXReading`` witness: the pid is not an AX identifier, so it may cross the
+    /// file boundary — the AX-family lint confines the *prefixes*, and `pid_t` names none.
+    public func focusedProcessIdentifier() -> pid_t? {
+        timedCall { () -> pid_t? in
+            guard let appElement = self.copyElement(
+                kAXFocusedApplicationAttribute as CFString, on: AXUIElementCreateSystemWide())
+            else { return nil }
+            return self.processIdentifier(of: appElement)
+        }
+    }
+
     // MARK: - Raw helpers (translation only)
 
     /// One attribute copy, as raw as the C call: `.success` → the value, anything else → `nil`.
@@ -116,11 +133,20 @@ public final class AXContextSource: ContextAXReading, Sendable {
             kAXFocusedUIElementAttribute as CFString, on: AXUIElementCreateSystemWide())
     }
 
-    /// The focused application's bundle identifier: `AXUIElementGetPid` → `NSRunningApplication`.
-    private func bundleIdentifier(of app: AXUIElement) -> String? {
+    /// The focused application's process identifier: `AXUIElementGetPid`, raw — the one fact
+    /// the bundle-identifier translation and the cwd seam both resolve from.
+    private func processIdentifier(of app: AXUIElement) -> pid_t? {
         var pid: pid_t = 0
         guard AXUIElementGetPid(app, &pid) == AXError.success else { return nil }
-        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        return pid
+    }
+
+    /// The focused application's bundle identifier: ``processIdentifier(of:)`` →
+    /// `NSRunningApplication`.
+    private func bundleIdentifier(of app: AXUIElement) -> String? {
+        processIdentifier(of: app).flatMap {
+            NSRunningApplication(processIdentifier: $0)?.bundleIdentifier
+        }
     }
 
     /// The focused window's title: the application element's `kAXFocusedWindowAttribute`, then

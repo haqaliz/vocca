@@ -639,6 +639,23 @@ public enum AppBootstrap {
             _ = await contextWiring.resolve(nil)
         }
 
+        // The metadata lane's read (`agent-wiring-cwd`, PRD R1/G4): the arm-time and
+        // voice-turn resolution over the focused app's working directory —
+        // `AccessibilityContext`'s metadata read, wired **beside** the consent-gated
+        // `contextResolution` slot, never through it (the lane is a directory path —
+        // metadata — never the BYOK carrier). The instance is the context composition's
+        // twin over the same two seams: the wiring-close pin keeps the context block's own
+        // construction, and the read is stateless (the actor holds the two seam references
+        // only), so the two instances answer identically. The read is nonisolated and
+        // synchronous, so the closure needs no main-actor hop and runs wherever the wiring
+        // calls it.
+        let accessibilityContext = AccessibilityContext(
+            axRead: AXContextSource(),
+            secureInputRead: ContextSecureInputRead())
+        let activeProjectDirectory: @Sendable () async -> String? = {
+            accessibilityContext.workingDirectory()
+        }
+
         // The action composition (C13 slice 5, R7 — the C11/C12 additive shape, one more recipe
         // + the root slots above): the executor over the real audit store, the config store over
         // the shipped directory, the real `AuditActionProvider` (the one provider that exists
@@ -714,7 +731,8 @@ public enum AppBootstrap {
             provider: actionProvider,
             executor: actionWiring.executor,
             resolverProvider: intentResolverProvider,
-            root: root)
+            root: root,
+            activeProjectDirectory: activeProjectDirectory)
         root.intentWiring = intentWiring
         // The fact carrier: the same provider the wiring resolves through, kept so the probe
         // can derive the composed default's posture by calling it.
@@ -782,7 +800,8 @@ public enum AppBootstrap {
                 registry: agentRegistry,
                 provider: agentProvider,
                 sessionActive: sessionActive,
-                root: root)
+                root: root,
+                activeProjectDirectory: activeProjectDirectory)
             root.agentWiring = agentWiring
             root.agentExecutor = agentWiring.executor
         }

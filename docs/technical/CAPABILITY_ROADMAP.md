@@ -377,6 +377,18 @@ loudly; boundary 21/22 passes) with the real run env-gated — **recorded, never
 resolution percentage exists until a real run** (`SMOKE_CHECKLIST.md` 139-143). No gate
 passes; the fourth unit built ahead of the uncleared P2/P3 gates under the recorded posture.)*
 
+*(Amended by the `active-project-detection` unit, 2026-10-01: **the cwd metadata read
+ships** — the context half's metadata lane, its own seam. `WorkingDirectoryRead`
+(`VoccaContext/Accessibility/WorkingDirectoryRead.swift`, the `AgentCLIDetection` shape —
+a pure resolver over an injected closure): `resolve(pid:libprocRead:)` +
+`libprocCwd` (one `proc_pidinfo(PROC_PIDVNODEPATHINFO)` call, the path in
+`pvi_cdir.vip_path` — never `vi_cwd` — every failure → `nil`); `ContextAXReading` gains
+the `focusedProcessIdentifier` witness and `AccessibilityContext.workingDirectory()` the
+additive defaulted read (Secure Input refused first). The metadata lane is **D1**: a
+directory path, never content — no per-app consent, never persisted, **never joins
+`ContextSnapshot`** and never rides the consent-gated resolve slot or the BYOK payload;
+the arm-time consumption is C13's (see the C13 amendment below).)*
+
 ---
 
 ## C13. Actions and MCP · P4, weeks 19–22
@@ -655,6 +667,55 @@ unchanged). No gate passes.
 
 SMOKE 160 is written and runnable, recorded and never gated; no agent-success rate may
 be quoted until a real run exists. Test floor: **2956**.)*
+
+*(Amended by the `active-project-detection` unit, 2026-10-01: **slice 11 of C13 shipped —
+the arm-time detection**, the C12 metadata lane's consumption: the focused app's working
+directory becomes the empty row's project at arm time. Shipped:
+- **The carrier**: `ActionInvocation.resolvedDirectory` (additive, default nil) +
+  `WidgetConfirmationSignal.resolvedDirectory`; the **nil-tolerant sentence** (no
+  directory → no `in` clause); the provider's
+  `invocation.resolvedDirectory ?? agent.projectDirectory` rule in both halves —
+  describe's clause and invoke's `currentDirectoryURL` (the child starts where the
+  sentence says); the gap-1 pin holds (the directory is a separate field, never
+  `arguments`).
+- **The arm-time closure**: `composeCodingAgentWiring`/`composeIntentWiring` gained
+  `activeProjectDirectory` (nil-shaped default) — an empty row resolves **exactly
+  once** at arm and the value rides the invocation → card → post-record re-render →
+  confirm/decline rebuild: one resolution, four identical renders (a focus change
+  mid-card can never mismatch or mis-run); **D2 explicit-wins** (a configured row is
+  never re-resolved — the zero-calls proof); the **voice leg ships (S2)** (phrase →
+  intent-leg enrichment → the card carries the resolution → the confirm runs in it);
+  the R4 editor caption.
+- **The seam fact**: the cwd read is `WorkingDirectoryRead` (C12's amendment above),
+  `proc_pidinfo(PROC_PIDVNODEPATHINFO)` — unmeasured in this repo until **SMOKE 161**
+  (D3): the real read on the founder's real apps, recorded never gated, no rate quoted.
+- **The invariants held**: composed default still `agents=0 spawnsSubprocess=false`
+  (PROBE-CODING-AGENT verbatim), the transport permitted set still exactly two files,
+  the FileManager seam table still eight seams, the AX family still the two one-file
+  seams, the module-coverage cross-check unchanged (twelve modules), the dictation
+  digests untouched.
+
+G5 re-anchored once, deliberately (`c7d6767c…` → `641b6445…`; dictation digests
+unchanged). No gate passes.
+
+**What is still NOT built — the remaining C13 machinery:**
+- **reply-text rendering** (the real spoken answer to an agent run — the reply seam's last
+  piece)
+- a **phrase-then-keyword composite resolver**
+- an **audit-tools arm section** in the Actions tab
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load by
+  decision, and reversing it is a founder call)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- the deferred N1/N2: `{{utterance}}` task seeding and `$N` parameter slots (an agent row
+  declares no parameters — the arguments-refusal pin is the shipped record)
+- the follow-ons this unit recorded: **tab-aware detection** (this slice resolves the
+  frontmost app only — the AX focused-process fact, never the active tab of a
+  multi-window app; the critique's hard question recorded), **tilde paths** (pending a
+  home accessor on the file-system seam), and the **N1 live "detected" hint** in the row
+  editor (the caption is the shipped copy)
+
+SMOKE 161 is written and runnable, recorded and never gated; no resolution rate may be
+quoted. Test floor: **2991**.)*
 
 ---
 

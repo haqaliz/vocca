@@ -14,18 +14,12 @@
 
 import CryptoKit
 import Foundation
-import Synchronization
-import VoccaActions
-import VoccaBootstrap
-import VoccaCore
-import VoccaHotkey
-import VoccaInject
-import VoccaUI
 import XCTest
 
-/// **The agent-presets invariant suite** (`agent-pins` spec acceptances 1-5): the composed
-/// default's promises and the lint/digest immobilities re-asserted — deliberately, as tests —
-/// with the catalog, detection and authoring surface in the tree.
+/// **The active-project-detection invariant suite** (`agent-pins` spec acceptances 1-5): the
+/// composed default's promises and the lint/digest immobilities re-asserted — deliberately, as
+/// tests — with the cwd read (`WorkingDirectoryRead`), the invocation field
+/// (`resolvedDirectory`) and the threaded wiring (`activeProjectDirectory`) in the tree.
 ///
 /// ## What each leg is
 ///
@@ -37,25 +31,27 @@ import XCTest
 ///   (the `ZeroNetworkTests` drive shape) and asserts the `PROBE-CODING-AGENT` line is
 ///   verbatim-unchanged — `agents=0 spawnsSubprocess=false` and the whole seeded round trip
 ///   still reported exactly as `ZeroNetworkTests.expectedCodingAgentLifecycle` pins it.
-/// - Acceptance 2 is the **round-trip pin through the composed wiring**: a row written via the
-///   shipped mapping (`AppBootstrap.agentFile(from:)` → the real registry's save) renders
-///   through `CodingAgentWiring.listAgents` with enablement default off — over real temp
-///   stores, with a recording engine closure that is provably never reached.
+/// - Acceptance 2 is the **module-coverage cross-check** read again: the exercised-module set
+///   (the probe's `PROBE-MODULES` line) must equal the set the cross-check derives from the
+///   manifest and the `Sources/` listing — the same twelve library modules, `VoccaContext`
+///   among them (the new file's module is covered; the drive's witnesses already cover it via
+///   `AccessibilityContext` — verified, no witness was needed).
 /// - Acceptance 3 re-asserts the lint tables' **current state** — the transport permitted set
 ///   is still exactly the two reviewed entries, the FileManager seam table still names exactly
-///   the eight seams, Family A's seven families and Family B's single minting file are
+///   the eight seams, the AX family is still confined to the two one-file seams with the
+///   context seam's entry still `AXContextSource.swift` (and the unit's new file names none of
+///   the forbidden families), Family A's seven families and Family B's single minting file are
 ///   unchanged, and the `policy:` parameter still has no default. The scans themselves are the
 ///   lint suites' own tests (`ActionTransportProhibitionTests`, `InjectionSeamBoundaryTests`,
 ///   `ActionSeamBoundaryTests`), which run in this same full-suite run; this leg pins the state
 ///   they enforce so a change to either side fails here first, in review.
 /// - Acceptance 4 recomputes the three G5 digests and asserts the dictation pair is unchanged
-///   and `AppBootstrap.swift` still holds the authoring REFACTOR's re-anchored literal
-///   (`092d8ba6…` → `c7d6767c…`, computed with `shasum -a 256`, never edited-to-match).
-/// - Acceptance 5 proves catalog construction + detection are **exactly** file-existence
-///   checks: the recording closure's check set over the shipped catalog is asserted in full —
-///   8 presets × 1 candidate name × 3 candidate paths = 24 checks in the deterministic order,
-///   nothing more, nothing less — and the shipped catalog file imports nothing, so the
-///   catalog's "construction does nothing" claim is structural rather than hoped.
+///   and `AppBootstrap.swift` still holds the wiring REFACTOR's re-anchored literal
+///   (`c7d6767c…` → `641b6445…`, computed with `shasum -a 256`, never edited-to-match).
+/// - Acceptance 5 runs the zero-network default-configuration drive with the cwd read composed
+///   and asserts the interposer saw nothing: `proc_pidinfo` is not a network call, the read
+///   happens only at arm time over the injected closure, and the probe's default run never
+///   invokes the arm path.
 ///
 /// ## What is honest about a pins suite
 ///
@@ -63,8 +59,7 @@ import XCTest
 /// not move, the lints did not widen, the digests did not change. A green run here is the
 /// result, not a failure to be manufactured — the value is that a *future* edit to any of the
 /// pinned things now fails in review with a named leg.
-@MainActor
-final class AgentPresetsInvariantTests: XCTestCase {
+final class ActiveProjectInvariantTests: XCTestCase {
 
     // MARK: - Acceptance 1: the PROBE-CODING-AGENT line is verbatim-unchanged
 
@@ -126,11 +121,6 @@ final class AgentPresetsInvariantTests: XCTestCase {
     /// whole line against the pinned literal, and reads the two composed-default facts back
     /// field by field: `agents=0` (an absent registry is the empty registry) and
     /// `spawnsSubprocess=false` (the D2 narrowed promise, declared for the configuration).
-    ///
-    /// This is a re-assertion of what `ZeroNetworkTests` proves with the same drive — the
-    /// non-change made deliberate and recorded, so a future edit to the composed default or
-    /// the drive fails in review with a named leg rather than as a coincidence of the
-    /// zero-network suite.
     func testTheProbeCodingAgentLineIsVerbatimUnchangedWithTheUnitInTheTree() throws {
         let observation = try runProbe(mode: .defaultConfiguration)
 
@@ -150,10 +140,10 @@ final class AgentPresetsInvariantTests: XCTestCase {
             The PROBE-CODING-AGENT line is no longer verbatim-unchanged.
               expected: \(Self.expectedCodingAgentLifecycle)
               observed: \(payload)
-            The composed default's promises must not move with the catalog, detection and \
-            editor in the tree — if the drive's report changed deliberately, re-anchor this \
-            literal and ZeroNetworkTests' own constant in the same reviewed edit, never \
-            edited-to-match.
+            The composed default's promises must not move with the cwd read, the invocation \
+            carrier and the wiring in the tree — if the drive's report changed deliberately, \
+            re-anchor this literal and ZeroNetworkTests' own constant in the same reviewed \
+            edit, never edited-to-match.
             """)
 
         let fields = try parseFields(of: payload)
@@ -173,80 +163,84 @@ final class AgentPresetsInvariantTests: XCTestCase {
                 + "fact, folded into the probe line, not commented")
     }
 
-    // MARK: - Acceptance 2: the composed round trip
+    // MARK: - Acceptance 2: the module-coverage cross-check
 
-    /// **Acceptance 2 — a saved row renders through the composed wiring with enablement
-    /// default off.** The shipped mapping (`AppBootstrap.agentFile(from:)` — the translation
-    /// the composition root's `saveAgents` closure uses) writes a row through the **real**
-    /// registry over a real temp directory; then the **composed** `CodingAgentWiring`
-    /// (`composeCodingAgentWiring`, the exact call `configure` makes) renders it as a tool
-    /// row: the fixed argv as summary, outwardFacing by construction, `isEnabled` false on an
-    /// empty enablement store (absent is off, M7). The engine closure is recording and its
-    /// count stays zero — nothing spawned, nothing even reached the acting half.
-    func testASavedRowRendersThroughTheComposedWiringWithEnablementDefaultOff() async throws {
-        let directory = Self.tempDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+    /// **Acceptance 2 — the module-coverage cross-check is green with the unit's files in the
+    /// tree.** The cross-check (`ZeroNetworkTests.testDefaultConfigurationMakesZeroNetworkConnections`'s
+    /// final assertion) derives the required set from the manifest and the `Sources/` listing —
+    /// every module directory ∪ every drivable target, minus the non-drivable kinds, minus
+    /// only the exclusions the manifest justifies (`VoccaNetworkProbe`, `CVoccaNetworkInterposer`
+    /// — each re-asserted to exist and not to ship). This leg recomputes that set the same way,
+    /// pins it to the same twelve library modules (the set is unchanged — the unit added no
+    /// module, only a file inside a covered one), and re-asserts the cross-check's own equality
+    /// against what the probe actually reported driving.
+    func testTheModuleCoverageCrossCheckStillCoversEveryModuleWithTheNewFileInTheTree() throws {
+        let observation = try runProbe(mode: .defaultConfiguration)
+        let root = try PackageRootLocator.find(from: #filePath)
+        let manifest = try PackageManifest.load(packageRoot: root)
 
-        let configStore = ActionConfigStore(directory: directory.appendingPathComponent("config"))
-        let registry = CodingAgentRegistry(directory: directory.appendingPathComponent("agents"))
+        let candidates = try sourceDirectories().union(manifest.drivableTargetNames)
+        let exclusions: Set<String> = ["VoccaNetworkProbe", "CVoccaNetworkInterposer"]
+        for exclusion in exclusions.sorted() {
+            XCTAssertNotNil(
+                manifest.targets[exclusion],
+                "coverage exclusion '\(exclusion)' is not a target in this package — a stale "
+                    + "name here excludes nothing")
+            XCTAssertFalse(
+                manifest.shippingTargets.contains(exclusion),
+                """
+                coverage exclusion '\(exclusion)' is no longer justified: the manifest says it \
+                is reachable from a product this package ships, so the probe must drive it. \
+                Drive it from VoccaNetworkProbe.exerciseDefaultConfiguration() instead of \
+                excluding it.
+                """)
+        }
+        let required =
+            candidates
+            .subtracting(manifest.nonDrivableTargetNames)
+            .subtracting(exclusions)
+        XCTAssertFalse(
+            required.isEmpty,
+            "the required module set is empty — the cross-check would be asserting against "
+                + "nothing")
 
-        // The tab's spelling of one saved row, mapped at the root exactly as the shipped
-        // saveAgents binding does, and persisted by the real registry.
-        let file = ActionsAgentFile(
-            agents: [
-                ActionsAgentDefinition(
-                    id: "claude",
-                    executablePath: "/opt/homebrew/bin/claude",
-                    arguments: ["-p", "fix", "the", "bug"],
-                    projectDirectory: "/Users/alice/Projects/work",
-                    timeoutSeconds: 30)
-            ])
-        let mapped = try AppBootstrap.agentFile(from: file)
-        try await registry.save(mapped)
+        // The module set is unchanged: exactly the twelve library modules, VoccaContext among
+        // them — the unit's new file lives in a module the drive's witnesses already cover.
+        let shippedModules: Set<String> = [
+            "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR", "VoccaText",
+            "VoccaInject", "VoccaSpeech", "VoccaContext", "VoccaActions", "VoccaUI",
+            "VoccaUsage", "VoccaBootstrap",
+        ]
+        XCTAssertEqual(
+            shippedModules.count, 12,
+            "the pinned module set must be exactly the twelve library modules — the vacuity "
+                + "guard that keeps this pin watching something")
+        XCTAssertEqual(
+            required, shippedModules,
+            """
+            The module set the cross-check derives is no longer the twelve library modules. \
+            Got \(required.sorted()). A module added to this package must be driven by the \
+            probe's default-configuration path (a reviewed edit to VoccaNetworkProbe), never \
+            excluded silently — and one removed must be removed here too.
+            """)
         XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: directory.appendingPathComponent("agents/coding-agents.json").path),
-            "the save must have written real bytes — the render below reads what the file holds")
+            shippedModules.contains("VoccaContext"),
+            "the new file's module must be among the covered modules — the cross-check's "
+                + "module-granular claim covers WorkingDirectoryRead through the "
+                + "AccessibilityContext witness")
 
-        // The composed wiring, built exactly as the composition root builds it: the real
-        // provider over the same registry, an engine closure that records instead of spawning.
-        let engine = EngineCallRecorder()
-        let provider = await CodingAgentProvider.load(registry: registry, run: engine.run)
-        let root = makeRoot()
-        let wiring = AppBootstrap.composeCodingAgentWiring(
-            configStore: configStore,
-            auditStore: FileSystemActionAuditStore(
-                directory: directory.appendingPathComponent("audit")),
-            registry: registry,
-            provider: provider,
-            sessionActive: { false },
-            root: root)
-
-        let rows = await wiring.listAgents()
+        // The cross-check's own equality, re-asserted: what the probe reported driving is
+        // exactly the required set — the cross-check test itself stays green.
         XCTAssertEqual(
-            rows.count, 1,
-            "the saved row renders through the composed wiring — the file is the memory, and "
-                + "the surface reads it per call")
-        XCTAssertEqual(rows[0].providerID, CodingAgentProvider.providerID)
-        XCTAssertEqual(rows[0].toolID, "claude")
-        XCTAssertEqual(
-            rows[0].summary, "/opt/homebrew/bin/claude -p fix the bug",
-            "the row's summary is the fixed argv — executable and arguments joined, never "
-                + "authored prose")
-        XCTAssertEqual(
-            rows[0].radius, .outwardFacing,
-            "an agent is never read-only — outwardFacing by construction")
-        XCTAssertFalse(
-            rows[0].isEnabled,
-            "enablement defaults off — absent is off (M7), and an empty enablement store is "
-                + "the honest first-launch answer")
-        XCTAssertFalse(
-            wiring.spawnsSubprocess,
-            "the composed default still declares it spawns no child")
-        XCTAssertEqual(
-            engine.callCount, 0,
-            "rendering the row reached the engine zero times — nothing spawned, counted on "
-                + "the engine's own log")
+            observation.reportedModules, required,
+            """
+            The probe's default-configuration path does not cover every module in this package.
+              never driven by the probe: \(required.subtracting(observation.reportedModules).sorted())
+              reported but not a module: \(observation.reportedModules.subtracting(required).sorted())
+            A module the probe never reaches is a module the zero-network invariant says \
+            nothing about.
+            \(observation.diagnosticSummary)
+            """)
     }
 
     // MARK: - Acceptance 3: the lint immobilities
@@ -271,10 +265,10 @@ final class AgentPresetsInvariantTests: XCTestCase {
             ],
             """
             the transport prohibition's permitted set must be exactly the two reviewed entries \
-            — the stdio transport and the shell executor. The catalog, detection and editor \
-            added nothing for it to see; a third entry means a spawn moved somewhere this lint \
-            (and this pin) must name in review, with the D2 answer the entry owes. Read off \
-            the pin file's own literal: \(body).
+            — the stdio transport and the shell executor. The cwd read, the invocation carrier \
+            and the wiring added nothing for it to see; a third entry means a spawn moved \
+            somewhere this lint (and this pin) must name in review, with the D2 answer the \
+            entry owes. Read off the pin file's own literal: \(body).
             """)
     }
 
@@ -298,13 +292,83 @@ final class AgentPresetsInvariantTests: XCTestCase {
             """
             the FileManager seam table must name exactly the eight shipped seams: journal, \
             dictionary, config, strategy, usage, consent, actions, action-config. The \
-            agent-presets files ride the existing seams (the registry uses \
-            ActionConfigFileSystem) — a new file-system-naming file would be a widening, \
-            never a silent addition. Read off the pin file's own literal: \(body).
+            active-project-detection files ride the existing seams (the cwd read is a libproc \
+            call, not a FileManager one — a new file-system-naming file would be a widening, \
+            never a silent addition). Read off the pin file's own literal: \(body).
             """)
     }
 
-    /// **Acceptance 3c — Family A's seven families and Family B's single minting file are
+    /// **Acceptance 3c — the AX family is still confined to the two one-file seams, and the
+    /// unit's new file names none of the forbidden families.** The
+    /// `InjectionSeamBoundaryTests` accessibility table, read as the current state of the pin
+    /// file itself: exactly the two seams, each with exactly one file, and the context seam's
+    /// entry still `VoccaContext/Accessibility/AXContextSource.swift` — the unit's
+    /// `WorkingDirectoryRead.swift` sits beside it and must not have become a second
+    /// AX-naming file. The tree-wide scan is that suite's own test; this leg pins the state
+    /// and then re-asserts the new file's own naming contract (the file's doc comment names
+    /// it: no AX prefix, no FileManager, no `Process`-prefixed identifier) against a planted
+    /// control so the clean result is not vacuous.
+    func testTheAccessibilityFamilyIsStillConfinedAndTheNewFileNamesNoFamily() throws {
+        let source = try pinFileSource("InjectionSeamBoundaryTests.swift")
+        let body = try bracketBody(
+            of: source, after: "filesPermittedToNameAccessibilityIdentifiersBySeam",
+            file: "InjectionSeamBoundaryTests.swift")
+        let entries = try seamTableEntries(of: body)
+        XCTAssertFalse(
+            entries.isEmpty,
+            "the accessibility seam table must not be empty — an empty table passes 'no file "
+                + "names the family' vacuously")
+        XCTAssertEqual(
+            Set(entries.keys), ["accessibility", "context"],
+            """
+            the accessibility family must still have exactly the two seams — the injection \
+            rung's \(entries.keys.sorted()). A third seam is a widening, never a silent \
+            addition.
+            """)
+        XCTAssertEqual(
+            entries["accessibility"],
+            ["VoccaInject/Accessibility/AXSource.swift"],
+            "the injection seam's one AX-naming file must stay AXSource.swift")
+        XCTAssertEqual(
+            entries["context"],
+            ["VoccaContext/Accessibility/AXContextSource.swift"],
+            """
+            the context seam's one AX-naming file must stay AXContextSource.swift — the \
+            unit's WorkingDirectoryRead.swift sits in the same directory and must not have \
+            become a second entry.
+            """)
+
+        // The new file's own naming contract, asserted against the file itself: no AX prefix,
+        // no FileManager identifier, no Process-prefixed identifier — with a planted control
+        // proving the detector would catch each family.
+        let root = try PackageRootLocator.find(from: #filePath)
+        let readFile = root.appendingPathComponent(
+            "Sources/VoccaContext/Accessibility/WorkingDirectoryRead.swift")
+        let readSource = try String(contentsOf: readFile, encoding: .utf8)
+        XCTAssertTrue(
+            readSource.contains("WorkingDirectoryRead"),
+            "the pinned file must still declare the seam — otherwise this pin watches nothing")
+        for (family, prefixes) in [
+            ("AX", ["AXUIElement", "AXError", "kAX", "AXObserver"]),
+            ("FileManager", ["FileManager"]),
+            ("Process", ["Process"]),
+        ] {
+            XCTAssertEqual(
+                Self.familyIdentifiers(prefixes, inSource: readSource), [],
+                "WorkingDirectoryRead must name no \(family) family identifier — the seam's "
+                    + "vocabulary is the pid and the path, and a naming file would be a "
+                    + "decision that escaped the seams CI can reach")
+        }
+        XCTAssertEqual(
+            Self.familyIdentifiers(
+                ["AXUIElement", "AXError", "kAX", "AXObserver", "FileManager", "Process"],
+                inSource: "let el: AXUIElement? = nil; _ = FileManager.default; _ = Process()"),
+            ["AXUIElement", "FileManager", "Process"],
+            "the planted control must catch each family — a clean result for the shipped file "
+                + "is only meaningful if the detector can fail")
+    }
+
+    /// **Acceptance 3d — Family A's seven families and Family B's single minting file are
     /// unchanged, and the `policy:` parameter still has no default.** The
     /// `ActionSeamBoundaryTests` tables, read as the current state of the pin file itself:
     /// the families table's `name:` entries must be exactly the seven action families, the
@@ -327,11 +391,11 @@ final class AgentPresetsInvariantTests: XCTestCase {
                 "ActionConfirmation", "BlastRadius", "NullActionProvider",
             ],
             """
-            Family A must confine exactly the seven action families. The agent-presets files \
-            decide nothing over the action vocabulary (the store and the catalog are data and \
-            seam rides; the wiring already owed its rows in `coding-agent-handoff`) — a new \
-            family or a renamed one is a reviewed widening, never a silent addition. Read off \
-            the pin file's own literal: \(familiesBody).
+            Family A must confine exactly the seven action families. The active-project-detection \
+            files decide nothing over the action vocabulary (the invocation gained a field, not \
+            a file — the carrier rides a file already in the tables) — a new family or a renamed \
+            one is a reviewed widening, never a silent addition. Read off the pin file's own \
+            literal: \(familiesBody).
             """)
 
         let constructionBody = try bracketBody(
@@ -370,18 +434,15 @@ final class AgentPresetsInvariantTests: XCTestCase {
     // MARK: - Acceptance 4: the G5 digests
 
     /// **Acceptance 4 — the dictation digests are unchanged and `AppBootstrap.swift` holds
-    /// the authoring REFACTOR's re-anchored literal.** SHA-256 (CryptoKit, the house pattern)
-    /// of the three files, asserted against the same literals
-    /// `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched` pins —
-    /// the pin read again, deliberately, with the authoring surface in the tree. The two
-    /// dictation files are byte-for-byte untouched; the composition root carries the
-    /// re-anchor `092d8ba6…` → `c7d6767c…` (computed, never edited-to-match).
-    ///
-    /// Re-anchored once more, deliberately, on 2026-10-01 by the `agent-wiring-cwd` REFACTOR
-    /// (`c7d6767c…` → `641b6445…`, computed with `shasum -a 256`, never edited-to-match):
-    /// the composition root gained the metadata lane's closure (the arm-time and voice-turn
-    /// resolution over `AccessibilityContext.workingDirectory()`) and threaded it into the
-    /// intent and agent compositions. The two dictation digests are unchanged.
+    /// the wiring REFACTOR's re-anchored literal.** SHA-256 (CryptoKit, the house pattern) of
+    /// the three files, asserted against the same literals
+    /// `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched` and
+    /// `AgentPresetsInvariantTests` pin — the pin read again, deliberately, with the cwd read,
+    /// the invocation carrier and the wiring in the tree. The two dictation files are
+    /// byte-for-byte untouched; the composition root carries the re-anchor
+    /// `c7d6767c…` → `641b6445…` (computed with `shasum -a 256` on 2026-10-01 by the
+    /// `agent-wiring-cwd` REFACTOR, never edited-to-match — both existing pin sites carry the
+    /// same literal, and this suite is the third).
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -398,6 +459,7 @@ final class AgentPresetsInvariantTests: XCTestCase {
                 "641b6445fd163dde55561a242da4e745f79dd7fd61aedcac7c9aff123dd4d237"
             ),
         ]
+        XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
         for (file, expected) in pinned {
             let data = try Data(contentsOf: root.appendingPathComponent(file))
             let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -405,83 +467,61 @@ final class AgentPresetsInvariantTests: XCTestCase {
                 actual, expected,
                 """
                 \(file) changed byte-for-byte since the barge-in-loop aspect pinned it. The \
-                dictation path must stay untouched by the agent-presets unit; if the change is \
-                a deliberate edit, recompute the digest and re-anchor the pin in review — it \
-                must never be edited to match a moved tree.
+                dictation path must stay untouched by the active-project-detection unit; if \
+                the change is a deliberate edit, recompute the digest and re-anchor the pin in \
+                review — it must never be edited to match a moved tree.
                 """)
         }
     }
 
-    // MARK: - Acceptance 5: catalog + detection do nothing by themselves
+    // MARK: - Acceptance 5: the zero-network default configuration with the cwd read composed
 
-    /// **Acceptance 5 — catalog construction and detection are exactly file-existence checks,
-    /// nothing else.** The recording closure over the shipped catalog records every path asked
-    /// about; the exact check set is asserted in full — 8 presets × 1 candidate name × 3
-    /// candidate paths = 24 checks in the deterministic order, and a PATH holding only skipped
-    /// segments (relative, `~`, empty) widens nothing. The closure is the resolver's **only**
-    /// contact with the world (the shipped file names no file-system type and no transport
-    /// family — the lints' claim, re-asserted against the catalog file below), so "exactly
-    /// these checks" is the whole side-effect surface: nothing written, nothing spawned.
-    func testCatalogConstructionAndDetectionCheckExactlyTheExpectedPathsAndNothingElse() async {
-        let expectedChecks = KnownAgentPresets.all.flatMap { preset in
-            preset.candidateNames.flatMap { name in
-                AgentCLIDetection.candidatePaths.map { "\($0)/\(name)" }
-            }
-        }
-        XCTAssertEqual(
-            expectedChecks.count, 24,
-            "the shipped catalog is eight presets × one candidate name × three candidate paths "
-                + "— the exact-check-set claim is only meaningful at a known size")
-
-        let fake = RecordingFileExistence(existing: [])
-        let result = await AgentCLIDetection.detect(
-            catalog: KnownAgentPresets.all, fileExists: fake.fileExists, path: nil)
+    /// **Acceptance 5 — the zero-network default-configuration test passes with the cwd read
+    /// composed.** The composed root now builds the `activeProjectDirectory` closure over
+    /// `AccessibilityContext.workingDirectory()` — a libproc `proc_pidinfo` syscall, which is
+    /// not one of the interposer's eight hooks and not a network call; the read happens only
+    /// at arm time over the injected closure, and the probe's default run never invokes the
+    /// arm path. This leg drives the real probe under the interposer and asserts the same two
+    /// zeroes the release blocker asserts, plus the composed root actually ran (the observed
+    /// `.accessory` activation policy — `configure(_:)` was called, so the composition that
+    /// carries the closure is the one being watched).
+    func testTheZeroNetworkDefaultConfigurationStillMakesZeroCallsWithTheCwdReadComposed()
+        throws
+    {
+        let observation = try runProbe(mode: .defaultConfiguration)
 
         XCTAssertEqual(
-            Set(result.keys), Set(KnownAgentPresets.all.map(\.id)),
-            "every preset in the catalog must appear in the result — all eight, detected or not")
-        XCTAssertTrue(
-            result.values.allSatisfy { $0 == .notDetected },
-            "nothing exists in this run — every preset must be not detected")
-        XCTAssertEqual(
-            fake.recordedPaths, expectedChecks,
+            observation.networkConnectionCount, 0,
             """
-            detection must be exactly the 24 file-existence checks, in the deterministic \
-            order (catalog order × candidate-name order × candidate-path order). The \
-            recording closure is the witness that no check happened that this pin does not \
-            know about — and with the closure as the resolver's only seam, the checks are \
-            the whole of its side effects.
+            Vocca's default configuration must make zero network calls with the cwd read \
+            composed. The probe contacted:
+            \(observation.networkConnectionDescriptions.joined(separator: "\n"))
+            proc_pidinfo is not a network call; the arm-time closure is never reached by the \
+            default run. Fix the code. Do not weaken this test.
+            \(observation.diagnosticSummary)
             """)
-
-        let withSkippedOnlyPATH = RecordingFileExistence(existing: [])
-        _ = await AgentCLIDetection.detect(
-            catalog: KnownAgentPresets.all,
-            fileExists: withSkippedOnlyPATH.fileExists,
-            path: "relative:~/bin::")
         XCTAssertEqual(
-            withSkippedOnlyPATH.recordedPaths, expectedChecks,
-            "a PATH holding only skipped segments must widen nothing — the check set stays "
-                + "the 24 candidate-path checks")
-
-        // The catalog's "construction does nothing" claim, structural rather than hoped: the
-        // shipped catalog file imports nothing (pure data — not even Foundation), so there is
-        // no vocabulary for a side effect.
-        let root = try! PackageRootLocator.find(from: #filePath)
-        let catalogSource = try! String(
-            contentsOf: root.appendingPathComponent(
-                "Sources/VoccaActions/Config/KnownAgentPresets.swift"), encoding: .utf8)
-        XCTAssertFalse(
-            catalogSource.contains("import "),
-            "the catalog must import nothing — the presets are Foundation-free pure data, and "
-                + "an import would be the first vocabulary for a side effect")
+            observation.nameResolutionCount, 0,
+            """
+            Vocca's default configuration must resolve no hostnames with the cwd read \
+            composed. The probe resolved:
+            \(observation.nameResolutionDescriptions.joined(separator: "\n"))
+            Fix the code. Do not weaken this test.
+            \(observation.diagnosticSummary)
+            """)
+        XCTAssertEqual(
+            observation.reportedActivationPolicy, "accessory",
+            """
+            The probe did not observe Vocca's start-up leaving the application in the \
+            .accessory activation policy (saw: \(observation.reportedActivationPolicy ?? "no report at all")).
+            Either AppBootstrap.configure(_:) was not called on the default-configuration path \
+            — in which case the composition that now carries the activeProjectDirectory closure \
+            was never exercised under the interposer — or it no longer sets the policy.
+            \(observation.diagnosticSummary)
+            """)
     }
 
     // MARK: - Fixtures and plumbing
-
-    private static func tempDirectory() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("vocca-agent-pins-\(UUID().uuidString)")
-    }
 
     /// Reads one pin file's source from `Tests/HarnessTests/`, comments stripped — the
     /// "read the existing pins" leg: acceptance 3 asserts the lint tables' current state by
@@ -556,6 +596,28 @@ final class AgentPresetsInvariantTests: XCTestCase {
         }
     }
 
+    /// A dictionary literal's entries — every `"key": ["…", …]` spelling in `body`, keyed by
+    /// key. The per-seam form of ``dictionaryKeys``: the value sets the one-file-per-seam
+    /// pins read.
+    private func seamTableEntries(of body: String) throws -> [String: Set<String>] {
+        let pattern = #""([^"]+)"\s*:\s*\[([^\]]*)\]"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [:] }
+        let range = NSRange(body.startIndex..<body.endIndex, in: body)
+        var entries: [String: Set<String>] = [:]
+        for match in regex.matches(in: body, range: range) {
+            guard
+                let keyRange = Range(match.range(at: 1), in: body),
+                let valueRange = Range(match.range(at: 2), in: body)
+            else { continue }
+            let key = String(body[keyRange])
+            let values = String(body[valueRange])
+            guard entries.updateValue(Set(quotedStrings(in: values)), forKey: key) == nil else {
+                throw PinFileError.unbalancedBrackets(marker: key, file: "InjectionSeamBoundaryTests.swift")
+            }
+        }
+        return entries
+    }
+
     /// The family names of the action-seam table — every `name: "X"` spelling in `body`.
     private func familyNameValues(in body: String) -> [String] {
         let pattern = #"name:\s*"([^"]+)""#
@@ -566,45 +628,39 @@ final class AgentPresetsInvariantTests: XCTestCase {
         }
     }
 
-    /// The standard headless root the wiring suites compose over — the `CodingAgentWiringTests`
-    /// harness shape: real stores and fakes, nothing that starts, reads or provisions at
-    /// construction. The agent wiring only reads `widgetStore` from the root, and only at arm
-    /// time; this suite never arms, so the root is inert.
-    private func makeRoot() -> DictationLoopRoot {
-        let engine = StubEngine.parakeet()
-        return DictationLoopRoot(
-            configuration: HotkeyConfiguration(
-                keyCode: 49, modifiers: [.option], activation: .holdToTalk),
-            ceiling: SessionCeiling.default,
-            clock: TestClock(),
-            audioSource: RecordingAudioSource(),
-            keyState: TruthfulKeyState(Keyboard()),
-            watchdogTimer: FakeTimer(),
-            healthTimer: FakeTimer(),
-            deferOpening: { $0() },
-            tap: FakeHotkeyEventSource(),
-            secureInput: FakeSecureInputState(),
-            resolver: DictationEngineResolver(selection: .defaultSelection) { _ in engine },
-            targetResolution: TargetResolution(
-                focusedApp: FakeFocusedApp(
-                    identity: FocusedAppIdentity(
-                        bundleID: "com.apple.Notes", windowTitle: "The Draft")),
-                secureInput: FakeSecureInput(),
-                frontmost: FakeFrontmostApp()),
-            panel: RecordingPanel(holder: LedgerHolder()),
-            toggleConfiguration: HotkeyConfiguration(
-                keyCode: 49, modifiers: [.option], activation: .toggle),
-            toggleSource: RecordingAudioSource(),
-            toggleTimer: FakeTimer(),
-            runningAppName: FakeRunningAppName(),
-            widgetClock: FakeTimer(),
-            liveLevel: QuietLevelSource(),
-            sessionKind: .dictation)
+    /// Every occurrence of any `prefix` in `source`, comments removed first — the lint
+    /// suites' own detector shape, spelled locally for the new file's naming contract.
+    private static func familyIdentifiers(_ prefixes: [String], inSource source: String)
+        -> [String]
+    {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let pattern = "\\b(" + prefixes.joined(separator: "|") + ")[A-Za-z0-9_]*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
+    }
+
+    /// Every directory directly under `Sources/`, whatever it is called — the cross-check's
+    /// own enumeration (`ZeroNetworkTests.sourceDirectories()`), spelled locally.
+    private func sourceDirectories() throws -> Set<String> {
+        let sourcesRoot = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources")
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: sourcesRoot, includingPropertiesForKeys: [.isDirectoryKey])
+        var names: Set<String> = []
+        for entry in entries {
+            let isDirectory =
+                (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            if isDirectory { names.insert(entry.lastPathComponent) }
+        }
+        return names
     }
 
     /// Runs one probe mode under the interposer and returns what was observed, having already
     /// asserted the three things that must hold before any observation can be believed — the
-    /// `ZeroNetworkTests.runProbe` shape, mirrored so this suite's one drive is guarded the
+    /// `ZeroNetworkTests.runProbe` shape, mirrored so this suite's drives are guarded the
     /// same way.
     private func runProbe(mode: ProbeMode) throws -> NetworkObservation {
         let session = try NetworkInterposer.startObserving()
@@ -659,54 +715,4 @@ final class AgentPresetsInvariantTests: XCTestCase {
         }
         return fields
     }
-}
-
-// MARK: - Test doubles
-
-/// The engine's call log — the "the render reached the engine zero times" fact, counted on the
-/// engine's own log. A class because the `Mutex` it owns is non-`Copyable` — the
-/// `CountingAgentRunner` shape, without the run payload (this suite never runs anything).
-private final class EngineCallRecorder: Sendable {
-    private let calls = Mutex(0)
-
-    func run(_ configuration: ShellExecutor.Configuration) async -> ShellExecutionResult {
-        calls.withLock { $0 += 1 }
-        return ShellExecutionResult(
-            status: .succeeded(exitCode: 0),
-            standardOutput: Data(),
-            standardError: Data(),
-            outputWasTruncated: false)
-    }
-
-    var callCount: Int {
-        calls.withLock { $0 }
-    }
-}
-
-/// A recording file-existence fake: answers membership in `existing` and records **every** path
-/// it was asked about, in order — the `AgentCLIDetectionTests` double's spelling, owned per file.
-private final class RecordingFileExistence: Sendable {
-    private let asked = Mutex<[String]>([])
-    private let existing: Set<String>
-
-    init(existing: Set<String>) {
-        self.existing = existing
-    }
-
-    var recordedPaths: [String] {
-        asked.withLock { $0 }
-    }
-
-    var fileExists: @Sendable (String) async -> Bool {
-        { path in
-            self.asked.withLock { $0.append(path) }
-            return self.existing.contains(path)
-        }
-    }
-}
-
-/// A level source that never moves — this suite's `QuietLevelSource` (each file owns its
-/// spelling).
-private struct QuietLevelSource: LiveLevelSource {
-    func latestLevel() -> Float { 0 }
 }
