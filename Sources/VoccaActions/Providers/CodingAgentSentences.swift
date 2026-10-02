@@ -40,6 +40,18 @@
 /// approve a refusal should still see the argv — and says the call will be refused. The
 /// unknown-agent sentence says nothing will happen, which is the truth of a row the registry
 /// never declared.
+///
+/// ## The spoken task substitutes into the argv before either half renders
+///
+/// `task-carrier` (the `spoken-task-seeding` unit): an invocation may carry ``taskText`` —
+/// the spoken words that fill the row's `<task>` placeholder. The substitution is **one
+/// render shared by describe and invoke**: both halves resolve the substituted argv from
+/// ``substitutedArguments(arguments:taskText:)``, so the argv that runs is the argv the
+/// sentence showed, with the spoken words in place. The rule is deterministic — every
+/// literal placeholder occurrence in every argv element — and Foundation-free: the split and
+/// join are the standard library's own. The three refusals the rule leaves over are spoken
+/// here too, each rendering the row's argv (what would have run, honestly) and saying the
+/// call will be refused.
 public enum CodingAgentSentences {
 
     // MARK: - Sentences
@@ -109,6 +121,107 @@ public enum CodingAgentSentences {
     static func unknownAgentSentence(toolID: String) -> String {
         "Vocca's coding-agent provider does not serve the agent '\(sanitised(toolID))'. "
             + "Nothing will happen."
+    }
+
+    /// The refusal sentence for a spoken task with no placeholder in the row's argv — the
+    /// task has nowhere to go.
+    ///
+    /// The argv still renders — what the row defines, which is the honest account of a call
+    /// that cannot run — and the sentence says the call will be refused. The task text itself
+    /// is never rendered: nothing runs, so nothing substitutes, and the dialog stays bounded.
+    static func taskHasNowhereToGoSentence(
+        id: String,
+        executablePath: String,
+        arguments: [String],
+        projectDirectory: String?
+    ) -> String {
+        let argvRendering = arguments.isEmpty
+            ? sanitised(executablePath)
+            : sanitised(executablePath) + " " + arguments.map { sanitised($0) }.joined(separator: " ")
+        var sentence = "Run the coding agent '\(sanitised(id))': \(argvRendering)"
+        if let projectDirectory {
+            sentence += " in " + sanitised(projectDirectory)
+        }
+        sentence +=
+            ". The spoken task has nowhere to go: this agent's command carries no "
+            + KnownAgentPresets.taskPlaceholder
+            + " placeholder to fill. The call will be refused."
+        return sentence
+    }
+
+    /// The refusal sentence for a placeholder in the row's argv with no spoken task supplied —
+    /// reachable only by a hand-built invocation, since the surface refuses earlier.
+    ///
+    /// The argv still renders verbatim — the unsubstituted placeholder is visible, which is
+    /// the honest account of a call that cannot run — and the sentence says the call will be
+    /// refused.
+    static func taskTextMissingSentence(
+        id: String,
+        executablePath: String,
+        arguments: [String],
+        projectDirectory: String?
+    ) -> String {
+        let argvRendering = arguments.isEmpty
+            ? sanitised(executablePath)
+            : sanitised(executablePath) + " " + arguments.map { sanitised($0) }.joined(separator: " ")
+        var sentence = "Run the coding agent '\(sanitised(id))': \(argvRendering)"
+        if let projectDirectory {
+            sentence += " in " + sanitised(projectDirectory)
+        }
+        sentence +=
+            ". This agent's command carries a " + KnownAgentPresets.taskPlaceholder
+            + " placeholder, but no task text was supplied to fill it. The call will be refused."
+        return sentence
+    }
+
+    /// The refusal sentence for a spoken task over the 4096-UTF-8-byte bound — refused, never
+    /// truncated (the ``arguments`` precedent: a truncated task is a different task,
+    /// silently).
+    ///
+    /// The argv still renders, and the oversized text itself is never rendered — the dialog
+    /// stays bounded.
+    static func taskTextTooLargeSentence(
+        id: String,
+        executablePath: String,
+        arguments: [String],
+        projectDirectory: String?
+    ) -> String {
+        let argvRendering = arguments.isEmpty
+            ? sanitised(executablePath)
+            : sanitised(executablePath) + " " + arguments.map { sanitised($0) }.joined(separator: " ")
+        var sentence = "Run the coding agent '\(sanitised(id))': \(argvRendering)"
+        if let projectDirectory {
+            sentence += " in " + sanitised(projectDirectory)
+        }
+        sentence += ". The spoken task is too large for Vocca to carry. The call will be refused."
+        return sentence
+    }
+
+    // MARK: - The task substitution
+
+    /// Whether the row's argv contains at least one literal
+    /// ``KnownAgentPresets/taskPlaceholder`` occurrence — the check that decides between
+    /// substitution and the two placeholder-shaped refusals.
+    static func argumentsContainPlaceholder(_ arguments: [String]) -> Bool {
+        arguments.contains { $0.contains(KnownAgentPresets.taskPlaceholder) }
+    }
+
+    /// The pure substitution rule: **every** literal ``KnownAgentPresets/taskPlaceholder``
+    /// occurrence in the row's argv replaced with the task text — the deterministic rule
+    /// pinned by the two-placeholder acceptance.
+    ///
+    /// Foundation-free by construction (this file imports nothing): the split and join are
+    /// the standard library's own, and `omittingEmptySubsequences: false` is the load-bearing
+    /// half — a split that dropped empty subsequences would collapse an adjacent pair
+    /// (`<task><task>`) into one substitution, silently changing the argv.
+    static func substitutedArguments(arguments: [String], taskText: String) -> [String] {
+        arguments.map { element in
+            element
+                .split(
+                    separator: KnownAgentPresets.taskPlaceholder,
+                    omittingEmptySubsequences: false)
+                .joined(separator: taskText)
+        }
     }
 
     // MARK: - Rendering

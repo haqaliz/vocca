@@ -64,11 +64,26 @@ import VoccaCore
 /// `$N` slots and no `{{utterance}}` seeding (PRD N1/N2 deferrals), so an invocation that
 /// carries arguments at all is a call this provider cannot honestly serve — *any* supplied
 /// arguments are refused, the shell undeclared-key rule. `describe` renders the refusal at
-/// ``BlastRadius/outwardFacing`` — never de-escalated to read-only, which would be a
-/// de-escalation however it was arrived at — and `invoke` answers
-/// ``ActionOutcome/failed(reasonKey:)`` with the bounded `agent.unexpectedArguments` key.
-///
-/// ## Refusals keep the radius
+    /// ``BlastRadius/outwardFacing`` — never de-escalated to read-only, which would be a
+    /// de-escalation however it was arrived at — and `invoke` answers
+    /// ``ActionOutcome/failed(reasonKey:)`` with the bounded `agent.unexpectedArguments` key.
+    ///
+    /// ## The spoken task substitutes into the argv, one render (`task-carrier`)
+    ///
+    /// An invocation may carry `taskText` — the spoken words that fill the row's `<task>`
+    /// placeholder (the preset templates' ``KnownAgentPresets/taskPlaceholder``). Both halves
+    /// resolve the substituted argv from the same helper
+    /// (``CodingAgentSentences/substitutedArguments(arguments:taskText:)``), so the argv that
+    /// runs is the argv the sentence showed, with the spoken words in place. Three refusals
+    /// are loud, bounded (`agent.taskHasNowhereToGo`, `agent.taskTextMissing`,
+    /// `agent.taskTextTooLarge`) and shared by both halves — a task with no placeholder to
+    /// fill, a placeholder with no task (reachable only by a hand-built invocation — the
+    /// surface refuses earlier), and a task over the 4096-UTF-8-byte bound (refused, never
+    /// truncated — the arguments precedent). The refusals describe at
+    /// ``BlastRadius/outwardFacing`` like the arguments refusal does: the call would have
+    /// run, and the radius keeps the agent's claim.
+    ///
+    /// ## Refusals keep the radius
 ///
 /// An unknown row describes as a refusal at ``BlastRadius/readOnly`` — nothing will happen, so
 /// nothing needs confirming. Everything else describes at ``BlastRadius/outwardFacing``,
@@ -112,6 +127,18 @@ public actor CodingAgentProvider: ActionProvider {
     /// Argument text an agent row cannot accept — an agent declares no parameters, so any
     /// supplied arguments are refused (the gap-1 pin).
     static let unexpectedArgumentsReasonKey = "agent.unexpectedArguments"
+
+    /// A spoken task with no placeholder in the row's argv — the task has nowhere to go
+    /// (`task-carrier`).
+    static let taskHasNowhereToGoReasonKey = "agent.taskHasNowhereToGo"
+
+    /// A placeholder in the row's argv with no spoken task supplied — reachable only by a
+    /// hand-built invocation, since the surface refuses earlier (`task-carrier`).
+    static let taskTextMissingReasonKey = "agent.taskTextMissing"
+
+    /// A spoken task over the 4096-UTF-8-byte bound — refused, never truncated (the
+    /// ``ActionInvocation/maximumArgumentsUTF8Bytes`` precedent, `task-carrier`).
+    static let taskTextTooLargeReasonKey = "agent.taskTextTooLarge"
 
     // MARK: - State
 
@@ -172,9 +199,10 @@ public actor CodingAgentProvider: ActionProvider {
     /// both halves, never two spellings that can drift.
     ///
     /// An unserved row is refused at ``BlastRadius/readOnly`` before anything else is read.
-    /// A resolved row — and the refusal for an invocation that carried arguments — claims
-    /// ``BlastRadius/outwardFacing``: an agent is never read-only, and a refusal that
-    /// de-escalated the claim would be a de-escalation however it was arrived at.
+    /// A resolved row — and the refusals for an invocation that carried arguments or a spoken
+    /// task the row cannot take — claims ``BlastRadius/outwardFacing``: an agent is never
+    /// read-only, and a refusal that de-escalated the claim would be a de-escalation however
+    /// it was arrived at.
     public func describe(_ invocation: ActionInvocation) async -> ActionSummary {
         guard let agent = agentsByID[invocation.toolID] else {
             return ActionSummary(
@@ -193,12 +221,35 @@ public actor CodingAgentProvider: ActionProvider {
 
         let resolvedDirectory = Self.resolvedDirectory(
             carried: invocation.resolvedDirectory, rowDirectory: agent.projectDirectory)
-        return ActionSummary(
-            sentence: CodingAgentSentences.sentence(
-                id: agent.id, executablePath: agent.executablePath,
-                arguments: agent.arguments, projectDirectory: resolvedDirectory,
-                clause: agent.clause),
-            blastRadius: .outwardFacing)
+        switch Self.resolveTaskSubstitution(
+            rowArguments: agent.arguments, taskText: invocation.taskText)
+        {
+        case .unsubstituted(let argv), .substituted(let argv):
+            return ActionSummary(
+                sentence: CodingAgentSentences.sentence(
+                    id: agent.id, executablePath: agent.executablePath,
+                    arguments: argv, projectDirectory: resolvedDirectory,
+                    clause: agent.clause),
+                blastRadius: .outwardFacing)
+        case .taskHasNowhereToGo:
+            return ActionSummary(
+                sentence: CodingAgentSentences.taskHasNowhereToGoSentence(
+                    id: agent.id, executablePath: agent.executablePath,
+                    arguments: agent.arguments, projectDirectory: resolvedDirectory),
+                blastRadius: .outwardFacing)
+        case .taskTextMissing:
+            return ActionSummary(
+                sentence: CodingAgentSentences.taskTextMissingSentence(
+                    id: agent.id, executablePath: agent.executablePath,
+                    arguments: agent.arguments, projectDirectory: resolvedDirectory),
+                blastRadius: .outwardFacing)
+        case .taskTextTooLarge:
+            return ActionSummary(
+                sentence: CodingAgentSentences.taskTextTooLargeSentence(
+                    id: agent.id, executablePath: agent.executablePath,
+                    arguments: agent.arguments, projectDirectory: resolvedDirectory),
+                blastRadius: .outwardFacing)
+        }
     }
 
     // MARK: - invoke
@@ -207,9 +258,11 @@ public actor CodingAgentProvider: ActionProvider {
     /// reachable only with a token the gate alone can mint.
     ///
     /// The row is re-resolved here on the invocation's own arguments — the same object the
-    /// gate described — so the argv that runs is the argv the sentence showed. Every failure
-    /// is a returned ``ActionOutcome``, never a trap and never a thrown error: an unknown row
-    /// and an invocation carrying arguments are refused before the engine is asked at all.
+    /// gate described — so the argv that runs is the argv the sentence showed, spoken task
+    /// substituted in place. Every failure is a returned ``ActionOutcome``, never a trap and
+    /// never a thrown error: an unknown row, an invocation carrying arguments, and an
+    /// invocation whose spoken task the row cannot take are all refused before the engine is
+    /// asked at all.
     ///
     /// An unknown row is ``ActionOutcome/failed(reasonKey:)`` with a bounded key, never
     /// a trap and never a silent success. It is a failure rather than
@@ -229,23 +282,34 @@ public actor CodingAgentProvider: ActionProvider {
 
         let resolvedDirectory = Self.resolvedDirectory(
             carried: invocation.resolvedDirectory, rowDirectory: agent.projectDirectory)
-        let configuration: ShellExecutor.Configuration
-        if let resolvedDirectory {
-            configuration = ShellExecutor.Configuration(
-                executablePath: agent.executablePath,
-                arguments: agent.arguments,
-                environment: agent.environment ?? [:],
-                currentDirectoryURL: URL(fileURLWithPath: resolvedDirectory),
-                timeout: .seconds(agent.timeoutSeconds))
-        } else {
-            configuration = ShellExecutor.Configuration(
-                executablePath: agent.executablePath,
-                arguments: agent.arguments,
-                environment: agent.environment ?? [:],
-                timeout: .seconds(agent.timeoutSeconds))
+        switch Self.resolveTaskSubstitution(
+            rowArguments: agent.arguments, taskText: invocation.taskText)
+        {
+        case .unsubstituted(let argv), .substituted(let argv):
+            let configuration: ShellExecutor.Configuration
+            if let resolvedDirectory {
+                configuration = ShellExecutor.Configuration(
+                    executablePath: agent.executablePath,
+                    arguments: argv,
+                    environment: agent.environment ?? [:],
+                    currentDirectoryURL: URL(fileURLWithPath: resolvedDirectory),
+                    timeout: .seconds(agent.timeoutSeconds))
+            } else {
+                configuration = ShellExecutor.Configuration(
+                    executablePath: agent.executablePath,
+                    arguments: argv,
+                    environment: agent.environment ?? [:],
+                    timeout: .seconds(agent.timeoutSeconds))
+            }
+            let result = await run(configuration)
+            return Self.outcome(from: result)
+        case .taskHasNowhereToGo:
+            return .failed(reasonKey: Self.taskHasNowhereToGoReasonKey)
+        case .taskTextMissing:
+            return .failed(reasonKey: Self.taskTextMissingReasonKey)
+        case .taskTextTooLarge:
+            return .failed(reasonKey: Self.taskTextTooLargeReasonKey)
         }
-        let result = await run(configuration)
-        return Self.outcome(from: result)
     }
 
     /// The engine's result as an ``ActionOutcome`` — the fold that lives with the provider.
@@ -272,5 +336,58 @@ public actor CodingAgentProvider: ActionProvider {
         carried: String?, rowDirectory: String?
     ) -> String? {
         carried ?? rowDirectory
+    }
+
+    // MARK: - The task substitution (one render, both halves)
+
+    /// The resolution of an invocation's spoken task against the row's argv
+    /// (`task-carrier`): either the argv to run — raw when there is no task text, substituted
+    /// when there is — or the refusal the combination demands.
+    private enum TaskSubstitution {
+        /// No task text and no placeholder: the row's argv runs unchanged.
+        case unsubstituted([String])
+
+        /// Task text present and the placeholder present: every occurrence substituted.
+        case substituted([String])
+
+        /// Task text present, no placeholder in the argv — the task has nowhere to go.
+        case taskHasNowhereToGo
+
+        /// Placeholder present, no task text — reachable only by a hand-built invocation.
+        case taskTextMissing
+
+        /// Task text over the 4096-UTF-8-byte bound — refused, never truncated.
+        case taskTextTooLarge
+    }
+
+    /// **The one substitution resolution, both halves share** — describe and invoke resolve
+    /// the substituted argv from the same helper, so the argv that runs is the argv the
+    /// sentence showed, and a refusal is the same refusal in both halves.
+    ///
+    /// The rules, in the order they are judged: a task text with no placeholder in the argv
+    /// has nowhere to go (refused — a run with the task silently dropped would be a different
+    /// action); a task text over ``ActionInvocation/maximumArgumentsUTF8Bytes`` is refused,
+    /// never truncated (the arguments precedent); a placeholder with no task text is refused
+    /// (substituting nothing would run a placeholder the sentence never showed); otherwise
+    /// the substitution is ``CodingAgentSentences/substitutedArguments(arguments:taskText:)``,
+    /// every literal occurrence, both halves.
+    private static func resolveTaskSubstitution(
+        rowArguments: [String], taskText: String?
+    ) -> TaskSubstitution {
+        if let taskText {
+            guard CodingAgentSentences.argumentsContainPlaceholder(rowArguments) else {
+                return .taskHasNowhereToGo
+            }
+            guard taskText.utf8.count <= ActionInvocation.maximumArgumentsUTF8Bytes else {
+                return .taskTextTooLarge
+            }
+            return .substituted(
+                CodingAgentSentences.substitutedArguments(
+                    arguments: rowArguments, taskText: taskText))
+        }
+        guard !CodingAgentSentences.argumentsContainPlaceholder(rowArguments) else {
+            return .taskTextMissing
+        }
+        return .unsubstituted(rowArguments)
     }
 }

@@ -15,10 +15,11 @@
 /// Which tool, on which provider, and with what — the plain-data descriptor every operation on
 /// the action seam takes (`action-safety-spine` PRD M2).
 ///
-/// Two identifiers and two additive payloads. The identifiers are what the seam, the gate and
+/// Two identifiers and three additive payloads. The identifiers are what the seam, the gate and
 /// the audit log all need in common: the *name* of what is about to happen, which is enough to
 /// render a concrete sentence and to attribute an entry afterwards. Each payload arrived later,
-/// additively, and for its own reason — see ``arguments`` and ``resolvedDirectory``.
+/// additively, and for its own reason — see ``arguments``, ``resolvedDirectory`` and
+/// ``taskText``.
 ///
 /// Identifiers are `String` because `VoccaCore` imports nothing — not even Foundation, so no
 /// `UUID` and no `URL` (`CoreBoundaryTests.swift:116` enforces the empty allow-list).
@@ -88,6 +89,43 @@ public struct ActionInvocation: Sendable, Equatable {
     /// visible in the record inside the sentence, never as a raw path beside it.
     public let resolvedDirectory: String?
 
+    /// The spoken task text that fills the row's `<task>` placeholder — carried from the voice
+    /// arm to the provider (`task-carrier`, the `spoken-task-seeding` unit, 2026-10-01), or
+    /// `nil` when the call carries none.
+    ///
+    /// ## Why the field exists at all
+    ///
+    /// The coding-agent sentence binding demands the argv-that-runs doctrine hold for the
+    /// spoken words too: the card must show the argv **with the task in place**, and invoke
+    /// must run that same argv — one render shared by both halves. The spoken text arrives at
+    /// the seam separately from the row (the row's argv is fixed at save time), so it is
+    /// carried on the invocation itself, exactly as ``resolvedDirectory`` carries the
+    /// arm-time directory.
+    ///
+    /// ## It is never `arguments`
+    ///
+    /// This is a separate field from ``arguments`` on purpose: the agent provider refuses any
+    /// invocation that carries argument text (the gap-1 pin — an agent row declares no
+    /// parameters), and a spoken task smuggled inside `arguments` would be a payload that
+    /// bought itself past that refusal. The two spell different facts about the same call.
+    ///
+    /// ## The size bound is the provider's refusal, never this type's
+    ///
+    /// Unlike ``arguments`` — whose oversized text is refused here, at construction — the
+    /// task text's size is judged at the provider, where the substitution happens and where
+    /// the refusal is spoken: text over ``maximumArgumentsUTF8Bytes`` is refused there with
+    /// the `agent.taskTextTooLarge` key, never truncated. This type cannot know whether the
+    /// text will ever be substituted into anything, so the bound is not this type's to
+    /// enforce. What this type *does* refuse is **empty** text: `nil` means "no task", and
+    /// `""` would be a second way to say the same thing — absence has one spelling, exactly
+    /// as with ``arguments`` and ``resolvedDirectory``.
+    ///
+    /// ## It is never persisted
+    ///
+    /// The audit entry records the rendered summary — the sentence a person was actually asked
+    /// to approve — and never this text, exactly as with ``arguments``.
+    public let taskText: String?
+
     // MARK: - The bound
 
     /// The largest argument payload an invocation may carry, in UTF-8 bytes.
@@ -96,10 +134,16 @@ public struct ActionInvocation: Sendable, Equatable {
     /// 4 KB, the same ceiling `ContextGrantGate` puts on a context payload, and for the same
     /// reason: text that crosses a safety boundary and reaches a sentence a person is asked to
     /// read is a liability at unbounded size even when nothing writes it down.
+    ///
+    /// The spoken task text shares the ceiling (`task-carrier`, 2026-10-01): the agent
+    /// provider refuses a task over this bound with the `agent.taskTextTooLarge` key — the
+    /// same number and the same refusal-never-truncation, judged at the substitution site
+    /// where the refusal is spoken.
     public static let maximumArgumentsUTF8Bytes = 4096
 
     /// Builds an invocation, or `nil` when either identifier is empty, or when the argument text
-    /// is empty or over ``maximumArgumentsUTF8Bytes``, or when the resolved directory is empty.
+    /// is empty or over ``maximumArgumentsUTF8Bytes``, when the resolved directory is empty, or
+    /// when the task text is empty.
     ///
     /// **The refusal is at construction, never a validity flag carried alongside.** An
     /// invocation that exists is one the confirmation sentence can be concrete about (M2) and
@@ -118,7 +162,9 @@ public struct ActionInvocation: Sendable, Equatable {
     /// state are two cases every consumer has to treat alike — the shape in which one of them
     /// eventually does not. The resolved directory follows the same rule: `nil` means "no
     /// resolved directory" (the sentence renders without an `in` clause), and `""` would render
-    /// a dishonest `in .` on a card nobody confirmed.
+    /// a dishonest `in .` on a card nobody confirmed. The task text follows it too: `nil`
+    /// means "no spoken task", and `""` would be a substitution that silently deletes the
+    /// placeholder from the argv.
     ///
     /// **Oversized argument text is refused, never truncated** — and the difference from
     /// `ActionAuditEntry`'s summary, which truncates, is the point. A truncated *sentence* is a
@@ -136,9 +182,12 @@ public struct ActionInvocation: Sendable, Equatable {
     ///     `nil` for a call that carries none. Defaults to `nil`, so every construction site
     ///     written before this field existed keeps compiling and keeps meaning exactly what it
     ///     meant.
+    ///   - taskText: The spoken task text that fills the row's `<task>` placeholder, or `nil`
+    ///     for a call that carries none. Defaults to `nil`, so every construction site written
+    ///     before this field existed keeps compiling and keeps meaning exactly what it meant.
     public init?(
         providerID: String, toolID: String, arguments: String? = nil,
-        resolvedDirectory: String? = nil
+        resolvedDirectory: String? = nil, taskText: String? = nil
     ) {
         guard !providerID.isEmpty, !toolID.isEmpty else { return nil }
         if let arguments {
@@ -148,9 +197,13 @@ public struct ActionInvocation: Sendable, Equatable {
         if let resolvedDirectory {
             guard !resolvedDirectory.isEmpty else { return nil }
         }
+        if let taskText {
+            guard !taskText.isEmpty else { return nil }
+        }
         self.providerID = providerID
         self.toolID = toolID
         self.arguments = arguments
         self.resolvedDirectory = resolvedDirectory
+        self.taskText = taskText
     }
 }
