@@ -2226,8 +2226,18 @@ set -euo pipefail
 # untouched (AppBootstrap.swift unchanged) — the count taken from the floor script's own
 # parse in the ratchet commit.
 #
+# The concrete-task pre-fill raise (2999 -> 3000; executed 3000) — the agent-authoring
+# polish patch (`feat/active-project-detection/aliz`): a preset pick now pre-fills the
+# arguments draft with the concrete default task (`ActionsTabCopy.agentDefaultTask` —
+# "Summarize the current project"), rendered from the catalog's `<task>` placeholder, so
+# a pick-then-save commits immediately; the executable pre-fill, the catalog pins and the
+# `<task>`-Save refusal are untouched. `AgentAuthoringTests` grows 1 (the pre-filled row
+# saves immediately with no placeholder in the draft or the row); the pre-fill test's two
+# assertions and the placeholder-refusal test's first leg were rewritten in place, not
+# counted — the count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2999
+MINIMUM_EXECUTED_TESTS=3000
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
