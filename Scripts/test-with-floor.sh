@@ -2211,8 +2211,23 @@ set -euo pipefail
 # zero-network default drive with the cwd read composed asserting the two zeroes) — the count
 # taken from the floor script's own parse in the ratchet commit.
 #
+# The nil-directory-row raise (2991 -> 2999; executed 2999) — the working-directory defect's
+# fix, `projectDirectory` optional end to end: `CodingAgentRegistryTests` grows 3 (a
+# nil-directory row round-trips with absence as its one spelling — no key in the bytes, nil
+# on reload; a blank or absent projectDirectory key is a valid nil-directory row loading
+# quietly; the nil-directory row's canonical bytes pinned whole), `AgentAuthoringTests`
+# grows 2 (an empty Project directory field saves and round-trips without the key; a
+# whitespace-only field saves as nil), `AgentWiringCwdTests` grows 1 (a nil-directory row
+# without detection is clause-less and the confirmed run carries no currentDirectoryURL),
+# and `CodingAgentProviderTests` grows 2 (a nil-directory row describes clause-less and
+# invokes without a currentDirectoryURL; the unexpected-arguments refusal is clause-less
+# for a nil-directory row). The row-shape row was rewritten in place, not counted — the
+# blank-project row flipped from skipped to valid. The lints and the G5 digests are
+# untouched (AppBootstrap.swift unchanged) — the count taken from the floor script's own
+# parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=2991
+MINIMUM_EXECUTED_TESTS=2999
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
