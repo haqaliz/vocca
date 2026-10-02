@@ -2,12 +2,45 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-10-01).** The skeleton exists; **the product does not.**
+> **Status (2026-10-03).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`agent-auth-baseline` (C13 follow-on, shipped 2026-10-03):** the N2 scrub refined
+> deliberately — **both agent auth modes work** (the key row AND the CLI's own
+> subscription login). `ShellExecutor.Configuration.baselineEnvironment` (default
+> `[:]` — byte-identical when not wired, a real run with no baseline still shows the
+> caller's `PATH`/`HOME` absent); the merge rule `baseline ∪ configured`, **configured
+> wins even when explicitly empty** (`"HOME": ""` beats a real baseline HOME — the
+> intent edge, pinned); the **N2 rewrite** — the old "never the caller's environment"
+> scrub wording retired for "never beyond the declared baseline and the row's own
+> entries". Both providers (`CodingAgentProvider`/`ShellProvider`) gained the additive
+> `baselineEnvironment` init parameter (default `[:]`); the **shell consequence
+> named** — shell rows declare no environment of their own, so a wired baseline is the
+> whole of what a shell child receives. `AppBootstrap` wires **`["HOME":
+> NSHomeDirectory()]` at exactly two sites** (the shell and agent provider
+> constructions; the `load` factories take no baseline, so each provider is
+> constructed through the init — the real engine, the shipped clock and sleeper; the
+> composition root may name Foundation, VoccaActions never computes home).
+> `KnownAgentPresets.authHint` — **eight pinned hints**
+> (claude/codex/gemini/opencode/aider/cursor/q/crush: the key spelling and/or the
+> subscription login the CLI's own docs name), rendered under the editor's Environment
+> field; the **D2 line** on the surface — "the baseline hands the agent your home
+> directory; configure only agents you trust". The probe keeps the default `[:]`
+> baseline (recorded in the drive headers — the seeded child `/bin/echo` needs no
+> HOME; the day it reads HOME, the drive wires a temp HOME explicitly, default facts
+> unchanged). **G5 re-anchored once, deliberately** (`641b6445…` → `4e50ab8dde…`,
+> computed with `shasum -a 256` on 2026-10-03, never edited-to-match; **five pin
+> sites** — `TurnTakingComposedAcceptanceTests`, `AgentPresetsInvariantTests`,
+> `SpokenTaskInvariantTests`, `ActiveProjectInvariantTests`, `WiringBaselineTests`;
+> dictation digests `1baeb2de…`/`ce70ca10…` unchanged). **No gate passes** (seventeenth
+> unit ahead of the uncleared gates); the composed default still reads `agents=0
+> spawnsSubprocess=false`; the lints untouched (a Configuration field, init
+> parameters, catalog copy — a field is not a file). SMOKE 163 is **written and
+> runnable** — recorded, never gated. Test floor: **3052**.
 >
 > **`spoken-task-seeding` (C13 slice 12, shipped 2026-10-01):** the N1 retirement —
 > **phrases arm rows AND the full spoken utterance fills the argv's `<task>` slot**:

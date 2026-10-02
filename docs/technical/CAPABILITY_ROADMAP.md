@@ -768,6 +768,58 @@ passes.
 SMOKE 162 is written and runnable, recorded and never gated; no task-seeding rate may be
 quoted. Test floor: **3023**.)*
 
+*(Amended by the `agent-auth-baseline` unit, 2026-10-03: **C13 follow-on — the N2 scrub
+refined deliberately**: both agent auth modes work — the key row AND the CLI's own
+subscription login. Shipped:
+- **The executor baseline**: `ShellExecutor.Configuration.baselineEnvironment` (default
+  `[:]` — byte-identical when not wired), the merge rule `baseline ∪ configured`,
+  **configured wins even when explicitly empty** (the `"HOME": ""` intent edge,
+  pinned); the **N2 rewrite** — the old "never the caller's environment" wording
+  retired for "never beyond the declared baseline and the row's own entries".
+- **The providers pass it through**: both providers' additive `baselineEnvironment`
+  init parameters (default `[:]`); the **shell consequence** named — shell rows
+  declare no environment of their own, so a wired baseline is the whole of what a
+  shell child receives (the shell rows' children receive HOME once the composition
+  wires it).
+- **The composition wires HOME**: `AppBootstrap` passes `["HOME": NSHomeDirectory()]`
+  at exactly two sites (the shell and agent provider constructions); the probe keeps
+  the default `[:]` — recorded posture, a temp HOME wired explicitly the day a seeded
+  child reads HOME.
+- **The auth hints (D3)**: `KnownAgentPreset.authHint` — eight pinned hints
+  (claude/codex/gemini/opencode/aider/cursor/q/crush), rendered under the editor's
+  Environment field; the D2 line on the surface — "the baseline hands the agent your
+  home directory; configure only agents you trust".
+- **The invariants held**: PROBE-CODING-AGENT verbatim (`agents=0
+  spawnsSubprocess=false`), the transport permitted set still exactly two files, the
+  FileManager seam table still eight seams, Family A/B and the `policy:` no-default
+  call sites unchanged, the module-coverage cross-check unchanged (twelve modules — a
+  field, init parameters and catalog copy, no module files), the zero-network drive
+  green.
+
+G5 re-anchored once, deliberately (`641b6445…` → `4e50ab8dde…`, computed with
+`shasum -a 256` on 2026-10-03, never edited-to-match; dictation digests unchanged). No
+gate passes.
+
+**What is still NOT built — the remaining C13 machinery:**
+- **reply-text rendering** (the real spoken answer to an agent run — the reply seam's last
+  piece)
+- a **phrase-then-keyword composite resolver**
+- an **audit-tools arm section** in the Actions tab
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load by
+  decision, and reversing it is a founder call)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- **`$N` parameter slots** (an agent row declares no parameters — the arguments-refusal
+  pin is the shipped record; the spoken task rides the additive `taskText` field, never
+  `arguments`)
+- the follow-ons this unit recorded: the **credential-store probe** (N1 — the editor
+  showing which auth the CLI detected, e.g. "subscription login found in `~/.claude`";
+  the honest surface is the pinned `authHint`, and "detected" means the binary exists
+  at a path, never signed in), and the **LANG/TMPDIR widening** (R-A — HOME only is
+  the honest baseline; a widening is a reviewed edit with the same merge rule)
+
+SMOKE 163 is written and runnable, recorded and never gated; no agent-success rate may
+be quoted. Test floor: **3052**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

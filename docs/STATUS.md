@@ -10,6 +10,137 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `agent-auth-baseline` unit shipped 2026-10-03 — C13 follow-on: both agent auth
+modes work. The executor's environment scrub is refined deliberately — a declared
+baseline (`HOME`) merged under the row's own entries, configured wins even empty — so
+a logged-in CLI runs from an empty-environment row and finds its own credentials; no
+gate passes.**
+`feat/agent-auth-baseline/aliz`. Five aspects (the record aspect is this entry). Floor
+**3023 → 3052** (executed 3052).
+
+**What shipped, per aspect.**
+*executor-baseline* — **`ShellExecutor.Configuration.baselineEnvironment:
+[String: String]`** (default `[:]` — byte-identical when not wired: a real run with no
+baseline still shows the caller's `PATH`/`HOME` absent, the existing scrub rows
+unchanged); `run()` sets
+`process.environment = configuration.baselineEnvironment.merging(configuration.environment)
+{ _, new in new }` — **configured wins, even an explicitly empty value** (`"HOME": ""`
+in the row beats a real baseline `HOME` — the intent rule, the merge edge pinned; the
+env-printing rows extended); nothing beyond the declared baseline and the row's own
+entries ever reaches the child; the baseline is declared per configuration, **never
+inherited from the caller's environment**. **The N2 rewrite** (the record's other
+half): the doc comment's "The environment is scrubbed. The child receives exactly the
+configured variables — the empty dictionary by default — never the caller's
+environment (N2)" is retired, replaced by "never beyond the declared baseline and the
+row's own entries (N2)" (`ShellExecutor.swift:59-64`, `106-111`). Floor 3023→3027.
+*provider-baseline* — both providers gain the **additive `baselineEnvironment:
+[String: String] = [:]` init parameter** (`CodingAgentProvider.swift:181`,
+`ShellProvider.swift:131` — the default-posture doctrine) and carry it into every
+`ShellExecutor.Configuration` they build; **the shell consequence named**: shell rows
+declare no environment of their own, so a wired baseline is the whole of what a shell
+child receives — the shell rows' children receive HOME once the composition wires it
+(`ShellProvider.swift:63-66`); the counting-engine acceptance asserts the merged
+configuration (S1 — the merge rule pinned twice: the executor's env pin and the
+provider's configuration). Floor 3027→3033.
+*wiring-baseline* — **`AppBootstrap` wires `baselineEnvironment: ["HOME":
+NSHomeDirectory()]` at exactly two sites** (`AppBootstrap.swift:774` the shell
+provider, `:820` the agent provider — the composition root may name Foundation;
+VoccaActions never computes home, the lint boundary holds; the `load` factories take
+no baseline, so each provider is constructed through the init — the real engine, the
+shipped clock and sleeper, exactly as the factory's default would); **`KnownAgentPresets.authHint`**
+— the field + **eight pinned hints** (claude/codex/gemini/opencode/aider/cursor/q/crush,
+each row's honest copy: the key spelling and/or the subscription login the CLI's own
+docs name — `claude` subscription login, `codex login`, `gemini login`, `opencode
+auth`, `cursor auth`, `q auth`; a preset without a subscription mode says the key
+spelling only; the planted-wrong-hint control pins them); the **editor renders the
+hint under the Environment field** (`ActionsTabPage.swift:376-386` — shown only when
+the picked preset declares one); the **D2 line** `agentBaselineD2Copy` — *"the
+baseline hands the agent your home directory; configure only agents you trust"* —
+placed in the agents section, the moment of trust (`ActionsTabCopy.swift:173-174`,
+rendered at `ActionsTabPage.swift:117`); **the probe keeps the default `[:]`
+baseline**, recorded in the drive headers (`CodingAgentDrive.swift:81-91`,
+`ShellDrive.swift:78-86`): the composed default's facts (`agents=0`/`commands=0`,
+`spawnsSubprocess=false`) are about the configuration, not the environment, and the
+seeded round trips run `/bin/echo`, a child that needs no HOME — the day a seeded
+child reads HOME, the drive must wire a temp HOME explicitly (the
+`baselineEnvironment:` init parameter), keeping the default facts unchanged either
+way. **G5 re-anchored once, deliberately** (the wiring REFACTOR commit `d1b5082`):
+`AppBootstrap` moved with the HOME wiring, so the pin is re-computed with
+`shasum -a 256` on 2026-10-03, never edited-to-match — `641b6445…` →
+**`4e50ab8dde…`**, full literal
+`4e50ab8dde8dd20f3b3b02e8e6ebb4a4fe97705cd58e2120fdb2e2364d8775cf`, **across all five
+pin sites** (`TurnTakingComposedAcceptanceTests`, `AgentPresetsInvariantTests`,
+`SpokenTaskInvariantTests`, `ActiveProjectInvariantTests`, `WiringBaselineTests`
+acceptance 5); the dictation digests unchanged — `1baeb2de…`/`ce70ca10…`, asserted by
+the re-anchored pins. Floor 3033→3044.
+*agent-pins* — **`AuthBaselineInvariantTests`** (acceptances 1–5), run inside the
+zero-network interposer: **PROBE-CODING-AGENT verbatim-unchanged** with the baseline
+wired and the hints on the surface — the composed default still reads `agents=0
+spawnsSubprocess=false` (a wired baseline is a value in the environment of a child
+the default never spawns, so the interposer sees no call from it); the **lint
+immobilities** read off the lint suites' own literals (the transport permitted set
+still exactly the two reviewed entries, the FileManager seam table still exactly
+eight seams, Family A's seven families and Family B's single minting file unchanged,
+the `policy:` parameter still default-less with all 96 `ActionGate.submit` call sites
+supplying it — count pinned, zero offenders); the **digests** — the dictation pair
+unchanged, `AppBootstrap` equals the re-anchored literal, and every one of the five
+pin sites carries the same literal (the across-the-sites leg); the module-coverage
+cross-check (the derived set is still the twelve library modules — the unit added a
+field, init parameters and catalog copy, **no module files**); the zero-network
+default-configuration test green. Floor 3044→3052 (executed 3052).
+
+**The decisions.** **D1 — executor-level, every child:** the baseline applies at the
+executor level, so agent rows AND shell rows carry it once the composition wires it —
+one rule, no provider special-casing; the shell rows' scrub changes only when the
+composition wires the baseline — the reviewed boundary is the composition, never the
+executor's default. **D2 — HOME only:** the minimal thing any CLI needs to find its
+own credential store; the row's entries win; nothing else from the session; the
+honest baseline is HOME only — a future widening is a reviewed edit with the same
+merge rule. **D3 — auth hints:** per-preset `authHint` copy in the catalog, rendered
+under the editor's Environment field — the user knows which auth each CLI supports.
+**The explicit-wins-even-empty merge edge:** a configured entry wins even when
+explicitly empty — `"HOME": ""` in the row beats a real baseline `HOME` — the row's
+intent, tested (the critique's gap-1 edge, pinned at both the executor and the
+provider level).
+
+**The N2 rewrite, named.** The old scrub wording — "The environment is scrubbed. The
+child receives exactly the configured variables — the empty dictionary by default —
+never the caller's environment (N2)" — is **retired** from the executor's record,
+replaced by: the child receives exactly `baselineEnvironment` merged with
+`environment`, "never beyond the declared baseline and the row's own entries (N2)"
+(`ShellExecutor.swift:59-64`). The claim narrows honestly: the baseline is declared
+per configuration, never inherited; what a child gets is exactly the declared
+baseline + the row's own entries, nothing else from the session.
+
+**The deferrals, with their blockers.** **N1 — the credential-store probe** (the
+editor showing which auth the CLI detected, e.g. "subscription login found in
+`~/.claude`"): deferred — it needs a credential-store probe the repo has not reviewed
+(the PRD's N1); the honest surface is the pinned `authHint` copy, and "detected"
+means the binary exists at a path, never that it is signed in (R-B — the subscription
+login is the CLI's own state; Vocca cannot verify it; the failure is the CLI's own
+loud error in the run's outcome). **The LANG/TMPDIR widening** (R-A — some CLIs want
+more than HOME): deferred — the honest baseline is HOME only; a widening is a
+reviewed edit with the same merge rule. **The probe's temp-HOME wiring**: not needed —
+recorded as the drive posture (the day a seeded child reads HOME, the drive wires a
+temp HOME explicitly, default facts unchanged).
+
+**The flake, recorded honestly.** The **pre-existing `AudioRingBufferTests` contention
+flake** was observed during the unit's full-suite runs — scheduler-dependent (the
+test's own comment: "the point is to exclude 0.05 %, not to pin a scheduler"),
+unrelated to this unit (the dictation path is digest-untouched; the unit touched no
+audio code); recorded, never chased.
+
+**No gate passes** (seventeenth unit ahead of the uncleared gates); the composed
+default still reads `agents=0 spawnsSubprocess=false`; zero network; the dictation
+path digest-untouched (the pin proves it). SMOKE 163 is **written and runnable** —
+recorded, never gated; no agent-success rate may be quoted. The record aspect closed
+the docs sync: `CLAUDE.md`'s status paragraph, `CAPABILITY_ROADMAP.md`'s C13
+amendment; **`ARCHITECTURE.md` and `README.md` untouched — verified, neither quoted
+the old N2 scrub wording** (the ShellExecutor row and the D2 copy carry the narrowed
+claims, never the scrub line; the expected non-change, recorded).
+
+---
+
 **The `active-project-detection` unit shipped 2026-10-01 — the C12 metadata extension +
 agent-provider integration: the focused app's working directory rides the arm-time
 metadata lane into the agent sentence and the run; no gate passes.**
