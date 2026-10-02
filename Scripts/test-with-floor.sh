@@ -2243,8 +2243,20 @@ set -euo pipefail
 # not a file — so Family A/B and the transport lint are untouched — the count taken from the
 # floor script's own parse in the ratchet commit.
 #
+# `utterance-threading` (the `spoken-task-seeding` unit): +6 — `UtteranceThreadingTests` (the
+# utterance's path to the invocation: the driver's widened handler passes the full cleaned
+# utterance to the action leg and the widened default falls through byte-identically; the
+# phrase-armed placeholder row seeds the full utterance through card, confirm and audit; the
+# non-placeholder row stays byte-identical with taskText nil; the placeholder row reached
+# without an utterance is refused before the card and recorded; the surface arm of a
+# placeholder row refuses loudly with the pinned copy, nothing recorded; the composed default
+# facts unchanged). The widening was deliberate — the driver's compile pins updated in the
+# GREEN commit, the handler's labeled spelling not expressible in a Swift function type
+# (recorded there); `AppBootstrap.swift` is untouched, so the G5 pin never moved — the count
+# taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3009
+MINIMUM_EXECUTED_TESTS=3015
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
