@@ -235,11 +235,10 @@ extension AppBootstrap {
     ///
     /// `activeProjectDirectory` is the arm-time resolution over the focused app's working
     /// directory — the metadata lane's read, injected with a **nil-shaped default**: a
-    /// composition that does not wire it is byte-identical to today (an empty row resolves
-    /// to nothing, exactly as before). At arm, a row whose `projectDirectory` is blank —
-    /// or a row the loaded registry lacks (the tolerant decode skips blank-directory rows
-    /// — the F1 shape rule, so "the row lacks one" is the honest reachable spelling of
-    /// "empty" in this tree) — is resolved **exactly once** and carried on the invocation;
+    /// composition that does not wire it is byte-identical to today (a nil-directory row
+    /// resolves to nothing, exactly as before). At arm, a row whose `projectDirectory` is nil
+    /// — the absent or blank spelling, a valid row of the file's shape (the decoder
+    /// normalizes blank to nil) — is resolved **exactly once** and carried on the invocation;
     /// an explicit row is never re-resolved (G2). The card signal carries the value and
     /// the confirm path rebuilds the identical invocation from it — one resolution, four
     /// identical renders (G3); a focus change mid-card cannot move the run directory.
@@ -307,15 +306,15 @@ extension AppBootstrap {
                 throw CodingAgentWiringError.sessionInFlight
             }
             // The arm-time resolution (`agent-wiring-cwd` R3): the row is read per call —
-            // the `listAgents` reconcile — and a row whose project directory is blank (or
-            // that the loaded registry lacks — the tolerant decode's skip, the honest
-            // "empty" spelling in this tree) is resolved **exactly once** and carried on
-            // the invocation; an explicit row is never re-resolved (G2 — detection is
-            // never consulted for a row that names its own directory).
+            // the `listAgents` reconcile — and a row whose project directory is nil (the
+            // absent or blank spelling, a valid row of the file's shape) is resolved
+            // **exactly once** and carried on the invocation; an explicit row is never
+            // re-resolved (G2 — detection is never consulted for a row that names its own
+            // directory).
             let file = await registry.load()
             let agent = file.agents.first { $0.id == toolID }
             let resolvedDirectory: String?
-            if let agent, !AppBootstrap.isBlankProjectDirectory(agent.projectDirectory) {
+            if let agent, agent.projectDirectory != nil {
                 resolvedDirectory = nil
             } else {
                 resolvedDirectory = await activeProjectDirectory()
@@ -426,14 +425,5 @@ extension AppBootstrap {
             confirmationDismissed: confirmationDismissed,
             executor: executor,
             spawnsSubprocess: false)
-    }
-
-    /// **The empty spelling of a row's project directory** (`agent-wiring-cwd` R3): the
-    /// editor's empty draft — `""` or whitespace-only — is the row that detects at arm
-    /// time. Foundation-free by construction (`allSatisfy` — the module's vocabulary);
-    /// shared by the agent arm and the intent leg's enrichment, so the two spell the same
-    /// check.
-    static func isBlankProjectDirectory(_ directory: String) -> Bool {
-        directory.allSatisfy(\.isWhitespace)
     }
 }

@@ -44,13 +44,11 @@ import VoccaCore
 /// `currentDirectoryURL`, so the child starts where the sentence says it will. When the
 /// resolution is nil the sentence renders clause-less (S1 — the child runs in Vocca's cwd,
 /// visible in the sentence, never hidden) and the configuration is built without a
-/// `currentDirectoryURL`. Through the shipped row shape the resolution is never nil — the
-/// row's `projectDirectory` is required — so the nil leg is the contract written ahead of the
-/// shape that can produce it (R3's empty-row arm-time resolution). The
-/// `agent-wiring-cwd` completion: the row's **blank** spelling (the editor's empty draft,
-/// `""` or whitespace-only) resolves to nil too — the same clause-less sentence and the
-/// same no-directory configuration, so an empty row without detection runs in Vocca's cwd,
-/// visible in the sentence, never hidden.
+/// `currentDirectoryURL`. The nil leg is the shipped shape's own: a row without a
+/// `projectDirectory` — the editor's empty field, absent or blank in the file (the decoder
+/// normalizes blank to nil) — is the valid nil-directory row, resolved once at arm by the
+/// injected `activeProjectDirectory` closure, and a nil-directory row without detection runs
+/// in Vocca's cwd, visible in the sentence, never hidden.
 ///
 /// ## An agent is never read-only
 ///
@@ -266,14 +264,13 @@ public actor CodingAgentProvider: ActionProvider {
     }
 
     /// **The one resolution, both halves share** (`invocation-carrier` R2 + `agent-wiring-cwd`
-    /// R3): the invocation's carried arm-time value wins; else the row's own directory —
-    /// with the row's **blank** spelling (the editor's empty draft) resolving to nil, so the
-    /// clause-less sentence and the no-`currentDirectoryURL` configuration are one resolution
-    /// (S1). A non-blank row resolves byte-identically to the pre-carrier shape.
+    /// R3): the invocation's carried arm-time value wins; else the row's own directory — which
+    /// the type guarantees is nil or a non-blank absolute path, so a nil-directory row resolves
+    /// to nil: the clause-less sentence and the no-`currentDirectoryURL` configuration are one
+    /// resolution (S1). A non-nil row resolves byte-identically to the pre-carrier shape.
     private static func resolvedDirectory(
-        carried: String?, rowDirectory: String
+        carried: String?, rowDirectory: String?
     ) -> String? {
-        if let carried { return carried }
-        return rowDirectory.allSatisfy(\.isWhitespace) ? nil : rowDirectory
+        carried ?? rowDirectory
     }
 }

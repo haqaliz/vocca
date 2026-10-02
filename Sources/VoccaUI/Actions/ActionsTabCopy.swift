@@ -113,7 +113,7 @@ public enum ActionsTabCopy {
     public static let agentExecutablePathReason =
         "the executable path must be absolute and must not start with ~"
     public static let agentProjectDirectoryReason =
-        "the project directory must be absolute and must not start with ~"
+        "the project directory, when filled in, must be absolute and must not start with ~"
     public static let agentTimeoutReason =
         "the timeout must be a number between 1 and \(AgentAuthoringConstants.maximumTimeoutSeconds) seconds"
     public static let agentArgumentCountReason =

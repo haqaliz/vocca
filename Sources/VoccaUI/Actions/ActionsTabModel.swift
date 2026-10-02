@@ -142,8 +142,12 @@ public struct ActionsAgentDefinition: Sendable, Equatable, Identifiable {
     public var executablePath: String
     /// The fixed argv the executable is told — the space-separated draft's folded value.
     public var arguments: [String]
-    /// The absolute directory the agent works in.
-    public var projectDirectory: String
+    /// The absolute directory the agent works in — or `nil` for the nil-directory row: the
+    /// editor's empty Project directory field (the caption's contract — "leave empty to
+    /// detect the focused app's project"), resolved once at arm time. A blank value is the
+    /// nil spelling; a filled-in value must be absolute and must not start with `~` (the
+    /// definition's own rule, spelled on the surface).
+    public var projectDirectory: String?
     /// How long the agent may run, in seconds — `1...600`, empty meaning the 30-second
     /// default, exactly as the definition's own init rules say.
     public var timeoutSeconds: Int
@@ -154,13 +158,15 @@ public struct ActionsAgentDefinition: Sendable, Equatable, Identifiable {
 
     public init(
         id: String, executablePath: String, arguments: [String] = [],
-        projectDirectory: String, timeoutSeconds: Int = 30,
+        projectDirectory: String? = nil, timeoutSeconds: Int = 30,
         environment: [String: String]? = nil, clause: String? = nil
     ) {
         self.id = id
         self.executablePath = executablePath
         self.arguments = arguments
-        self.projectDirectory = projectDirectory
+        self.projectDirectory = projectDirectory.flatMap {
+            $0.allSatisfy(\.isWhitespace) ? nil : $0
+        }
         self.timeoutSeconds = timeoutSeconds
         self.environment = environment
         self.clause = clause

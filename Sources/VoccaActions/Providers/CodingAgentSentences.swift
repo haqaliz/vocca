@@ -84,21 +84,25 @@ public enum CodingAgentSentences {
     /// The argv still renders — a person asked to approve a refusal should still see what
     /// would have run — and the sentence says the call will be refused. The clause does not
     /// appear: the call will not happen, so there is nothing for the author's description to
-    /// describe.
+    /// describe. The row's directory is optional like the argv's sibling is: a nil-directory
+    /// row has no `in` clause to render (S1 — there is no directory to show).
     static func unexpectedArgumentsSentence(
         id: String,
         executablePath: String,
         arguments: [String],
-        projectDirectory: String
+        projectDirectory: String?
     ) -> String {
         let argvRendering = arguments.isEmpty
             ? sanitised(executablePath)
             : sanitised(executablePath) + " " + arguments.map { sanitised($0) }.joined(separator: " ")
-        return
-            "Run the coding agent '\(sanitised(id))': \(argvRendering) in "
-            + sanitised(projectDirectory)
-            + ". An agent row declares no parameters, so Vocca could not read the arguments "
+        var sentence = "Run the coding agent '\(sanitised(id))': \(argvRendering)"
+        if let projectDirectory {
+            sentence += " in " + sanitised(projectDirectory)
+        }
+        sentence +=
+            ". An agent row declares no parameters, so Vocca could not read the arguments "
             + "supplied for this agent. The call will be refused."
+        return sentence
     }
 
     /// The refusal sentence for an agent the registry never declared. Nothing will happen.

@@ -62,9 +62,12 @@ import OSLog
 /// A file this build cannot decode at all — malformed bytes, an unknown top-level key, a field
 /// of the wrong type — is a file read wrongly, and the answer is the empty registry with **one**
 /// loud log. A row that fails *validation* (a duplicate id, an out-of-range timeout, an over-cap
-/// argv or environment, a non-absolute path) is a row the rest of the file can simply not
-/// include: it is skipped loudly, one log per row, and the rest load — the `IntentPhraseStore`
-/// `LossyRow` precedent. Both halves are the same rule: the file is user-visible and
+/// argv or environment, a non-absolute executable, a **filled-in** non-absolute project
+/// directory) is a row the rest of the file can simply not include: it is skipped loudly, one
+/// log per row, and the rest load — the `IntentPhraseStore` `LossyRow` precedent. A row with no
+/// project directory at all (absent, or blank — the decoder's silent blank→nil normalization)
+/// is **not** a violation: it is the valid nil-directory row, the arm-time resolution's row the
+/// editor's empty field saves. Both halves are the same rule: the file is user-visible and
 /// hand-editable, and nothing about it may be fatal or silent.
 ///
 /// ## The caps refuse, they never clamp
@@ -209,10 +212,12 @@ public actor CodingAgentRegistry {
     /// yields exactly one `onInvalid` call and the empty registry. A row that fails *shape*
     /// decode (a `1` where a string belongs — the F1 no-coercion rule, a key this build cannot
     /// name) is dropped by the `LossyRow` pass, one call per row, and a row that fails
-    /// *validation* (duplicate id, over-long id, empty or non-absolute path, out-of-range
-    /// timeout, over-cap argv or environment) is skipped loudly, one call per row, and the rest
-    /// of the file loads. A corrupt file must never be fatal, and a failed parse must never
-    /// rewrite the user's file.
+    /// *validation* (duplicate id, over-long id, empty or non-absolute executable path, a
+    /// **filled-in** non-absolute project directory, out-of-range timeout, over-cap argv or
+    /// environment) is skipped loudly, one call per row, and the rest of the file loads. A row
+    /// without a project directory — absent, or blank (the decoder's silent blank→nil
+    /// normalization) — is the valid nil-directory row, loaded quietly. A corrupt file must
+    /// never be fatal, and a failed parse must never rewrite the user's file.
     public static func decode(
         _ data: Data, onInvalid: (String) -> Void
     ) -> CodingAgentFile {
@@ -264,17 +269,18 @@ public actor CodingAgentRegistry {
                     "coding-agents: skipping row \(index): a non-absolute executable path")
                 continue
             }
-            guard !row.projectDirectory.isEmpty else {
-                onInvalid("coding-agents: skipping row \(index): an empty project directory")
-                continue
-            }
-            guard
-                (row.projectDirectory as NSString).isAbsolutePath
-                    && !row.projectDirectory.hasPrefix("~")
-            else {
-                onInvalid(
-                    "coding-agents: skipping row \(index): a non-absolute project directory")
-                continue
+            // A nil project directory is the valid nil-directory row (the decoder normalizes
+            // the blank spelling to nil) — the arm-time resolution's row. Only a filled-in
+            // directory is judged, and it must be absolute and never `~`.
+            if let projectDirectory = row.projectDirectory {
+                guard
+                    (projectDirectory as NSString).isAbsolutePath
+                        && !projectDirectory.hasPrefix("~")
+                else {
+                    onInvalid(
+                        "coding-agents: skipping row \(index): a non-absolute project directory")
+                    continue
+                }
             }
             guard row.arguments.count <= maximumArgumentCount else {
                 onInvalid(

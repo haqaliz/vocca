@@ -413,7 +413,7 @@ public enum ActionsTabReducer {
             next.editingAgentID = nil
             next.isAgentEditorOpen = false
             next.saveError = nil
-            next.lastAgentProjectDirectory = definition.projectDirectory
+            next.lastAgentProjectDirectory = definition.projectDirectory ?? ""
             // The drafts are held through the save: success clears them (`.saveSucceeded`),
             // failure leaves them for the user — the row the editor committed stays the row
             // the user wrote.
@@ -426,7 +426,7 @@ public enum ActionsTabReducer {
             next.agentIDDraft = definition.id
             next.agentExecutablePathDraft = definition.executablePath
             next.agentArgumentsDraft = definition.arguments.joined(separator: " ")
-            next.agentProjectDirectoryDraft = definition.projectDirectory
+            next.agentProjectDirectoryDraft = definition.projectDirectory ?? ""
             next.agentTimeoutDraft = "\(definition.timeoutSeconds)"
             next.agentEnvironmentDrafts = (definition.environment ?? [:]).map {
                 ActionsAgentEnvironmentPairDraft(key: $0.key, value: $0.value)
@@ -624,8 +624,10 @@ public enum ActionsTabReducer {
             return .refused(reason: ActionsTabCopy.agentArgumentCountReason)
         }
         let projectDirectory = state.agentProjectDirectoryDraft
-        guard isAbsolute(projectDirectory) else {
-            return .refused(reason: ActionsTabCopy.agentProjectDirectoryReason)
+        if !projectDirectory.allSatisfy(\.isWhitespace) {
+            guard isAbsolute(projectDirectory) else {
+                return .refused(reason: ActionsTabCopy.agentProjectDirectoryReason)
+            }
         }
         let timeoutSeconds: Int
         if state.agentTimeoutDraft.isEmpty {

@@ -236,19 +236,17 @@ extension AppBootstrap {
             }
 
             // The S2 enrichment (`agent-wiring-cwd`, PRD R3/S1): a row whose project
-            // directory is blank — or that the loaded registry lacks (the tolerant decode's
-            // skip — the honest "empty" spelling in this tree) — is resolved **once per
-            // turn** and the invocation is rebuilt with the detection; an explicit row is
-            // never re-resolved (G2). The row source is the root's `agentRegistry` slot,
-            // read lazily per call — a nil read (a composition that never filled the slot)
-            // enriches nothing, so the voice leg degrades to the provider's own render.
+            // directory is nil — the absent or blank spelling, a valid row of the file's
+            // shape — is resolved **once per turn** and the invocation is rebuilt with the
+            // detection; an explicit row is never re-resolved (G2). The row source is the
+            // root's `agentRegistry` slot, read lazily per call — a nil read (a composition
+            // that never filled the slot) enriches nothing, so the voice leg degrades to
+            // the provider's own render.
             var invocation = submitted
             if let registry = root.agentRegistry {
                 let file = await registry.load()
                 let agent = file.agents.first { $0.id == submitted.toolID }
-                let blank =
-                    agent.map { AppBootstrap.isBlankProjectDirectory($0.projectDirectory) }
-                    ?? true
+                let blank = agent.map { $0.projectDirectory == nil } ?? true
                 if blank,
                     let resolved = await activeProjectDirectory(),
                     let rebuilt = ActionInvocation(
