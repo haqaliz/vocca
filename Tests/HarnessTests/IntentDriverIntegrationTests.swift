@@ -96,7 +96,7 @@ final class IntentDriverIntegrationTests: XCTestCase {
         capture: ScriptedContinuousCapture,
         asr: ScriptedASR,
         intentProvider: @escaping @Sendable (String) async -> IntentResolution?,
-        intentActionHandler: @escaping @Sendable (ActionInvocation) async -> String?,
+        intentActionHandler: @escaping @Sendable (ActionInvocation, String) async -> String?,
         playback: FakePlaybackEngine,
         failures: RecordingIntentFailureSink
     ) -> ConverseLoopDriver {
@@ -164,7 +164,9 @@ final class IntentDriverIntegrationTests: XCTestCase {
             capture: capture,
             asr: asr,
             intentProvider: { await harness.wiring.resolve($0) },
-            intentActionHandler: { await harness.wiring.performAction($0) },
+            intentActionHandler: { invocation, utterance in
+                await harness.wiring.performAction(invocation, utterance)
+            },
             playback: playback,
             failures: failures)
 

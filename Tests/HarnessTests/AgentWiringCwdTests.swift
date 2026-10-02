@@ -326,7 +326,7 @@ final class AgentWiringCwdTests: XCTestCase {
             invocation.resolvedDirectory,
             "the resolver builds the plain invocation — the enrichment is the intent leg's")
 
-        let reply = await intentWiring.performAction(invocation)
+        let reply = await intentWiring.performAction(invocation, "")
         XCTAssertNil(reply, "a card is up — the card is the answer, not a spoken ack")
         let card = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(
@@ -386,7 +386,7 @@ final class AgentWiringCwdTests: XCTestCase {
         guard case .toolCall(let invocation) = resolution else {
             return XCTFail("the enabled empty row's phrase must resolve to a tool call")
         }
-        _ = await intentWiring.performAction(invocation)
+        _ = await intentWiring.performAction(invocation, "")
         let card = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(
             card.sentence, Self.clauseLessSentence,

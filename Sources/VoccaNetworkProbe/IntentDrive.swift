@@ -229,7 +229,7 @@ extension VoccaNetworkProbe {
         var shownSentence = ""
         if case .toolCall(let invocation) = await wiring.resolve("run the probe tool") {
             resolved = 1
-            _ = await wiring.performAction(invocation)
+            _ = await wiring.performAction(invocation, "run the probe tool")
             if let signal = root.widgetStore.state.confirmation?.signal {
                 card = "yes"
                 shownSentence = signal.sentence
@@ -379,7 +379,7 @@ extension VoccaNetworkProbe {
         var card = "no"
         if case .toolCall(let invocation) = await wiring.resolve("Run the probe tool.") {
             resolved = 1
-            _ = await wiring.performAction(invocation)
+            _ = await wiring.performAction(invocation, "Run the probe tool.")
             if root.widgetStore.state.confirmation != nil {
                 card = "yes"
             }

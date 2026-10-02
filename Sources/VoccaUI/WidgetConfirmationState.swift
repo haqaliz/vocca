@@ -50,7 +50,10 @@ public struct WidgetConfirmationState: Equatable, Sendable {
 /// 4) — the wiring supplies it, the reducer and store only compare it. `resolvedDirectory` is
 /// the invocation's arm-time directory (`invocation-carrier`, PRD R2), carried so the confirm
 /// path can rebuild the identical invocation — the directory shown on the card is the directory
-/// the child runs in, under the binding; absent (`nil`) for a call that carries none.
+/// the child runs in, under the binding; absent (`nil`) for a call that carries none. `taskText`
+/// is the invocation's spoken task (`utterance-threading`, PRD R3), carried so the confirm path
+/// can rebuild the identical invocation — the substituted argv shown on the card is the argv
+/// the child runs, under the binding; absent (`nil`) for a call that carries none.
 public struct WidgetConfirmationSignal: Equatable, Sendable {
     /// The provider's rendered sentence, shown verbatim.
     public let sentence: String
@@ -63,15 +66,19 @@ public struct WidgetConfirmationSignal: Equatable, Sendable {
     /// The invocation's arm-time resolved directory, or `nil` when the call carries none —
     /// the confirm path rebuilds the invocation with it.
     public let resolvedDirectory: String?
+    /// The invocation's spoken task text, or `nil` when the call carries none — the confirm
+    /// path rebuilds the invocation with it.
+    public let taskText: String?
 
     public init(
         sentence: String, providerID: String, toolID: String, generation: Int,
-        resolvedDirectory: String? = nil
+        resolvedDirectory: String? = nil, taskText: String? = nil
     ) {
         self.sentence = sentence
         self.providerID = providerID
         self.toolID = toolID
         self.generation = generation
         self.resolvedDirectory = resolvedDirectory
+        self.taskText = taskText
     }
 }

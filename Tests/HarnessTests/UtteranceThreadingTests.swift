@@ -280,7 +280,7 @@ final class UtteranceThreadingTests: XCTestCase {
             invocation.taskText,
             "the resolver builds the plain invocation — the enrichment is the intent leg's")
 
-        let reply = await intentWiring.performAction(invocation, utterance: Self.utterance)
+        let reply = await intentWiring.performAction(invocation, Self.utterance)
         XCTAssertNil(reply, "a card is up — the card is the answer, not a spoken ack")
         let card = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(
@@ -339,7 +339,7 @@ final class UtteranceThreadingTests: XCTestCase {
                     + "\(resolution)")
         }
 
-        let reply = await intentWiring.performAction(invocation, utterance: utterance)
+        let reply = await intentWiring.performAction(invocation, utterance)
         XCTAssertNil(reply, "a card is up — the card is the answer, not a spoken ack")
         let card = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(
@@ -390,7 +390,7 @@ final class UtteranceThreadingTests: XCTestCase {
 
         // A hand-built call with no utterance — the empty spelling, the shape only a direct
         // call can produce (the driver always passes the non-empty cleaned utterance).
-        let reply = await intentWiring.performAction(invocation, utterance: "")
+        let reply = await intentWiring.performAction(invocation, "")
         XCTAssertEqual(
             reply, "Cancelled.",
             "the refused turn is answered with the declined ack — never a silent drop")

@@ -51,12 +51,24 @@ import VoccaUI
 /// binding. The voice leg supplies no second confirmation path; it opens the same door the
 /// Actions tab's arm opens.
 ///
-/// ## The spoken acks are derived from the decision
+/// /// ## The spoken acks are derived from the decision
 ///
 /// A terminal decision answers the utterance: confirmed → "Done."; declined → "Cancelled.";
 /// `auditRecorded == false` → the bounded failure copy, **never** a success ack; refused or
 /// not-invoked → silent. The exact copy is provisional until the founder's real run (SMOKE
 /// 148-149); the record aspect owns the final text.
+///
+/// ## The handler carries the utterance (`utterance-threading`)
+///
+/// ``performAction`` receives the cleaned utterance the resolution came from — the driver's
+/// widened signature, the words in scope at its call site. The enrichment fills an agent
+/// row's `<task>` placeholder with the **full** utterance (the trigger words stay in the
+/// task; the audit records exactly what was said); a non-agent tool is enriched with
+/// nothing — `taskText` nil, byte-identical to today. A placeholder row reached **without**
+/// an utterance is refused before the card: the declined ack is spoken, the withheld
+/// submission records the refused decision, no card is ever presented and the engine is
+/// never reached (critique gap 2 — the provider's own refusal would ask a human to approve
+/// a refusal).
 public struct IntentWiring<Provider: ActionProvider>: Sendable {
 
     /// Resolves a cleaned utterance against the enabled-tool catalog — the driver's intent
@@ -67,7 +79,12 @@ public struct IntentWiring<Provider: ActionProvider>: Sendable {
     /// The action leg — the driver's handler slot. Submits the invocation through the executor
     /// with the approval withheld (the voice path never pre-grants), presents the card when the
     /// gate asks, and returns the spoken ack for a terminal decision (`nil` for silence).
-    public let performAction: @Sendable @MainActor (ActionInvocation) async -> String?
+    ///
+    /// **Carries the utterance** (`utterance-threading`): the cleaned words the resolution
+    /// came from, passed verbatim — the wiring enriches an agent row whose argv carries the
+    /// `<task>` placeholder with them, and refuses before the card when a placeholder row is
+    /// reached without one.
+    public let performAction: @Sendable @MainActor (ActionInvocation, String) async -> String?
 
     /// The executor the voice path submits through — the same one caller of ``ActionGate`` the
     /// surface's closures use, exposed for the composition root's slot.
@@ -88,7 +105,7 @@ public struct IntentWiring<Provider: ActionProvider>: Sendable {
 
     public init(
         resolve: @escaping @Sendable @MainActor (String) async -> IntentResolution,
-        performAction: @escaping @Sendable @MainActor (ActionInvocation) async -> String?,
+        performAction: @escaping @Sendable @MainActor (ActionInvocation, String) async -> String?,
         executor: ActionExecutor<Provider>,
         policy: ActionRadiusPolicy,
         spawnsSubprocess: Bool
@@ -225,8 +242,8 @@ extension AppBootstrap {
             return resolver.resolve(utterance, against: catalog)
         }
 
-        let performAction: @Sendable @MainActor (ActionInvocation) async -> String? = {
-            submitted in
+        let performAction: @Sendable @MainActor (ActionInvocation, String) async -> String? =
+        { submitted, utterance in
             // The card-up guard, read lazily per call: one card at a time, and a second voice
             // action while a card is up refuses to present — no submission, no record, no swap.
             guard root.widgetStore.state.confirmation == nil else {
@@ -242,6 +259,14 @@ extension AppBootstrap {
             // root's `agentRegistry` slot, read lazily per call — a nil read (a composition
             // that never filled the slot) enriches nothing, so the voice leg degrades to
             // the provider's own render.
+            //
+            // The utterance enrichment (`utterance-threading`, PRD R3) rides the same read:
+            // a row whose argv carries the `<task>` placeholder is rebuilt with
+            // `taskText: utterance` — the FULL utterance, trigger words and all, so the
+            // audit records exactly what was said; any other tool is rebuilt with `taskText`
+            // nil, byte-identical to today. A placeholder row reached **without** an
+            // utterance is refused before the card — the wiring's own stop, never the
+            // provider's refusal sentence asked of a human (critique gap 2).
             var invocation = submitted
             if let registry = root.agentRegistry {
                 let file = await registry.load()
@@ -254,6 +279,30 @@ extension AppBootstrap {
                         resolvedDirectory: resolved)
                 {
                     invocation = rebuilt
+                }
+                if let agent,
+                    CodingAgentSentences.argumentsContainPlaceholder(agent.arguments)
+                {
+                    guard !utterance.isEmpty else {
+                        // The pre-card refusal: a withheld submission is the stop for want
+                        // of a yes — the R8 every-decision rule (the decline-path shape),
+                        // never a card and never a run. The spoken answer is the declined
+                        // ack.
+                        logger.error(
+                            "intent-wiring: refusing a placeholder row without an utterance: \(submitted.providerID)/\(submitted.toolID)")
+                        let enablement = await configStore.loadEnablement()
+                        _ = await executor.submit(
+                            invocation, enablement: enablement, policy: policy,
+                            approval: .withheld, approvedSentence: nil, mode: .live)
+                        return "Cancelled."
+                    }
+                    if let rebuilt = ActionInvocation(
+                        providerID: submitted.providerID, toolID: submitted.toolID,
+                        resolvedDirectory: invocation.resolvedDirectory,
+                        taskText: utterance)
+                    {
+                        invocation = rebuilt
+                    }
                 }
             }
 
@@ -283,7 +332,8 @@ extension AppBootstrap {
                     WidgetConfirmationSignal(
                         sentence: fresh.sentence, providerID: invocation.providerID,
                         toolID: invocation.toolID, generation: generation.next(),
-                        resolvedDirectory: invocation.resolvedDirectory))
+                        resolvedDirectory: invocation.resolvedDirectory,
+                        taskText: invocation.taskText))
                 return nil
             case .invoked(_, let outcome):
                 // A read-only tool ran directly (M3) — the voice path's confirmed shape. The

@@ -361,7 +361,9 @@ final class ConverseLoopDriverTests: XCTestCase {
     /// renamed seam stops compiling (the frozen-signature doctrine). The two intent closures
     /// are pinned here at their nil-safe defaults (`converse-step`'s deliberate widening — a
     /// reviewed edit, never an edit-to-match of a broken build): the unwired driver is
-    /// today's driver.
+    /// today's driver. The action handler's default was widened deliberately by
+    /// `utterance-threading` (the handler now carries the utterance; the default ignores
+    /// it — `{ _, _ in nil }`, byte-identical behavior).
     func testTheDriverIsConstructibleOverTheDoubles() {
         func requireDriver(_ driver: ConverseLoopDriver) -> ConverseLoopDriver { driver }
 
@@ -375,7 +377,7 @@ final class ConverseLoopDriverTests: XCTestCase {
                 asrProvider: { ScriptedASR(transcripts: []) },
                 cleanupProvider: { nil },
                 intentProvider: { _ in nil },
-                intentActionHandler: { _ in nil },
+                intentActionHandler: { _, _ in nil },
                 replyGenerator: EchoReplyGenerator(),
                 synthesizer: { Self.stubSynthesizer },
                 playback: FakePlaybackEngine(),

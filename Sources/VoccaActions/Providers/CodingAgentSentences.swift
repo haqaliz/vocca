@@ -202,7 +202,11 @@ public enum CodingAgentSentences {
     /// Whether the row's argv contains at least one literal
     /// ``KnownAgentPresets/taskPlaceholder`` occurrence — the check that decides between
     /// substitution and the two placeholder-shaped refusals.
-    static func argumentsContainPlaceholder(_ arguments: [String]) -> Bool {
+    ///
+    /// Public because the wirings decide on it too (`utterance-threading`): the intent leg
+    /// enriches exactly a row whose argv carries the placeholder, and the surface arm
+    /// refuses exactly one — one rule, judged in one place.
+    public static func argumentsContainPlaceholder(_ arguments: [String]) -> Bool {
         arguments.contains { $0.contains(KnownAgentPresets.taskPlaceholder) }
     }
 
