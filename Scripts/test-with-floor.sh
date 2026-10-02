@@ -2268,8 +2268,19 @@ set -euo pipefail
 # production code, no lint widening; all eight legs green on landing, the honest pins
 # result). The count taken from the floor script's own parse in the ratchet commit.
 #
+# `executor-baseline` (the `agent-auth-baseline` unit): +4 — the env rows in
+# `CodingAgentExecutionTests` (the baseline-environment contract: the default `[:]` is
+# byte-identical to today — a real run with no baseline still shows the caller's PATH/HOME
+# absent; baseline ∪ configured with the configured value winning over the env-printing
+# child; an explicitly empty configured `HOME` beating a real baseline one — the intent
+# rule; plus the N2 doc pin — the old "never the caller's environment" scrub promise gone
+# from ShellExecutor.swift, the honest "never beyond the declared baseline and the row's own
+# entries" rule present, a deterministic source scan). A field, not a file — the transport
+# lint stays at exactly two permitted files untouched; the existing scrubbed-env row passes
+# unchanged. The count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3023
+MINIMUM_EXECUTED_TESTS=3027
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
