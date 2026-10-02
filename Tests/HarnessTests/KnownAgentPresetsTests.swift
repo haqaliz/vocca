@@ -198,6 +198,79 @@ final class KnownAgentPresetsTests: XCTestCase {
         }
     }
 
+    // MARK: - Acceptance 5 — the auth hints (wiring-baseline)
+
+    /// **Every preset's auth hint, pinned verbatim** (`wiring-baseline`, gap-3): the honest
+    /// copy the editor renders under the Environment field — which credentials or sign-in
+    /// the CLI authenticates with, in the CLI's own vocabulary. Each hint names a key
+    /// spelling, a subscription login, or both; the subscription spellings are the ones
+    /// that exist (`claude` subscription login, `codex login`, `gemini login`, `opencode
+    /// auth`, `cursor auth`, `q auth`), and a preset without one says the key spelling only.
+    /// A retune is a reviewed edit — the pin is the record of the decision, the
+    /// ``KeywordIntentResolver/shippedSynonyms`` precedent.
+    func testEveryAuthHintIsPinnedVerbatim() {
+        let expected: [String: String?] = [
+            "claude":
+                "ANTHROPIC_API_KEY or the claude subscription login — whichever you use in a "
+                + "terminal works here",
+            "codex": "OpenAI API key or the ChatGPT sign-in (codex login)",
+            "gemini": "Gemini API key or the Google account sign-in (gemini login)",
+            "opencode": "a provider API key or its OAuth sign-in (opencode auth)",
+            "aider": "an LLM API key (aider --model …)",
+            "cursor": "a Cursor subscription account (cursor auth)",
+            "q": "AWS credentials or the Q sign-in (q auth)",
+            "crush": "an LLM API key or its provider sign-in",
+        ]
+
+        let shipped = Dictionary(
+            uniqueKeysWithValues: KnownAgentPresets.all.map { ($0.id, $0.authHint) })
+        XCTAssertEqual(
+            shipped, expected,
+            "every auth hint must match its pin verbatim — the hints are the authoring "
+                + "surface's answer to 'which auth does this CLI use?', and the pin is the "
+                + "record of the decision")
+        for preset in KnownAgentPresets.all {
+            XCTAssertFalse(
+                preset.authHint?.isEmpty ?? true,
+                "\(preset.id)'s auth hint must be non-empty — an empty hint renders a blank "
+                    + "line under the Environment field")
+        }
+    }
+
+    /// The negative control: a **wrong** hint is caught by the same comparison the pin uses.
+    ///
+    /// A pin that has only ever seen the shipped values is a pin nobody has watched fail —
+    /// each of the mutations below (a reworded hint, a dropped hint, a key spelling that
+    /// names the wrong credential) must disagree with the shipped catalog.
+    func testAPlantedWrongAuthHintFailsThePin() {
+        let shipped = Dictionary(
+            uniqueKeysWithValues: KnownAgentPresets.all.map { ($0.id, $0.authHint) })
+
+        let planted: [String: String?] = [
+            "claude":
+                "ANTHROPIC_API_KEY or the claude subscription login — whichever you use in a "
+                + "terminal works here",
+            "codex": "your Anthropic key",
+            "gemini": "Gemini API key or the Google account sign-in (gemini login)",
+            "opencode": "a provider API key or its OAuth sign-in (opencode auth)",
+            "aider": nil,
+            "cursor": "a Cursor subscription account (cursor auth)",
+            "q": "AWS credentials or the Q sign-in (q auth)",
+            "crush": "an LLM API key or its provider sign-in",
+        ]
+
+        XCTAssertFalse(
+            shipped == planted,
+            "the pin must be able to fail — a planted wrong hint must not equal the shipped "
+                + "catalog, or the verbatim pin watches nothing")
+        for (id, wrong) in planted {
+            XCTAssertNotEqual(
+                shipped[id], wrong,
+                "the planted hint for \(id) must disagree with the shipped one — otherwise "
+                    + "the pin cannot catch a change to it")
+        }
+    }
+
     // MARK: - Acceptance 4 — pure data
 
     /// The catalog file is pure data: it names no forbidden transport or subprocess family, no
