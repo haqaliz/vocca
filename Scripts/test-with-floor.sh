@@ -2236,8 +2236,40 @@ set -euo pipefail
 # assertions and the placeholder-refusal test's first leg were rewritten in place, not
 # counted — the count taken from the floor script's own parse in the ratchet commit.
 #
+# `task-carrier` (the `spoken-task-seeding` unit): +9 — `TaskCarrierTests` (the spoken-task
+# substitution contract: no-taskText byte-identity, the single- and two-placeholder
+# substitutions, the three loud refusals, the gap-1 pin beside taskText, the additive
+# vocabulary legs). The carrier field compiles every pre-existing site unchanged — a field,
+# not a file — so Family A/B and the transport lint are untouched — the count taken from the
+# floor script's own parse in the ratchet commit.
+#
+# `utterance-threading` (the `spoken-task-seeding` unit): +6 — `UtteranceThreadingTests` (the
+# utterance's path to the invocation: the driver's widened handler passes the full cleaned
+# utterance to the action leg and the widened default falls through byte-identically; the
+# phrase-armed placeholder row seeds the full utterance through card, confirm and audit; the
+# non-placeholder row stays byte-identical with taskText nil; the placeholder row reached
+# without an utterance is refused before the card and recorded; the surface arm of a
+# placeholder row refuses loudly with the pinned copy, nothing recorded; the composed default
+# facts unchanged). The widening was deliberate — the driver's compile pins updated in the
+# GREEN commit, the handler's labeled spelling not expressible in a Swift function type
+# (recorded there); `AppBootstrap.swift` is untouched, so the G5 pin never moved — the count
+# taken from the floor script's own parse in the ratchet commit.
+#
+# `agent-pins` (the `spoken-task-seeding` unit): +8 — `SpokenTaskInvariantTests` (the
+# invariant suite, acceptances 1-5: the PROBE-CODING-AGENT line verbatim-unchanged with the
+# unit's files in the tree, agents=0 + spawnsSubprocess=false field-wise; the lint
+# immobilities read from the lint suites' own literals — transport set exactly two,
+# FileManager seams exactly eight, Family A's seven + Family B's one, the policy no-default;
+# the G5 digests with AppBootstrap still 641b6445… — the threading REFACTOR recorded
+# AppBootstrap never changed, so no re-anchor; the driver's compile pins — the widened
+# handler's signature + silent default, the recipe's passthrough, the utterance-passing call
+# site, the constructible pins; the zero-network default-configuration test green and the
+# module-coverage cross-check set unchanged at the twelve modules — assertions only, no
+# production code, no lint widening; all eight legs green on landing, the honest pins
+# result). The count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3000
+MINIMUM_EXECUTED_TESTS=3023
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

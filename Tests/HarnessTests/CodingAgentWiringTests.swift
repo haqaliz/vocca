@@ -295,7 +295,7 @@ final class CodingAgentWiringTests: XCTestCase {
             "the seeded phrase resolves to nothing while its tool is disabled")
         let direct = try XCTUnwrap(
             ActionInvocation(providerID: CodingAgentProvider.providerID, toolID: Self.toolID))
-        let reply = await intentWiring.performAction(direct)
+        let reply = await intentWiring.performAction(direct, "")
         XCTAssertEqual(reply, "Cancelled.", "the declined voice action speaks the refused ack")
         let declined = await harness.auditStore.load()
         XCTAssertEqual(
@@ -318,7 +318,7 @@ final class CodingAgentWiringTests: XCTestCase {
         XCTAssertEqual(invocation.providerID, CodingAgentProvider.providerID)
         XCTAssertEqual(invocation.toolID, Self.toolID)
 
-        let cardReply = await intentWiring.performAction(invocation)
+        let cardReply = await intentWiring.performAction(invocation, "")
         XCTAssertNil(
             cardReply,
             "a card is up — the card is the answer, and no spoken ack stands in for it")

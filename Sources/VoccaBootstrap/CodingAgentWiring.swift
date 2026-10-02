@@ -152,12 +152,17 @@ public struct CodingAgentWiring<Provider: ActionProvider>: Sendable {
 
 /// What the wiring refuses with, when it refuses at all.
 ///
-/// One case today: the arm is refused while a session is in flight — a confirmation card cannot
-/// land mid-dictation. A second case is a reviewed edit here, never a string invented at a call
-/// site.
+/// Two cases today: the arm is refused while a session is in flight — a confirmation card cannot
+/// land mid-dictation — and the arm of a placeholder row is refused loudly (`utterance-threading`,
+/// PRD R4) — the tab has no utterance to fill the `<task>` placeholder with, so a placeholder row
+/// cannot run from here (its task is filled by the spoken words in conversation). A third case is
+/// a reviewed edit here, never a string invented at a call site.
 public enum CodingAgentWiringError: Error, Equatable {
     /// Arming while a session is in flight — the card cannot appear on a live session.
     case sessionInFlight
+    /// Arming a row whose argv carries the `<task>` placeholder — a placeholder row cannot
+    /// run from the tab, named by its id.
+    case placeholderRow(String)
 }
 
 /// What the authoring save path refuses with — the root-side backstop of the editor's own
@@ -311,8 +316,21 @@ extension AppBootstrap {
             // **exactly once** and carried on the invocation; an explicit row is never
             // re-resolved (G2 — detection is never consulted for a row that names its own
             // directory).
+            //
+            // The placeholder-row refusal (`utterance-threading`, PRD R4): a row whose argv
+            // carries the `<task>` placeholder is refused loudly, before anything is
+            // submitted — the tab has no utterance to fill it with, and a placeholder row
+            // cannot run from here (its task is filled by the spoken words in conversation,
+            // the voice leg's path). Nothing is recorded as a run and no card can appear:
+            // the refusal happens before any submission, exactly as the in-flight refusal
+            // does.
             let file = await registry.load()
             let agent = file.agents.first { $0.id == toolID }
+            if let agent, CodingAgentSentences.argumentsContainPlaceholder(agent.arguments) {
+                logger.error(
+                    "agent-wiring: refusing to arm \(providerID)/\(toolID): \(ActionsTabCopy.agentPlaceholderArmRefusal)")
+                throw CodingAgentWiringError.placeholderRow(toolID)
+            }
             let resolvedDirectory: String?
             if let agent, agent.projectDirectory != nil {
                 resolvedDirectory = nil
@@ -370,7 +388,7 @@ extension AppBootstrap {
             guard
                 let invocation = ActionInvocation(
                     providerID: signal.providerID, toolID: signal.toolID,
-                    resolvedDirectory: signal.resolvedDirectory)
+                    resolvedDirectory: signal.resolvedDirectory, taskText: signal.taskText)
             else { return }
             let enablement = await configStore.loadEnablement()
             let decision = await executor.submit(
@@ -387,7 +405,8 @@ extension AppBootstrap {
                     WidgetConfirmationSignal(
                         sentence: fresh.sentence, providerID: signal.providerID,
                         toolID: signal.toolID, generation: generation.next(),
-                        resolvedDirectory: invocation.resolvedDirectory))
+                        resolvedDirectory: invocation.resolvedDirectory,
+                        taskText: invocation.taskText))
                 confirmationPresented()
             case .invoked, .previewed, .confirmationRequired, .declined:
                 break
@@ -403,7 +422,7 @@ extension AppBootstrap {
             guard
                 let invocation = ActionInvocation(
                     providerID: signal.providerID, toolID: signal.toolID,
-                    resolvedDirectory: signal.resolvedDirectory)
+                    resolvedDirectory: signal.resolvedDirectory, taskText: signal.taskText)
             else { return }
             let enablement = await configStore.loadEnablement()
             // The refused decision, recorded: a withheld submission is the stop for want of a

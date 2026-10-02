@@ -194,7 +194,9 @@ extension VoccaNetworkProbe {
             // echoes. The closures are explicit, not the driver's defaults, so the drive
             // names the types it deliberately does not wire.
             intentProvider: { (_: String) async -> IntentResolution? in nil },
-            intentActionHandler: { (_: ActionInvocation) async -> String? in nil },
+            intentActionHandler: { (_: ActionInvocation, utterance: String) async -> String? in
+                nil
+            },
             replyGenerator: EchoReplyGenerator(),
             synthesizer: { synth },
             playback: playback,

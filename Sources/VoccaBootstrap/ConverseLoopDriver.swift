@@ -110,7 +110,12 @@ public final class ConverseLoopDriver {
     /// The action leg — the spoken reply after a `.toolCall`'s terminal decision. `nil` is
     /// the honest-drop channel (the driver's silent-return discipline): the pipeline falls
     /// through to the reply generator, never a throw, never a notice.
-    private let intentActionHandler: @Sendable (ActionInvocation) async -> String?
+    ///
+    /// **The handler carries the utterance** (`utterance-threading`, the spoken-task-seeding
+    /// unit): the intent step passes the cleaned utterance it resolved — the words are in
+    /// scope at the call site, and the action leg (the wiring's enrichment) fills an agent
+    /// row's `<task>` placeholder with exactly what was said.
+    private let intentActionHandler: @Sendable (ActionInvocation, String) async -> String?
 
     /// The reply generator — the shipped deterministic stand-in behind the R7 seam.
     private let replyGenerator: any ReplyGenerator
@@ -191,7 +196,9 @@ public final class ConverseLoopDriver {
     ///     answer: today's reply-generator behavior, byte-identical.
     ///   - intentActionHandler: the action leg — the spoken reply after a `.toolCall`'s
     ///     terminal decision. `nil` (the default) stays silent and the pipeline falls through
-    ///     to the reply generator.
+    ///     to the reply generator. **Carries the utterance** (`utterance-threading`): the
+    ///     cleaned words the resolution came from, passed verbatim — the handler's default
+    ///     ignores them, so the unwired driver is byte-identical to today.
     ///   - replyGenerator: the R7 seam's deterministic stand-in.
     ///   - synthesizer: the speech recipe, resolved at the first `.speakReply`.
     ///   - playback: the duckable output the rendered reply drains into.
@@ -206,9 +213,8 @@ public final class ConverseLoopDriver {
         asrProvider: @escaping @Sendable () async -> (any ASREngine)?,
         cleanupProvider: @escaping @Sendable () async throws -> (any CleanupProvider)?,
         intentProvider: @escaping @Sendable (String) async -> IntentResolution? = { _ in nil },
-        intentActionHandler: @escaping @Sendable (ActionInvocation) async -> String? = { _ in
-            nil
-        },
+        intentActionHandler: @escaping @Sendable (ActionInvocation, String) async -> String?
+            = { _, _ in nil },
         replyGenerator: any ReplyGenerator,
         synthesizer: @escaping @Sendable () async throws -> any SpeechSynthesizer,
         playback: any PlaybackEngine,
@@ -363,8 +369,11 @@ public final class ConverseLoopDriver {
         // The intent step (`intent-layer` PRD R4), between cleanup and the reply: a resolved
         // utterance branches — `.ask` speaks its question and nothing executes (R2: a guess
         // never runs), bounded by the re-ask counter; `.toolCall` speaks the action handler's
-        // reply (a silent handler falls through — the honest-drop channel); `.none` and the
-        // unwired `nil` fall through — the reply generator untouched, byte-identical.
+        // reply (a silent handler falls through — the honest-drop channel), **the handler
+        // receiving the cleaned utterance verbatim** (`utterance-threading` — the words are
+        // in scope here, and the wiring fills an agent row's `<task>` placeholder with them);
+        // `.none` and the unwired `nil` fall through — the reply generator untouched,
+        // byte-identical.
         let reply: String
         if let resolution = await intentProvider(raw) {
             switch resolution {
@@ -377,7 +386,9 @@ public final class ConverseLoopDriver {
                 }
             case .toolCall(let invocation):
                 consecutiveAsks = 0
-                reply = await intentActionHandler(invocation) ?? replyGenerator.reply(to: raw)
+                reply =
+                    await intentActionHandler(invocation, raw)
+                    ?? replyGenerator.reply(to: raw)
             case .none:
                 consecutiveAsks = 0
                 reply = replyGenerator.reply(to: raw)

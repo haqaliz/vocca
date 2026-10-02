@@ -128,14 +128,17 @@ final class ConverseIntentStepTests: XCTestCase {
     }
 
     /// Builds the driver over the seam doubles and the scripted intent machinery — the
-    /// widened fourteen-parameter init this file's contract requires.
+    /// widened fourteen-parameter init this file's contract requires. The action handler's
+    /// signature was widened deliberately by `utterance-threading` (it now carries the
+    /// utterance; the scripted doubles here record the invocation and ignore the words, the
+    /// byte-identical leg of the widening).
     private func makeDriver(
         vad script: [SpeechActivity],
         capture: ScriptedContinuousCapture = ScriptedContinuousCapture(),
         asrProvider: @escaping @Sendable () -> (any ASREngine)?,
         cleanupProvider: @escaping @Sendable () async throws -> (any CleanupProvider)?,
         intentProvider: @escaping @Sendable (String) async -> IntentResolution?,
-        intentActionHandler: @escaping @Sendable (ActionInvocation) async -> String?,
+        intentActionHandler: @escaping @Sendable (ActionInvocation, String) async -> String?,
         synthesizerProvider: @escaping @Sendable () async throws -> any SpeechSynthesizer,
         playback: any PlaybackEngine = FakePlaybackEngine(),
         failureSink: @escaping @Sendable (ConverseTurnFailure) -> Void = { _ in }
@@ -196,7 +199,7 @@ final class ConverseIntentStepTests: XCTestCase {
             asrProvider: { asr },
             cleanupProvider: { nil },
             intentProvider: { await provider.resolve($0) },
-            intentActionHandler: { await handler.handle($0) },
+            intentActionHandler: { invocation, _ in await handler.handle(invocation) },
             synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: { failures.record($0) })
@@ -242,7 +245,7 @@ final class ConverseIntentStepTests: XCTestCase {
             asrProvider: { asr },
             cleanupProvider: { nil },
             intentProvider: { await provider.resolve($0) },
-            intentActionHandler: { await handler.handle($0) },
+            intentActionHandler: { invocation, _ in await handler.handle(invocation) },
             synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: { failures.record($0) })
@@ -280,7 +283,7 @@ final class ConverseIntentStepTests: XCTestCase {
             asrProvider: { asr },
             cleanupProvider: { nil },
             intentProvider: { await provider.resolve($0) },
-            intentActionHandler: { await handler.handle($0) },
+            intentActionHandler: { invocation, _ in await handler.handle(invocation) },
             synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: { failures.record($0) })
@@ -321,7 +324,7 @@ final class ConverseIntentStepTests: XCTestCase {
             asrProvider: { asr },
             cleanupProvider: { nil },
             intentProvider: { await provider.resolve($0) },
-            intentActionHandler: { await handler.handle($0) },
+            intentActionHandler: { invocation, _ in await handler.handle(invocation) },
             synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: { failures.record($0) })
@@ -365,7 +368,7 @@ final class ConverseIntentStepTests: XCTestCase {
             asrProvider: { asr },
             cleanupProvider: { nil },
             intentProvider: { await provider.resolve($0) },
-            intentActionHandler: { await handler.handle($0) },
+            intentActionHandler: { invocation, _ in await handler.handle(invocation) },
             synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: { failures.record($0) })
@@ -408,7 +411,7 @@ final class ConverseIntentStepTests: XCTestCase {
             asrProvider: { asr },
             cleanupProvider: { nil },
             intentProvider: { await provider.resolve($0) },
-            intentActionHandler: { await handler.handle($0) },
+            intentActionHandler: { invocation, _ in await handler.handle(invocation) },
             synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             failureSink: { failures.record($0) })

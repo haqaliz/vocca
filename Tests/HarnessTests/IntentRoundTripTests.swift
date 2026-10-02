@@ -219,7 +219,7 @@ final class IntentRoundTripTests: XCTestCase {
             invocation, ActionInvocation(providerID: Self.providerID, toolID: Self.clearToolID),
             "the seeded synonym resolves to the enabled tool's invocation, arguments nil")
 
-        let reply = await harness.wiring.performAction(invocation)
+        let reply = await harness.wiring.performAction(invocation, "")
         XCTAssertNil(
             reply,
             "a card is up — the card is the answer, and no spoken ack stands in for it")
@@ -258,7 +258,7 @@ final class IntentRoundTripTests: XCTestCase {
         // A fresh utterance mints a fresh generation token.
         let secondResolution = await harness.wiring.resolve("clear the audit log")
         let again = try XCTUnwrap(toolCall(in: secondResolution))
-        _ = await harness.wiring.performAction(again)
+        _ = await harness.wiring.performAction(again, "")
         let secondCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(
             secondCard.sentence, clearSentence(entries: 2),
@@ -287,7 +287,7 @@ final class IntentRoundTripTests: XCTestCase {
 
         let mismatchResolution = await harness.wiring.resolve("clear the audit log")
         let invocation = try XCTUnwrap(toolCall(in: mismatchResolution))
-        _ = await harness.wiring.performAction(invocation)
+        _ = await harness.wiring.performAction(invocation, "")
         let firstCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertEqual(firstCard.sentence, clearSentence(entries: 3))
 
@@ -339,7 +339,7 @@ final class IntentRoundTripTests: XCTestCase {
 
         let declineResolution = await harness.wiring.resolve("clear the audit log")
         let invocation = try XCTUnwrap(toolCall(in: declineResolution))
-        _ = await harness.wiring.performAction(invocation)
+        _ = await harness.wiring.performAction(invocation, "")
         XCTAssertNotNil(harness.root.widgetStore.state.confirmation)
 
         await harness.surface.decline()
@@ -390,7 +390,7 @@ final class IntentRoundTripTests: XCTestCase {
         // the refusal is recorded with the bounded key, and nothing is invoked.
         let direct = try XCTUnwrap(
             ActionInvocation(providerID: Self.providerID, toolID: Self.clearToolID))
-        let reply = await harness.wiring.performAction(direct)
+        let reply = await harness.wiring.performAction(direct, "")
         XCTAssertEqual(
             reply, "Cancelled.",
             "the declined voice action speaks the refused ack — the decision was recorded")
@@ -448,14 +448,14 @@ final class IntentRoundTripTests: XCTestCase {
 
         let firstResolution = await harness.wiring.resolve("clear the audit log")
         let first = try XCTUnwrap(toolCall(in: firstResolution))
-        _ = await harness.wiring.performAction(first)
+        _ = await harness.wiring.performAction(first, "")
         let firstCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         let entriesBefore = await harness.auditStore.list().count
 
         // The second voice action while the card is up: refused.
         let secondResolution = await harness.wiring.resolve("clear the audit log")
         let second = try XCTUnwrap(toolCall(in: secondResolution))
-        let secondReply = await harness.wiring.performAction(second)
+        let secondReply = await harness.wiring.performAction(second, "")
         XCTAssertNil(secondReply, "the refusal is silent — the card is the surface")
         let entriesAfter = await harness.auditStore.list().count
         XCTAssertEqual(
@@ -470,7 +470,7 @@ final class IntentRoundTripTests: XCTestCase {
         await harness.surface.decline()
         let thirdResolution = await harness.wiring.resolve("clear the audit log")
         let third = try XCTUnwrap(toolCall(in: thirdResolution))
-        _ = await harness.wiring.performAction(third)
+        _ = await harness.wiring.performAction(third, "")
         let thirdCard = try XCTUnwrap(harness.root.widgetStore.state.confirmation?.signal)
         XCTAssertNotEqual(
             thirdCard.generation, firstCard.generation,
@@ -500,7 +500,7 @@ final class IntentRoundTripTests: XCTestCase {
 
         let failureResolution = await harness.wiring.resolve("clear the audit log")
         let invocation = try XCTUnwrap(toolCall(in: failureResolution))
-        let reply = await harness.wiring.performAction(invocation)
+        let reply = await harness.wiring.performAction(invocation, "")
         XCTAssertEqual(
             reply, "Something went wrong — the action was not recorded.",
             "auditRecorded == false is the loud fact, spoken — never a success ack")

@@ -102,6 +102,18 @@ public enum ActionsTabCopy {
         + "\(AgentAuthoringConstants.taskPlaceholder) with a concrete task, or remove it from "
         + "the arguments."
 
+    /// **The placeholder row's arm refusal** (`utterance-threading`, PRD R4): arming a row
+    /// whose argv still carries the `<task>` placeholder is refused loudly — the tab has no
+    /// utterance to fill it with, so a placeholder row cannot run from here; its task is
+    /// filled by the spoken words in conversation (the voice leg is the only path that fills
+    /// one). The editor's `<task>`-Save refusal above is unchanged — this is the arm path's
+    /// own line.
+    public static let agentPlaceholderArmRefusal =
+        "Arm refused: the arguments still contain \(AgentAuthoringConstants.taskPlaceholder). "
+        + "A placeholder row cannot run from the tab — its task is filled by your spoken "
+        + "words in conversation. Replace \(AgentAuthoringConstants.taskPlaceholder) with a "
+        + "concrete task in the arguments, or remove it."
+
     /// A save refused because its id matches an existing row — the registry's first-wins
     /// would silently skip the duplicate, so the editor refuses it loudly, naming the id.
     public static func agentDuplicateID(_ id: String) -> String {

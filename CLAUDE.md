@@ -9,6 +9,34 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`spoken-task-seeding` (C13 slice 12, shipped 2026-10-01):** the N1 retirement —
+> **phrases arm rows AND the full spoken utterance fills the argv's `<task>` slot**:
+> one row, any task, per conversation. `ActionInvocation.taskText` (additive, default
+> nil, Foundation-free, **never `arguments`** — the gap-1 pin intact);
+> `CodingAgentSentences.substitutedArguments` — **every** placeholder occurrence
+> replaced (the adjacent-pair pin; `omittingEmptySubsequences: false` is the
+> load-bearing half) — plus `argumentsContainPlaceholder` (public — one rule judged in
+> one place); the three loud refusals `agent.taskHasNowhereToGo`/`agent.taskTextMissing`/
+> `agent.taskTextTooLarge` (describe at `outwardFacing`, invoke `.failed`, engine count
+> 0; the `maximumArgumentsUTF8Bytes` bound — 4096 — refused, never truncated); the
+> driver's `intentActionHandler` widened to `(ActionInvocation, String) async -> String?`
+> (the labeled spelling is not expressible in Swift function types — recorded deviation;
+> the default `{ _, _ in nil }`; the call site passes the cleaned utterance); the
+> intent-leg enrichment with **the full utterance** — the audit records exactly what was
+> said; the **pre-card refusal** (a placeholder row without an utterance → declined,
+> recorded, never a card); `WidgetConfirmationSignal.taskText` (additive); the
+> surface-arm refusal copy — "Arm refused: the arguments still contain <task>. A
+> placeholder row cannot run from the tab — its task is filled by your spoken words in
+> conversation." — the editor's `<task>`-Save refusal stays, the file may carry
+> placeholder rows hand-edited. **N1 retired:** the "phrases arm rows, never task text"
+> phrasing of `coding-agent-handoff`/`agent-presets` is gone, replaced by the retirement
+> above — the voice leg is the only path that fills a placeholder row. G5 **not**
+> re-anchored — `AppBootstrap` never shifted, the digest stays `641b6445…` (dictation
+> digests unchanged). **No gate passes** (sixteenth unit ahead of the uncleared gates);
+> the composed default still reads `agents=0 spawnsSubprocess=false`; lints untouched (a
+> field is not a file). SMOKE 162 is **written and runnable** — recorded, never gated.
+> Test floor: **3023**.
+>
 > **`active-project-detection` (C13 slice 11 + the C12 metadata extension, shipped
 > 2026-10-01):** the "voice → my current project" promise stops being hand-operated —
 > the focused app's working directory becomes the agent row's project at arm time.
