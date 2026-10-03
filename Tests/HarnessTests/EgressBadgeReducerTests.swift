@@ -160,5 +160,7 @@ final class EgressBadgeReducerTests: XCTestCase {
         (.projection(.notice(.captureUnavailable)), "project notice"),
         (.timerFired(.recording), "recording timer"),
         (.timerFired(.deliveredCollapse), "collapse timer"),
+        (.replyPresented("a reply"), "reply presented"),
+        (.replyPresented(nil), "reply cleared"),
     ]
 }
