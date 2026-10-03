@@ -124,6 +124,9 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // own file: it conforms to the seam, reads the catalog and returns the
                 // resolution vocabulary, exactly as the keyword resolver's file does.
                 "VoccaCore/Intent/PhraseIntentResolver.swift",
+                // `composite-intent-resolver`'s reviewed widening — the chain's own file: it
+                // conforms to the seam, filters the catalog and returns the resolution vocabulary.
+                "VoccaCore/Intent/CompositeIntentResolver.swift",
                 // `action-round-trip`'s reviewed widening — the wiring's `resolve` closure is
                 // the seam's consumer: it supplies the catalog and reads the resolution. It
                 // names the protocol to call it, never to re-decide with it.
@@ -145,6 +148,9 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // own file: it conforms to the seam, reads the catalog and returns the
                 // resolution vocabulary, exactly as the keyword resolver's file does.
                 "VoccaCore/Intent/PhraseIntentResolver.swift",
+                // `composite-intent-resolver`'s reviewed widening — the chain's own file: it
+                // conforms to the seam, filters the catalog and returns the resolution vocabulary.
+                "VoccaCore/Intent/CompositeIntentResolver.swift",
                 // `converse-step`'s reviewed widening — the driver's `intentProvider` closure
                 // type and its `.ask`/`.toolCall`/`.none` branch, the recipe's passthrough,
                 // and the probe drive's explicit unwired closure. All three read the
@@ -168,6 +174,9 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // own file: it conforms to the seam, reads the catalog and returns the
                 // resolution vocabulary, exactly as the keyword resolver's file does.
                 "VoccaCore/Intent/PhraseIntentResolver.swift",
+                // `composite-intent-resolver`'s reviewed widening — the chain's own file: it
+                // conforms to the seam, filters the catalog and returns the resolution vocabulary.
+                "VoccaCore/Intent/CompositeIntentResolver.swift",
                 // `action-round-trip`'s reviewed widening — the wiring builds the catalog the
                 // resolver resolves against, from the enablement rows (R3). It reads the
                 // vocabulary to build the seam's input; it never decides with it.
