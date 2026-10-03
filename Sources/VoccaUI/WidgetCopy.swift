@@ -108,6 +108,26 @@ public enum WidgetCopy {
         }
     }
 
+    // MARK: - The reply bubble (reply-text-rendering R4/R5)
+
+    /// Whether the CONVERSING branch shows the reply bubble (`reply-text-rendering` R4): a
+    /// scheduled reply with something to say. `nil` — no reply scheduled, or the carrier's
+    /// lifecycle clear — shows nothing, and an **empty reply is silence**, the generator's own
+    /// contract (`ReplyGenerator.reply(to:)`), so a bubble with no words is never drawn (the
+    /// `openingLabel` doctrine: an absent thing renders nothing, never an empty box).
+    public static func shouldShowReplyBubble(_ replyText: String?) -> Bool {
+        guard let replyText else { return false }
+        return !replyText.isEmpty
+    }
+
+    /// The bubble's VoiceOver label (`reply-text-rendering` R5): the reply text, verbatim —
+    /// the same string the visible `Text` renders, so the label and the bubble cannot drift.
+    /// The panel is non-key (`WidgetPanel.canBecomeKey == false`), so announcement is
+    /// best-effort — recorded; the SMOKE row observes what a real VoiceOver session hears.
+    public static func replyBubbleLabel(_ replyText: String) -> String {
+        replyText
+    }
+
     // MARK: - The confirmation card (confirmation-card M4a/M5a)
 
     /// The card's heading (`confirmation-card`): the actions surface's section word — the card is

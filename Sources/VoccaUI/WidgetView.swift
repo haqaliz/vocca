@@ -85,7 +85,19 @@ public struct WidgetView: View {
         if let confirmation = store.state.confirmation, store.state.notice == nil {
             confirmationCard(confirmation)
         } else {
-            pillBody
+            // The pill plus, over CONVERSING, the reply bubble beneath it
+            // (`reply-text-rendering` R4, Q2): the pill's five cues stay exactly as shipped
+            // and the bubble is addition-only, never a replacement — the pill stays the
+            // primary element, the bubble reads under it. The show decision is `WidgetCopy`'s
+            // pinned predicate (`ReplyBubbleTests`); the reply text is converse-only in the
+            // reducer, so a non-nil text can only be riding this state.
+            VStack(spacing: 8) {
+                pillBody
+                if let replyText = store.state.replyText,
+                    WidgetCopy.shouldShowReplyBubble(replyText) {
+                    replyBubble(replyText)
+                }
+            }
         }
     }
 
@@ -138,6 +150,37 @@ public struct WidgetView: View {
         }
         .padding(VoccaTheme.Panel.horizontalPadding)
         .frame(minWidth: 260)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
+    }
+
+    /// The reply bubble (`reply-text-rendering` R4): the scheduled reply rendered verbatim
+    /// beneath the pill — the confirmation card's chrome (material, hairline, shadow, rounded
+    /// corners) and the failsafe's bounded text surface (a `ScrollView` 48–160 pt tall with
+    /// selectable text; past the bound the text scrolls, never truncates). Executed by nothing
+    /// in CI, exactly like the rest of this file: the strings are `WidgetCopy`'s and pinned
+    /// (`WidgetCopyTests`, `ReplyBubbleTests`), and the show decision is the same pinned
+    /// predicate.
+    ///
+    /// The width band is the two precedents' own: 260 pt is the card's room floor, 420 pt the
+    /// failsafe's reading width. Without a maximum the wrap would never engage — a long reply
+    /// would size the whole panel to one unbounded line (measured with `NSHostingView`).
+    @ViewBuilder
+    private func replyBubble(_ replyText: String) -> some View {
+        ScrollView {
+            Text(replyText)
+                .textSelection(.enabled)
+                .font(VoccaTheme.Text.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(WidgetCopy.replyBubbleLabel(replyText))
+        }
+        .frame(minHeight: 48, maxHeight: 160)
+        .padding(VoccaTheme.Panel.horizontalPadding)
+        .frame(minWidth: 260, maxWidth: 420)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
