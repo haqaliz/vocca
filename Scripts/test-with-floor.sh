@@ -2311,14 +2311,74 @@ set -euo pipefail
 # the eight, Family A's seven families and Family B's single minting file unchanged, and
 # the policy parameter still default-less with all 96 submit call sites supplying it, count
 # pinned; the digests — the dictation pair unchanged, AppBootstrap at the wiring REFACTOR's
-# re-anchored literal 4e50ab8d… with every one of the five pin sites carrying the same
+# re-anchored literal bc2ce1fd… with every one of the five pin sites carrying the same
 # value; the module-coverage cross-check green — no new module files; the zero-network
 # default-configuration drive green with the baseline wired — a value in the environment of
 # a child the default never spawns). Assertions only — no production code, no lint
 # widening. The count taken from the floor script's own parse in the ratchet commit.
 #
+# `reply-carrier` (the `reply-text-rendering` unit): +7 — `ReplyCarrierTests`, the carrier
+# suite (acceptances 1-6: the reply emitted once at schedule time — with the sink already
+# holding it when the render resolves, the before-audio proof; the ask path's question
+# emitted; the barge-in clear; the listening and idle clears; replyFailed keeps the text
+# with the suppression not sticking; the unwired default byte-identical). Assertions only —
+# the production change is the driver's additive sink plus the recipe's passthrough. The
+# AppBootstrap wiring and the G5 re-anchor are deferred until `reply-state`'s
+# `presentReply(_:)` exists (the ordering issue, reported). The count taken from the floor
+# script's own parse in the ratchet commit.
+#
+# `reply-state` (the `reply-text-rendering` unit): +5 — `WidgetStateReducerTests`, the
+# reply-text reducer rows (the set during conversing; the truncation at the named
+# `WidgetTiming.maxReplyCharacters` cap; the barge-in `nil` clear; the converse-only drop
+# outside conversing; the dictation/IDLE adoption clear) plus the amended phase-change row
+# now carrying the text and the closed-set sweep carrying both `.replyPresented` shapes.
+# The two compile pins in `WidgetContextReducerTests`/`WidgetConfirmationStateTests` grew to
+# eight cases and the `EgressBadgeReducerTests` enumeration carries the action — renames and
+# amendments, no count change there. The store's thin `presentReply(_:)` fold has no row of
+# its own. Assertions and the reducer/store change only — no lint widening. The count taken
+# from the floor script's own parse in the ratchet commit.
+#
+# `reply-wiring` (the `reply-text-rendering` unit, the carrier's deferred wiring): +1 —
+# `AppBootstrapWiringTests.testTheConverseReplySinkIsWiredIntoTheWidgetStore`, the wiring
+# row: the `composeConverseWiring(` call site's `converseReplySink:` closure is extracted
+# from the source and asserted to read the root through the weak box, fold
+# `root.widgetStore.presentReply(text)` and hop to the main actor — the shipped-composition
+# pin shape (`configure` needs an `NSApplication`). The wiring closure itself is the only
+# production change; the G5 re-anchor lands in this same REFACTOR (4e50ab8d… → bc2ce1fd…,
+# all six pin sites). The count taken from the floor script's own parse in the ratchet
+# commit.
+#
+# `reply-view` (the `reply-text-rendering` unit): +8 — `ReplyBubbleTests`, the bubble suite
+# (acceptances 1-5: the show decision and its `WidgetView` source pin reading the pinned
+# predicate and label; the verbatim carry; the exact copy pins; the never-a-target scan
+# extended to the reply-bubble renderers; the five-cue cross-check) plus the two
+# `WidgetCopyTests` rows (the predicate's nil/empty/answer rows and the verbatim label pin).
+# The view renders the pill plus the conditional bubble (the card's chrome, the failsafe's
+# 48-160 pt scroll, selectable, verbatim); the copy surface gains the predicate and the
+# label. The token suite is untouched. The count taken from the floor script's own parse in
+# the ratchet commit.
+#
+# `agent-pins` (the `reply-text-rendering` unit): +10 — `ReplyRenderingInvariantTests`, the
+# invariant suite (acceptances 1-5: the PROBE-CODING-AGENT line verbatim-unchanged under the
+# interposer with the reply carrier, the bounded state and the bubble in the tree —
+# agents=0 + spawnsSubprocess=false field-wise; the lint immobilities read off the pin
+# files' own literals and, where the claim is about the tree, re-run over it — the transport
+# permitted set still exactly the two reviewed entries, the FileManager seams still exactly
+# the eight, Family A's seven families and Family B's single minting file unchanged, the
+# policy parameter still default-less with all 96 submit call sites supplying it, the
+# ConversePhase family still confined to WidgetProjection.swift in VoccaCore, and the M4a
+# no-remember scans still green over the unit's own reply rows; the digests — the dictation
+# pair unchanged, AppBootstrap at bc2ce1fd… with all six pin sites carrying the same
+# literal; the module-coverage cross-check recomputed from the manifest and pinned to the
+# same twelve library modules with the cross-check's own equality re-asserted; and the
+# zero-network default-configuration drive green with the reply rendering in the tree).
+# Assertions only — no production code, no lint widening. The tree was green on all ten
+# legs the day the suite landed (the honest pins result: the composed default did not move,
+# the lints did not widen, the digests did not change); nothing was manufactured red. The
+# count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3052
+MINIMUM_EXECUTED_TESTS=3083
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

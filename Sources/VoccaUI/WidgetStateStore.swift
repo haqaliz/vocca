@@ -133,4 +133,14 @@ public final class WidgetStateStore: ObservableObject {
         state = WidgetStateReducer.reduce(
             state, action: .partial(partial), now: clock.now)
     }
+
+    /// The converse carrier's reply fold (`reply-text-rendering` R2, the `presentPartial` shape)
+    /// — the reply text when a reply is scheduled, `nil` when the reply's lifecycle ends (the
+    /// next utterance's listening, idle, or a barge-in). The reducer owns the decisions
+    /// (converse-only, truncated at ``WidgetTiming/maxReplyCharacters``); this is the entry
+    /// point, with the clock's reading as the fold's `now`.
+    public func presentReply(_ text: String?) {
+        state = WidgetStateReducer.reduce(
+            state, action: .replyPresented(text), now: clock.now)
+    }
 }

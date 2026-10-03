@@ -254,6 +254,45 @@ final class AppBootstrapWiringTests: XCTestCase {
         XCTAssertFalse(present, "the recipe must not provision a model")
     }
 
+    /// **The converse reply sink folds into the widget store** (`reply-text-rendering` R1):
+    /// `configure`'s `composeConverseWiring` call passes `converseReplySink:`, and the closure
+    /// folds the reply into `root.widgetStore.presentReply(_:)` through the weak root box on
+    /// the main actor — the `converseStateSink` block's shape. `configure` needs an
+    /// `NSApplication`, so this is a source scan of the call site, the
+    /// `testTheShippedContextCompositionUsesTheRealProviderAndStore` shape: a reverted
+    /// composition (the default no-op) is a silent return to the audio-only reply.
+    func testTheConverseReplySinkIsWiredIntoTheWidgetStore() throws {
+        let block = try Self.balancedBlock(
+            in: "AppBootstrap.swift", after: "composeConverseWiring(")
+        guard let sink = block.range(of: "converseReplySink:") else {
+            return XCTFail(
+                """
+                `configure`'s `composeConverseWiring` call no longer passes \
+                `converseReplySink:`. That argument is where the reply reaches the widget; if \
+                it moved, this pin has to move with it rather than be deleted.
+                """)
+        }
+        let after = Array(block[sink.upperBound...])
+        guard let brace = after.firstIndex(of: "{") else {
+            return XCTFail("the `converseReplySink:` argument must be a closure")
+        }
+        guard let closure = SwiftSourceScanner.bracedBody(
+            in: after, openingBraceIndex: after.distance(from: after.startIndex, to: brace))
+        else {
+            return XCTFail("the `converseReplySink:` closure must balance")
+        }
+        XCTAssertTrue(
+            closure.body.contains("rootBox.value"),
+            "the sink must reach the root through the weak root box — the driver retains the "
+                + "closure, so a strong root capture cycles")
+        XCTAssertTrue(
+            closure.body.contains("root.widgetStore.presentReply(text)"),
+            "the sink must fold the reply into the widget store's `presentReply(_:)`")
+        XCTAssertTrue(
+            closure.body.contains("MainActor.assumeIsolated"),
+            "the fold must run on the main actor — the store's one isolation domain")
+    }
+
     // MARK: - The context composition (C12, R4)
 
     /// **The context wiring is probe-safe and attached** (`bootstrap-wiring` Phase 2): the

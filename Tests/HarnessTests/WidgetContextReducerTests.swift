@@ -130,10 +130,11 @@ final class WidgetContextReducerTests: XCTestCase {
 
     /// **The closed-set pin (D1)** — `WidgetAction` is exactly
     /// `{projection, timerFired, partial, egressChanged, contextChanged, confirmation,
-    /// confirmationDismissed}`: an exhaustive switch without a `default:` over the seven cases,
-    /// so an eighth case breaks this test at compile time before it can hide a transition no
-    /// signal can carry (the `SessionEffect` discipline; the two confirmation cases grew the set
-    /// with `confirmation-card`, whose own closed-set test pins the same seven).
+    /// confirmationDismissed, replyPresented}`: an exhaustive switch without a `default:` over
+    /// the eight cases, so a ninth case breaks this test at compile time before it can hide a
+    /// transition no signal can carry (the `SessionEffect` discipline; the two confirmation cases
+    /// grew the set with `confirmation-card`, and `replyPresented` grew it with
+    /// `reply-text-rendering` — the same pin in every suite).
     func testTheActionSetStaysClosed() {
         let actions: [WidgetAction] = [
             .projection(.noChange),
@@ -146,6 +147,7 @@ final class WidgetContextReducerTests: XCTestCase {
                 .init(sentence: "Permanently delete 12 entries.", providerID: "audit",
                       toolID: "clear", generation: 1)),
             .confirmationDismissed,
+            .replyPresented("a reply"),
         ]
         for action in actions {
             switch action {
@@ -156,9 +158,10 @@ final class WidgetContextReducerTests: XCTestCase {
             case .contextChanged: break
             case .confirmation: break
             case .confirmationDismissed: break
+            case .replyPresented: break
             }
         }
-        XCTAssertEqual(actions.count, 7, "the set stays exactly the seven closed cases")
+        XCTAssertEqual(actions.count, 8, "the set stays exactly the eight closed cases")
     }
 
     // MARK: - The store fold

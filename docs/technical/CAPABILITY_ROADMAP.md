@@ -820,6 +820,65 @@ gate passes.
 SMOKE 163 is written and runnable, recorded and never gated; no agent-success rate may
 be quoted. Test floor: **3052**.)*
 
+*(Amended by the `reply-text-rendering` unit, 2026-10-03: **C13 slice — the reply seam's
+last piece ships: the spoken reply renders.** The CONVERSING surface stops being audio-only:
+the reply text reaches the widget and renders verbatim in a bubble beneath the pill. Shipped:
+- **The carrier**: `ConverseLoopDriver.converseReplySink` (additive, default no-op —
+  byte-identical when unwired): the text at `.speakReply` before the render starts (the
+  loop's own accepted-schedule event; the ask path's question and the action handler's
+  reply through the same one point), `nil` on listening/idle and on barge-in, and **no
+  clear on a render failure** (the text stays — the `ReplyClearSuppressionBox` withholds
+  exactly that transition).
+- **The state**: `WidgetReducerState.replyText` (converse-only; every dictation and IDLE
+  adoption clears it) and the **eighth** `WidgetAction` case `.replyPresented(String?)` —
+  the closed-set amendment deliberate; the cap `WidgetTiming.maxReplyCharacters = 2000`
+  (truncation in the reducer's one place; the view scrolls beyond it, never a silent
+  clamp); the invariant amended to **"the phase plus the bounded reply text"**.
+- **The view**: `WidgetCopy.shouldShowReplyBubble`/`replyBubbleLabel`; the pill plus the
+  conditional bubble beneath it (the card's chrome, the failsafe's 48-160 pt scroll,
+  selectable, the measured 420 pt maximum); the five cues and the never-a-target render
+  untouched.
+- **The wiring**: `AppBootstrap` folds the sink into `presentReply(_:)` through the weak
+  rootBox on the main actor; the carrier's RED/GREEN landed with `AppBootstrap` untouched
+  (the ordering recorded — the fold needed the store method), the wiring and the G5
+  re-anchor closing together.
+- **The invariants held**: PROBE-CODING-AGENT verbatim (`agents=0
+  spawnsSubprocess=false`), the transport permitted set still exactly two files, the
+  FileManager seam table still eight seams, Family A/B and the `policy:` no-default call
+  sites unchanged, the `ConversePhase` family still confined to `WidgetProjection.swift`,
+  the M4a no-remember scans green over the unit's own reply rows, the module-coverage
+  cross-check unchanged (twelve modules — fields, a case and copy, no module files), the
+  zero-network drive green.
+
+**`reply-text rendering` retires from the remaining-machinery list below** — the real
+spoken answer to an agent run ships, and the reply seam's last piece is closed. G5
+re-anchored once, deliberately (`4e50ab8dde…` → `bc2ce1fdf2…`, computed with
+`shasum -a 256` on 2026-10-03, never edited-to-match; all six pin sites plus the new
+`ReplyRenderingInvariantTests` suite and the floor script's comment; dictation digests
+unchanged). No gate passes.
+
+**What is still NOT built — the remaining C13 machinery:**
+- a **phrase-then-keyword composite resolver**
+- an **audit-tools arm section** in the Actions tab
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load by
+  decision, and reversing it is a founder call)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- **`$N` parameter slots** (an agent row declares no parameters — the arguments-refusal
+  pin is the shipped record; the spoken task rides the additive `taskText` field, never
+  `arguments`)
+- the follow-ons this unit recorded: the **copy affordance (N1)** — the widget panel is
+  non-key (`WidgetPanel.canBecomeKey == false`), so a ⌘C handler cannot fire on it; a
+  copy affordance needs a mechanism the panel does not have (a button, or an owned key
+  path)
+- **not machinery, named so it is not lost:** the **turn-history deliverable**
+  (`ROADMAP.md:205` — "bounded, inspectable, local turn history — with a visible 'forget'
+  control") stays a **separate, unclaimed P3 item** — this unit renders the current reply,
+  not history; the bubble is single-turn by construction, and the item was never part of
+  this list.
+
+SMOKE 164 is written and runnable, recorded and never gated; no reply rate may be quoted.
+Test floor: **3083**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

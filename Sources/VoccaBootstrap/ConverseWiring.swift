@@ -73,6 +73,12 @@ extension AppBootstrap {
     /// over the enablement catalog and the shared executor. The action handler carries the
     /// cleaned utterance (`utterance-threading` — the driver's widened signature, passed
     /// through; the default ignores it).
+    ///
+    /// ## The reply sink
+    ///
+    /// The recipe passes the caller's reply sink through to the driver; the default no-op is
+    /// the unwired answer (byte-identical behavior). The reply-text-rendering wiring supplies
+    /// the widget store's fold.
     @MainActor
     public static func composeConverseWiring(
         clock: any MonotonicClock & Sendable,
@@ -82,7 +88,8 @@ extension AppBootstrap {
         root: DictationLoopRoot,
         intentProvider: @escaping @Sendable (String) async -> IntentResolution? = { _ in nil },
         intentActionHandler: @escaping @Sendable (ActionInvocation, String) async -> String?
-            = { _, _ in nil }
+            = { _, _ in nil },
+        converseReplySink: @escaping @Sendable (String?) -> Void = { _ in }
     ) async -> ConverseLoopDriver {
         // The third graph, with the configuration-change callback ending the converse session —
         // a device switch mid-capture is "the loop's trigger" (`StreamingCapture.swift:131-133`).
@@ -156,6 +163,7 @@ extension AppBootstrap {
                     rootBox.value?.converseStateSink?(state)
                 }
             },
+            converseReplySink: converseReplySink,
             failureSink: { failure in
                 Task { @MainActor in
                     rootBox.value?.converseFailureSink?(failure)

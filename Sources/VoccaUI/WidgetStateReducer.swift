@@ -104,6 +104,16 @@ public struct WidgetReducerState: Equatable, Sendable {
     /// into DELIVERED: the injected final is the only text there.
     public var partialText: String?
 
+    /// The newest converse reply (`reply-text-rendering` R2/R3): the text a scheduled reply will
+    /// speak, stored so the view can render it beneath the pill during CONVERSING. Bounded to
+    /// ``WidgetTiming/maxReplyCharacters`` characters — truncation is the reducer's answer — and
+    /// **converse-only**: a ``WidgetAction/replyPresented(_:)`` text lands only while
+    /// ``WidgetState/conversing(phase:)``, every dictation and IDLE adoption clears it, and the
+    /// carrier's own `nil` clears it on the next utterance's listening, idle and barge-in. The
+    /// listening ↔ speaking phase change keeps it — the turn is continuous; only the carrier's
+    /// `nil` (or an adoption off the converse path) is a clear.
+    public var replyText: String?
+
     /// The resting state: IDLE, no notice, no timer bookkeeping, the shipped session ceiling.
     ///
     /// The composition root passes the machine's own `ceiling` (`SessionMachine.ceiling`) so a
@@ -128,6 +138,7 @@ public struct WidgetReducerState: Equatable, Sendable {
         self.context = context
         self.confirmation = confirmation
         self.partialText = nil
+        self.replyText = nil
     }
 }
 
@@ -157,11 +168,12 @@ public enum WidgetTimer: Equatable, Sendable, CaseIterable {
 /// (``WidgetAction/projection(_:)``), a due timer (``WidgetAction/timerFired(_:)``), a streaming
 /// partial from the pipeline's widget-only sink (``WidgetAction/partial(_:)``), the wiring's
 /// egress fold (``WidgetAction/egressChanged(_:)``), the wiring's context fold
-/// (``WidgetAction/contextChanged(_:)``), and the wiring's confirmation-card folds
-/// (``WidgetAction/confirmation(_:)``, ``WidgetAction/confirmationDismissed``). There is no other
-/// input, so the exhaustive switch in ``WidgetStateReducer`` cannot hide a transition no action
-/// can carry — and the fold's `now` is consulted only by the timer action, which is the
-/// structural pin on "no time-based transition without a clock event".
+/// (``WidgetAction/contextChanged(_:)``), the wiring's confirmation-card folds
+/// (``WidgetAction/confirmation(_:)``, ``WidgetAction/confirmationDismissed``), and the converse
+/// carrier's reply fold (``WidgetAction/replyPresented(_:)``). There is no other input, so the
+/// exhaustive switch in ``WidgetStateReducer`` cannot hide a transition no action can carry — and
+/// the fold's `now` is consulted only by the timer action, which is the structural pin on "no
+/// time-based transition without a clock event".
 public enum WidgetAction: Equatable, Sendable {
     /// The Core projection's verdict — ``WidgetProjection/project(effect:targetAppName:)`` or
     /// ``WidgetProjection/project(event:)`` folded by the composition root, exactly as produced.
@@ -188,10 +200,17 @@ public enum WidgetAction: Equatable, Sendable {
     /// The explicit clear — dismiss/decline/confirm all end the card here. The only fold that
     /// clears ``WidgetReducerState/confirmation``; a card has no timer and no other writer.
     case confirmationDismissed
+    /// The converse carrier's reply fold (`reply-text-rendering` R2) — the reply text when a
+    /// reply is scheduled (before its audio), `nil` when the reply's lifecycle ends: the next
+    /// utterance's listening, idle, or a barge-in. The only action that touches
+    /// ``WidgetReducerState/replyText``. A text lands only while ``WidgetState/conversing(phase:)``
+    /// — the field is converse-only, the partial's guard shape — while the `nil` clear applies
+    /// from any state, so the carrier's lifecycle emission always lands.
+    case replyPresented(String?)
 }
 
-/// The plan's constants (`widget-live-states` Task 2's times and `widget-streaming` S3's partial
-/// cap), in exactly one place each.
+/// The plan's constants (`widget-live-states` Task 2's times, `widget-streaming` S3's partial
+/// cap and `reply-text-rendering`'s reply cap), in exactly one place each.
 ///
 /// The ceiling warning is *not* here: it is derived from the configured ceiling via
 /// ``WatchdogPolicy/warningThreshold(before:)`` — against the shipped 120 s ceiling that number is
@@ -216,6 +235,11 @@ public enum WidgetTiming {
     /// The longest stored streaming partial (`widget-streaming` S3), in characters: a partial
     /// past this cap is truncated to it — the reducer's answer to an unbounded stream.
     public static let maxPartialCharacters = 200
+    /// The longest stored converse reply (`reply-text-rendering` R2), in characters: a reply
+    /// past this cap is truncated to it — the reducer's answer to an unbounded reply, the
+    /// `maxPartialCharacters` shape. The view scrolls beyond the cap (the failsafe precedent),
+    /// so the bound is the state's, never the bubble's.
+    public static let maxReplyCharacters = 2000
 }
 
 /// The live widget's transition table: a pure fold over `(state, action, now)`.
@@ -235,6 +259,11 @@ public enum WidgetTiming {
 ///   ``WidgetTiming/maxPartialCharacters``, while the state is RECORDING or TRANSCRIBING — and is
 ///   dropped anywhere else. Adopting IDLE, OPENING or DELIVERED clears the stored partial;
 ///   adopting RECORDING or TRANSCRIBING keeps it, because the final has not arrived.
+/// - ``WidgetAction/replyPresented(_:)`` stores the converse reply, bounded at
+///   ``WidgetTiming/maxReplyCharacters``, while the state is CONVERSING — and is dropped
+///   anywhere else; its `nil` clear lands from any state. Adopting a dictation state or IDLE
+///   clears the reply; the conversing phase change keeps it, because the turn is continuous —
+///   the carrier's own listening/idle/barge-in emissions are the clears.
 ///
 /// The DELIVERED collapse cannot drop a concurrently-presented FAILSAFE, and it does not need a
 /// transition-table row to say so: the FAILSAFE is ``FailsafeStateReducer``'s state machine, a
@@ -261,7 +290,9 @@ public enum WidgetStateReducer {
                 // the context badge is per-fold non-dismissable and must survive it too
                 // (WidgetContextState — the badge is derived from a folded fact, not the
                 // session). The confirmation card is presented-and-cleared by explicit folds
-                // only, so it survives the notice the same way (WidgetConfirmationState).
+                // only, so it survives the notice the same way (WidgetConfirmationState). The
+                // reply text does not survive: a notice is a fresh IDLE, and the field is
+                // converse-only (reply-text-rendering R2).
                 var next = WidgetReducerState(
                     state: .idle, ceiling: state.ceiling, egress: state.egress,
                     context: state.context, confirmation: state.confirmation)
@@ -315,6 +346,20 @@ public enum WidgetStateReducer {
             var next = state
             next.confirmation = nil
             return next
+        case .replyPresented(let text):
+            // The reply text is converse-only: a text lands only over CONVERSING — the
+            // partial's guard shape, so the field can never ride a state that must not show it
+            // — while the carrier's `nil` clear applies from any state, so a lifecycle emission
+            // that races a projection adoption always lands. Truncation is here, the one place
+            // (`WidgetTiming/maxReplyCharacters`).
+            var next = state
+            if let text {
+                guard case .conversing = state.state else { return state }
+                next.replyText = String(text.prefix(WidgetTiming.maxReplyCharacters))
+            } else {
+                next.replyText = nil
+            }
+            return next
         }
     }
 
@@ -338,14 +383,19 @@ public enum WidgetStateReducer {
             next.elapsed = Self.surfacedElapsed(.zero)
             next.showsEscapeHint = false
             next.showsCeilingWarning = false
+            // A dictation adoption is the reply text's exit: the field is converse-only
+            // (`reply-text-rendering` R2) — a mode change to dictation leaves no reply behind.
+            next.replyText = nil
         case .transcribing:
             // TRANSCRIBING keeps the partial — the final has not arrived while the session is
-            // still streaming — but clears the RECORDING-only surfaces and anchors.
+            // still streaming — but clears the RECORDING-only surfaces and anchors. The reply
+            // text is dictation-path state and clears with them (the field is converse-only).
             next.recordingStartedAt = nil
             next.deliveredAt = nil
             next.elapsed = nil
             next.showsEscapeHint = false
             next.showsCeilingWarning = false
+            next.replyText = nil
         case .delivered:
             next.deliveredAt = now
             next.recordingStartedAt = nil
@@ -353,12 +403,15 @@ public enum WidgetStateReducer {
             next.showsEscapeHint = false
             next.showsCeilingWarning = false
             next.partialText = nil
+            next.replyText = nil
         case .conversing:
-            // The converse invariant (`dual-mode` D1): the phase is the state's only content.
-            // Adopting clears every dictation bookkeeping field and anchors nothing — no
-            // recording clock, no delivery clock, no elapsed, no hints, no partial — and the
-            // listening ↔ speaking phase change flows through here too, keeping the session's
-            // emptiness on both phases. Timer-free: no `WidgetTimer` case exists for it.
+            // The converse invariant (`dual-mode` D1, amended by `reply-text-rendering`): the
+            // phase plus the bounded reply text is the state's whole content. Adopting clears
+            // every dictation bookkeeping field and anchors nothing — no recording clock, no
+            // delivery clock, no elapsed, no hints, no partial — and the listening ↔ speaking
+            // phase change flows through here too, keeping the bounded content on both phases
+            // (the carrier's `nil` clears the reply text on the next turn's listening).
+            // Timer-free: no `WidgetTimer` case exists for it.
             next.recordingStartedAt = nil
             next.deliveredAt = nil
             next.elapsed = nil
@@ -372,6 +425,7 @@ public enum WidgetStateReducer {
             next.showsEscapeHint = false
             next.showsCeilingWarning = false
             next.partialText = nil
+            next.replyText = nil
         }
         return next
     }

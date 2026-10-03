@@ -16,12 +16,12 @@ import CryptoKit
 import Foundation
 import XCTest
 
-/// **The agent-auth-baseline invariant suite** (`agent-pins` spec acceptances 1-5): the
+/// **The reply-text-rendering invariant suite** (`agent-pins` spec acceptances 1-5): the
 /// composed default's promises, the lint tables and the digests re-asserted — deliberately, as
-/// tests — with the baseline environment (`ShellExecutor.Configuration.baselineEnvironment`),
-/// the provider baseline parameters (`CodingAgentProvider`/`ShellProvider`), the wired HOME at
-/// the composition root (`AppBootstrap`, `baselineEnvironment: ["HOME": NSHomeDirectory()]`)
-/// and the auth hints (`KnownAgentPresets.authHint`) in the tree.
+/// tests — with the reply carrier (`ConverseLoopDriver.converseReplySink`), the bounded state
+/// (`WidgetStateStore.presentReply(_:)`, `WidgetReducerState.replyText`), the copy decision
+/// (`WidgetCopy.shouldShowReplyBubble(_:)`) and the bubble (`WidgetView`'s CONVERSING branch)
+/// in the tree.
 ///
 /// ## What each leg is
 ///
@@ -33,35 +33,36 @@ import XCTest
 ///   (the `ZeroNetworkTests` drive shape) and asserts the `PROBE-CODING-AGENT` line is
 ///   verbatim-unchanged — `agents=0 spawnsSubprocess=false` and the whole seeded round trip
 ///   still reported exactly as `ZeroNetworkTests.expectedCodingAgentLifecycle` pins it. The
-///   probe's drives keep the DEFAULT `[:]` baseline (the recorded posture): the composed
-///   default's facts are about the configuration — zero agents, no spawn — and the seeded
-///   round trips run `/bin/echo`, a child that needs no HOME, so the wired value changes
-///   nothing the report observes.
+///   reply path is a value folded through an existing wiring — the driver's sink, the store's
+///   reducer, the view's render — so the composed default's facts are what they were.
 /// - Acceptance 2 re-asserts the lint tables' **current state** — the transport permitted set
 ///   is still exactly the two reviewed entries, the FileManager seam table still names exactly
 ///   the eight seams, Family A's seven families and Family B's single minting file are
-///   unchanged, and the `policy:` parameter still has no default with every one of its 96 call
-///   sites supplying one. The scans themselves are the lint suites' own tests
-///   (`ActionTransportProhibitionTests`, `InjectionSeamBoundaryTests`,
-///   `ActionSeamBoundaryTests`), which run in this same full-suite run; this leg pins the state
-///   they enforce so a change to either side fails here first, in review.
+///   unchanged, the `policy:` parameter still has no default with every one of its 96 call
+///   sites supplying one, the `ConversePhase` family is still confined to `WidgetProjection.swift`
+///   in `VoccaCore`, and the M4a no-remember scans still run over the unit's own files. The
+///   scans themselves are the lint suites' own tests (`ActionTransportProhibitionTests`,
+///   `InjectionSeamBoundaryTests`, `ActionSeamBoundaryTests`, `WidgetConverseSeamBoundaryTests`,
+///   `WidgetConfirmationStateTests`, `ActionsTabTests`), which run in this same full-suite run;
+///   this leg pins the state they enforce so a change to either side fails here first, in review.
 /// - Acceptance 3 recomputes the three G5 digests and asserts the dictation pair is unchanged
-///   and `AppBootstrap.swift` holds the latest wiring REFACTOR's re-anchored literal
+///   and `AppBootstrap.swift` holds the reply-wiring REFACTOR's re-anchored literal
 ///   (`4e50ab8d…` → `bc2ce1fd…`, computed with `shasum -a 256`, never edited-to-match) — and
 ///   that **every existing pin site carries the same literal**: the `reply-text-rendering`
 ///   wiring unit changed the composition root, so this suite's across-the-sites leg reads the
-///   literal back out of the five sibling pin sites, and a site that drifted to a different
+///   literal back out of the six sibling pin sites, and a site that drifted to a different
 ///   value fails here rather than silently.
 /// - Acceptance 4 is the **module-coverage cross-check** read again: the exercised-module set
 ///   (the probe's `PROBE-MODULES` line) must equal the set the cross-check derives from the
 ///   manifest and the `Sources/` listing — the same twelve library modules. The unit added no
-///   module files: every change rode existing files (`ShellExecutor`,
-///   `CodingAgentProvider`, `ShellProvider`, `AppBootstrap`, the Actions-tab files,
-///   `KnownAgentPresets`), so the derived set is unchanged and this leg proves it.
-/// - Acceptance 5 runs the zero-network default-configuration drive with the baseline wired
-///   and asserts the interposer saw nothing: the wired value is a `Dictionary` merged into
-///   the *environment of a child*, and the composed default never spawns that child — the
-///   baseline is a value, not a call, so the default's zero-call promise is intact.
+///   module files: its changes ride `VoccaUI` (the reducer, store, copy and view),
+///   `VoccaBootstrap` (the driver, the wiring and the composition root) and the already-covered
+///   `VoccaCore` reply seam, so the derived set is unchanged and this leg proves it.
+/// - Acceptance 5 runs the zero-network default-configuration drive with the reply path
+///   composed and asserts the interposer saw nothing: the reply text is a `String` folded
+///   through the existing driver → store → reducer → view path, no new call exists for it to
+///   make, and the composed default never reaches the carrier (the converse session is not
+///   running).
 ///
 /// ## What is honest about a pins suite
 ///
@@ -69,7 +70,7 @@ import XCTest
 /// not move, the lints did not widen, the digests did not change. A green run here is the
 /// result, not a failure to be manufactured — the value is that a *future* edit to any of the
 /// pinned things now fails in review with a named leg.
-final class AuthBaselineInvariantTests: XCTestCase {
+final class ReplyRenderingInvariantTests: XCTestCase {
 
     // MARK: - Acceptance 1: the PROBE-CODING-AGENT line is verbatim-unchanged
 
@@ -109,6 +110,7 @@ final class AuthBaselineInvariantTests: XCTestCase {
         case openingBracketMissing(marker: String, file: String)
         case unbalancedBrackets(marker: String, file: String)
         case appBootstrapDigestMissing(file: String)
+        case seamRootMissing(file: String)
 
         var description: String {
             switch self {
@@ -126,22 +128,26 @@ final class AuthBaselineInvariantTests: XCTestCase {
                 return "\(file) no longer pairs 'Sources/VoccaBootstrap/AppBootstrap.swift' "
                     + "with a 64-hex digest literal — the across-the-sites leg cannot read a "
                     + "site that stopped spelling its pin as a tuple"
+            case .seamRootMissing(let file):
+                return "\(file) no longer spells its `seamModuleRoot` as a string literal — "
+                    + "the ConversePhase pin cannot read a scan root that is not named"
             }
         }
     }
 
-    /// **Acceptance 1 — the PROBE-CODING-AGENT line is verbatim-unchanged with the baseline
-    /// in the tree.** Runs the real probe under the interposer (the
+    /// **Acceptance 1 — the PROBE-CODING-AGENT line is verbatim-unchanged with the unit's
+    /// files in the tree.** Runs the real probe under the interposer (the
     /// `ZeroNetworkTests` drive shape — same three preconditions, same accessor), compares the
     /// whole line against the pinned literal, and reads the two composed-default facts back
     /// field by field: `agents=0` (an absent registry is the empty registry) and
     /// `spawnsSubprocess=false` (the D2 narrowed promise, declared for the configuration).
     ///
-    /// The probe's drives keep the DEFAULT `[:]` baseline (the recorded posture): the composed
-    /// default's facts are about the configuration — zero agents, no spawn — and the seeded
-    /// round trips run `/bin/echo`, a child that needs no HOME, so a temp HOME would change
-    /// nothing the report observes.
-    func testTheProbeCodingAgentLineIsVerbatimUnchangedWithTheBaselineInTheTree() throws {
+    /// The reply path rides the composed root's existing wiring: the carrier's sink is a
+    /// closure in `composeConverseWiring`, the store's `presentReply(_:)` is the
+    /// `presentPartial(_:)` shape, and the bubble is a view branch. Nothing in that path can
+    /// reach the network or a child, and the default-configuration drive never starts a
+    /// converse session — the line must read exactly as it did.
+    func testTheProbeCodingAgentLineIsVerbatimUnchangedWithTheUnitInTheTree() throws {
         let observation = try runProbe(mode: .defaultConfiguration)
 
         let payload = try XCTUnwrap(
@@ -160,10 +166,10 @@ final class AuthBaselineInvariantTests: XCTestCase {
             The PROBE-CODING-AGENT line is no longer verbatim-unchanged.
               expected: \(Self.expectedCodingAgentLifecycle)
               observed: \(payload)
-            The composed default's promises must not move with the baseline environment, the \
-            provider parameters and the wired HOME in the tree — if the drive's report changed \
-            deliberately, re-anchor this literal and ZeroNetworkTests' own constant in the \
-            same reviewed edit, never edited-to-match.
+            The composed default's promises must not move with the reply carrier, the bounded \
+            state and the bubble in the tree — if the drive's report changed deliberately, \
+            re-anchor this literal and ZeroNetworkTests' own constant in the same reviewed \
+            edit, never edited-to-match.
             """)
 
         let fields = try parseFields(of: payload)
@@ -205,11 +211,11 @@ final class AuthBaselineInvariantTests: XCTestCase {
             ],
             """
             the transport prohibition's permitted set must be exactly the two reviewed entries \
-            — the stdio transport and the shell executor. The baseline is a value merged into \
-            the environment of a child the default never spawns — it added no spawn, so nothing \
-            for this lint to see; a third entry means a spawn moved somewhere this lint (and \
-            this pin) must name in review, with the D2 answer the entry owes. Read off the pin \
-            file's own literal: \(body).
+            — the stdio transport and the shell executor. The reply-text-rendering changes ride \
+            VoccaUI and VoccaBootstrap (a reducer field, a store entry point, a view branch, a \
+            wiring closure) — none of them spawns, so nothing for this lint to see; a third \
+            entry means a spawn moved somewhere this lint (and this pin) must name in review, \
+            with the D2 answer the entry owes. Read off the pin file's own literal: \(body).
             """)
     }
 
@@ -233,10 +239,10 @@ final class AuthBaselineInvariantTests: XCTestCase {
             """
             the FileManager seam table must name exactly the eight shipped seams: journal, \
             dictionary, config, strategy, usage, consent, actions, action-config. The \
-            agent-auth-baseline changes ride the existing seams — the baseline is a value on \
-            the executor's configuration, the provider parameters are constructor arguments, \
-            the wiring is a line in a file already in the tables — so a ninth seam would be a \
-            widening, never a silent addition. Read off the pin file's own literal: \(body).
+            reply-text-rendering changes name no file system at all — the carrier is a closure \
+            on the driver, the state is a `String?` on the reducer, the bubble is a view — so a \
+            ninth seam would be a widening, never a silent addition. Read off the pin file's \
+            own literal: \(body).
             """)
     }
 
@@ -260,12 +266,11 @@ final class AuthBaselineInvariantTests: XCTestCase {
                 "ActionConfirmation", "BlastRadius", "NullActionProvider",
             ],
             """
-            Family A must confine exactly the seven action families. The agent-auth-baseline \
-            files decide nothing new over the action vocabulary (the providers gained \
-            constructor parameters, not files — both are rows the tables already name; the \
-            executor gained a field on a configuration type the shell family already permits) \
-            — a new family or a renamed one is a reviewed widening, never a silent addition. \
-            Read off the pin file's own literal: \(familiesBody).
+            Family A must confine exactly the seven action families. The reply-text-rendering \
+            files decide nothing over the action vocabulary (the reply path reaches no \
+            provider, no invocation and no gate — it is a text folded from the driver's sink \
+            to the widget) — a new family or a renamed one is a reviewed widening, never a \
+            silent addition. Read off the pin file's own literal: \(familiesBody).
             """)
 
         let constructionBody = try bracketBody(
@@ -291,7 +296,7 @@ final class AuthBaselineInvariantTests: XCTestCase {
     /// `Sources/` and `Tests/` — counted, exactly 96 — still names `policy:` explicitly. The
     /// scan itself is that suite's own test; this leg pins the count so a call site added
     /// without the argument — or a silent removal of the argument at a site — fails here
-    /// first, in review.
+    /// first, in review. The reply unit submits nothing: it adds no call site.
     func testThePolicyParameterStillHasNoDefaultAndTheCallSitesAreUnchanged() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let gate = try String(
@@ -344,10 +349,10 @@ final class AuthBaselineInvariantTests: XCTestCase {
             scannedCalls, 96,
             """
             the gate's call sites are no longer 96 — the count moved to \(scannedCalls). A \
-            new submit site (or a removed one) is a reviewed edit; the agent-auth-baseline \
-            changes added none (the providers are constructed, never submitted to, by the \
-            baseline wiring). This pin and ActionSeamBoundaryTests' own scan must move \
-            together in review.
+            new submit site (or a removed one) is a reviewed edit; the reply-text-rendering \
+            changes added none (the reply path reaches no gate — the widget's card rows are \
+            untouched and the carrier folds text, never an invocation). This pin and \
+            ActionSeamBoundaryTests' own scan must move together in review.
             """)
         XCTAssertTrue(
             offenders.isEmpty,
@@ -359,20 +364,195 @@ final class AuthBaselineInvariantTests: XCTestCase {
             """)
     }
 
+    /// **Acceptance 2e — the `ConversePhase` family is still confined to
+    /// `WidgetProjection.swift`.** The `WidgetConverseSeamBoundaryTests` table, read as the
+    /// current state of the pin file itself — the module root and the permitted set must be
+    /// exactly `VoccaCore` and `WidgetProjection.swift` — and then the confinement itself is
+    /// re-run over the real tree: no other file under `Sources/VoccaCore` may name the family
+    /// (the scan is the `WidgetConverseSeamBoundaryTests.familyIdentifiers` shape). The unit
+    /// renders the phase in `VoccaUI` (`WidgetCopy.converseLabel(_:)`, the view), which is
+    /// outside the lint's scan root by design; inside `VoccaCore` the phase vocabulary stays
+    /// in one file. The lint suite's own test runs in this same full-suite run; this leg pins
+    /// the state and re-asserts the claim with the bubble in the tree.
+    func testTheConversePhaseFamilyIsStillConfinedToWidgetProjection() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let lintSource = try pinFileSource("WidgetConverseSeamBoundaryTests.swift")
+
+        let rootLiteral = try stringLiteral(
+            after: "seamModuleRoot", in: lintSource,
+            file: "WidgetConverseSeamBoundaryTests.swift")
+        XCTAssertEqual(
+            rootLiteral, "VoccaCore",
+            "the ConversePhase lint's scan root must still be VoccaCore — a moved root means "
+                + "the confinement this pin re-asserts is aimed at the wrong module")
+
+        let permittedBody = try bracketBody(
+            of: lintSource, after: "filesPermittedToNameTheFamily",
+            file: "WidgetConverseSeamBoundaryTests.swift")
+        let permitted = Set(quotedStrings(in: permittedBody))
+        XCTAssertEqual(
+            permitted,
+            ["WidgetProjection.swift"],
+            """
+            exactly one file in VoccaCore may name the ConversePhase family, and it is \
+            WidgetProjection.swift — the declaration, the WidgetState.conversing case that \
+            names it and the project(turnState:) leg all live there. The reply bubble renders \
+            the phase in VoccaUI, outside this scan root; a second file inside VoccaCore is a \
+            phase decision that moved somewhere CI cannot see. Read off the pin file's own \
+            literal: \(permittedBody).
+            """)
+
+        // The confinement itself, re-run against the real tree.
+        let moduleRoot = root.appendingPathComponent("Sources/\(rootLiteral)")
+        let files = SwiftSourceScanner.swiftFiles(under: moduleRoot)
+        XCTAssertFalse(
+            files.isEmpty,
+            "no Swift files under \(moduleRoot.path) — the confinement was not evaluated "
+                + "against anything")
+        var naming: Set<String> = []
+        for file in files {
+            let relative = String(file.path.dropFirst(moduleRoot.path.count + 1))
+            let source = try String(contentsOf: file, encoding: .utf8)
+            if !Self.conversePhaseIdentifiers(inSource: source).isEmpty {
+                naming.insert(relative)
+            }
+        }
+        XCTAssertEqual(
+            naming, permitted,
+            """
+            the ConversePhase family is no longer confined to the permitted file in \
+            \(rootLiteral): named by \(naming.sorted()). With the reply bubble in the tree the \
+            phase is rendered from VoccaUI, but no file inside \(rootLiteral) beyond the \
+            permitted one may name the family — a second sighting is a converse-state decision \
+            outside the lint's reach. Do not fix this by widening the lint's permitted set \
+            without the reviewed decision that widening owes.
+            """)
+        XCTAssertFalse(
+            naming.isEmpty,
+            "the permitted file must actually name the family — a scan that found nothing "
+                + "would pass 'no other file names it' vacuously")
+    }
+
+    /// **Acceptance 2f — the M4a no-remember scans are still green with the unit's reply copy
+    /// and reducer row in the tree.** The three scans are `WidgetConfirmationStateTests`'s two
+    /// (the reducer/type rows and the copy pin) and `ActionsTabTests`' one (the actions
+    /// folder). This leg reads each scan's forbidden-phrase table back out of the pin file's
+    /// own source (the non-vacuous extractor pattern — a phrase silently dropped from a lint
+    /// suite fails here), then re-runs the scans over the shipped files: the reply state
+    /// (`WidgetReducerState.replyText`) and the reply copy
+    /// (`WidgetCopy.shouldShowReplyBubble(_:)`/`replyBubbleLabel(_:)`) must carry no
+    /// "remember"/"ask again" affordance. The non-vacuity rows prove the scans actually cover
+    /// the unit's files.
+    func testTheM4aNoRememberScansAreStillGreen() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+
+        // The pin files' own phrase tables, read back.
+        let widgetLint = try pinFileSource("WidgetConfirmationStateTests.swift")
+        let widgetPhrases = try phraseLists(
+            in: widgetLint, loopVariable: "forbidden",
+            file: "WidgetConfirmationStateTests.swift")
+        XCTAssertEqual(
+            widgetPhrases,
+            ["askagain", "dontask", "remember", "don't ask", "don’t ask", "ask again"],
+            """
+            the widget M4a scans' forbidden-phrase tables moved. They are the whole strength \
+            of those scans — a table that quietly shrank passes every file. Read off the pin \
+            file's own literals: \(widgetPhrases.sorted()).
+            """)
+
+        let actionsLint = try pinFileSource("ActionsTabTests.swift")
+        let actionsPhrases = try phraseLists(
+            in: actionsLint, loopVariable: "phrase", file: "ActionsTabTests.swift")
+        XCTAssertEqual(
+            actionsPhrases,
+            [
+                "ask again", "don't ask", "always allow", "remember my choice",
+                "don't show this again",
+            ],
+            """
+            the actions-folder M4a scan's forbidden-phrase table moved — a confirmation that \
+            can be switched off is a confirmation that quietly stops being asked, and this \
+            table is what refuses the tab's words from selling that. Read off the pin file's \
+            own literal: \(actionsPhrases.sorted()).
+            """)
+
+        // The scans, re-run over the shipped files — with the reply rows in the tree.
+        for relativePath in [
+            "Sources/VoccaUI/WidgetStateReducer.swift",
+            "Sources/VoccaUI/WidgetConfirmationState.swift",
+        ] {
+            let stripped = SwiftSourceScanner.stripComments(
+                from: try String(
+                    contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8))
+            let lower = stripped.lowercased()
+            for forbidden in widgetPhrases {
+                XCTAssertFalse(
+                    lower.contains(forbidden),
+                    "\(relativePath) must carry no \(forbidden) affordance row (M4a)")
+            }
+        }
+
+        let copySource = try String(
+            contentsOf: root.appendingPathComponent("Sources/VoccaUI/WidgetCopy.swift"),
+            encoding: .utf8)
+        let copyStripped = SwiftSourceScanner.stripComments(from: copySource)
+        let copyLower = copyStripped.lowercased()
+        for forbidden in widgetPhrases {
+            XCTAssertFalse(
+                copyLower.contains(forbidden),
+                "WidgetCopy must contain no '\(forbidden)' string (M4a)")
+        }
+
+        let actionsFolder = root.appendingPathComponent("Sources/VoccaUI/Actions")
+        let actionFiles = SwiftSourceScanner.swiftFiles(under: actionsFolder)
+        XCTAssertFalse(actionFiles.isEmpty, "the actions-folder scan ran against nothing")
+        for file in actionFiles {
+            let text = SwiftSourceScanner.stripComments(
+                from: try String(contentsOf: file, encoding: .utf8))
+            for phrase in actionsPhrases {
+                XCTAssertFalse(
+                    text.contains(phrase),
+                    "\(file.lastPathComponent) carries '\(phrase)' — M4a: a confirmation is "
+                        + "never skippable, so no sentence may offer to skip it")
+            }
+        }
+
+        // Non-vacuity: the scans must actually cover the unit's reply rows — the reducer's
+        // field and the copy's predicate and label. A rename would take the new surface out
+        // of the scans silently.
+        let reducer = try String(
+            contentsOf: root.appendingPathComponent("Sources/VoccaUI/WidgetStateReducer.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            reducer.contains("confirmation"),
+            "the scan must find the card's reducer row — a rename would make this vacuous")
+        XCTAssertTrue(
+            reducer.contains("replyText"),
+            "the reducer's reply row must exist under the scans — the M4a scan must cover the "
+                + "unit's new state, not just the pre-existing card")
+        XCTAssertTrue(
+            copyStripped.contains("Confirm"),
+            "the scan must find the card's pinned rows — a rename would make this vacuous")
+        XCTAssertTrue(
+            copyStripped.contains("shouldShowReplyBubble") && copyStripped.contains("replyBubbleLabel"),
+            "the copy's reply rows must exist under the scan — the M4a copy pin must cover "
+                + "the unit's new strings, not just the card's")
+    }
+
     // MARK: - Acceptance 3: the G5 digests
 
     /// **Acceptance 3 — the dictation digests are unchanged, `AppBootstrap.swift` holds the
-    /// wiring REFACTOR's re-anchored literal, and every existing pin site carries the same
-    /// literal.** SHA-256 (CryptoKit, the house pattern) of the three files, asserted against
-    /// the same literals `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched`,
-    /// `AgentPresetsInvariantTests`, `SpokenTaskInvariantTests`, `ActiveProjectInvariantTests`
-    /// and `WiringBaselineTests` pin — the pin read again, deliberately, with the converse
-    /// reply sink wired in the tree. The two dictation files are byte-for-byte untouched; the
-    /// composition root carries the re-anchor `4e50ab8d…` → `bc2ce1fd…` (computed with
-    /// `shasum -a 256` on 2026-10-03 by the `reply-text-rendering` wiring REFACTOR, never
-    /// edited-to-match), and the across-the-sites leg reads the AppBootstrap literal back out
-    /// of all five pin sites — a site that drifted to a different value fails here rather than
-    /// silently.
+    /// reply-wiring REFACTOR's re-anchored literal, and every existing pin site carries the
+    /// same literal.** SHA-256 (CryptoKit, the house pattern) of the three files, asserted
+    /// against the same literals `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched`,
+    /// `AgentPresetsInvariantTests`, `SpokenTaskInvariantTests`, `ActiveProjectInvariantTests`,
+    /// `WiringBaselineTests` and `AuthBaselineInvariantTests` pin — the pin read again,
+    /// deliberately, with the reply carrier, the bounded state and the bubble in the tree.
+    /// The two dictation files are byte-for-byte untouched; the composition root carries the
+    /// re-anchor `4e50ab8d…` → `bc2ce1fd…` (computed with `shasum -a 256` on 2026-10-03 by the
+    /// `reply-text-rendering` wiring REFACTOR, never edited-to-match), and the across-the-sites
+    /// leg reads the AppBootstrap literal back out of all six pin sites — a site that drifted
+    /// to a different value fails here rather than silently.
     func testTheDictationDigestsAreUnchangedAndEveryPinSiteCarriesTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -397,7 +577,7 @@ final class AuthBaselineInvariantTests: XCTestCase {
                 actual, expected,
                 """
                 \(file) changed byte-for-byte since the barge-in-loop aspect pinned it. The \
-                dictation path must stay untouched by the agent-auth-baseline unit; if the \
+                dictation path must stay untouched by the reply-text-rendering unit; if the \
                 change is a deliberate edit, recompute the digest and re-anchor the pin in \
                 review — it must never be edited to match a moved tree.
                 """)
@@ -414,12 +594,13 @@ final class AuthBaselineInvariantTests: XCTestCase {
             "SpokenTaskInvariantTests.swift",
             "ActiveProjectInvariantTests.swift",
             "WiringBaselineTests.swift",
+            "AuthBaselineInvariantTests.swift",
         ] {
             let extracted = try appBootstrapDigestLiteral(in: try pinFileSource(site), file: site)
             XCTAssertEqual(
                 extracted, appBootstrapDigest,
                 """
-                \(site) pins a different AppBootstrap digest than the tree holds. All five \
+                \(site) pins a different AppBootstrap digest than the tree holds. All six \
                 sites were re-anchored together by the wiring REFACTOR (\(appBootstrapDigest)); \
                 a drifted site hides a drift in the composition root from half the pins. \
                 Re-anchor it to the same reviewed literal — never edited-to-match.
@@ -429,18 +610,17 @@ final class AuthBaselineInvariantTests: XCTestCase {
 
     // MARK: - Acceptance 4: the module-coverage cross-check
 
-    /// **Acceptance 4 — the module-coverage cross-check is green with the baseline in the
-    /// tree: no new module files.** The cross-check
+    /// **Acceptance 4 — the module-coverage cross-check is green with the unit in the tree: no
+    /// new module files.** The cross-check
     /// (`ZeroNetworkTests.testDefaultConfigurationMakesZeroNetworkConnections`'s final
     /// assertion) derives the required set from the manifest and the `Sources/` listing —
     /// every module directory ∪ every drivable target, minus the non-drivable kinds, minus
     /// only the exclusions the manifest justifies (`VoccaNetworkProbe`,
     /// `CVoccaNetworkInterposer` — each re-asserted to exist and not to ship). This leg
     /// recomputes that set the same way, pins it to the same twelve library modules (the set
-    /// is unchanged — the unit added no module files, only edits to files inside covered
-    /// modules and two `VoccaNetworkProbe` drives that were already in the excluded probe),
-    /// and re-asserts the cross-check's own equality against what the probe actually reported
-    /// driving.
+    /// is unchanged — the unit added no module files, only edits inside covered modules: the
+    /// reply state in `VoccaUI`, the carrier and wiring in `VoccaBootstrap`), and re-asserts
+    /// the cross-check's own equality against what the probe actually reported driving.
     func testTheModuleCoverageCrossCheckStillCoversEveryModuleWithNoNewModuleFiles() throws {
         let observation = try runProbe(mode: .defaultConfiguration)
         let root = try PackageRootLocator.find(from: #filePath)
@@ -490,7 +670,7 @@ final class AuthBaselineInvariantTests: XCTestCase {
             Got \(required.sorted()). A module added to this package must be driven by the \
             probe's default-configuration path (a reviewed edit to VoccaNetworkProbe), never \
             excluded silently — and one removed must be removed here too. The \
-            agent-auth-baseline unit added no module files; a change to this set is a \
+            reply-text-rendering unit added no module files; a change to this set is a \
             different unit's reviewed edit.
             """)
 
@@ -508,19 +688,19 @@ final class AuthBaselineInvariantTests: XCTestCase {
             """)
     }
 
-    // MARK: - Acceptance 5: the zero-network default configuration with the baseline wired
+    // MARK: - Acceptance 5: the zero-network default configuration with the unit composed
 
-    /// **Acceptance 5 — the zero-network default-configuration test passes with the baseline
-    /// wired.** The composed root now passes `baselineEnvironment: ["HOME": NSHomeDirectory()]`
-    /// into both provider constructions — a `Dictionary` merged into the environment of a
-    /// child, and the composed default never spawns that child (`agents=0`,
-    /// `spawnsSubprocess=false`). A wired baseline is therefore a value, not a call: the
-    /// interposer never sees a call from it. This leg drives the real probe under the
-    /// interposer and asserts the same two zeroes the release blocker asserts, plus the
-    /// composed root actually ran (the observed `.accessory` activation policy —
-    /// `configure(_:)` was called, so the composition that carries the wired baseline is the
-    /// one being watched).
-    func testTheZeroNetworkDefaultConfigurationStillMakesZeroCallsWithTheBaselineWired()
+    /// **Acceptance 5 — the zero-network default-configuration test passes with the reply
+    /// path composed.** The reply text is a `String` folded through the existing driver →
+    /// store → reducer → view path: the carrier's sink is a closure in
+    /// `composeConverseWiring`, the store's `presentReply(_:)` folds it, the reducer bounds
+    /// it and the view draws a bubble. No new call exists for it to make, and the
+    /// default-configuration drive never starts a converse session. This leg drives the real
+    /// probe under the interposer and asserts the same two zeroes the release blocker asserts,
+    /// plus the composed root actually ran (the observed `.accessory` activation policy —
+    /// `configure(_:)` was called, so the composition that carries the reply wiring is the one
+    /// being watched).
+    func testTheZeroNetworkDefaultConfigurationStillMakesZeroCallsWithTheReplyRenderingInTheTree()
         throws
     {
         let observation = try runProbe(mode: .defaultConfiguration)
@@ -528,18 +708,18 @@ final class AuthBaselineInvariantTests: XCTestCase {
         XCTAssertEqual(
             observation.networkConnectionCount, 0,
             """
-            Vocca's default configuration must make zero network calls with the baseline \
-            wired. The probe contacted:
+            Vocca's default configuration must make zero network calls with the reply carrier, \
+            the bounded state and the bubble in the tree. The probe contacted:
             \(observation.networkConnectionDescriptions.joined(separator: "\n"))
-            The baseline is a value in the environment of a child the default never spawns — \
-            it is not a call. Fix the code. Do not weaken this test.
+            The reply is a string folded through the driver's sink, the store's reducer and \
+            the view — there is no call for it to make. Fix the code. Do not weaken this test.
             \(observation.diagnosticSummary)
             """)
         XCTAssertEqual(
             observation.nameResolutionCount, 0,
             """
-            Vocca's default configuration must resolve no hostnames with the baseline wired. \
-            The probe resolved:
+            Vocca's default configuration must resolve no hostnames with the reply rendering \
+            in the tree. The probe resolved:
             \(observation.nameResolutionDescriptions.joined(separator: "\n"))
             Fix the code. Do not weaken this test.
             \(observation.diagnosticSummary)
@@ -550,7 +730,7 @@ final class AuthBaselineInvariantTests: XCTestCase {
             The probe did not observe Vocca's start-up leaving the application in the \
             .accessory activation policy (saw: \(observation.reportedActivationPolicy ?? "no report at all")).
             Either AppBootstrap.configure(_:) was not called on the default-configuration path \
-            — in which case the composition that now carries the wired baseline was never \
+            — in which case the composition that now carries the reply wiring was never \
             exercised under the interposer — or it no longer sets the policy.
             \(observation.diagnosticSummary)
             """)
@@ -587,6 +767,55 @@ final class AuthBaselineInvariantTests: XCTestCase {
         guard let opening = source[source.index(after: equals)...].firstIndex(of: "[") else {
             throw PinFileError.openingBracketMissing(marker: marker, file: file)
         }
+        return try balancedBody(of: source, from: opening, marker: marker, file: file)
+    }
+
+    /// The body of the first `"..."` string literal after `marker` in `source`, contents
+    /// without the quotes — the shape the `seamModuleRoot` constant is spelled in.
+    private func stringLiteral(after marker: String, in source: String, file: String) throws
+        -> String
+    {
+        guard let markerRange = source.range(of: marker) else {
+            throw PinFileError.markerMissing(marker: marker, file: file)
+        }
+        guard
+            let opening = source[markerRange.upperBound...].firstIndex(of: "\""),
+            let closing = source[source.index(after: opening)...].firstIndex(of: "\"")
+        else {
+            throw PinFileError.seamRootMissing(file: file)
+        }
+        return String(source[source.index(after: opening)..<closing])
+    }
+
+    /// The union of the quoted phrases in every `for <loopVariable> in [ ... ]` literal of
+    /// `source` — the shape the M4a scans spell their forbidden tables in. Fails loudly when
+    /// no such literal exists, so a renamed loop variable cannot read as an empty table.
+    private func phraseLists(in source: String, loopVariable: String, file: String) throws
+        -> Set<String>
+    {
+        let escaped = NSRegularExpression.escapedPattern(for: loopVariable)
+        let pattern = #"for\s+"# + escaped + #"\s+in\s*\[([^\]]*)\]"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            throw PinFileError.markerMissing(marker: "for \(loopVariable) in [", file: file)
+        }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        let matches = regex.matches(in: source, range: range)
+        guard !matches.isEmpty else {
+            throw PinFileError.markerMissing(marker: "for \(loopVariable) in [", file: file)
+        }
+        var phrases: Set<String> = []
+        for match in matches {
+            guard let bodyRange = Range(match.range(at: 1), in: source) else { continue }
+            phrases.formUnion(quotedStrings(in: String(source[bodyRange])))
+        }
+        return phrases
+    }
+
+    /// The balanced body of the bracket at `opening` (the `bracketBody` scan, split out so a
+    /// caller that has already located the opening bracket can reuse it).
+    private func balancedBody(of source: String, from opening: String.Index, marker: String,
+        file: String) throws -> String
+    {
         let characters = Array(source)
         let start = source.distance(from: source.startIndex, to: opening) + 1
         var depth = 1
@@ -644,7 +873,7 @@ final class AuthBaselineInvariantTests: XCTestCase {
     /// The AppBootstrap digest a pin site's `pinned` array carries — every
     /// `"Sources/VoccaBootstrap/AppBootstrap.swift", "<64 hex>"` pairing in `source`.
     ///
-    /// Each of the five sites spells its G5 pin as a `(file: String, digest: String)` tuple
+    /// Each of the six sites spells its G5 pin as a `(file: String, digest: String)` tuple
     /// array; this extraction reads the AppBootstrap row's digest out of that spelling. A
     /// site that stops spelling its pin as a tuple (or drops the AppBootstrap row) fails the
     /// extraction rather than passing the across-the-sites leg vacuously.
@@ -661,6 +890,20 @@ final class AuthBaselineInvariantTests: XCTestCase {
             throw PinFileError.appBootstrapDigestMissing(file: file)
         }
         return String(source[digestRange])
+    }
+
+    /// Every occurrence of a `ConversePhase` family identifier in `source`, comments removed
+    /// first — the `WidgetConverseSeamBoundaryTests.familyIdentifiers(inSource:)` shape,
+    /// spelled locally so the confinement leg reads the tree with the same scanner the lint
+    /// suite trusts.
+    private static func conversePhaseIdentifiers(inSource source: String) -> [String] {
+        let code = SwiftSourceScanner.stripComments(from: source)
+        let pattern = #"\b(ConversePhase)[A-Za-z0-9_]*"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(code.startIndex..<code.endIndex, in: code)
+        return regex.matches(in: code, range: range).compactMap {
+            Range($0.range, in: code).map { String(code[$0]) }
+        }
     }
 
     /// The argument text of every `ActionGate.submit(` call in `source`, comments removed
