@@ -155,6 +155,32 @@ final class WidgetCopyTests: XCTestCase {
         }
     }
 
+    // MARK: - The reply bubble (reply-text-rendering R4/R5)
+
+    /// The bubble's decision (`reply-text-rendering` R4): a scheduled, non-empty reply shows
+    /// the bubble; `nil` shows nothing, and an empty reply is silence — `ReplyGenerator`'s own
+    /// contract — so a bubble with no words is never drawn (the `openingLabel` doctrine: an
+    /// absent thing renders nothing).
+    func testTheReplyBubblePredicateFollowsTheBoundedReplyText() {
+        XCTAssertTrue(WidgetCopy.shouldShowReplyBubble("Done."))
+        XCTAssertFalse(WidgetCopy.shouldShowReplyBubble(nil), "no reply text, no bubble")
+        XCTAssertFalse(
+            WidgetCopy.shouldShowReplyBubble(""),
+            "an empty reply is silence — the generator's contract; never an empty box")
+    }
+
+    /// The bubble's VoiceOver label (`reply-text-rendering` R5) is the reply text, verbatim —
+    /// no prefix, no suffix, no paraphrase. The panel is non-key, so announcement is
+    /// best-effort (recorded; the SMOKE row observes it).
+    func testTheReplyBubbleLabelCarriesTheReplyVerbatim() {
+        XCTAssertEqual(WidgetCopy.replyBubbleLabel("Done."), "Done.")
+        XCTAssertEqual(WidgetCopy.replyBubbleLabel(""), "")
+        XCTAssertEqual(
+            WidgetCopy.replyBubbleLabel("  line one\nline two — «quoted»  "),
+            "  line one\nline two — «quoted»  ",
+            "the label is the text byte-for-byte — never trimmed, never paraphrased")
+    }
+
     // MARK: - E9: the spec is the source
 
     /// **Every converse string this file pins is read back out of `PRODUCT_SPEC.md`** — the
