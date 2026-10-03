@@ -2348,8 +2348,18 @@ set -euo pipefail
 # all six pin sites). The count taken from the floor script's own parse in the ratchet
 # commit.
 #
+# `reply-view` (the `reply-text-rendering` unit): +8 — `ReplyBubbleTests`, the bubble suite
+# (acceptances 1-5: the show decision and its `WidgetView` source pin reading the pinned
+# predicate and label; the verbatim carry; the exact copy pins; the never-a-target scan
+# extended to the reply-bubble renderers; the five-cue cross-check) plus the two
+# `WidgetCopyTests` rows (the predicate's nil/empty/answer rows and the verbatim label pin).
+# The view renders the pill plus the conditional bubble (the card's chrome, the failsafe's
+# 48-160 pt scroll, selectable, verbatim); the copy surface gains the predicate and the
+# label. The token suite is untouched. The count taken from the floor script's own parse in
+# the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3065
+MINIMUM_EXECUTED_TESTS=3073
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
