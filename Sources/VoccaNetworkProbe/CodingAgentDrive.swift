@@ -78,6 +78,18 @@ import VoccaUI
 // default's declared fact — capability vs configuration, and the probe reads the
 // configuration.
 //
+// ## The baseline posture (wiring-baseline, decided in the aspect)
+//
+// The drive keeps the DEFAULT `[:]` baseline — both compositions construct their providers
+// without naming one (the composed default's provider is constructed from an empty agent
+// list, the seeded one through the `load` factory, which takes no baseline). That is
+// deliberate: the composed default's facts (`agents=0`, `spawnsSubprocess=false`) are
+// about the configuration, not the environment, and the seeded round trip runs
+// `/bin/echo`, a child that needs no HOME — so a temp HOME would change nothing the
+// report observes. The day a seeded child reads HOME, the drive must wire a temp HOME
+// explicitly (the `baselineEnvironment:` init parameter), keeping the default facts
+// unchanged either way.
+//
 // ## The report, and where each field comes from
 //
 // `store=real store.location=temporary store.isDefaultLocation=false agents=0

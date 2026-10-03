@@ -60,6 +60,10 @@ import VoccaCore
 /// through a shell, with the bounded injected-clock timeout and the no-orphan contract. This
 /// file names no transport: the module's prohibition lint keeps its permitted set at exactly
 /// the stdio transport and the executor, and this conformance is not a third entry.
+/// Every configuration this provider builds carries the injected baseline
+/// (`baselineEnvironment`, empty by default — the doctrine): shell rows declare no
+/// environment of their own, so a wired baseline is the whole of what a shell child
+/// receives (`provider-baseline`).
 ///
 /// ## What it is not
 ///
@@ -103,20 +107,35 @@ public actor ShellProvider: ActionProvider {
     /// spawning anything; the shipped composition hands over the real ``ShellExecutor``.
     private let run: @Sendable (ShellExecutor.Configuration) async -> ShellExecutionResult
 
+    /// The declared baseline environment — the entries every configuration carries, merged
+    /// under the row's own environment by the executor (the row winning, never beyond
+    /// (N2)). **Empty by default**: a provider constructed without a baseline asks the
+    /// engine for exactly what today's did — the doctrine, byte-identical (`provider-baseline`).
+    /// The composition wires one value; every shell child starts from it — the named
+    /// consequence: shell rows declare no environment of their own, so a wired baseline is
+    /// the **whole** of a shell child's environment.
+    private let baselineEnvironment: [String: String]
+
     /// - Parameters:
     ///   - commands: The configured command definitions — the file the registry holds, or
     ///     whatever a test seeds. The tool list is fixed from this at construction.
     ///   - run: The engine, as a run closure over one configuration. The provider resolves
     ///     the argv and hands it over; it never touches a transport itself.
+    ///   - baselineEnvironment: The declared baseline environment every configuration
+    ///     carries (`provider-baseline`): the entries the composition wires once, merged
+    ///     under the row's own environment by the executor (the row winning). Empty by
+    ///     default — the additive doctrine, byte-identical to today.
     public init(
         commands: [ShellCommandDefinition],
-        run: @escaping @Sendable (ShellExecutor.Configuration) async -> ShellExecutionResult
+        run: @escaping @Sendable (ShellExecutor.Configuration) async -> ShellExecutionResult,
+        baselineEnvironment: [String: String] = [:]
     ) {
         self.toolIDs = commands.map(\.id)
         var byID: [String: ShellCommandDefinition] = [:]
         for command in commands where byID[command.id] == nil { byID[command.id] = command }
         self.commandsByID = byID
         self.run = run
+        self.baselineEnvironment = baselineEnvironment
     }
 
     /// Loads the registry and builds a provider over it — the registry-shaped construction,
@@ -218,7 +237,8 @@ public actor ShellProvider: ActionProvider {
                 return .failed(reasonKey: Self.unreadableArgumentsReasonKey)
             }
             let configuration = ShellExecutor.Configuration(
-                executablePath: argv[0], arguments: Array(argv.dropFirst()))
+                executablePath: argv[0], arguments: Array(argv.dropFirst()),
+                baselineEnvironment: baselineEnvironment)
             let result = await run(configuration)
             return Self.outcome(from: result)
         }

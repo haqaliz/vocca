@@ -165,6 +165,14 @@ public enum ActionsTabCopy {
         + "Vocca cannot see inside a program it starts on your behalf — an enabled agent's "
         + "egress is never provable."
 
+    /// **The baseline's D2 line** (`wiring-baseline`, the hard question): the composition
+    /// hands every agent child the user's home directory — the wired HOME baseline — so
+    /// configuring an agent is trust extended to its author over the whole home folder.
+    /// Exact-in-spirit with the D2 copies above; placed in the agents section beside them,
+    /// the moment of trust.
+    public static let agentBaselineD2Copy =
+        "the baseline hands the agent your home directory; configure only agents you trust"
+
     /// The empty state — honest about why it is empty.
     public static let emptyServers =
         "No servers configured yet. Add one to connect its tools."

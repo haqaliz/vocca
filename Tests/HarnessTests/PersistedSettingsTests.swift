@@ -209,13 +209,15 @@ final class PersistedSettingsTests: XCTestCase {
         }
     }
 
-    /// An absent choice is `false`, and reports nothing — a fresh install quits when told to,
-    /// which is the normal path.
-    func testAnAbsentKeepInTrayChoiceIsFalseAndReportsNothing() {
+    /// An absent choice is `true`, and reports nothing — a fresh install has chosen nothing and
+    /// keeps running in the menu bar: the founder's call (2026-10-01) that quitting from outside
+    /// the tray is refused until a choice is made. **The unreadable direction stays `false`,
+    /// loudly** — see the unreadable row; the hostage argument is untouched.
+    func testAnAbsentKeepInTrayChoiceIsTrueAndReportsNothing() {
         var reports: [String] = []
         let decoded = PersistedSettings.decodeKeepInTray(
             nil, onInvalidValue: { reports.append($0) })
-        XCTAssertFalse(decoded)
+        XCTAssertTrue(decoded)
         XCTAssertEqual(reports, [], "an absent value is the normal path and must be silent")
     }
 

@@ -97,8 +97,9 @@ import VoccaCore
 /// child (the `agent-execution` decision: no new engine ships, the transport-permit lint keeps
 /// its permitted set at exactly the stdio transport and the executor). This file names no
 /// transport family: the row's timeout flows into the configuration's timeout, the row's
-/// environment map into the configuration's environment — exactly those variables and nothing
-/// else (the executor scrubs) — and the **resolved** directory
+/// environment map into the configuration's environment, the injected baseline into its
+/// `baselineEnvironment` — exactly those variables and nothing else (the executor scrubs) —
+/// and the **resolved** directory
 /// (`invocation.resolvedDirectory ?? agent.projectDirectory`) into the configuration's
 /// `currentDirectoryURL`, so the child starts where the sentence says it will.
 ///
@@ -158,20 +159,33 @@ public actor CodingAgentProvider: ActionProvider {
     /// spawning anything; the shipped composition hands over the real ``ShellExecutor``.
     private let run: @Sendable (ShellExecutor.Configuration) async -> ShellExecutionResult
 
+    /// The declared baseline environment — the entries every configuration carries, merged
+    /// under the row's own environment by the executor (the row winning, never beyond
+    /// (N2)). **Empty by default**: a provider constructed without a baseline asks the
+    /// engine for exactly what today's did — the doctrine, byte-identical (`provider-baseline`).
+    /// The composition wires one value; every agent child starts from it.
+    private let baselineEnvironment: [String: String]
+
     /// - Parameters:
     ///   - agents: The configured agent definitions — the file the registry holds, or
     ///     whatever a test seeds. The tool list is fixed from this at construction.
     ///   - run: The engine, as a run closure over one configuration. The provider resolves
     ///     the row and hands it over; it never touches a transport itself.
+    ///   - baselineEnvironment: The declared baseline environment every configuration
+    ///     carries (`provider-baseline`): the entries the composition wires once, merged
+    ///     under the row's own environment by the executor (the row winning). Empty by
+    ///     default — the additive doctrine, byte-identical to today.
     public init(
         agents: [CodingAgentDefinition],
-        run: @escaping @Sendable (ShellExecutor.Configuration) async -> ShellExecutionResult
+        run: @escaping @Sendable (ShellExecutor.Configuration) async -> ShellExecutionResult,
+        baselineEnvironment: [String: String] = [:]
     ) {
         self.toolIDs = agents.map(\.id)
         var byID: [String: CodingAgentDefinition] = [:]
         for agent in agents where byID[agent.id] == nil { byID[agent.id] = agent }
         self.agentsByID = byID
         self.run = run
+        self.baselineEnvironment = baselineEnvironment
     }
 
     /// Loads the registry and builds a provider over it — the registry-shaped construction,
@@ -292,6 +306,7 @@ public actor CodingAgentProvider: ActionProvider {
                     executablePath: agent.executablePath,
                     arguments: argv,
                     environment: agent.environment ?? [:],
+                    baselineEnvironment: baselineEnvironment,
                     currentDirectoryURL: URL(fileURLWithPath: resolvedDirectory),
                     timeout: .seconds(agent.timeoutSeconds))
             } else {
@@ -299,6 +314,7 @@ public actor CodingAgentProvider: ActionProvider {
                     executablePath: agent.executablePath,
                     arguments: argv,
                     environment: agent.environment ?? [:],
+                    baselineEnvironment: baselineEnvironment,
                     timeout: .seconds(agent.timeoutSeconds))
             }
             let result = await run(configuration)

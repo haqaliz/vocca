@@ -344,6 +344,12 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
     /// arm-time and voice-turn resolution over `AccessibilityContext.workingDirectory()`)
     /// and threaded it into the intent and agent compositions. The two dictation digests
     /// are unchanged.
+    ///
+    /// Re-anchored once more, deliberately, on 2026-10-03 by the `wiring-baseline`
+    /// REFACTOR (`641b6445…` → `4e50ab8d…`, computed with `shasum -a 256`, never
+    /// edited-to-match): the composition root wired the HOME baseline into both provider
+    /// constructions (`baselineEnvironment: ["HOME": NSHomeDirectory()]`) and the preset
+    /// mapping carries the auth hints. The two dictation digests are unchanged.
     func testTheDictationPathIsByteForByteUntouched() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -357,7 +363,7 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "641b6445fd163dde55561a242da4e745f79dd7fd61aedcac7c9aff123dd4d237"
+                "4e50ab8dde8dd20f3b3b02e8e6ebb4a4fe97705cd58e2120fdb2e2364d8775cf"
             ),
         ]
 

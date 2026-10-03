@@ -2268,8 +2268,57 @@ set -euo pipefail
 # production code, no lint widening; all eight legs green on landing, the honest pins
 # result). The count taken from the floor script's own parse in the ratchet commit.
 #
+# `executor-baseline` (the `agent-auth-baseline` unit): +4 — the env rows in
+# `CodingAgentExecutionTests` (the baseline-environment contract: the default `[:]` is
+# byte-identical to today — a real run with no baseline still shows the caller's PATH/HOME
+# absent; baseline ∪ configured with the configured value winning over the env-printing
+# child; an explicitly empty configured `HOME` beating a real baseline one — the intent
+# rule; plus the N2 doc pin — the old "never the caller's environment" scrub promise gone
+# from ShellExecutor.swift, the honest "never beyond the declared baseline and the row's own
+# entries" rule present, a deterministic source scan). A field, not a file — the transport
+# lint stays at exactly two permitted files untouched; the existing scrubbed-env row passes
+# unchanged. The count taken from the floor script's own parse in the ratchet commit.
+#
+# `provider-baseline` (the `agent-auth-baseline` unit): +6 — `ProviderBaselineTests`, the
+# provider half of the baseline contract (both providers carry the injected baseline into
+# every configuration they build): the counting-engine rows asserting the configuration's
+# `baselineEnvironment` — the agent's alongside the row's own environment, the shell's
+# beside an empty row environment — the default-posture rows (a provider constructed
+# without a baseline asks the engine for the empty dictionary, byte-identical to today),
+# and the named consequence rows driven over a real `/usr/bin/env` child: a wired baseline
+# reaches a shell child exactly as wired (nothing beyond the union), the unwired default
+# reaches nothing. Init parameters, not files — the transport lint stays at exactly two
+# permitted files untouched, and the Family A-B lints' permitted sets are unchanged. The
+# count taken from the floor script's own parse in the ratchet commit.
+#
+# `wiring-baseline` (the `agent-auth-baseline` unit): +11 — `WiringBaselineTests`, the
+# wiring-baseline invariant suite (acceptances 1-5: the HOME baseline wired into both
+# provider constructions — the wiring's fact pinned as the exact composition literal and
+# the wired value read off the configurations the providers build through the gate — the
+# PROBE-CODING-AGENT line verbatim-unchanged under the interposer with the baseline wired
+# and the hints on the surface, the auth hint's render under the Environment field and the
+# root mapping carrying it across the module boundary, the D2 baseline line pinned and
+# placed in the agents section, and the G5 digests with AppBootstrap at the wiring
+# REFACTOR's re-anchored literal) plus the two auth-hint rows in `KnownAgentPresetsTests`
+# (every hint pinned verbatim, the planted-wrong-hint control) — the count taken from the
+# floor script's own parse in the ratchet commit.
+#
+# `agent-pins` (the `agent-auth-baseline` unit): +8 — `AuthBaselineInvariantTests`, the
+# invariant suite (acceptances 1-5: the PROBE-CODING-AGENT line verbatim-unchanged under
+# the interposer with the baseline in the tree — agents=0 + spawnsSubprocess=false
+# field-wise; the lint immobilities read off the lint suites' own literals — the transport
+# permitted set still exactly the two reviewed entries, the FileManager seams still exactly
+# the eight, Family A's seven families and Family B's single minting file unchanged, and
+# the policy parameter still default-less with all 96 submit call sites supplying it, count
+# pinned; the digests — the dictation pair unchanged, AppBootstrap at the wiring REFACTOR's
+# re-anchored literal 4e50ab8d… with every one of the five pin sites carrying the same
+# value; the module-coverage cross-check green — no new module files; the zero-network
+# default-configuration drive green with the baseline wired — a value in the environment of
+# a child the default never spawns). Assertions only — no production code, no lint
+# widening. The count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3023
+MINIMUM_EXECUTED_TESTS=3052
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

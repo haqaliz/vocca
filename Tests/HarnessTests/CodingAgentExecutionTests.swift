@@ -35,9 +35,9 @@ import XCTest
 /// read back, a raised per-row timeout honored over the injected clock (the run must not die at
 /// the 30 s default when configured otherwise), the terminate → poll → SIGKILL → poll reaping
 /// with the no-orphan acceptance asserted against the kernel (`kill(pid, 0) == -1 && errno ==
-/// ESRCH` on the real child, via ``ShellExecutor/lastProcessIdentifier``), exactly the
-/// configured environment and nothing else, and bounded capture that truncates, reports and
-/// never fatals.
+/// ESRCH` on the real child, via ``ShellExecutor/lastProcessIdentifier``), exactly the declared
+/// baseline merged with the configured environment — and never beyond — and bounded capture
+/// that truncates, reports and never fatals.
 ///
 /// ## No test here may leave a child behind
 ///
@@ -233,6 +233,116 @@ final class CodingAgentExecutionTests: XCTestCase {
             a stray `PATH` or `HOME` reaching the child would be the caller's environment \
             leaking into that trust. Got: \(lines.sorted())
             """)
+    }
+
+    // MARK: - Acceptance 4b: the baseline-environment merge (`executor-baseline`)
+
+    /// The default baseline is the empty dictionary — byte-identical to today.
+    ///
+    /// ``ShellExecutor/Configuration/baselineEnvironment`` defaults to `[:]`, so a configuration
+    /// that names no baseline runs exactly as the shipped scrub did: the child receives the
+    /// configured entries and nothing else — no `PATH`, no `HOME`, no residue of the caller's
+    /// session (N2). The baseline is **declared per configuration**, never inherited.
+    func testTheDefaultBaselineIsTheEmptyDictionaryAndTheScrubHolds() async {
+        let configuration = ShellExecutor.Configuration(
+            executablePath: Self.environmentAgent,
+            environment: ["VOCCA_AGENT": "1"])
+        XCTAssertEqual(
+            configuration.baselineEnvironment, [:],
+            "the default baseline must be the empty dictionary — byte-identical to today's scrub")
+
+        let executor = ShellExecutor(
+            configuration: configuration,
+            clock: ContinuousStdioClock(),
+            sleeper: TaskStdioPollSleeper())
+        let result = await executor.run()
+        let lines = String(decoding: result.standardOutput, as: UTF8.self)
+            .split(separator: "\n").map(String.init)
+        XCTAssertEqual(
+            Set(lines), ["VOCCA_AGENT=1"],
+            """
+            a real run with the default baseline must still show the caller's `PATH` and `HOME` \
+            absent — the default is byte-identical to the shipped scrub. Got: \(lines.sorted())
+            """)
+    }
+
+    /// Baseline ∪ configured, configured wins — and nothing beyond the union reaches the child.
+    ///
+    /// The declared baseline (`PATH`, `HOME`) supplies what the row does not name; a configured
+    /// entry (`PATH`) overrides the baseline's; and the exact printed set is the union — no
+    /// `TMPDIR`, no `SHELL`, no residue of the caller's session.
+    func testBaselineAndConfiguredEnvironmentMergeWithConfiguredWinningAndNothingElse() async {
+        let executor = ShellExecutor(
+            configuration: .init(
+                executablePath: Self.environmentAgent,
+                environment: ["PATH": "/configured/bin", "VOCCA_AGENT": "1"],
+                baselineEnvironment: ["PATH": "/baseline/bin", "HOME": "/baseline/home"]),
+            clock: ContinuousStdioClock(),
+            sleeper: TaskStdioPollSleeper())
+        let result = await executor.run()
+        XCTAssertEqual(
+            result.status, .succeeded(exitCode: 0),
+            "'/usr/bin/env' over the merged environment must run to completion")
+        let lines = String(decoding: result.standardOutput, as: UTF8.self)
+            .split(separator: "\n").map(String.init)
+        XCTAssertEqual(
+            Set(lines),
+            ["PATH=/configured/bin", "HOME=/baseline/home", "VOCCA_AGENT=1"],
+            """
+            the child's environment must be exactly baseline ∪ configured with the configured \
+            value winning — `PATH` from the row, `HOME` from the baseline, and nothing beyond \
+            the union. Got: \(lines.sorted())
+            """)
+    }
+
+    /// An explicitly empty configured entry beats a real baseline value — the intent rule.
+    ///
+    /// `"HOME": ""` in the row's own environment is a decision to unset, not an accident: the
+    /// merge is `baseline.merging(environment) { _, new in new }`, so an empty configured value
+    /// wins over a real baseline `HOME`, and the child prints `HOME=` — the empty entry is
+    /// present, never the baseline's.
+    func testAnExplicitlyEmptyConfiguredEntryBeatsABaselineValue() async {
+        let executor = ShellExecutor(
+            configuration: .init(
+                executablePath: Self.environmentAgent,
+                environment: ["HOME": ""],
+                baselineEnvironment: ["HOME": "/real/home", "PATH": "/baseline/bin"]),
+            clock: ContinuousStdioClock(),
+            sleeper: TaskStdioPollSleeper())
+        let result = await executor.run()
+        XCTAssertEqual(
+            result.status, .succeeded(exitCode: 0),
+            "'/usr/bin/env' with the empty entry must still run to completion")
+        let lines = String(decoding: result.standardOutput, as: UTF8.self)
+            .split(separator: "\n").map(String.init)
+        XCTAssertEqual(
+            Set(lines), ["HOME=", "PATH=/baseline/bin"],
+            """
+            an explicitly empty configured `HOME` must beat the baseline's real `/real/home` — \
+            the row's intent wins even when the value is empty. Got: \(lines.sorted())
+            """)
+    }
+
+    /// The N2 record is the honest rewrite — a comment pin, because comments are not executed.
+    ///
+    /// The scrub wording that promised "never the caller's environment" is gone from
+    /// ``ShellExecutor``'s source; in its place is the declared rule — the child receives the
+    /// baseline and the row's own entries, never beyond. The pin is a deterministic scan of the
+    /// shipped source (the ``PackageRootLocator`` pattern); the wording itself is the reviewer's
+    /// line.
+    func testTheN2ScrubWordingIsTheHonestRewrite() throws {
+        let source = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaActions/Execution/ShellExecutor.swift"),
+            encoding: .utf8)
+        XCTAssertFalse(
+            source.contains("never the caller's environment"),
+            "the old scrub promise must be gone — the child's environment is no longer 'never "
+                + "the caller's', it is the declared baseline plus the row's own entries")
+        XCTAssertTrue(
+            source.contains("never beyond the declared baseline and the row's own entries"),
+            "the honest rule must be written in the source: the child receives the declared "
+                + "baseline and the row's own entries, never beyond")
     }
 
     // MARK: - Acceptance 5: bounded capture — truncated, reported, never fatal

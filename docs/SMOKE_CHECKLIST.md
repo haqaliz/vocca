@@ -1679,15 +1679,16 @@ not ship.
     keeps the titlebar clean. *Failure:* the toggle button or a divider reappears next to the
     title after a tab switch.
 
-    **The keep-in-tray half (the same unit).** With General → Closing → **Keep in menu bar** off
-    (the shipped default), ⌘Q quits the app from the menu bar as before. Turn it on, open
-    Settings, and press ⌘Q: the settings window **closes and the app stays in the menu bar** —
-    the Dock icon disappears, and the tray item is still there and still dictates. The escape
-    hatch is the tray menu's own **Quit Vocca**, which always quits whatever the option. And the
-    onboarding flow's [ Restart Vocca ] must still work with the option on. *Failure:* ⌘Q kills
-    the app with the option on; the tray menu's Quit is refused; the app quits without a way
-    back. (Executed by nothing in CI: the quit policy's decision table is `AppQuitPolicyTests`;
-    this row is the first real ⌘Q.)
+    **The keep-in-tray half (the same unit).** With General → Closing → **Keep in menu bar** on
+    (the shipped default since the 2026-10-01 founder decision), a fresh install opens Settings,
+    presses ⌘Q, and the settings window **closes while the app stays in the menu bar** — the
+    Dock icon disappears, and the tray item is still there and still dictates. Turn the option
+    off and ⌘Q quits the app from the menu bar as before; the toggle is the way out of the
+    tray. The escape hatch is the tray menu's own **Quit Vocca**, which always quits whatever
+    the option. And the onboarding flow's [ Restart Vocca ] must still work with the option on.
+    *Failure:* ⌘Q kills the app with the option on; the tray menu's Quit is refused; the app
+    quits without a way back. (Executed by nothing in CI: the quit policy's decision table is
+    `AppQuitPolicyTests`; this row is the first real ⌘Q.)
 
 ### The first-run onboarding — the five-step flow, its first execution
 
@@ -3808,6 +3809,56 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     that runs an argv without the spoken words, a run without a card, no audit entry for
     a run that happened, an audit sentence that cannot reconstruct the decision, or an
     arm of the placeholder row that was not refused loudly.
+
+163. **The subscription flow runs from an empty-environment row: a logged-in CLI with
+    no `ANTHROPIC_API_KEY` anywhere authenticates through its own login — the wired
+    HOME baseline lets it find its credentials exactly as it would in a terminal — the
+    key-mode row still runs, and the D2 baseline line reads on the surface
+    (`agent-auth-baseline`, recorded — never gated).**
+
+    *Gesture:* first the precondition, in a plain terminal: `echo
+    "$ANTHROPIC_API_KEY"` prints nothing, and the founder's logged-in CLI (e.g.
+    `claude` with the subscription login) answers a real prompt from its own
+    credentials — the run's own output proves the login works with no key anywhere.
+    Then author an agent row in the Actions tab's **Coding agents** section (the
+    editor, preset `claude`) whose **Environment field is empty** — no
+    `ANTHROPIC_API_KEY`, no entries at all — Save, enable the row, press the hotkey to
+    arm, read the sentence off the **rendered** card (the argv-derived render), press
+    **Confirm**, and verify the run **authenticated with the subscription**: the run's
+    own output is the CLI's real answer to the task (e.g. a prompt that shows which
+    account answered), never an auth error, and no key existed anywhere — the saved
+    row's file shows no environment entries, and the shell that launched Vocca was not
+    consulted (the baseline is the wired HOME, never the session). Then the
+    **key-mode control**: a second row carrying `ANTHROPIC_API_KEY` in its environment
+    still runs exactly as before (the key mode is unchanged — configured entries win).
+    Then the surface line: in the Coding agents section, verify the **D2 baseline
+    line** reads at the moment of trust — "the baseline hands the agent your home
+    directory; configure only agents you trust".
+
+    *Verify the state was entered:* the terminal really had no key (an env that
+    already carried `ANTHROPIC_API_KEY` proves nothing — rule 1), the CLI really
+    authenticated through its own login (its own output, with its credentials in the
+    home directory the baseline hands it — `~/.claude/…` for claude), the row's
+    environment was really empty (the saved file shows no entries — a hand-edit that
+    slipped a key in would void the row), the card was really read off the rendered
+    surface before any confirm, the confirm really ran the agent (the run's own
+    output), the key-mode row really ran with its key, and the D2 line was really read
+    off the rendered surface.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a logged-in CLI ran
+    from an empty-environment row — the run authenticated with the subscription, no
+    key anywhere — the key-mode row still ran, and the D2 baseline line read on the
+    surface** — the subscription leg's first real observation of the baseline.
+    Record the count of runs, never a rate.
+
+    *Void — not fail — if:* the CLI was not logged in (its own loud auth error in the
+    terminal — rule 1: the subscription state is the CLI's own), the row's environment
+    was not actually empty, or the row never rendered.
+
+    *Failure:* a run that fails to authenticate while the same CLI works in the
+    terminal (the baseline missing, or the child not seeing HOME), a key-mode row that
+    stops working, a run without a card, a card whose sentence differs from the
+    argv-derived render, or the D2 baseline line missing from the section.
 
 ---
 

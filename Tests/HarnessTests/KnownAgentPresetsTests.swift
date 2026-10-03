@@ -15,7 +15,8 @@
 import VoccaActions
 import XCTest
 
-/// The known-agents catalog's pin suite (`agent-catalog` spec acceptance 1-4) — the
+/// The known-agents catalog's pin suite (`agent-catalog` spec acceptance 1-4 + the
+/// `wiring-baseline` auth-hint acceptance) — the
 /// `KeywordSynonym` seed precedent, moved from the intent layer to the coding-agents surface.
 ///
 /// ## Why a pin, not a read
@@ -23,8 +24,9 @@ import XCTest
 /// The eight presets are **code-level seeds** (PRD R1, founder decision Q1): candidate binary
 /// names and non-interactive argv templates that the Coding agents editor pre-fills. Vocca never
 /// claims the CLI behaves as the template says — a template is a seed, and the copy says so. The
-/// suite's job is to make a retune a **reviewed edit**: the count, the ids, the display names and
-/// every argv template are pinned verbatim, exactly as ``KeywordIntentResolver/shippedSynonyms``
+/// suite's job is to make a retune a **reviewed edit**: the count, the ids, the display names,
+/// every argv template and — since `wiring-baseline` — every auth hint are pinned verbatim,
+/// exactly as ``KeywordIntentResolver/shippedSynonyms``
 /// is pinned by `IntentSeamBoundaryTests`, so a wrong template cannot land silently.
 ///
 /// ## The placeholder contract
@@ -45,34 +47,46 @@ final class KnownAgentPresetsTests: XCTestCase {
     // MARK: - Acceptance 1 — exactly eight presets, ids and display names pinned
 
     /// The closed set: exactly eight presets, in the shipped order, with ids and display names
-    /// pinned verbatim. An added, removed or renamed preset is a reviewed edit — the count pin
-    /// and the row pin together are what make it one.
+    /// pinned verbatim — and, since `wiring-baseline`, the auth hints with them (the
+    /// deliberate pin update for the new field: the row pin and the hint pin are one). An
+    /// added, removed or renamed preset is a reviewed edit — the count pin and the row pin
+    /// together are what make it one.
     func testTheCatalogHoldsExactlyEightPresetsWithPinnedIDsAndDisplayNames() {
         let expected: [KnownAgentPreset] = [
             KnownAgentPreset(
                 id: "claude", displayName: "Claude", candidateNames: ["claude"],
-                arguments: ["-p", "<task>"]),
+                arguments: ["-p", "<task>"],
+                authHint:
+                    "ANTHROPIC_API_KEY or the claude subscription login — whichever you use "
+                    + "in a terminal works here"),
             KnownAgentPreset(
                 id: "codex", displayName: "Codex", candidateNames: ["codex"],
-                arguments: ["exec", "<task>"]),
+                arguments: ["exec", "<task>"],
+                authHint: "OpenAI API key or the ChatGPT sign-in (codex login)"),
             KnownAgentPreset(
                 id: "gemini", displayName: "Gemini", candidateNames: ["gemini"],
-                arguments: ["-p", "<task>"]),
+                arguments: ["-p", "<task>"],
+                authHint: "Gemini API key or the Google account sign-in (gemini login)"),
             KnownAgentPreset(
                 id: "opencode", displayName: "OpenCode", candidateNames: ["opencode"],
-                arguments: ["run", "<task>"]),
+                arguments: ["run", "<task>"],
+                authHint: "a provider API key or its OAuth sign-in (opencode auth)"),
             KnownAgentPreset(
                 id: "aider", displayName: "Aider", candidateNames: ["aider"],
-                arguments: ["--message", "<task>"]),
+                arguments: ["--message", "<task>"],
+                authHint: "an LLM API key (aider --model …)"),
             KnownAgentPreset(
                 id: "cursor", displayName: "Cursor", candidateNames: ["cursor"],
-                arguments: ["run", "<task>"]),
+                arguments: ["run", "<task>"],
+                authHint: "a Cursor subscription account (cursor auth)"),
             KnownAgentPreset(
                 id: "q", displayName: "Amazon Q", candidateNames: ["q"],
-                arguments: ["-p", "<task>"]),
+                arguments: ["-p", "<task>"],
+                authHint: "AWS credentials or the Q sign-in (q auth)"),
             KnownAgentPreset(
                 id: "crush", displayName: "Crush", candidateNames: ["crush"],
-                arguments: ["run", "<task>"]),
+                arguments: ["run", "<task>"],
+                authHint: "an LLM API key or its provider sign-in"),
         ]
 
         XCTAssertEqual(
@@ -195,6 +209,77 @@ final class KnownAgentPresetsTests: XCTestCase {
                 "\(preset.id)'s argv template must carry exactly one \(KnownAgentPresets.taskPlaceholder) "
                     + "occurrence, got \(occurrences) — a template with zero placeholders cannot "
                     + "carry the task, and one with several would substitute ambiguously")
+        }
+    }
+
+    // MARK: - Acceptance 5 — the auth hints (wiring-baseline)
+
+    /// **Every preset's auth hint, pinned verbatim** (`wiring-baseline`, gap-3): the honest
+    /// copy the editor renders under the Environment field — which credentials or sign-in
+    /// the CLI authenticates with, in the CLI's own vocabulary. Each hint names a key
+    /// spelling, a subscription login, or both; the subscription spellings are the ones
+    /// that exist (`claude` subscription login, `codex login`, `gemini login`, `opencode
+    /// auth`, `cursor auth`, `q auth`), and a preset without one says the key spelling only.
+    /// A retune is a reviewed edit — the pin is the record of the decision, the
+    /// ``KeywordIntentResolver/shippedSynonyms`` precedent.
+    func testEveryAuthHintIsPinnedVerbatim() {
+        let expected: [String: String?] = [
+            "claude":
+                "ANTHROPIC_API_KEY or the claude subscription login — whichever you use in a "
+                + "terminal works here",
+            "codex": "OpenAI API key or the ChatGPT sign-in (codex login)",
+            "gemini": "Gemini API key or the Google account sign-in (gemini login)",
+            "opencode": "a provider API key or its OAuth sign-in (opencode auth)",
+            "aider": "an LLM API key (aider --model …)",
+            "cursor": "a Cursor subscription account (cursor auth)",
+            "q": "AWS credentials or the Q sign-in (q auth)",
+            "crush": "an LLM API key or its provider sign-in",
+        ]
+
+        let shipped = Dictionary(
+            uniqueKeysWithValues: KnownAgentPresets.all.map { ($0.id, $0.authHint) })
+        XCTAssertEqual(
+            shipped, expected,
+            "every auth hint must match its pin verbatim — the hints are the authoring "
+                + "surface's answer to 'which auth does this CLI use?', and the pin is the "
+                + "record of the decision")
+        for preset in KnownAgentPresets.all {
+            XCTAssertFalse(
+                preset.authHint?.isEmpty ?? true,
+                "\(preset.id)'s auth hint must be non-empty — an empty hint renders a blank "
+                    + "line under the Environment field")
+        }
+    }
+
+    /// The negative control: a **wrong** hint is caught by the same comparison the pin uses.
+    ///
+    /// A pin that has only ever seen the shipped values is a pin nobody has watched fail —
+    /// each of the mutations below (a reworded hint, a dropped hint, a key spelling that
+    /// names the wrong credential) must disagree with the shipped catalog.
+    func testAPlantedWrongAuthHintFailsThePin() {
+        let shipped = Dictionary(
+            uniqueKeysWithValues: KnownAgentPresets.all.map { ($0.id, $0.authHint) })
+
+        let planted: [String: String?] = [
+            "claude": "your Anthropic key",
+            "codex": "your OpenAI key",
+            "gemini": "your Google key",
+            "opencode": "your provider key",
+            "aider": nil,
+            "cursor": "your OpenAI key",
+            "q": "your AWS key",
+            "crush": "your LLM key",
+        ]
+
+        XCTAssertFalse(
+            shipped == planted,
+            "the pin must be able to fail — a planted wrong hint must not equal the shipped "
+                + "catalog, or the verbatim pin watches nothing")
+        for (id, wrong) in planted {
+            XCTAssertNotEqual(
+                shipped[id], wrong,
+                "the planted hint for \(id) must disagree with the shipped one — otherwise "
+                    + "the pin cannot catch a change to it")
         }
     }
 

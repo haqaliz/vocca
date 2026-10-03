@@ -16,9 +16,10 @@
 /// (`agent-catalog` spec, PRD R1).
 ///
 /// A preset names the agent's stable id, its human-readable display name, the candidate binary
-/// names detection resolves against, and a **non-interactive argv template** with the
+/// names detection resolves against, a **non-interactive argv template** with the
 /// ``KnownAgentPresets/taskPlaceholder`` placeholder string (e.g. claude: `["-p", "<task>"]`;
-/// codex: `["exec", "<task>"]`).
+/// codex: `["exec", "<task>"]`), and the honest ``authHint`` copy the editor renders under the
+/// Environment field (`wiring-baseline`).
 ///
 /// ## A seed, never a claim
 ///
@@ -46,18 +47,30 @@ public struct KnownAgentPreset: Sendable, Equatable {
     /// ``KnownAgentPresets/taskPlaceholder`` occurrence, never substituted by this slice.
     public let arguments: [String]
 
+    /// The honest auth copy the editor renders under the Environment field
+    /// (`wiring-baseline`, gap-3): which credentials or sign-in this CLI authenticates
+    /// with, in the CLI's own vocabulary — a key spelling, a subscription login, or both,
+    /// exactly as the CLI's own docs name them. `nil` for a preset that declares none; the
+    /// editor renders nothing for it. The hints are pinned verbatim with the rest of the
+    /// catalog — a retune is a reviewed edit.
+    public let authHint: String?
+
     /// - Parameters:
     ///   - id: The stable identifier of the preset.
     ///   - displayName: The human-readable name the Coding agents section shows.
     ///   - candidateNames: The candidate binary names detection resolves against.
     ///   - arguments: The non-interactive argv template, with the `<task>` placeholder.
+    ///   - authHint: The honest auth copy the editor renders under the Environment field —
+    ///     which credentials or sign-in this CLI authenticates with, or nil for none.
     public init(
-        id: String, displayName: String, candidateNames: [String], arguments: [String]
+        id: String, displayName: String, candidateNames: [String], arguments: [String],
+        authHint: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
         self.candidateNames = candidateNames
         self.arguments = arguments
+        self.authHint = authHint
     }
 }
 
@@ -91,30 +104,46 @@ public enum KnownAgentPresets {
     /// The closed set of known presets, in the shipped order — exactly eight, pinned verbatim
     /// by `KnownAgentPresetsTests`. A ninth preset is a reviewed widening, not a silent
     /// addition.
+    ///
+    /// Each row carries its ``KnownAgentPreset/authHint`` — the honest auth copy, pinned
+    /// with the row: the key spelling and/or the subscription login the CLI's own docs name
+    /// (the subscription spellings that exist: `claude` subscription login, `codex login`,
+    /// `gemini login`, `opencode auth`, `cursor auth`, `q auth`); a preset without a
+    /// subscription mode says the key spelling only.
     public static let all: [KnownAgentPreset] = [
         KnownAgentPreset(
             id: "claude", displayName: "Claude", candidateNames: ["claude"],
-            arguments: ["-p", "<task>"]),
+            arguments: ["-p", "<task>"],
+            authHint:
+                "ANTHROPIC_API_KEY or the claude subscription login — whichever you use in a "
+                + "terminal works here"),
         KnownAgentPreset(
             id: "codex", displayName: "Codex", candidateNames: ["codex"],
-            arguments: ["exec", "<task>"]),
+            arguments: ["exec", "<task>"],
+            authHint: "OpenAI API key or the ChatGPT sign-in (codex login)"),
         KnownAgentPreset(
             id: "gemini", displayName: "Gemini", candidateNames: ["gemini"],
-            arguments: ["-p", "<task>"]),
+            arguments: ["-p", "<task>"],
+            authHint: "Gemini API key or the Google account sign-in (gemini login)"),
         KnownAgentPreset(
             id: "opencode", displayName: "OpenCode", candidateNames: ["opencode"],
-            arguments: ["run", "<task>"]),
+            arguments: ["run", "<task>"],
+            authHint: "a provider API key or its OAuth sign-in (opencode auth)"),
         KnownAgentPreset(
             id: "aider", displayName: "Aider", candidateNames: ["aider"],
-            arguments: ["--message", "<task>"]),
+            arguments: ["--message", "<task>"],
+            authHint: "an LLM API key (aider --model …)"),
         KnownAgentPreset(
             id: "cursor", displayName: "Cursor", candidateNames: ["cursor"],
-            arguments: ["run", "<task>"]),
+            arguments: ["run", "<task>"],
+            authHint: "a Cursor subscription account (cursor auth)"),
         KnownAgentPreset(
             id: "q", displayName: "Amazon Q", candidateNames: ["q"],
-            arguments: ["-p", "<task>"]),
+            arguments: ["-p", "<task>"],
+            authHint: "AWS credentials or the Q sign-in (q auth)"),
         KnownAgentPreset(
             id: "crush", displayName: "Crush", candidateNames: ["crush"],
-            arguments: ["run", "<task>"]),
+            arguments: ["run", "<task>"],
+            authHint: "an LLM API key or its provider sign-in"),
     ]
 }

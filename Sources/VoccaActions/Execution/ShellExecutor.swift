@@ -56,9 +56,12 @@ import VoccaCore
 /// - **Output is bounded per stream.** stdout and stderr are read in bounded chunks into a
 ///   bounded buffer (``Configuration/maximumOutputBytes``); overflow is truncated, never fatal,
 ///   and reported in ``ShellExecutionResult/outputWasTruncated``.
-/// - **The environment is scrubbed.** The child receives exactly the configured variables — the
-///   empty dictionary by default — never the caller's environment (N2). A shell command that
-///   expected `PATH` or `HOME` to be inherited gets nothing it was not configured with.
+/// - **The environment is the declared baseline plus the row's own entries.** The child receives
+///   exactly ``Configuration/baselineEnvironment`` merged with ``Configuration/environment`` —
+///   the row's entries win, even an explicitly empty value —
+///   never beyond the declared baseline and the row's own entries (N2).
+///   A shell command that expected `PATH` or `HOME` to be inherited gets nothing it was not
+///   declared with.
 ///
 /// ## Failure is a returned value
 ///
@@ -95,9 +98,18 @@ public actor ShellExecutor {
         /// The arguments, passed through untouched. Never a command line, never a shell.
         public let arguments: [String]
 
-        /// The child's environment — exactly these variables and nothing else. **Empty by
-        /// default**: the child gets a scrubbed environment, never the caller's (N2).
+        /// The row's own environment entries — merged over ``baselineEnvironment``, so a
+        /// configured entry wins, even when explicitly empty. **Empty by default**: the child
+        /// gets the baseline and these entries, never beyond (N2).
         public let environment: [String: String]
+
+        /// The declared baseline environment — the entries every child starts from, merged under
+        /// ``environment`` (the row's own entries win, even when explicitly empty).
+        ///
+        /// **Empty by default**: with no baseline the child receives exactly the row's own
+        /// entries, byte-identical to the shipped scrub. The baseline is declared per
+        /// configuration — never inherited from the caller's environment (N2).
+        public let baselineEnvironment: [String: String]
 
         /// The directory the child runs in, or `nil` for the caller's working directory.
         ///
@@ -121,6 +133,7 @@ public actor ShellExecutor {
             executablePath: String,
             arguments: [String] = [],
             environment: [String: String] = [:],
+            baselineEnvironment: [String: String] = [:],
             currentDirectoryURL: URL? = nil,
             timeout: Duration = Configuration.defaultTimeout,
             pollInterval: Duration = Configuration.defaultPollInterval,
@@ -129,6 +142,7 @@ public actor ShellExecutor {
             self.executablePath = executablePath
             self.arguments = arguments
             self.environment = environment
+            self.baselineEnvironment = baselineEnvironment
             self.currentDirectoryURL = currentDirectoryURL
             self.timeout = timeout
             self.pollInterval = pollInterval
@@ -201,8 +215,9 @@ public actor ShellExecutor {
         // child as where it starts — the sentence "in <directory>" depends on it.
         process.currentDirectoryURL = configuration.currentDirectoryURL
         process.arguments = configuration.arguments
-        // The scrubbed environment: exactly the configured variables, never the caller's.
-        process.environment = configuration.environment
+        // The environment: the declared baseline merged with the row's own entries — the row's
+        // entries win, even an explicitly empty value — never beyond the declared baseline and the row's own entries.
+        process.environment = configuration.baselineEnvironment.merging(configuration.environment) { _, new in new }
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()

@@ -16,12 +16,12 @@ import CryptoKit
 import Foundation
 import XCTest
 
-/// **The spoken-task-seeding invariant suite** (`agent-pins` spec acceptances 1-5): the
-/// composed default's promises and the lint/digest immobilities re-asserted — deliberately, as
-/// tests — with the task carrier (`ActionInvocation.taskText`), the one-render substitution
-/// (`CodingAgentSentences.substitutedArguments` + the refusal keys) and the threading (the
-/// widened intent-action handler, the intent enrichment and the placeholder-arm refusal) in
-/// the tree.
+/// **The agent-auth-baseline invariant suite** (`agent-pins` spec acceptances 1-5): the
+/// composed default's promises, the lint tables and the digests re-asserted — deliberately, as
+/// tests — with the baseline environment (`ShellExecutor.Configuration.baselineEnvironment`),
+/// the provider baseline parameters (`CodingAgentProvider`/`ShellProvider`), the wired HOME at
+/// the composition root (`AppBootstrap`, `baselineEnvironment: ["HOME": NSHomeDirectory()]`)
+/// and the auth hints (`KnownAgentPresets.authHint`) in the tree.
 ///
 /// ## What each leg is
 ///
@@ -32,31 +32,35 @@ import XCTest
 /// - Acceptance 1 runs the **real probe** in `defaultConfiguration` mode under the interposer
 ///   (the `ZeroNetworkTests` drive shape) and asserts the `PROBE-CODING-AGENT` line is
 ///   verbatim-unchanged — `agents=0 spawnsSubprocess=false` and the whole seeded round trip
-///   still reported exactly as `ZeroNetworkTests.expectedCodingAgentLifecycle` pins it.
+///   still reported exactly as `ZeroNetworkTests.expectedCodingAgentLifecycle` pins it. The
+///   probe's drives keep the DEFAULT `[:]` baseline (the recorded posture): the composed
+///   default's facts are about the configuration — zero agents, no spawn — and the seeded
+///   round trips run `/bin/echo`, a child that needs no HOME, so the wired value changes
+///   nothing the report observes.
 /// - Acceptance 2 re-asserts the lint tables' **current state** — the transport permitted set
 ///   is still exactly the two reviewed entries, the FileManager seam table still names exactly
 ///   the eight seams, Family A's seven families and Family B's single minting file are
-///   unchanged, and the `policy:` parameter still has no default. The scans themselves are the
-///   lint suites' own tests (`ActionTransportProhibitionTests`, `InjectionSeamBoundaryTests`,
+///   unchanged, and the `policy:` parameter still has no default with every one of its 96 call
+///   sites supplying one. The scans themselves are the lint suites' own tests
+///   (`ActionTransportProhibitionTests`, `InjectionSeamBoundaryTests`,
 ///   `ActionSeamBoundaryTests`), which run in this same full-suite run; this leg pins the state
 ///   they enforce so a change to either side fails here first, in review.
 /// - Acceptance 3 recomputes the three G5 digests and asserts the dictation pair is unchanged
-///   and `AppBootstrap.swift` holds the wiring REFACTOR's re-anchored literal (`4e50ab8d…`) —
-///   the `wiring-baseline` REFACTOR re-anchored it deliberately (computed, never
-///   edited-to-match), and this asserts the honest actual: the composition root's digest,
-///   exactly as the tree holds it.
-/// - Acceptance 4 pins the **driver's compile pins**: the widened intent-action handler's
-///   signature and its silent default (`= { _, _ in nil }` — the unwired driver stays
-///   byte-identical), the recipe's passthrough default, the pipeline's utterance-passing call
-///   site, and the constructible pins in the compile-pin suites (`ConverseLoopDriverTests`,
-///   `ConverseIntentStepTests`, `IntentDriverIntegrationTests`) all carrying the widened
-///   signature — read from each file's own source, so a reverted or re-widened signature
-///   fails here first.
-/// - Acceptance 5 runs the zero-network default-configuration drive with the carrier and the
-///   threading composed, asserts the interposer saw nothing (the substitution happens only in
-///   the provider over an invocation field — no new call), and re-asserts the module-coverage
-///   cross-check's set: unchanged at the twelve library modules (the unit added a field and
-///   wiring, no module files).
+///   and `AppBootstrap.swift` still holds the wiring REFACTOR's re-anchored literal
+///   (`641b6445…` → `4e50ab8d…`, computed with `shasum -a 256`, never edited-to-match) — and
+///   that **every existing pin site carries the same literal**: the `agent-auth-baseline` unit
+///   changed the composition root, so this suite is one more site among the five, and a site
+///   that drifted to a different value fails here rather than silently.
+/// - Acceptance 4 is the **module-coverage cross-check** read again: the exercised-module set
+///   (the probe's `PROBE-MODULES` line) must equal the set the cross-check derives from the
+///   manifest and the `Sources/` listing — the same twelve library modules. The unit added no
+///   module files: every change rode existing files (`ShellExecutor`,
+///   `CodingAgentProvider`, `ShellProvider`, `AppBootstrap`, the Actions-tab files,
+///   `KnownAgentPresets`), so the derived set is unchanged and this leg proves it.
+/// - Acceptance 5 runs the zero-network default-configuration drive with the baseline wired
+///   and asserts the interposer saw nothing: the wired value is a `Dictionary` merged into
+///   the *environment of a child*, and the composed default never spawns that child — the
+///   baseline is a value, not a call, so the default's zero-call promise is intact.
 ///
 /// ## What is honest about a pins suite
 ///
@@ -64,7 +68,7 @@ import XCTest
 /// not move, the lints did not widen, the digests did not change. A green run here is the
 /// result, not a failure to be manufactured — the value is that a *future* edit to any of the
 /// pinned things now fails in review with a named leg.
-final class SpokenTaskInvariantTests: XCTestCase {
+final class AuthBaselineInvariantTests: XCTestCase {
 
     // MARK: - Acceptance 1: the PROBE-CODING-AGENT line is verbatim-unchanged
 
@@ -103,6 +107,7 @@ final class SpokenTaskInvariantTests: XCTestCase {
         case markerMissing(marker: String, file: String)
         case openingBracketMissing(marker: String, file: String)
         case unbalancedBrackets(marker: String, file: String)
+        case appBootstrapDigestMissing(file: String)
 
         var description: String {
             switch self {
@@ -116,17 +121,26 @@ final class SpokenTaskInvariantTests: XCTestCase {
             case .unbalancedBrackets(let marker, let file):
                 return "\(file)'s '\(marker)' literal does not balance within the file — a "
                     + "truncated table read as compliant is the one way this pin could lie"
+            case .appBootstrapDigestMissing(let file):
+                return "\(file) no longer pairs 'Sources/VoccaBootstrap/AppBootstrap.swift' "
+                    + "with a 64-hex digest literal — the across-the-sites leg cannot read a "
+                    + "site that stopped spelling its pin as a tuple"
             }
         }
     }
 
-    /// **Acceptance 1 — the PROBE-CODING-AGENT line is verbatim-unchanged with the unit's
-    /// files in the tree.** Runs the real probe under the interposer (the
+    /// **Acceptance 1 — the PROBE-CODING-AGENT line is verbatim-unchanged with the baseline
+    /// in the tree.** Runs the real probe under the interposer (the
     /// `ZeroNetworkTests` drive shape — same three preconditions, same accessor), compares the
     /// whole line against the pinned literal, and reads the two composed-default facts back
     /// field by field: `agents=0` (an absent registry is the empty registry) and
     /// `spawnsSubprocess=false` (the D2 narrowed promise, declared for the configuration).
-    func testTheProbeCodingAgentLineIsVerbatimUnchangedWithTheUnitInTheTree() throws {
+    ///
+    /// The probe's drives keep the DEFAULT `[:]` baseline (the recorded posture): the composed
+    /// default's facts are about the configuration — zero agents, no spawn — and the seeded
+    /// round trips run `/bin/echo`, a child that needs no HOME, so a temp HOME would change
+    /// nothing the report observes.
+    func testTheProbeCodingAgentLineIsVerbatimUnchangedWithTheBaselineInTheTree() throws {
         let observation = try runProbe(mode: .defaultConfiguration)
 
         let payload = try XCTUnwrap(
@@ -145,10 +159,10 @@ final class SpokenTaskInvariantTests: XCTestCase {
             The PROBE-CODING-AGENT line is no longer verbatim-unchanged.
               expected: \(Self.expectedCodingAgentLifecycle)
               observed: \(payload)
-            The composed default's promises must not move with the task carrier, the \
-            one-render substitution and the threading in the tree — if the drive's report \
-            changed deliberately, re-anchor this literal and ZeroNetworkTests' own constant in \
-            the same reviewed edit, never edited-to-match.
+            The composed default's promises must not move with the baseline environment, the \
+            provider parameters and the wired HOME in the tree — if the drive's report changed \
+            deliberately, re-anchor this literal and ZeroNetworkTests' own constant in the \
+            same reviewed edit, never edited-to-match.
             """)
 
         let fields = try parseFields(of: payload)
@@ -190,10 +204,11 @@ final class SpokenTaskInvariantTests: XCTestCase {
             ],
             """
             the transport prohibition's permitted set must be exactly the two reviewed entries \
-            — the stdio transport and the shell executor. The task carrier, the substitution \
-            and the threading added nothing for it to see; a third entry means a spawn moved \
-            somewhere this lint (and this pin) must name in review, with the D2 answer the \
-            entry owes. Read off the pin file's own literal: \(body).
+            — the stdio transport and the shell executor. The baseline is a value merged into \
+            the environment of a child the default never spawns — it added no spawn, so nothing \
+            for this lint to see; a third entry means a spawn moved somewhere this lint (and \
+            this pin) must name in review, with the D2 answer the entry owes. Read off the pin \
+            file's own literal: \(body).
             """)
     }
 
@@ -217,23 +232,20 @@ final class SpokenTaskInvariantTests: XCTestCase {
             """
             the FileManager seam table must name exactly the eight shipped seams: journal, \
             dictionary, config, strategy, usage, consent, actions, action-config. The \
-            spoken-task-seeding files ride the existing seams — the substitution is a pure \
-            string rule (no file-system naming) and the carrier is a field on a file already \
-            in the tables — so a ninth seam would be a widening, never a silent addition. \
-            Read off the pin file's own literal: \(body).
+            agent-auth-baseline changes ride the existing seams — the baseline is a value on \
+            the executor's configuration, the provider parameters are constructor arguments, \
+            the wiring is a line in a file already in the tables — so a ninth seam would be a \
+            widening, never a silent addition. Read off the pin file's own literal: \(body).
             """)
     }
 
     /// **Acceptance 2c — Family A's seven families and Family B's single minting file are
-    /// unchanged, and the `policy:` parameter still has no default.** The
-    /// `ActionSeamBoundaryTests` tables, read as the current state of the pin file itself:
-    /// the families table's `name:` entries must be exactly the seven action families, the
-    /// forgery guard's permitted set must hold exactly the one gate file under `Sources/`
-    /// (never a `Tests/` file), and the gate's declaration still spells
-    /// `policy: ActionRadiusPolicy` with no `=` default — the F2 fail-open default stays
-    /// removed. The scans are that suite's own tests; this leg pins the state.
+    /// unchanged.** The `ActionSeamBoundaryTests` tables, read as the current state of the
+    /// pin file itself: the families table's `name:` entries must be exactly the seven action
+    /// families and the forgery guard's permitted set must hold exactly the one gate file
+    /// under `Sources/` (never a `Tests/` file). The scans are that suite's own tests; this
+    /// leg pins the state.
     func testTheActionFamiliesAndForgeryGuardAreUnchanged() throws {
-        let root = try PackageRootLocator.find(from: #filePath)
         let seamSource = try pinFileSource("ActionSeamBoundaryTests.swift")
 
         let familiesBody = try bracketBody(
@@ -247,12 +259,12 @@ final class SpokenTaskInvariantTests: XCTestCase {
                 "ActionConfirmation", "BlastRadius", "NullActionProvider",
             ],
             """
-            Family A must confine exactly the seven action families. The spoken-task-seeding \
-            files decide nothing new over the action vocabulary (the invocation gained a \
-            field, not a file — the carrier rides a file already in the tables; the provider \
-            and the wirings are rows the tables already name) — a new family or a renamed one \
-            is a reviewed widening, never a silent addition. Read off the pin file's own \
-            literal: \(familiesBody).
+            Family A must confine exactly the seven action families. The agent-auth-baseline \
+            files decide nothing new over the action vocabulary (the providers gained \
+            constructor parameters, not files — both are rows the tables already name; the \
+            executor gained a field on a configuration type the shell family already permits) \
+            — a new family or a renamed one is a reviewed widening, never a silent addition. \
+            Read off the pin file's own literal: \(familiesBody).
             """)
 
         let constructionBody = try bracketBody(
@@ -268,7 +280,19 @@ final class SpokenTaskInvariantTests: XCTestCase {
             structural refusal is only structural while there is a single door. Read off the \
             pin file's own literal: \(constructionBody).
             """)
+    }
 
+    /// **Acceptance 2d — the `policy:` parameter still has no default, and the 96 call sites
+    /// that submit to the gate are unchanged: every one of them supplies the argument.** The
+    /// `ActionSeamBoundaryTests` scan shape, read as the current state of the tree itself:
+    /// the gate's declaration spells `policy: ActionRadiusPolicy` with no `=` default (the F2
+    /// fail-open default stays removed), and every `ActionGate.submit(` call under
+    /// `Sources/` and `Tests/` — counted, exactly 96 — still names `policy:` explicitly. The
+    /// scan itself is that suite's own test; this leg pins the count so a call site added
+    /// without the argument — or a silent removal of the argument at a site — fails here
+    /// first, in review.
+    func testThePolicyParameterStillHasNoDefaultAndTheCallSitesAreUnchanged() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
         let gate = try String(
             contentsOf: root.appendingPathComponent("Sources/VoccaCore/Actions/ActionGate.swift"),
             encoding: .utf8)
@@ -286,22 +310,69 @@ final class SpokenTaskInvariantTests: XCTestCase {
             ask was not asking; pass `.none` explicitly where trusting the provider is what \
             you mean.
             """)
+
+        var scannedCalls = 0
+        var offenders: [String] = []
+        for scanRoot in [root.appendingPathComponent("Sources"), root.appendingPathComponent("Tests")]
+        {
+            let files = SwiftSourceScanner.swiftFiles(under: scanRoot)
+            guard !files.isEmpty else {
+                throw ProbeReportError.lineNotParseable(
+                    "no Swift files under \(scanRoot.path) — the call-site scan is vacuous")
+            }
+            for file in files {
+                let relative = String(file.path.dropFirst(root.path.count + 1))
+                let source = try String(contentsOf: file, encoding: .utf8)
+                for call in Self.submitCalls(inSource: source) {
+                    scannedCalls += 1
+                    guard let call else {
+                        offenders.append("\(relative): a call did not balance within the scan")
+                        continue
+                    }
+                    guard !call.contains("policy:") else { continue }
+                    offenders.append("\(relative): \(call.split(separator: "\n").first ?? "").")
+                }
+            }
+        }
+
+        XCTAssertGreaterThan(
+            scannedCalls, 10,
+            "vacuity guard: the scan must have found real call sites — a scan that found none "
+                + "would report every call compliant forever")
+        XCTAssertEqual(
+            scannedCalls, 96,
+            """
+            the gate's call sites are no longer 96 — the count moved to \(scannedCalls). A \
+            new submit site (or a removed one) is a reviewed edit; the agent-auth-baseline \
+            changes added none (the providers are constructed, never submitted to, by the \
+            baseline wiring). This pin and ActionSeamBoundaryTests' own scan must move \
+            together in review.
+            """)
+        XCTAssertTrue(
+            offenders.isEmpty,
+            """
+            these call sites submit to the gate without naming a local radius policy: \
+            \(offenders.sorted()).
+            Supply one. `.none` is a legitimate answer and means the provider's claim stands \
+            unraised; what is not legitimate is arriving at it by omission.
+            """)
     }
 
     // MARK: - Acceptance 3: the G5 digests
 
-    /// **Acceptance 3 — the dictation digests are unchanged and `AppBootstrap.swift` holds
-    /// the prior unit's re-anchored literal.** SHA-256 (CryptoKit, the house pattern) of the
-    /// three files, asserted against the same literals
-    /// `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched`,
-    /// `AgentPresetsInvariantTests` and `ActiveProjectInvariantTests` pin — the pin read
-    /// again, deliberately, with the task carrier, the substitution and the threading in the
-    /// tree. The two dictation files are byte-for-byte untouched; the composition root
-    /// carries the wiring REFACTOR's re-anchor `4e50ab8d…` — the `wiring-baseline`
-    /// REFACTOR (2026-10-03, computed with `shasum -a 256`, never edited-to-match) wired
-    /// the HOME baseline into both provider constructions, so the G5 pin was re-anchored
-    /// deliberately and this asserts the honest actual: the value the tree holds.
-    func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
+    /// **Acceptance 3 — the dictation digests are unchanged, `AppBootstrap.swift` holds the
+    /// wiring REFACTOR's re-anchored literal, and every existing pin site carries the same
+    /// literal.** SHA-256 (CryptoKit, the house pattern) of the three files, asserted against
+    /// the same literals `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched`,
+    /// `AgentPresetsInvariantTests`, `SpokenTaskInvariantTests`, `ActiveProjectInvariantTests`
+    /// and `WiringBaselineTests` pin — the pin read again, deliberately, with the baseline
+    /// environment, the provider parameters and the wired HOME in the tree. The two dictation
+    /// files are byte-for-byte untouched; the composition root carries the re-anchor
+    /// `641b6445…` → `4e50ab8d…` (computed with `shasum -a 256` on 2026-10-03 by the
+    /// `wiring-baseline` REFACTOR, never edited-to-match), and the across-the-sites leg reads
+    /// the AppBootstrap literal back out of all five pin sites — a site that drifted to a
+    /// different value fails here rather than silently.
+    func testTheDictationDigestsAreUnchangedAndEveryPinSiteCarriesTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
             (
@@ -325,153 +396,51 @@ final class SpokenTaskInvariantTests: XCTestCase {
                 actual, expected,
                 """
                 \(file) changed byte-for-byte since the barge-in-loop aspect pinned it. The \
-                dictation path must stay untouched by the spoken-task-seeding unit; if the \
+                dictation path must stay untouched by the agent-auth-baseline unit; if the \
                 change is a deliberate edit, recompute the digest and re-anchor the pin in \
                 review — it must never be edited to match a moved tree.
                 """)
         }
-    }
 
-    // MARK: - Acceptance 4: the driver's compile pins
-
-    /// **Acceptance 4 — the widened handler's signature, its silent default, the recipe's
-    /// passthrough, the pipeline's utterance-passing call site and the constructible pins
-    /// all still hold.** The threading widened the driver's intent-action handler to carry
-    /// the cleaned utterance (`utterance-threading` — a deliberate pin update, never a
-    /// widening). This leg reads each pin's own file: the driver's parameter and its
-    /// `= { _, _ in nil }` default (the unwired driver is byte-identical to today), the
-    /// recipe's passthrough with the same default, the pipeline's call site passing the
-    /// utterance verbatim, and the compile-pin suites' constructible pins (`ConverseLoopDriverTests`
-    /// constructing with the silent closure, `ConverseIntentStepTests` and
-    /// `IntentDriverIntegrationTests` declaring the widened signature) — a reverted or
-    /// re-widened signature fails here first, in review.
-    func testTheDriversWidenedHandlerAndItsCompilePinsStillHold() throws {
-        let root = try PackageRootLocator.find(from: #filePath)
-
-        let driverSource = try String(
-            contentsOf: root.appendingPathComponent(
-                "Sources/VoccaBootstrap/ConverseLoopDriver.swift"),
-            encoding: .utf8)
-        let driverCode = SwiftSourceScanner.stripComments(from: driverSource)
-        XCTAssertTrue(
-            driverCode.contains(
-                "intentActionHandler: @escaping @Sendable (ActionInvocation, String) async -> String?"
-            ),
-            """
-            the driver must still declare the widened intent-action handler — the threading's \
-            deliberate pin update, carrying the cleaned utterance. A reverted signature takes \
-            the enrichment's task text with it, and this pin watches nothing.
-            """)
-        XCTAssertTrue(
-            driverCode.contains("= { _, _ in nil }"),
-            """
-            the widened handler must still default to silence — the unwired driver is \
-            byte-identical to today (the composed default composes the same unwired closures \
-            the pre-threading driver had). A removed default would be a compile break for \
-            every construction site, never a silent edit.
-            """)
-        XCTAssertTrue(
-            driverCode.contains("intentActionHandler(invocation, raw)"),
-            """
-            the driver's pipeline must still pass the cleaned utterance to the handler at the \
-            `.toolCall` site — the words the wiring fills an agent row's `<task>` placeholder \
-            with. A call site that stopped passing the utterance would make the threading \
-            a no-op while every pin above stayed green.
-            """)
-
-        let recipeCode = SwiftSourceScanner.stripComments(
-            from: try String(
-                contentsOf: root.appendingPathComponent(
-                    "Sources/VoccaBootstrap/ConverseWiring.swift"),
-                encoding: .utf8))
-        XCTAssertTrue(
-            recipeCode.contains(
-                "intentActionHandler: @escaping @Sendable (ActionInvocation, String) async -> String?"
-            ),
-            "the converse recipe must still pass the widened handler through — the composition's "
-                + "own compile pin")
-        XCTAssertTrue(
-            recipeCode.contains("= { _, _ in nil }"),
-            "the recipe's passthrough must keep the silent default — an unwired composition "
-                + "is byte-identical to today")
-
-        let loopPins = try String(
-            contentsOf: root.appendingPathComponent(
-                "Tests/HarnessTests/ConverseLoopDriverTests.swift"),
-            encoding: .utf8)
-        XCTAssertTrue(
-            loopPins.contains("intentActionHandler: { _, _ in nil }"),
-            "the constructible pin in ConverseLoopDriverTests must construct the widened "
-                + "handler with the silent closure — its compile is the driver's own pin")
-
-        for file in ["ConverseIntentStepTests.swift", "IntentDriverIntegrationTests.swift"] {
-            let pinSource = try String(
-                contentsOf: root.appendingPathComponent("Tests/HarnessTests/\(file)"),
-                encoding: .utf8)
-            XCTAssertTrue(
-                pinSource.contains(
-                    "intentActionHandler: @escaping @Sendable (ActionInvocation, String) async -> String?"
-                ),
-                "\(file)'s makeDriver must still declare the widened signature — the compile "
-                    + "pin the threading updated deliberately")
+        // The across-the-sites leg: every existing pin site must carry the same AppBootstrap
+        // literal this suite asserts — the composition root changed under the wiring REFACTOR,
+        // and each site was re-anchored in that same reviewed edit. A site carrying a
+        // different value means the re-anchor missed it.
+        let appBootstrapDigest = pinned[2].digest
+        for site in [
+            "TurnTakingComposedAcceptanceTests.swift",
+            "AgentPresetsInvariantTests.swift",
+            "SpokenTaskInvariantTests.swift",
+            "ActiveProjectInvariantTests.swift",
+            "WiringBaselineTests.swift",
+        ] {
+            let extracted = try appBootstrapDigestLiteral(in: try pinFileSource(site), file: site)
+            XCTAssertEqual(
+                extracted, appBootstrapDigest,
+                """
+                \(site) pins a different AppBootstrap digest than the tree holds. All five \
+                sites were re-anchored together by the wiring REFACTOR (\(appBootstrapDigest)); \
+                a drifted site hides a drift in the composition root from half the pins. \
+                Re-anchor it to the same reviewed literal — never edited-to-match.
+                """)
         }
     }
 
-    // MARK: - Acceptance 5: the zero-network default configuration with the unit composed
+    // MARK: - Acceptance 4: the module-coverage cross-check
 
-    /// **Acceptance 5a — the zero-network default-configuration test passes with the carrier
-    /// and the threading composed.** The substitution happens only in the provider over an
-    /// invocation field — no new call, no new module file — and the probe's default run never
-    /// reaches the substitution (zero agents). This leg drives the real probe under the
-    /// interposer and asserts the same two zeroes the release blocker asserts, plus the
-    /// composed root actually ran (the observed `.accessory` activation policy — `configure(_:)`
-    /// was called, so the composition that carries the threading is the one being watched).
-    func testTheZeroNetworkDefaultConfigurationStillMakesZeroCallsWithTheUnitComposed()
-        throws
-    {
-        let observation = try runProbe(mode: .defaultConfiguration)
-
-        XCTAssertEqual(
-            observation.networkConnectionCount, 0,
-            """
-            Vocca's default configuration must make zero network calls with the task carrier \
-            and the threading composed. The probe contacted:
-            \(observation.networkConnectionDescriptions.joined(separator: "\n"))
-            The substitution is a pure string rule in the provider over an invocation field — \
-            no new call exists for it to make. Fix the code. Do not weaken this test.
-            \(observation.diagnosticSummary)
-            """)
-        XCTAssertEqual(
-            observation.nameResolutionCount, 0,
-            """
-            Vocca's default configuration must resolve no hostnames with the task carrier and \
-            the threading composed. The probe resolved:
-            \(observation.nameResolutionDescriptions.joined(separator: "\n"))
-            Fix the code. Do not weaken this test.
-            \(observation.diagnosticSummary)
-            """)
-        XCTAssertEqual(
-            observation.reportedActivationPolicy, "accessory",
-            """
-            The probe did not observe Vocca's start-up leaving the application in the \
-            .accessory activation policy (saw: \(observation.reportedActivationPolicy ?? "no report at all")).
-            Either AppBootstrap.configure(_:) was not called on the default-configuration path \
-            — in which case the composition that now carries the threading was never exercised \
-            under the interposer — or it no longer sets the policy.
-            \(observation.diagnosticSummary)
-            """)
-    }
-
-    /// **Acceptance 5b — the module-coverage cross-check is green with the unit's files in
-    /// the tree.** The cross-check (`ZeroNetworkTests.testDefaultConfigurationMakesZeroNetworkConnections`'s
-    /// final assertion) derives the required set from the manifest and the `Sources/` listing —
+    /// **Acceptance 4 — the module-coverage cross-check is green with the baseline in the
+    /// tree: no new module files.** The cross-check
+    /// (`ZeroNetworkTests.testDefaultConfigurationMakesZeroNetworkConnections`'s final
+    /// assertion) derives the required set from the manifest and the `Sources/` listing —
     /// every module directory ∪ every drivable target, minus the non-drivable kinds, minus
-    /// only the exclusions the manifest justifies (`VoccaNetworkProbe`, `CVoccaNetworkInterposer`
-    /// — each re-asserted to exist and not to ship). This leg recomputes that set the same way,
-    /// pins it to the same twelve library modules (the set is unchanged — the unit added a
-    /// field and wiring, no module files), and re-asserts the cross-check's own equality
-    /// against what the probe actually reported driving.
-    func testTheModuleCoverageCrossCheckStillCoversEveryModuleWithTheUnitInTheTree() throws {
+    /// only the exclusions the manifest justifies (`VoccaNetworkProbe`,
+    /// `CVoccaNetworkInterposer` — each re-asserted to exist and not to ship). This leg
+    /// recomputes that set the same way, pins it to the same twelve library modules (the set
+    /// is unchanged — the unit added no module files, only edits to files inside covered
+    /// modules and two `VoccaNetworkProbe` drives that were already in the excluded probe),
+    /// and re-asserts the cross-check's own equality against what the probe actually reported
+    /// driving.
+    func testTheModuleCoverageCrossCheckStillCoversEveryModuleWithNoNewModuleFiles() throws {
         let observation = try runProbe(mode: .defaultConfiguration)
         let root = try PackageRootLocator.find(from: #filePath)
         let manifest = try PackageManifest.load(packageRoot: root)
@@ -501,10 +470,9 @@ final class SpokenTaskInvariantTests: XCTestCase {
             "the required module set is empty — the cross-check would be asserting against "
                 + "nothing")
 
-        // The module set is unchanged: exactly the twelve library modules — the unit's files
-        // all live in modules the drive's witnesses already cover (the carrier rides
-        // VoccaCore's invocation, the substitution VoccaActions', the threading the
-        // VoccaBootstrap wirings the probe drives).
+        // The module set is unchanged: exactly the twelve library modules. The unit's edits
+        // all landed inside covered modules, so a new module directory under Sources/ would
+        // appear here — that is the "no new module files" claim, read off the tree.
         let shippedModules: Set<String> = [
             "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR", "VoccaText",
             "VoccaInject", "VoccaSpeech", "VoccaContext", "VoccaActions", "VoccaUI",
@@ -520,7 +488,9 @@ final class SpokenTaskInvariantTests: XCTestCase {
             The module set the cross-check derives is no longer the twelve library modules. \
             Got \(required.sorted()). A module added to this package must be driven by the \
             probe's default-configuration path (a reviewed edit to VoccaNetworkProbe), never \
-            excluded silently — and one removed must be removed here too.
+            excluded silently — and one removed must be removed here too. The \
+            agent-auth-baseline unit added no module files; a change to this set is a \
+            different unit's reviewed edit.
             """)
 
         // The cross-check's own equality, re-asserted: what the probe reported driving is
@@ -533,6 +503,54 @@ final class SpokenTaskInvariantTests: XCTestCase {
               reported but not a module: \(observation.reportedModules.subtracting(required).sorted())
             A module the probe never reaches is a module the zero-network invariant says \
             nothing about.
+            \(observation.diagnosticSummary)
+            """)
+    }
+
+    // MARK: - Acceptance 5: the zero-network default configuration with the baseline wired
+
+    /// **Acceptance 5 — the zero-network default-configuration test passes with the baseline
+    /// wired.** The composed root now passes `baselineEnvironment: ["HOME": NSHomeDirectory()]`
+    /// into both provider constructions — a `Dictionary` merged into the environment of a
+    /// child, and the composed default never spawns that child (`agents=0`,
+    /// `spawnsSubprocess=false`). A wired baseline is therefore a value, not a call: the
+    /// interposer never sees a call from it. This leg drives the real probe under the
+    /// interposer and asserts the same two zeroes the release blocker asserts, plus the
+    /// composed root actually ran (the observed `.accessory` activation policy —
+    /// `configure(_:)` was called, so the composition that carries the wired baseline is the
+    /// one being watched).
+    func testTheZeroNetworkDefaultConfigurationStillMakesZeroCallsWithTheBaselineWired()
+        throws
+    {
+        let observation = try runProbe(mode: .defaultConfiguration)
+
+        XCTAssertEqual(
+            observation.networkConnectionCount, 0,
+            """
+            Vocca's default configuration must make zero network calls with the baseline \
+            wired. The probe contacted:
+            \(observation.networkConnectionDescriptions.joined(separator: "\n"))
+            The baseline is a value in the environment of a child the default never spawns — \
+            it is not a call. Fix the code. Do not weaken this test.
+            \(observation.diagnosticSummary)
+            """)
+        XCTAssertEqual(
+            observation.nameResolutionCount, 0,
+            """
+            Vocca's default configuration must resolve no hostnames with the baseline wired. \
+            The probe resolved:
+            \(observation.nameResolutionDescriptions.joined(separator: "\n"))
+            Fix the code. Do not weaken this test.
+            \(observation.diagnosticSummary)
+            """)
+        XCTAssertEqual(
+            observation.reportedActivationPolicy, "accessory",
+            """
+            The probe did not observe Vocca's start-up leaving the application in the \
+            .accessory activation policy (saw: \(observation.reportedActivationPolicy ?? "no report at all")).
+            Either AppBootstrap.configure(_:) was not called on the default-configuration path \
+            — in which case the composition that now carries the wired baseline was never \
+            exercised under the interposer — or it no longer sets the policy.
             \(observation.diagnosticSummary)
             """)
     }
@@ -620,6 +638,77 @@ final class SpokenTaskInvariantTests: XCTestCase {
         return regex.matches(in: body, range: range).compactMap { match in
             Range(match.range(at: 1), in: body).map { String(body[$0]) }
         }
+    }
+
+    /// The AppBootstrap digest a pin site's `pinned` array carries — every
+    /// `"Sources/VoccaBootstrap/AppBootstrap.swift", "<64 hex>"` pairing in `source`.
+    ///
+    /// Each of the five sites spells its G5 pin as a `(file: String, digest: String)` tuple
+    /// array; this extraction reads the AppBootstrap row's digest out of that spelling. A
+    /// site that stops spelling its pin as a tuple (or drops the AppBootstrap row) fails the
+    /// extraction rather than passing the across-the-sites leg vacuously.
+    private func appBootstrapDigestLiteral(in source: String, file: String) throws -> String {
+        let pattern = #""Sources/VoccaBootstrap/AppBootstrap\.swift",\s*"([0-9a-f]{64})""#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            throw PinFileError.appBootstrapDigestMissing(file: file)
+        }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        guard
+            let match = regex.firstMatch(in: source, range: range),
+            let digestRange = Range(match.range(at: 1), in: source)
+        else {
+            throw PinFileError.appBootstrapDigestMissing(file: file)
+        }
+        return String(source[digestRange])
+    }
+
+    /// The argument text of every `ActionGate.submit(` call in `source`, comments removed
+    /// first — the `ActionSeamBoundaryTests.submitCalls(inSource:)` shape, spelled locally so
+    /// the call-site count leg reads the tree with the same scanner the seam suite trusts.
+    private static func submitCalls(inSource source: String) -> [String?] {
+        let code = Array(SwiftSourceScanner.stripComments(from: source))
+        let marker = Array("ActionGate" + ".submit(")
+        var calls: [String?] = []
+        var index = 0
+        while index + marker.count <= code.count {
+            guard code[index..<(index + marker.count)].elementsEqual(marker) else {
+                index += 1
+                continue
+            }
+            let argumentsBegin = index + marker.count
+            var cursor = argumentsBegin
+            var depth = 1
+            var inString = false
+            var escaped = false
+            var captured: String?
+            let limit = min(code.count, argumentsBegin + 2000)
+            while cursor < limit {
+                let character = code[cursor]
+                if inString {
+                    if escaped {
+                        escaped = false
+                    } else if character == "\\" {
+                        escaped = true
+                    } else if character == "\"" {
+                        inString = false
+                    }
+                } else if character == "\"" {
+                    inString = true
+                } else if character == "(" || character == "[" {
+                    depth += 1
+                } else if character == ")" || character == "]" {
+                    depth -= 1
+                    if depth == 0 {
+                        captured = String(code[argumentsBegin..<cursor])
+                        break
+                    }
+                }
+                cursor += 1
+            }
+            calls.append(captured)
+            index = max(cursor, argumentsBegin)
+        }
+        return calls
     }
 
     /// Every directory directly under `Sources/`, whatever it is called — the cross-check's

@@ -258,16 +258,18 @@ final class UserDefaultsSettingsStoreTests: XCTestCase {
         XCTAssertTrue(reread.keepInTray())
     }
 
-    /// **A fresh install quits normally, silently.** The absent value is the normal path, not a
-    /// failure.
-    func testAFreshInstallQuitsNormallySilently() {
+    /// **A fresh install keeps running in the menu bar, silently.** The absent value is the
+    /// normal path, not a failure — the founder's call (2026-10-01): a fresh install stays in
+    /// the tray, and quitting from outside it is refused until a choice is made. The unreadable
+    /// direction is the next row's.
+    func testAFreshInstallKeepsRunningInTheMenuBarSilently() {
         let (defaults, name) = makeScopedSuite()
         defer { defaults.removePersistentDomain(forName: name) }
         let logs = LogCollector()
 
         let store = UserDefaultsSettingsStore(defaults: defaults, log: { logs.append($0) })
 
-        XCTAssertFalse(store.keepInTray())
+        XCTAssertTrue(store.keepInTray())
         XCTAssertTrue(logs.entries.isEmpty)
     }
 
