@@ -555,11 +555,24 @@ final class AudioRingBufferTests: XCTestCase {
         let totalSent = blockCount * blockSize
 
         let finished = DispatchSemaphore(value: 0)
+        // The overrun is made deterministic instead of hoped for (the re-warm flake's
+        // lesson): the producer fills well past the ring's 64-sample capacity before the
+        // consumer is released, and the producer waits for the consumer's first drain
+        // before continuing — so neither "no overrun occurred" nor "the producer finished
+        // before the consumer started" can depend on the scheduler. From the handshake on,
+        // both threads genuinely run concurrently.
+        let overrunBlocks = 200
+        let consumerMayDrain = DispatchSemaphore(value: 0)
+        let consumerHasStarted = DispatchSemaphore(value: 0)
         Thread.detachNewThread { [blocks] in
-            for block in blocks {
+            for (index, block) in blocks.enumerated() {
                 block.withUnsafeBufferPointer { buffer in
                     // No retry. A refusal here is the overrun policy firing for real.
                     _ = ring.write(buffer.baseAddress!, count: buffer.count)
+                }
+                if index == overrunBlocks - 1 {
+                    consumerMayDrain.signal()
+                    consumerHasStarted.wait()
                 }
                 // Pace the producer so the consumer is scheduled *during* the run rather than
                 // after it. Without this the producer finishes before the consumer starts and the
@@ -569,8 +582,12 @@ final class AudioRingBufferTests: XCTestCase {
             finished.signal()
         }
 
-        // Drain in a tight loop, with no wait, until the producer has signalled — then drain the
-        // tail. `wait(timeout: .now())` polls the semaphore without blocking.
+        // Wait for the guaranteed overrun, then hand the producer the go-ahead and drain
+        // concurrently to the end. Drain in a tight loop, with no wait, until the producer has
+        // signalled — then drain the tail. `wait(timeout: .now())` polls the semaphore without
+        // blocking.
+        consumerMayDrain.wait()
+        consumerHasStarted.signal()
         var received: [Float] = []
         received.reserveCapacity(totalSent)
         while finished.wait(timeout: .now()) != .success {
