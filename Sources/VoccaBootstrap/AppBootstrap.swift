@@ -582,7 +582,17 @@ public enum AppBootstrap {
         Task { @MainActor in
             let converseDriver = await AppBootstrap.composeConverseWiring(
                 clock: clock, store: store, resolver: resolver,
-                cleanupResolver: cleanupResolver, root: root)
+                cleanupResolver: cleanupResolver, root: root,
+                converseReplySink: { text in
+                    // The reply's lifecycle fold (`reply-text-rendering` R1/R2) — the same
+                    // weak-root/MainActor shape as the state sink below: the driver retains
+                    // this closure, so a strong `root` capture would cycle, and the store's
+                    // reducer owns every decision this entry point reaches.
+                    MainActor.assumeIsolated {
+                        guard let root = rootBox.value else { return }
+                        root.widgetStore.presentReply(text)
+                    }
+                })
             root.converseDriver = converseDriver
             // The state sink's shipped composition — the widget-converse plan's recorded
             // hand-off ("replaces it with the widget projection's fold", D4) wired at last:
