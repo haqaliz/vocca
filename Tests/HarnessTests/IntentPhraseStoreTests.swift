@@ -336,6 +336,85 @@ final class IntentPhraseStoreTests: XCTestCase {
                         providerID: "dev.vocca.audit", toolID: "audit.count", arguments: nil))))
     }
 
+    // MARK: - The keywordFallback switch (composite-intent-resolver A5)
+
+    private func decodeFile(_ text: String) -> (IntentPhraseFile, [String]) {
+        let complaints = ComplaintRecorder()
+        let decoded = IntentPhraseStore.decode(Data(text.utf8), onInvalid: { _ = complaints.log($0) })
+        return (decoded, complaints.recorded)
+    }
+
+    private func fileWithSwitch(_ value: String?, rows: [String] = []) -> String {
+        let key = value.map { #", "keywordFallback": \#($0)"# } ?? ""
+        return #"{"version": 1, "phrases": [\#(rows.joined(separator: ", "))]\#(key)}"#
+    }
+
+    /// Absent and an explicit `false` are both off, and neither is worth a log line.
+    func testKeywordFallbackAbsentOrFalseIsOffAndSilent() {
+        for value in [nil, "false"] {
+            let (decoded, logs) = decodeFile(fileWithSwitch(value))
+            XCTAssertFalse(decoded.keywordFallback, "\(value ?? "absent") must be off")
+            XCTAssertEqual(logs, [], "\(value ?? "absent") must not complain")
+        }
+        XCTAssertFalse(IntentPhraseFile.empty.keywordFallback)
+    }
+
+    /// The F1 no-coercion rule: a number, a string or a null cannot stand in for a Bool.
+    func testKeywordFallbackPresentButNotABoolIsOffWithOneLog() {
+        for value in ["1", #""true""#, "null", "[]", "{}"] {
+            let rows = [row("clear the audit log", "dev.vocca.audit", "audit.clear")]
+            let (decoded, logs) = decodeFile(fileWithSwitch(value, rows: rows))
+            XCTAssertFalse(decoded.keywordFallback, "\(value) must be off")
+            XCTAssertEqual(logs.count, 1, "\(value) must complain exactly once")
+            XCTAssertEqual(decoded.phrases.count, 1, "\(value) must not sink the rows")
+        }
+    }
+
+    func testKeywordFallbackTrueIsOnAndUnknownKeysAreStillIgnored() {
+        let text =
+            #"{"version": 1, "phrases": [], "keywordFallback": true, "somethingElse": [1, 2]}"#
+        let (decoded, logs) = decodeFile(text)
+        XCTAssertTrue(decoded.keywordFallback)
+        XCTAssertEqual(logs, [])
+    }
+
+    func testTheSwitchLeavesPhraseRowsUnaffected() {
+        let rows = [
+            row("clear the audit log", "dev.vocca.audit", "audit.clear"),
+            row("how big is the log", "dev.vocca.audit", "audit.count"),
+        ]
+        let (off, _) = decodeFile(fileWithSwitch(nil, rows: rows))
+        let (on, _) = decodeFile(fileWithSwitch("true", rows: rows))
+        XCTAssertEqual(on.phrases, off.phrases)
+        XCTAssertEqual(on.phrases.count, 2)
+    }
+
+    func testAShellRowIsStillRefusedWhenTheSwitchIsOn() {
+        let rows = [row("run it", ShellProvider.providerID, "shell.anything")]
+        let (decoded, logs) = decodeFile(fileWithSwitch("true", rows: rows))
+        XCTAssertTrue(decoded.keywordFallback)
+        XCTAssertEqual(decoded.phrases, [])
+        XCTAssertEqual(logs.count, 1)
+    }
+
+    func testEncodeThenDecodePreservesTheSwitch() throws {
+        let rows = [Self.clearRow]
+        let on = IntentPhraseFile(phrases: rows, keywordFallback: true)
+        let (decoded, logs) = decodeFile(
+            String(decoding: try IntentPhraseStore.encode(on), as: UTF8.self))
+        XCTAssertEqual(decoded, on)
+        XCTAssertEqual(logs, [])
+    }
+
+    /// An off file's bytes are today's bytes: the key is omitted, not written as `false`.
+    func testAnOffFileEncodesByteIdenticallyToTheShapeBeforeTheSwitch() throws {
+        let off = IntentPhraseFile(phrases: [Self.clearRow])
+        let expected =
+            #"{"phrases":[{"phrase":"clear audit log","providerID":"dev.vocca.audit","toolID":"audit.clear"}],"version":1}"#
+        XCTAssertEqual(
+            String(decoding: try IntentPhraseStore.encode(off), as: UTF8.self), expected)
+    }
+
     // MARK: - The default location
 
     func testTheDefaultDirectoryIsApplicationSupportVocca() {
