@@ -2317,8 +2317,18 @@ set -euo pipefail
 # a child the default never spawns). Assertions only — no production code, no lint
 # widening. The count taken from the floor script's own parse in the ratchet commit.
 #
+# `reply-carrier` (the `reply-text-rendering` unit): +7 — `ReplyCarrierTests`, the carrier
+# suite (acceptances 1-6: the reply emitted once at schedule time — with the sink already
+# holding it when the render resolves, the before-audio proof; the ask path's question
+# emitted; the barge-in clear; the listening and idle clears; replyFailed keeps the text
+# with the suppression not sticking; the unwired default byte-identical). Assertions only —
+# the production change is the driver's additive sink plus the recipe's passthrough. The
+# AppBootstrap wiring and the G5 re-anchor are deferred until `reply-state`'s
+# `presentReply(_:)` exists (the ordering issue, reported). The count taken from the floor
+# script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3052
+MINIMUM_EXECUTED_TESTS=3059
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
