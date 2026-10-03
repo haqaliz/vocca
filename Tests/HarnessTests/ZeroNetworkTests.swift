@@ -653,6 +653,44 @@ final class ZeroNetworkTests: XCTestCase {
         "shellRefused=1",
     ].joined(separator: " ")
 
+    /// **The switch-on composition** (PROBE-INTENT-COMPOSITE, `composite-intent-resolver` A8):
+    /// a real `intent-phrases.json` in a temp directory with `"keywordFallback": true` and one
+    /// phrase for the probe's own tool, loaded by the real store and built by the composition
+    /// root's own per-turn provider (`AppBootstrap.composeIntentResolverProvider`), over a
+    /// catalog with the probe's tool **and an enabled `dev.vocca.shell` row**. A phrase hit, a
+    /// keyword hit carried to the card and confirmed through the surface's own closure, and a
+    /// shell-shaped utterance that must resolve to nothing. Asserted whole, as one line — the
+    /// ``expectedIntentPhraseLifecycle`` shape — and guarded by
+    /// ``testTheAssertedIntentCompositePostConditionStillDescribesTheChainWithTheShellClosed``.
+    ///
+    /// Its counterfactual sibling, `PROBE-INTENT-COMPOSITE-UNFILTERED`, is the same drive over
+    /// the same composed chain with only the excluded-provider set emptied: it must report the
+    /// shell resolution this line refuses, or the line's `shellResolved=0` would be an absence
+    /// rather than the filter's effect.
+    private static let expectedIntentCompositeLifecycle = [
+        // Where the drive wrote — no probe run writes to the real Application Support.
+        "store.location=temporary",
+        "store.isDefaultLocation=false",
+        // What the composition root's per-turn provider built over the store's answer: the
+        // switch read off the file turned the chain on.
+        "resolver=CompositeIntentResolver",
+        // The phrase leg: a phrase the keyword table cannot match resolved through the chain.
+        "phraseResolved=1",
+        // The keyword leg: an utterance no phrase names resolved to the probe's tool.
+        "resolved=1",
+        // The gate asked: the keyword-resolved destructive call reached the card, not the tool.
+        "card=yes",
+        // The provider's own call log: only the confirm reached the acting half.
+        "invoked=1",
+        // The enabled shell row's own words resolved to nothing — the shell leg stays closed.
+        "shellResolved=0",
+        // No shell row is reachable by either leg: the phrase table, the shipped synonym table,
+        // and the catalog rows the composed exclusion set leaves the fallback.
+        "intentShellRows=0",
+        // The composed intent wiring's declared fact — the voice leg spawns nothing.
+        "spawnsSubprocess=false",
+    ].joined(separator: " ")
+
     private static let expectedShellLifecycle = [
         // The real store, named from its own type — a swapped-in double flips it.
         "store=real",
@@ -1326,6 +1364,61 @@ final class ZeroNetworkTests: XCTestCase {
             testTheAssertedIntentPhrasePostConditionStillDescribesAPhraseRoundTripAndTheShellRefusal.
             \(observation.diagnosticSummary)
             """)
+
+        // The switch-on composition (`composite-intent-resolver` A8). The nineteenth
+        // effect-not-reference check: the chain the composition root builds when the file's
+        // switch is on — read off a real temp `intent-phrases.json` by the real store through
+        // the root's own per-turn provider — resolving a phrase hit, carrying a keyword hit to
+        // the card and the confirm, and resolving an enabled shell row's own words to nothing.
+        XCTAssertEqual(
+            try XCTUnwrap(intentCompositePayload(of: observation)),
+            Self.expectedIntentCompositeLifecycle,
+            """
+            The probe did not report driving the switch-on composition.
+              expected: \(Self.expectedIntentCompositeLifecycle)
+              observed: \(intentCompositePayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseIntent() no longer drives the composite leg on the \
+            default-configuration path — in which case the chain is outside this invariant — or \
+            the composition root no longer builds the chain when the switch is on, or the chain \
+            no longer closes the shell provider. Do not fix this by deleting the call, and do \
+            not fix it by pasting in whatever the probe now prints — see \
+            testTheAssertedIntentCompositePostConditionStillDescribesTheChainWithTheShellClosed.
+            \(observation.diagnosticSummary)
+            """)
+
+        // Its guard-the-guard counterfactual: the same drive with only the composed chain's
+        // excluded-provider set emptied must resolve the shell row — so `shellResolved=0` above
+        // is the filter's effect, and a drive whose shell utterance could never resolve
+        // (a vacuous green) is refused here.
+        let unfiltered = try XCTUnwrap(
+            intentCompositeUnfilteredPayload(of: observation),
+            """
+            The probe did not report the composite drive's counterfactual \
+            (PROBE-INTENT-COMPOSITE-UNFILTERED) — without it, nothing shows the composite line's \
+            shell check could fail.
+            \(observation.diagnosticSummary)
+            """)
+        XCTAssertNotEqual(
+            unfiltered, Self.expectedIntentCompositeLifecycle,
+            "The counterfactual (shell filter removed) reports what the filtered chain reports — "
+                + "the composite line's shell check cannot fail, so it proves nothing.")
+        let filteredFields = try Self.parseFields(of: Self.expectedIntentCompositeLifecycle)
+        let unfilteredFields = try Self.parseFields(of: unfiltered)
+        XCTAssertEqual(
+            unfilteredFields["shellResolved"], "1",
+            "With the excluded set emptied the enabled shell row must resolve — observed: "
+                + unfiltered)
+        XCTAssertEqual(
+            unfilteredFields["intentShellRows"], "1",
+            "With the excluded set emptied the fallback must see the enabled shell row — "
+                + "observed: " + unfiltered)
+        // Only the filter differs: every other field is the filtered line's, so the
+        // counterfactual is the same drive and not a different one that happens to disagree.
+        XCTAssertEqual(
+            unfilteredFields.filter { !["shellResolved", "intentShellRows"].contains($0.key) },
+            filteredFields.filter { !["shellResolved", "intentShellRows"].contains($0.key) },
+            "The counterfactual differs from the composite line in more than the shell fields — "
+                + "observed: " + unfiltered)
 
         // The composed coding-agent drive's post-condition. The eighteenth effect-not-reference
         // check, and the one that pins the `coding-agent-handoff` slice's own half of the
@@ -2685,6 +2778,58 @@ final class ZeroNetworkTests: XCTestCase {
         XCTAssertEqual(try value("store.isDefaultLocation"), "false")
     }
 
+    /// **Guards the guard.** ``expectedIntentCompositeLifecycle`` must keep describing **the
+    /// chain with the shell closed**. The fields that cannot weaken:
+    ///
+    /// - `resolver` — `CompositeIntentResolver`: what the composition root built with the switch
+    ///   on. `PhraseIntentResolver` here would mean the switch was ignored and the line watched
+    ///   today's default under a new name.
+    /// - `shellResolved` and `intentShellRows` — exactly `0`: a constant at `1` would pass the
+    ///   verbatim comparison while an enabled shell row reached the voice leg (Q3 reversed).
+    ///   The live test's counterfactual is what proves the `0` can turn into a `1`.
+    /// - `phraseResolved`, `resolved`, `card`, `invoked` — both legs resolved, and the keyword
+    ///   hit reached the card and only the human's yes reached the tool.
+    /// - `spawnsSubprocess` — `false`: the D2 narrowed promise holds with the switch on.
+    func testTheAssertedIntentCompositePostConditionStillDescribesTheChainWithTheShellClosed()
+        throws
+    {
+        let fields = try Self.parseFields(of: Self.expectedIntentCompositeLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("resolver"), "CompositeIntentResolver",
+            "The asserted composite post-condition no longer requires the chain — the switch "
+                + "could be ignored while this line watched the bare phrase default.")
+        XCTAssertEqual(
+            try value("shellResolved"), "0",
+            "The asserted composite post-condition no longer requires the shell row to resolve "
+                + "to nothing — an enabled shell command could be reached by voice.")
+        XCTAssertEqual(
+            Int(try value("intentShellRows")) ?? -1, 0,
+            "The asserted composite post-condition no longer requires zero reachable shell rows.")
+        XCTAssertEqual(try value("phraseResolved"), "1", "the phrase leg must resolve")
+        XCTAssertEqual(try value("resolved"), "1", "the keyword leg must resolve")
+        XCTAssertEqual(
+            try value("card"), "yes",
+            "The asserted composite post-condition no longer requires the card — a keyword hit "
+                + "could reach a destructive tool without the gate's ask being observed.")
+        XCTAssertEqual(
+            Int(try value("invoked")) ?? -1, 1,
+            "The asserted composite post-condition no longer requires exactly one human-yes run.")
+        XCTAssertEqual(try value("spawnsSubprocess"), "false")
+        XCTAssertEqual(
+            try value("store.location"), "temporary",
+            "a probe run must never write a phrase file where a real install keeps its own")
+        XCTAssertEqual(try value("store.isDefaultLocation"), "false")
+    }
+
     /// The `PROBE-LATENCY` line's payload — the ledger's `describe()` output — or `nil` when the
     /// probe never reported one.
     ///
@@ -2862,6 +3007,27 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-INTENT-PHRASE\t") {
             return String(line.dropFirst("PROBE-INTENT-PHRASE\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-INTENT-COMPOSITE` line's payload — the switch-on composition's report — or
+    /// `nil` when the line is absent (the `PROBE-SHELL` parser shape). The tab ends the prefix,
+    /// so the counterfactual's longer prefix never matches here.
+    private func intentCompositePayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-INTENT-COMPOSITE\t") {
+            return String(line.dropFirst("PROBE-INTENT-COMPOSITE\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-INTENT-COMPOSITE-UNFILTERED` line's payload — the composite drive's
+    /// guard-the-guard counterfactual, the excluded set emptied — or `nil` when absent.
+    private func intentCompositeUnfilteredPayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-INTENT-COMPOSITE-UNFILTERED\t") {
+            return String(line.dropFirst("PROBE-INTENT-COMPOSITE-UNFILTERED\t".count))
         }
         return nil
     }
