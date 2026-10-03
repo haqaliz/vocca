@@ -202,7 +202,8 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     }
 
     /// Whether a quit initiated outside the tray menu keeps Vocca running in the menu bar.
-    /// `false` for a fresh install and `false` for anything unreadable — see
+    /// `true` for a fresh install (the founder's call, 2026-10-01: a fresh install stays in the
+    /// tray) and `false` for anything unreadable — see
     /// `PersistedSettings.decodeKeepInTray(_:onInvalidValue:)` for why that direction.
     public func keepInTray() -> Bool {
         PersistedSettings.decodeKeepInTray(

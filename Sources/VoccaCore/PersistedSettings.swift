@@ -204,16 +204,18 @@ public enum PersistedSettings {
     /// **Whether a quit initiated outside the tray menu keeps Vocca running in the menu bar** —
     /// the same three-answer contract, with the safe direction chosen deliberately.
     ///
-    /// Absent is `false`, silently: a fresh install has chosen nothing and quits when told to,
-    /// which is the normal path. **Unreadable is also `false`, loudly** — that direction is the
-    /// point. Degrading a corrupted preferences entry to `true` would make the app refuse to quit
-    /// on a choice the user never made, holding the process hostage to a value nobody wrote;
-    /// degrading to `false` costs only a setting they can re-enable in one click.
+    /// Absent is `true`, silently: a fresh install has chosen nothing and keeps running in the
+    /// menu bar — the founder's call (2026-10-01), that a fresh install stays in the tray and
+    /// quitting from outside it is refused until a choice is made. **Unreadable is `false`,
+    /// loudly** — that direction is the point. Degrading a corrupted preferences entry to `true`
+    /// would make the app refuse to quit on a choice the user never made, holding the process
+    /// hostage to a value nobody wrote; degrading to `false` costs only a setting they can
+    /// re-enable in one click.
     public static func decodeKeepInTray(
         _ raw: String?,
         onInvalidValue: (String) -> Void
     ) -> Bool {
-        guard let raw else { return false }
+        guard let raw else { return true }
         switch raw {
         case keepInTrayValue: return true
         case notKeepInTrayValue: return false
