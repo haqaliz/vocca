@@ -410,7 +410,7 @@ final class IntentPhraseStoreTests: XCTestCase {
     func testAnOffFileEncodesByteIdenticallyToTheShapeBeforeTheSwitch() throws {
         let off = IntentPhraseFile(phrases: [Self.clearRow])
         let expected =
-            #"{"phrases":[{"phrase":"clear audit log","providerID":"dev.vocca.audit","toolID":"audit.clear"}],"version":1}"#
+            #"{"phrases":[{"phrase":"clear the audit log","providerID":"dev.vocca.audit","toolID":"audit.clear"}],"version":1}"#
         XCTAssertEqual(
             String(decoding: try IntentPhraseStore.encode(off), as: UTF8.self), expected)
     }
