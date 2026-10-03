@@ -1679,15 +1679,16 @@ not ship.
     keeps the titlebar clean. *Failure:* the toggle button or a divider reappears next to the
     title after a tab switch.
 
-    **The keep-in-tray half (the same unit).** With General → Closing → **Keep in menu bar** off
-    (the shipped default), ⌘Q quits the app from the menu bar as before. Turn it on, open
-    Settings, and press ⌘Q: the settings window **closes and the app stays in the menu bar** —
-    the Dock icon disappears, and the tray item is still there and still dictates. The escape
-    hatch is the tray menu's own **Quit Vocca**, which always quits whatever the option. And the
-    onboarding flow's [ Restart Vocca ] must still work with the option on. *Failure:* ⌘Q kills
-    the app with the option on; the tray menu's Quit is refused; the app quits without a way
-    back. (Executed by nothing in CI: the quit policy's decision table is `AppQuitPolicyTests`;
-    this row is the first real ⌘Q.)
+    **The keep-in-tray half (the same unit).** With General → Closing → **Keep in menu bar** on
+    (the shipped default since the 2026-10-01 founder decision), a fresh install opens Settings,
+    presses ⌘Q, and the settings window **closes while the app stays in the menu bar** — the
+    Dock icon disappears, and the tray item is still there and still dictates. Turn the option
+    off and ⌘Q quits the app from the menu bar as before; the toggle is the way out of the
+    tray. The escape hatch is the tray menu's own **Quit Vocca**, which always quits whatever
+    the option. And the onboarding flow's [ Restart Vocca ] must still work with the option on.
+    *Failure:* ⌘Q kills the app with the option on; the tray menu's Quit is refused; the app
+    quits without a way back. (Executed by nothing in CI: the quit policy's decision table is
+    `AppQuitPolicyTests`; this row is the first real ⌘Q.)
 
 ### The first-run onboarding — the five-step flow, its first execution
 

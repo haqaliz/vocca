@@ -10,6 +10,18 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The keep-in-tray default flips to on — a founder decision (2026-10-01), landed 2026-10-03 on
+`feat/agent-auth-baseline/aliz`.** `PersistedSettings.decodeKeepInTray`'s absent answer is now
+`true`: a fresh install has chosen nothing and keeps running in the menu bar, so quitting from
+outside the tray (⌘Q / Dock quit) is refused until a choice is made — the **Keep in menu bar**
+setting defaults ON, superseding the settings-unit record's "quit-normally as both the absent
+and the unreadable answer". **The unreadable direction is unchanged** — a corrupted entry still
+decodes to `false`, loudly, the hostage argument intact (degrading corruption to `true` would
+refuse to quit on a choice nobody made). The decode row and the adapter's fresh-install row
+flipped test-first; both doc comments state the new absent meaning; `SMOKE_CHECKLIST.md`'s
+keep-in-tray row's "(the shipped default)" corrected from off to on; `SettingsCopy.keepInTrayDetail`
+states no default and is untouched. **No gate passes**; test count unchanged, floor stays **3052**.
+
 **The `agent-auth-baseline` unit shipped 2026-10-03 — C13 follow-on: both agent auth
 modes work. The executor's environment scrub is refined deliberately — a declared
 baseline (`HOME`) merged under the row's own entries, configured wins even empty — so
