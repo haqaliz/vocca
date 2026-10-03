@@ -2327,8 +2327,19 @@ set -euo pipefail
 # `presentReply(_:)` exists (the ordering issue, reported). The count taken from the floor
 # script's own parse in the ratchet commit.
 #
+# `reply-state` (the `reply-text-rendering` unit): +5 — `WidgetStateReducerTests`, the
+# reply-text reducer rows (the set during conversing; the truncation at the named
+# `WidgetTiming.maxReplyCharacters` cap; the barge-in `nil` clear; the converse-only drop
+# outside conversing; the dictation/IDLE adoption clear) plus the amended phase-change row
+# now carrying the text and the closed-set sweep carrying both `.replyPresented` shapes.
+# The two compile pins in `WidgetContextReducerTests`/`WidgetConfirmationStateTests` grew to
+# eight cases and the `EgressBadgeReducerTests` enumeration carries the action — renames and
+# amendments, no count change there. The store's thin `presentReply(_:)` fold has no row of
+# its own. Assertions and the reducer/store change only — no lint widening. The count taken
+# from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3059
+MINIMUM_EXECUTED_TESTS=3064
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
