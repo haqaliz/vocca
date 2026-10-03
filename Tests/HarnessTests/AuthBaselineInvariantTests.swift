@@ -46,11 +46,12 @@ import XCTest
 ///   `ActionSeamBoundaryTests`), which run in this same full-suite run; this leg pins the state
 ///   they enforce so a change to either side fails here first, in review.
 /// - Acceptance 3 recomputes the three G5 digests and asserts the dictation pair is unchanged
-///   and `AppBootstrap.swift` still holds the wiring REFACTOR's re-anchored literal
-///   (`641b6445…` → `4e50ab8d…`, computed with `shasum -a 256`, never edited-to-match) — and
-///   that **every existing pin site carries the same literal**: the `agent-auth-baseline` unit
-///   changed the composition root, so this suite is one more site among the five, and a site
-///   that drifted to a different value fails here rather than silently.
+///   and `AppBootstrap.swift` holds the latest wiring REFACTOR's re-anchored literal
+///   (`4e50ab8d…` → `bc2ce1fd…`, computed with `shasum -a 256`, never edited-to-match) — and
+///   that **every existing pin site carries the same literal**: the `reply-text-rendering`
+///   wiring unit changed the composition root, so this suite's across-the-sites leg reads the
+///   literal back out of the five sibling pin sites, and a site that drifted to a different
+///   value fails here rather than silently.
 /// - Acceptance 4 is the **module-coverage cross-check** read again: the exercised-module set
 ///   (the probe's `PROBE-MODULES` line) must equal the set the cross-check derives from the
 ///   manifest and the `Sources/` listing — the same twelve library modules. The unit added no
@@ -365,13 +366,13 @@ final class AuthBaselineInvariantTests: XCTestCase {
     /// literal.** SHA-256 (CryptoKit, the house pattern) of the three files, asserted against
     /// the same literals `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched`,
     /// `AgentPresetsInvariantTests`, `SpokenTaskInvariantTests`, `ActiveProjectInvariantTests`
-    /// and `WiringBaselineTests` pin — the pin read again, deliberately, with the baseline
-    /// environment, the provider parameters and the wired HOME in the tree. The two dictation
-    /// files are byte-for-byte untouched; the composition root carries the re-anchor
-    /// `641b6445…` → `4e50ab8d…` (computed with `shasum -a 256` on 2026-10-03 by the
-    /// `wiring-baseline` REFACTOR, never edited-to-match), and the across-the-sites leg reads
-    /// the AppBootstrap literal back out of all five pin sites — a site that drifted to a
-    /// different value fails here rather than silently.
+    /// and `WiringBaselineTests` pin — the pin read again, deliberately, with the converse
+    /// reply sink wired in the tree. The two dictation files are byte-for-byte untouched; the
+    /// composition root carries the re-anchor `4e50ab8d…` → `bc2ce1fd…` (computed with
+    /// `shasum -a 256` on 2026-10-03 by the `reply-text-rendering` wiring REFACTOR, never
+    /// edited-to-match), and the across-the-sites leg reads the AppBootstrap literal back out
+    /// of all five pin sites — a site that drifted to a different value fails here rather than
+    /// silently.
     func testTheDictationDigestsAreUnchangedAndEveryPinSiteCarriesTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -385,7 +386,7 @@ final class AuthBaselineInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "4e50ab8dde8dd20f3b3b02e8e6ebb4a4fe97705cd58e2120fdb2e2364d8775cf"
+                "bc2ce1fdf261819b8477b7951a6d506c7980c072a674ffc77311014c59b76bd6"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")

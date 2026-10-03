@@ -350,6 +350,12 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
     /// edited-to-match): the composition root wired the HOME baseline into both provider
     /// constructions (`baselineEnvironment: ["HOME": NSHomeDirectory()]`) and the preset
     /// mapping carries the auth hints. The two dictation digests are unchanged.
+    ///
+    /// Re-anchored once more, deliberately, on 2026-10-03 by the `reply-text-rendering`
+    /// wiring REFACTOR (`4e50ab8d…` → `bc2ce1fd…`, computed with `shasum -a 256`, never
+    /// edited-to-match): the composition root wired the converse reply sink into the widget
+    /// store's `presentReply(_:)` fold — the reply bubble's carrier. The two dictation
+    /// digests are unchanged.
     func testTheDictationPathIsByteForByteUntouched() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -363,7 +369,7 @@ final class TurnTakingComposedAcceptanceTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "4e50ab8dde8dd20f3b3b02e8e6ebb4a4fe97705cd58e2120fdb2e2364d8775cf"
+                "bc2ce1fdf261819b8477b7951a6d506c7980c072a674ffc77311014c59b76bd6"
             ),
         ]
 

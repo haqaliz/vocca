@@ -2311,7 +2311,7 @@ set -euo pipefail
 # the eight, Family A's seven families and Family B's single minting file unchanged, and
 # the policy parameter still default-less with all 96 submit call sites supplying it, count
 # pinned; the digests — the dictation pair unchanged, AppBootstrap at the wiring REFACTOR's
-# re-anchored literal 4e50ab8d… with every one of the five pin sites carrying the same
+# re-anchored literal bc2ce1fd… with every one of the five pin sites carrying the same
 # value; the module-coverage cross-check green — no new module files; the zero-network
 # default-configuration drive green with the baseline wired — a value in the environment of
 # a child the default never spawns). Assertions only — no production code, no lint
@@ -2338,8 +2338,18 @@ set -euo pipefail
 # its own. Assertions and the reducer/store change only — no lint widening. The count taken
 # from the floor script's own parse in the ratchet commit.
 #
+# `reply-wiring` (the `reply-text-rendering` unit, the carrier's deferred wiring): +1 —
+# `AppBootstrapWiringTests.testTheConverseReplySinkIsWiredIntoTheWidgetStore`, the wiring
+# row: the `composeConverseWiring(` call site's `converseReplySink:` closure is extracted
+# from the source and asserted to read the root through the weak box, fold
+# `root.widgetStore.presentReply(text)` and hop to the main actor — the shipped-composition
+# pin shape (`configure` needs an `NSApplication`). The wiring closure itself is the only
+# production change; the G5 re-anchor lands in this same REFACTOR (4e50ab8d… → bc2ce1fd…,
+# all six pin sites). The count taken from the floor script's own parse in the ratchet
+# commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3064
+MINIMUM_EXECUTED_TESTS=3065
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

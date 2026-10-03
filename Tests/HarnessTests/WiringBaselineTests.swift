@@ -335,10 +335,10 @@ final class WiringBaselineTests: XCTestCase {
     /// the wiring REFACTOR's re-anchored literal.** SHA-256 (CryptoKit, the house pattern)
     /// of the three files, asserted against the same literals
     /// `TurnTakingComposedAcceptanceTests.testTheDictationPathIsByteForByteUntouched` pins —
-    /// the pin read again, deliberately, with the baseline wired and the hints on the
-    /// surface in the tree. The two dictation files are byte-for-byte untouched; the
-    /// composition root carries the re-anchor `641b6445…` → `4e50ab8d…` (computed with
-    /// `shasum -a 256` on 2026-10-03 by the wiring REFACTOR, never edited-to-match).
+    /// the pin read again, deliberately, with the converse reply sink wired in the tree.
+    /// The two dictation files are byte-for-byte untouched; the composition root carries the
+    /// re-anchor `4e50ab8d…` → `bc2ce1fd…` (computed with `shasum -a 256` on 2026-10-03 by
+    /// the `reply-text-rendering` wiring REFACTOR, never edited-to-match).
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -352,7 +352,7 @@ final class WiringBaselineTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "4e50ab8dde8dd20f3b3b02e8e6ebb4a4fe97705cd58e2120fdb2e2364d8775cf"
+                "bc2ce1fdf261819b8477b7951a6d506c7980c072a674ffc77311014c59b76bd6"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
@@ -363,9 +363,9 @@ final class WiringBaselineTests: XCTestCase {
                 actual, expected,
                 """
                 \(file) changed byte-for-byte since the barge-in-loop aspect pinned it. The \
-                dictation path must stay untouched by the wiring-baseline unit; if the change \
-                is a deliberate edit, recompute the digest and re-anchor the pin in review — \
-                it must never be edited to match a moved tree.
+                dictation path must stay untouched by the reply-text-rendering wiring unit; \
+                if the change is a deliberate edit, recompute the digest and re-anchor the \
+                pin in review — it must never be edited to match a moved tree.
                 """)
         }
     }

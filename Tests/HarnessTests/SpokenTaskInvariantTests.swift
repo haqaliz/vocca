@@ -41,8 +41,8 @@ import XCTest
 ///   `ActionSeamBoundaryTests`), which run in this same full-suite run; this leg pins the state
 ///   they enforce so a change to either side fails here first, in review.
 /// - Acceptance 3 recomputes the three G5 digests and asserts the dictation pair is unchanged
-///   and `AppBootstrap.swift` holds the wiring REFACTOR's re-anchored literal (`4e50ab8d…`) —
-///   the `wiring-baseline` REFACTOR re-anchored it deliberately (computed, never
+///   and `AppBootstrap.swift` holds the wiring REFACTOR's re-anchored literal (`bc2ce1fd…`) —
+///   the `reply-text-rendering` wiring REFACTOR re-anchored it deliberately (computed, never
 ///   edited-to-match), and this asserts the honest actual: the composition root's digest,
 ///   exactly as the tree holds it.
 /// - Acceptance 4 pins the **driver's compile pins**: the widened intent-action handler's
@@ -297,10 +297,11 @@ final class SpokenTaskInvariantTests: XCTestCase {
     /// `AgentPresetsInvariantTests` and `ActiveProjectInvariantTests` pin — the pin read
     /// again, deliberately, with the task carrier, the substitution and the threading in the
     /// tree. The two dictation files are byte-for-byte untouched; the composition root
-    /// carries the wiring REFACTOR's re-anchor `4e50ab8d…` — the `wiring-baseline`
-    /// REFACTOR (2026-10-03, computed with `shasum -a 256`, never edited-to-match) wired
-    /// the HOME baseline into both provider constructions, so the G5 pin was re-anchored
-    /// deliberately and this asserts the honest actual: the value the tree holds.
+    /// carries the wiring REFACTOR's re-anchor `bc2ce1fd…` — the `reply-text-rendering`
+    /// wiring REFACTOR (2026-10-03, computed with `shasum -a 256`, never edited-to-match)
+    /// wired the converse reply sink into the widget store's `presentReply(_:)` fold, so the
+    /// G5 pin was re-anchored deliberately and this asserts the honest actual: the value the
+    /// tree holds.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -314,7 +315,7 @@ final class SpokenTaskInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "4e50ab8dde8dd20f3b3b02e8e6ebb4a4fe97705cd58e2120fdb2e2364d8775cf"
+                "bc2ce1fdf261819b8477b7951a6d506c7980c072a674ffc77311014c59b76bd6"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
