@@ -279,7 +279,7 @@ public struct KeywordIntentResolver: IntentResolver {
             case 0x0D: result += "\\r"
             case 0x09: result += "\\t"
             case 0x00..<0x20:
-                result += "\\u{" + Self.hexString(scalar.value) + "}"
+                result += "\\u00" + Self.twoHexDigits(scalar.value)
             default:
                 result.unicodeScalars.append(scalar)
             }
@@ -287,15 +287,11 @@ public struct KeywordIntentResolver: IntentResolver {
         return result
     }
 
-    private static func hexString(_ value: UInt32) -> String {
+    /// Two lowercase hex digits, zero-padded — control scalars are below 0x20, so `\u00XX` is the
+    /// whole of the JSON escape.
+    private static func twoHexDigits(_ value: UInt32) -> String {
         let digits = Array("0123456789abcdef")
-        var result = ""
-        var remaining = value
-        repeat {
-            result.insert(digits[Int(remaining % 16)], at: result.startIndex)
-            remaining /= 16
-        } while remaining > 0
-        return result
+        return String([digits[Int(value / 16 % 16)], digits[Int(value % 16)]])
     }
 
     /// A Foundation-free replace-all of one substring with another.
