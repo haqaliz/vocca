@@ -363,7 +363,9 @@ final class ConverseLoopDriverTests: XCTestCase {
     /// reviewed edit, never an edit-to-match of a broken build): the unwired driver is
     /// today's driver. The action handler's default was widened deliberately by
     /// `utterance-threading` (the handler now carries the utterance; the default ignores
-    /// it — `{ _, _ in nil }`, byte-identical behavior).
+    /// it — `{ _, _ in nil }`, byte-identical behavior). The reply sink was added
+    /// deliberately by `reply-text-rendering`'s carrier (the additive closure; the default
+    /// no-op is the unwired answer — byte-identical behavior).
     func testTheDriverIsConstructibleOverTheDoubles() {
         func requireDriver(_ driver: ConverseLoopDriver) -> ConverseLoopDriver { driver }
 
@@ -382,6 +384,7 @@ final class ConverseLoopDriverTests: XCTestCase {
                 synthesizer: { Self.stubSynthesizer },
                 playback: FakePlaybackEngine(),
                 onStateChange: { _ in },
+                converseReplySink: { _ in },
                 failureSink: { _ in }
             ))
         XCTAssertEqual(driver.loop.state, .idle, "a fresh driver's loop is idle")

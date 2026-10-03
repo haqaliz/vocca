@@ -45,15 +45,18 @@ import VoccaCore
 ///   consecutive `.ask` falls through; `.toolCall` speaks the handler's reply, a silent
 ///   handler falls through; `.none`/unwired falls through — the reply generator untouched)
 ///   → `replyGenerator` → `loop.scheduleReply`.
-/// - `.speakReply(text:)` → spawn the render child: resolve the synthesizer lazily → render
+/// - `.speakReply(text:)` → the reply sink receives `text` (before the render starts), then
+///   spawn the render child: resolve the synthesizer lazily → render
 ///   one pass collecting `AudioChunk`s → `reportPlaybackStarted()` (the window opens) → each
 ///   chunk via `reportPlaybackChunk` (the echo gate's reference) → `playback.play`. **The
 ///   window stays open after play** — the reply is still sounding, which is what lets the next
 ///   speech frame barge in; only the barge-in path (or a render/play failure) closes it. A
 ///   render/play throw → `reportPlaybackEnded()` (`.playing → .listening`, the honest close)
-///   + one `.replyFailed` notice. A barge-in that already left `.playing` skips the play — a
+///   + one `.replyFailed` notice, **with the sink's clear withheld** (the text stays — the
+///   recorded rule). A barge-in that already left `.playing` skips the play — a
 ///   discarded reply is never played.
-/// - `.bargeIn` → `synthesizer.cancel()` (the ≤50 ms contract — C10's recorded acceptance, not
+/// - `.bargeIn` → the reply sink receives `nil` (the interrupted text is discarded with its
+///   audio), then `synthesizer.cancel()` (the ≤50 ms contract — C10's recorded acceptance, not
 ///   re-litigated) + `playback.cancelToSilence()` + `loop.reportPlaybackEnded()`.
 /// - `.captureFailed` → `failureSink(.captureFailed)` once.
 /// - `.started` / `.stopped` / `.speechBegan` → nothing (the projection rides `onStateChange`).
@@ -138,6 +141,18 @@ public final class ConverseLoopDriver {
     /// The honest-drop notice sink.
     private let failureSink: @Sendable (ConverseTurnFailure) -> Void
 
+    /// The reply-text lifecycle sink (`reply-text-rendering` R1) — see the init's parameter:
+    /// the text at `.speakReply` (before the render starts), `nil` on the turn returning to
+    /// listening / idle / a barge-in, and **no clear on a render failure** (the text stays —
+    /// the recorded rule).
+    private let converseReplySink: @Sendable (String?) -> Void
+
+    /// The replyFailed clear suppression: the render failure's `reportPlaybackEnded()`
+    /// transitions `.playing → .listening`, but the recorded rule keeps the text — the clear
+    /// is withheld for exactly that transition. Armed and disarmed around the one
+    /// `reportPlaybackEnded()` call that must not clear.
+    private let replyClearSuppression: ReplyClearSuppressionBox
+
     /// The effects the drive task has not yet applied — the `ComposedTurnDriver` pending shape.
     private let pendingEffects: EffectLedgerBox
 
@@ -203,6 +218,12 @@ public final class ConverseLoopDriver {
     ///   - synthesizer: the speech recipe, resolved at the first `.speakReply`.
     ///   - playback: the duckable output the rendered reply drains into.
     ///   - onStateChange: the loop's N1 hook, wired at last — the widget projection's slot.
+    ///   - converseReplySink: the reply text's lifecycle sink (`reply-text-rendering` R1):
+    ///     the text when a reply is scheduled (the `.speakReply` effect's application, before
+    ///     the render starts), `nil` when the reply's lifecycle ends — the turn returning to
+    ///     listening, idle, or a barge-in — and **no clear on a render failure** (the text
+    ///     stays: the reply happened as text; nothing was heard — the recorded rule). The
+    ///     default no-op is the unwired answer, byte-identical to today.
     ///   - failureSink: the honest-drop notice sink.
     public init(
         vad: any VoiceActivityDetector,
@@ -219,6 +240,7 @@ public final class ConverseLoopDriver {
         synthesizer: @escaping @Sendable () async throws -> any SpeechSynthesizer,
         playback: any PlaybackEngine,
         onStateChange: @escaping @Sendable (TurnState) -> Void,
+        converseReplySink: @escaping @Sendable (String?) -> Void = { _ in },
         failureSink: @escaping @Sendable (ConverseTurnFailure) -> Void
     ) {
         self.capture = capture
@@ -231,10 +253,13 @@ public final class ConverseLoopDriver {
         self.playback = playback
         self.clock = clock
         self.failureSink = failureSink
+        self.converseReplySink = converseReplySink
         let ledger = EffectLedgerBox()
         let pending = EffectLedgerBox()
+        let suppression = ReplyClearSuppressionBox()
         self.effectLedger = ledger
         self.pendingEffects = pending
+        self.replyClearSuppression = suppression
         self.loop = TurnTakingLoop(
             vad: vad,
             turnDetector: turnDetector,
@@ -244,7 +269,16 @@ public final class ConverseLoopDriver {
                 ledger.values.append(effect)
                 pending.values.append(effect)
             },
-            onStateChange: onStateChange)
+            onStateChange: { state in
+                // The reply's lifecycle clears: the turn returning to listening and the
+                // session ending (idle) both clear the bubble. The one exception is the render
+                // failure's own `.playing → .listening` close — the text stays (the recorded
+                // replyFailed rule), so that transition is suppressed.
+                if (state == .listening || state == .idle), !suppression.isArmed {
+                    converseReplySink(nil)
+                }
+                onStateChange(state)
+            })
     }
 
     // MARK: - The public surface (thin funnels)
@@ -303,10 +337,19 @@ public final class ConverseLoopDriver {
                     await self.runUtterancePipeline(utterance: utterance)
                 }
             case .speakReply(let text):
+                // The reply is scheduled — the loop's own accepted-schedule event (a refused
+                // `scheduleReply` emits no effect, so a superseded turn never shows a phantom
+                // bubble). The emission is here, before the render task, so the text is in the
+                // sink before audio starts; the ask path's question and the action handler's
+                // reply both flow through this one point.
+                converseReplySink(text)
                 renderTask = Task { @MainActor in
                     await self.renderReply(text)
                 }
             case .bargeIn:
+                // The interrupted reply's text is discarded with its audio (Q3): the clear is
+                // the driver's, at the moment it cancels.
+                converseReplySink(nil)
                 if let synthesizer {
                     await synthesizer.cancel()
                 }
@@ -464,7 +507,11 @@ public final class ConverseLoopDriver {
         } catch is CancellationError {
             return
         } catch {
+            // The failure closes the window (.playing → .listening) but the text stays — the
+            // clear is withheld for exactly this transition (the recorded replyFailed rule).
+            replyClearSuppression.arm()
             loop.reportPlaybackEnded()
+            replyClearSuppression.disarm()
             failureSink(.replyFailed)
             return
         }
@@ -488,7 +535,11 @@ public final class ConverseLoopDriver {
         } catch is CancellationError {
             return
         } catch {
+            // The failure closes the window (.playing → .listening) but the text stays — the
+            // clear is withheld for exactly this transition (the recorded replyFailed rule).
+            replyClearSuppression.arm()
             loop.reportPlaybackEnded()
+            replyClearSuppression.disarm()
             failureSink(.replyFailed)
         }
     }
@@ -501,4 +552,20 @@ private struct ConverseCleanupBudgetExpired: Error {}
 /// while the driver is still mid-initialization (the `ComposedTurnDriver` shape).
 private final class EffectLedgerBox {
     var values: [TurnEffect] = []
+}
+
+/// The replyFailed clear suppression — armed and disarmed around the render failure's one
+/// `reportPlaybackEnded()` (`.playing → .listening`), whose transition must not clear the
+/// reply text. The state observer reads `isArmed` synchronously inside that call; the failure
+/// path disarms immediately after, so a later listening/idle transition clears as usual.
+private final class ReplyClearSuppressionBox {
+    private(set) var isArmed = false
+
+    func arm() {
+        isArmed = true
+    }
+
+    func disarm() {
+        isArmed = false
+    }
 }

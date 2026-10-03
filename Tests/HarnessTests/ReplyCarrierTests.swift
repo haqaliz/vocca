@@ -172,7 +172,7 @@ final class ReplyCarrierTests: XCTestCase {
             capture: capture,
             asrProvider: { ScriptedASR(transcripts: ["hello there"]) },
             synthesizerProvider: {
-                snapshot.record(sink.values.last)
+                snapshot.record(sink.values.last.flatMap(\.self))
                 return Self.stubSynthesizer
             },
             playback: playback,
@@ -275,11 +275,12 @@ final class ReplyCarrierTests: XCTestCase {
         let capture = ScriptedContinuousCapture()
         let playback = FakePlaybackEngine()
         let sink = RecordingReplySink()
+        let asr = ScriptedASR(transcripts: ["one", "two"])
 
         let driver = makeDriver(
             vad: script,
             capture: capture,
-            asrProvider: { ScriptedASR(transcripts: ["one", "two"]) },
+            asrProvider: { asr },
             synthesizerProvider: { Self.stubSynthesizer },
             playback: playback,
             replySink: sink)
