@@ -9,6 +9,30 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`reply-text-rendering` (C13 slice, shipped 2026-10-03):** the CONVERSING surface stops
+> being audio-only — **the spoken reply renders verbatim in a bubble beneath the pill**. The
+> carrier: `ConverseLoopDriver.converseReplySink` (additive, `@Sendable (String?) -> Void`,
+> default no-op; the text at `.speakReply` before audio — the ask's question and the action
+> handler's reply through the same one point; `nil` on listening/idle and on barge-in; **no
+> clear on a render failure** — the text stays, the `ReplyClearSuppressionBox` withholds
+> exactly that transition). The state: `WidgetReducerState.replyText`, the **eighth**
+> `WidgetAction` case `.replyPresented(String?)`, the cap
+> `WidgetTiming.maxReplyCharacters = 2000` (truncation in the reducer's one place; the view
+> scrolls, 48-160 pt), and the amended invariant — **"the phase plus the bounded reply
+> text"**. The view: `WidgetCopy`'s `shouldShowReplyBubble`/`replyBubbleLabel`, the pill plus
+> the conditional bubble (card chrome, selectable, the measured 420 pt max width); the five
+> cues and the never-a-target render untouched. The wiring: `AppBootstrap` folds the sink
+> into `presentReply(_:)` through the weak rootBox on the main actor. **The reply seam's last
+> piece ships** — the real spoken answer to an agent run; **the remaining C13 machinery is
+> now** the phrase-then-keyword composite resolver, the audit-tools arm section, the
+> intent-seam shell leg and the §8 trust deferrals (`$N` parameter slots too); the
+> turn-history deliverable stays a separate unclaimed P3 item. **G5 re-anchored once,
+> deliberately** (`4e50ab8dde…` → `bc2ce1fdf2…`, six pin sites + the new invariant suite +
+> the floor script comment; dictation digests `1baeb2de…`/`ce70ca10…` unchanged). **No gate
+> passes** (eighteenth unit ahead of the uncleared gates); the composed default still reads
+> `agents=0 spawnsSubprocess=false`. SMOKE 164 is **written and runnable** — recorded, never
+> gated. Test floor: **3083**.
+>
 > **`agent-auth-baseline` (C13 follow-on, shipped 2026-10-03):** the N2 scrub refined
 > deliberately — **both agent auth modes work** (the key row AND the CLI's own
 > subscription login). `ShellExecutor.Configuration.baselineEnvironment` (default

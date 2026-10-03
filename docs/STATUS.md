@@ -10,6 +10,144 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `reply-text-rendering` unit shipped 2026-10-03 — the CONVERSING surface stops being
+audio-only: the spoken reply is rendered verbatim in a bubble beneath the pill, bounded at
+2000 characters, cleared by the next utterance and by barge-in, and kept when the render
+fails; no gate passes.**
+`feat/reply-text-rendering/aliz`. Five aspects (the record aspect is this entry; the
+carrier's deferred wiring is its second half). Floor **3052 → 3083** (executed 3083).
+
+**What shipped, per aspect.**
+*reply-carrier* — `ConverseLoopDriver` gains the **additive `converseReplySink:
+@Sendable (String?) -> Void`** (default `{ _ in }` — byte-identical when unwired;
+`ConverseLoopDriver.swift:148`, `:243`), with the emissions at the `.speakReply` effect's
+application (the text before the render starts — `:345`; the loop's own accepted-schedule
+event, so a refused `scheduleReply` emits no effect and a superseded turn never shows a
+phantom bubble; **the ask path's question and the action handler's reply both flow through
+this one point** — the PRD's gap-1 coverage, verified not special-cased), `nil` at the
+`.bargeIn` application (the cancel path — `:352`), and `nil` on the loop's transition to
+`.listening`/`.idle` through the wrapped `onStateChange` (`:277-279`); **no clear on a
+render failure** — the failure's `reportPlaybackEnded()` (`.playing → .listening`) is
+suppressed by the armed/disarmed `ReplyClearSuppressionBox` (`:561`), so the text stays
+(the recorded replyFailed rule). Pinned by `ReplyCarrierTests` (acceptances 1-6: the reply
+once at schedule time — the sink already holding it when the render resolves, the
+before-audio proof; the ask's question; the barge-in clear; the listening and idle clears;
+replyFailed keeps with the suppression not sticking; the unwired default byte-identical).
+Floor 3052→3059.
+*reply-state* — the `WidgetAction` closed set gains **`.replyPresented(String?)`** (the
+**eighth** case — the deliberate amendment; the compile pins in `WidgetContextReducerTests`
+and `WidgetConfirmationStateTests` grew to eight cases and the `EgressBadgeReducerTests`
+enumeration carries it); `WidgetReducerState.replyText` (converse-only — a text lands only
+while CONVERSING, every dictation/IDLE adoption clears it, the notice path starts a fresh
+IDLE; `WidgetStateReducer.swift:115`); **`WidgetTiming.maxReplyCharacters = 2000`**
+(`:242`), truncation in the reduce row's one place (`:349-362`); the carrier's `nil` clear
+applies from any state; the listening ↔ speaking phase change keeps the text (the turn is
+continuous); the `adopting` `.conversing` invariant amended deliberately — "the phase is
+the state's only content" → "**the phase plus the bounded reply text**" (the probe
+amended, `WidgetStateReducerTests.swift:700`); the store's thin `presentReply(_:)`
+(`WidgetStateStore.swift:142`, the `presentPartial` shape). Floor 3059→3064.
+*reply-wiring* (the carrier's deferred second half) — `AppBootstrap` passes
+`converseReplySink:` to `composeConverseWiring` (`AppBootstrap.swift:586-595`): the closure
+folds `root.widgetStore.presentReply(text)` through the **weak rootBox** on the main actor
+(`MainActor.assumeIsolated` — the `converseStateSink` block's exact shape; the driver
+retains the closure, so a strong root capture would cycle). Pinned by
+`AppBootstrapWiringTests.testTheConverseReplySinkIsWiredIntoTheWidgetStore` — a source scan
+of the call site (`configure` needs an `NSApplication`), the shipped-composition pin shape.
+**The ordering recorded:** the wiring's fold needed `presentReply(_:)`, so the carrier's
+RED/GREEN landed with `AppBootstrap` untouched (the floor raised, the G5 re-anchor
+deferred — `ac74a80`), and both closed in this commit. Floor 3064→3065.
+*reply-view* — `WidgetCopy.shouldShowReplyBubble` (non-nil **and** non-empty — an empty
+reply is silence, the generator's own contract; `WidgetCopy.swift:118`) + `replyBubbleLabel`
+(the reply text verbatim — the label and the visible `Text` cannot drift, `:127`; the panel
+is non-key, so VoiceOver announcement is **best-effort**, recorded at `:123-129`); the
+`WidgetView` CONVERSING branch renders the pill plus the conditional bubble
+(`WidgetView.swift:94-101`): the confirmation card's chrome (material, hairline, shadow,
+rounded corners), the failsafe's bounded text surface (`ScrollView` 48-160 pt,
+`textSelection(.enabled)`, the `.fixedSize` wrap), `accessibilityLabel`; the width band
+**260-420 pt** — the 420 maximum is a **measured addition** (without it the wrap never
+engages: a long reply sized the whole panel to one unbounded line, measured with
+`NSHostingView`; `:167-170`); the pill's five cues and the never-a-target render untouched.
+Pinned by `ReplyBubbleTests` (the show decision and its `WidgetView` source pin, the
+verbatim carry, the exact copy pins, the never-a-target scan extended to the bubble
+renderers, the five-cue cross-check) plus two `WidgetCopyTests` rows. Floor 3065→3073.
+*agent-pins* — `ReplyRenderingInvariantTests` (acceptances 1-5), run inside the
+zero-network interposer: **PROBE-CODING-AGENT verbatim-unchanged** with the carrier, the
+bounded state and the bubble in the tree (the composed default still reads `agents=0
+spawnsSubprocess=false`); the **lint immobilities** (the transport permitted set still
+exactly two files, the FileManager seam table still eight seams, Family A's seven families
+and Family B's single minting file, the `policy:` parameter still default-less with all 96
+`ActionGate.submit` call sites supplying it, the `ConversePhase` family still confined to
+`WidgetProjection.swift`, the M4a no-remember scans green over the unit's own reply rows);
+the **digests** — the dictation pair unchanged, `AppBootstrap` equals the re-anchored
+literal, and the across-the-sites leg reads it back out of all six sibling pin sites; the
+module-coverage cross-check (twelve library modules — fields, a case and copy, no module
+files); the zero-network default-configuration drive green. Floor 3073→3083 (executed
+3083).
+
+**The decisions.** **Q1 — the lifecycle is the conversation's:** the text is sunk at
+`.speakReply` (before the audio starts — the bubble appears with the speech), cleared on
+the next utterance's listening and on idle. **Q2 — the pill plus a bubble:** the bubble
+sits beneath the pill, addition-only; the five cues stay exactly as shipped and the
+never-a-target render stays. **Q3 — barge-in clears:** the interrupted reply's text is
+discarded with its audio at the driver's cancel point. **The ask-path coverage:** one
+emission point covers every reply — the bounded re-ask's question and the action handler's
+reply both speak through `.speakReply`, verified, not special-cased. **The replyFailed
+keep:** no clear on a render failure — the failure's `.playing → .listening` close is
+suppressed for exactly that transition (armed and disarmed around the one call), so a
+later listening/idle transition clears as usual; the text stays (the reply happened as
+text; nothing was heard — the text is more valuable). **The VoiceOver honesty:** the
+bubble's label is the reply text verbatim; the panel is non-key, so announcement is
+best-effort — recorded; SMOKE 164 observes what a real VoiceOver session hears. **The cap
+and the measured width:** 2000 characters in the reducer (the `maxPartialCharacters`
+shape; the view scrolls beyond it — the bound is the state's, never the bubble's); the
+bubble's 420 pt maximum is a measured addition (`NSHostingView`), not a taste call. The
+closed-set amendment is deliberate: `.replyPresented` is the eighth `WidgetAction`, and the
+invariant is amended to "the phase plus the bounded reply text".
+
+**G5 re-anchored once, deliberately** (the carrier's wiring REFACTOR `fb65157`):
+`AppBootstrap` moved with the reply sink, so the pin is re-computed with `shasum -a 256`
+on 2026-10-03, never edited-to-match — `4e50ab8dde…` → **`bc2ce1fdf2…`**, full literal
+`bc2ce1fdf261819b8477b7951a6d506c7980c072a674ffc77311014c59b76bd6`, **across all six pin
+sites** (`TurnTakingComposedAcceptanceTests`, `AgentPresetsInvariantTests`,
+`SpokenTaskInvariantTests`, `ActiveProjectInvariantTests`, `WiringBaselineTests`,
+`AuthBaselineInvariantTests`) plus the new `ReplyRenderingInvariantTests` suite's own
+acceptance (its across-the-sites leg reads the other six back) and the floor script's
+comment; the dictation digests unchanged — `1baeb2de…`/`ce70ca10…`, asserted by the
+re-anchored pins.
+
+**The deferrals, with their blockers.** **N1 — the copy affordance** (⌘C to copy the
+reply, the failsafe's ⌘C precedent): deferred — the widget panel is **non-key**
+(`WidgetPanel.canBecomeKey == false`), so it never receives key events and a ⌘C handler
+cannot fire on it; a copy affordance needs a mechanism the panel does not have (a button,
+or an owned key path) — a later surface conversation. **The turn-history deliverable**
+(`ROADMAP.md:205` — "bounded, inspectable, local turn history — with a visible 'forget'
+control"): stays a **separate, unclaimed P3 item** — this unit renders the current reply,
+not history; the bubble is single-turn by construction (the carrier's `nil` clears it on
+the next turn).
+
+**The `reply-text-rendering` deferral is retired.** The C13 amendment's remaining-machinery
+list no longer names it — the real spoken answer to an agent run ships (the reply seam's
+last piece); the new amendment is the current list: the **phrase-then-keyword composite
+resolver**, the **audit-tools arm section**, the **intent-seam shell leg**, the **§8 trust
+deferrals** and **`$N` parameter slots** remain, and the **turn-history item stays named as
+the separate unclaimed P3 deliverable**, never folded into the C13 list.
+`docs/technical/ARCHITECTURE.md`'s converse annotation gained the reply-sink clause (the
+seam fact changed); `README.md` untouched — verified, it never quoted the reply surface.
+
+**The flake, recorded honestly.** The **pre-existing `AudioRingBufferTests` contention
+flake** fired once during this unit's full-suite attempts (the `reply-view` REFACTOR; the
+test's own comment: "the point is to exclude 0.05 %, not to pin a scheduler") and did not
+recur on the green run — scheduler-dependent, unrelated to this unit (no audio code
+touched); recorded, never chased.
+
+**No gate passes** (eighteenth unit ahead of the uncleared gates); the composed default
+still reads `agents=0 spawnsSubprocess=false`; zero network; the dictation path
+digest-untouched (the pin proves it). SMOKE 164 is **written and runnable** — recorded,
+never gated; no reply rate may be quoted. The record aspect closed the docs sync:
+`CLAUDE.md`'s status paragraph and `CAPABILITY_ROADMAP.md`'s C13 amendment.
+
+---
+
 **The keep-in-tray default flips to on — a founder decision (2026-10-01), landed 2026-10-03 on
 `feat/agent-auth-baseline/aliz`.** `PersistedSettings.decodeKeepInTray`'s absent answer is now
 `true`: a fresh install has chosen nothing and keeps running in the menu bar, so quitting from

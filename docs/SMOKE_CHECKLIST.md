@@ -3860,6 +3860,63 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     stops working, a run without a card, a card whose sentence differs from the
     argv-derived render, or the D2 baseline line missing from the section.
 
+164. **The spoken reply is visible verbatim in the bubble — cleared by the next utterance and
+    by barge-in, scrolling at the 2000-character cap, and kept when the render fails
+    (`reply-text-rendering`, recorded — never gated).**
+
+    *Gesture:* run the built bundle and start a CONVERSING session (the converse chord). Speak
+    a full utterance and, while the reply is being spoken, read the **bubble beneath the
+    pill**: the reply text is rendered **verbatim** — the same words the TTS speaks (the
+    shipped stand-in `EchoReplyGenerator` echoes your words, so the comparison is exact; an
+    agent row's spoken ack — "Done."/"Cancelled." — renders the same way, one carrier). Verify
+    the bubble sits **under** the pill and the pill's five cues are unchanged (the notched
+    pill, the distinct hue, the `◈` label, the lower tick, and **no target app name**). Then
+    speak the **next** utterance: when the turn returns to listening the bubble **clears**
+    (the new turn's bubble is its own). Then the barge-in leg: start another reply and
+    interrupt it mid-playback (speak over it) — the bubble **clears immediately with the
+    audio** (the interrupted reply's text is discarded, never left behind). Then the
+    long-reply leg: produce a reply past the bubble's height — e.g. a long utterance with the
+    echo stand-in, or an agent row that answers at length — the bubble **scrolls** inside its
+    bounded height (48-160 pt, the failsafe shape); the stored text is bounded at **2000
+    characters** (`WidgetTiming.maxReplyCharacters` — truncation is the reducer's single
+    answer), so record the observed reply length against what the bubble shows: a reply past
+    the cap shows the first 2000 characters, and the view scrolls, never a silent layout
+    clamp. Finally the best-effort failure leg: make the render fail (e.g. the machine's
+    voice assets unavailable so synthesis throws — the recorded `replyFailed` notice, never
+    a silent crash) — the reply is **not heard**, and the bubble **keeps the text** (the
+    recorded replyFailed rule: the reply happened as text; nothing was heard, and the text
+    is more valuable than a cleared bubble).
+
+    *Verify the state was entered:* the CONVERSING surface really showed and a real reply
+    really sounded (a bubble with no audio proves the render leg was never entered — rule 1),
+    the bubble's text was really compared against what was spoken (the echo stand-in makes
+    the comparison exact; with an agent row, against the spoken ack), the next-utterance and
+    barge-in clears were observed on the **rendered** surface (never inferred from the log),
+    the long-reply leg really exceeded the visible height (record the observed character
+    count), and the failure leg really failed to render (the loud failure observed — a
+    failure never attempted proves nothing). The bubble's VoiceOver label is the reply text
+    verbatim (`WidgetCopy.replyBubbleLabel`), but the panel is non-key
+    (`WidgetPanel.canBecomeKey == false`), so announcement is **best-effort** — record what a
+    real VoiceOver session actually hears, never a claim that it always announces.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **the reply was spoken and
+    rendered verbatim in the bubble under the pill, the next utterance cleared it, barge-in
+    cleared it mid-reply, a long reply scrolled with the 2000-character bound observed, and
+    a failed render kept the text** — the reply-text surface's first real observation. Record
+    the counts (utterances, clears, the long reply's observed length, the failure mechanism
+    used), never a rate.
+
+    *Void — not fail — if:* no reply sounded (the render leg was never entered — rule 1), the
+    renderer was unavailable for the whole session so no clear could be observed, or the
+    failure leg could not be produced on the machine (best-effort — a row without it is
+    partial, not a failure).
+
+    *Failure:* a bubble whose text differs from what was spoken (a paraphrase — the sentence
+    doctrine is verbatim), a bubble that survives the next utterance or a barge-in, a
+    long-reply render that truncates the **visible** text without the bound (a silent clamp
+    instead of the scroll), a failed render that clears the text, or the bubble
+    replacing/altering any of the pill's five cues (mode clarity is structural).
+
 ---
 
 ## When this file is wrong
