@@ -1,21 +1,26 @@
-# feat/reply-text-rendering — inline brief
+# Brief (no GitHub issue; inline brief from the vocca-next handoff, 2026-10-03)
 
-No GitHub issue filed; the source is the deferred `reply-text-rendering` item
-(`docs/technical/CAPABILITY_ROADMAP.md:340` — "stays deferred to the C13 design pass";
-`:564` — the remaining-machinery list) and the founder's "if anything left go for it"
-(2026-10-01).
+Source: `docs/technical/CAPABILITY_ROADMAP.md:861` — "a phrase-then-keyword composite resolver" (C13, P4).
 
-## Brief
+Build a `CompositeIntentResolver` (`VoccaCore/Intent/`, Foundation-free) that chains
+`PhraseIntentResolver` then `KeywordIntentResolver` behind the existing `IntentResolver` seam,
+and make it the composed default in `composeIntentWiring` (per-turn `resolverProvider`, no relaunch).
 
-The CONVERSING surface is audio-only: the reply text has no carrier to the widget (the
-dig verified end to end). This unit renders the spoken reply in a bubble beneath the
-pill — verbatim, bounded, selectable — with the founder's lifecycle decisions:
-Q1 the bubble shows until the next turn (or idle); Q2 the pill + bubble (the five mode
-cues stay); Q3 barge-in clears the text with the audio. Gap resolutions: the ask path's
-question reaches the sink; `replyFailed` keeps the text (nothing was heard — the text is
-the record); VoiceOver is best-effort on the non-key panel (recorded). Out of scope: the
-turn-history deliverable (a separate unclaimed P3 item), the copy affordance (N1).
+- A phrase exact-match wins and short-circuits.
+- Otherwise the keyword resolver runs; a low-confidence result may only `.ask`. Never execute below
+  the 0.75 threshold; never resolve to `dev.vocca.shell`.
 
-## Labels (proposed)
+Caveats: no gate has passed (eighteenth unit ahead of uncleared gates); resolver accuracy is
+unmeasurable in CI (record counts, never a rate); F-C (`KeywordIntentResolver.jsonEscaped` emits
+invalid JSON for control characters) is open — decide explicitly whether to fix it here; expect one
+deliberate G5 re-anchor.
 
-feat, C13 slice, P3 surface
+Acceptances (written first):
+1. A phrase hit short-circuits; the keyword resolver is provably never consulted.
+2. A phrase miss with a confident keyword hit yields a `.toolCall` that still goes through the card
+   with approval `.withheld` and gets an audit record.
+3. A below-threshold keyword hit yields `.ask` naming at most 3 candidates, engine count 0.
+4. A shell tool is never resolved, even when its command is enabled.
+5. PROBE-INTENT-DEFAULT reports `resolver=CompositeIntentResolver` with `spawnsSubprocess=false`
+   inside the zero-network interposer.
+6. Test floor rises from 3083; dictation digests unchanged.
