@@ -191,6 +191,9 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // a probe-seeded synonym table. It runs the shipped machinery; it never
                 // branches a resolution on the concrete type.
                 "VoccaNetworkProbe/IntentDrive.swift",
+                // `composite-intent-resolver`'s reviewed widening — the composition root builds
+                // the chain's fallback when the switch is on. It never resolves with it.
+                "VoccaBootstrap/AppBootstrap.swift",
             ]
         ),
         (

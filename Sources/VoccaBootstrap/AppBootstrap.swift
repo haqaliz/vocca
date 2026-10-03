@@ -733,9 +733,8 @@ public enum AppBootstrap {
                 applicationSupport: FileManager.default.urls(
                     for: .applicationSupportDirectory, in: .userDomainMask).first,
                 home: FileManager.default.homeDirectoryForCurrentUser))
-        let intentResolverProvider: @Sendable @MainActor () async -> any IntentResolver = {
-            PhraseIntentResolver(rows: await intentPhraseStore.load().phrases)
-        }
+        let intentResolverProvider = AppBootstrap.composeIntentResolverProvider(
+            store: intentPhraseStore)
         let intentWiring = AppBootstrap.composeIntentWiring(
             configStore: actionConfigStore,
             provider: actionProvider,
@@ -1341,6 +1340,26 @@ public enum AppBootstrap {
     /// decision, taken once, at composition, in ``configure(_:)``.
     public static func injectorComposition(completionFlag: Bool) -> InjectorComposition {
         completionFlag ? .ladder : .onboarding
+    }
+
+    /// The composed default's resolver for one turn (`composite-intent-resolver` A6): switch
+    /// off, a bare `PhraseIntentResolver` — today's default, the composite not on the path;
+    /// switch on, the chain — phrase first, keyword second, the shell provider closed (the
+    /// identifier is supplied here because `VoccaCore` cannot name it).
+    public static func composeIntentResolver(file: IntentPhraseFile) -> any IntentResolver {
+        let phrase = PhraseIntentResolver(rows: file.phrases)
+        guard file.keywordFallback else { return phrase }
+        return CompositeIntentResolver(
+            primary: phrase, fallback: KeywordIntentResolver(),
+            excludedProviderIDs: [ShellProvider.providerID])
+    }
+
+    /// The per-turn provider `configure` wires: the phrase file is loaded once per turn, never
+    /// at composition, so an edit — the switch included — needs no relaunch.
+    public static func composeIntentResolverProvider(
+        store: IntentPhraseStore
+    ) -> @Sendable @MainActor () async -> any IntentResolver {
+        { composeIntentResolver(file: await store.load()) }
     }
 }
 
