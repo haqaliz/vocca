@@ -2358,8 +2358,27 @@ set -euo pipefail
 # label. The token suite is untouched. The count taken from the floor script's own parse in
 # the ratchet commit.
 #
+# `agent-pins` (the `reply-text-rendering` unit): +10 — `ReplyRenderingInvariantTests`, the
+# invariant suite (acceptances 1-5: the PROBE-CODING-AGENT line verbatim-unchanged under the
+# interposer with the reply carrier, the bounded state and the bubble in the tree —
+# agents=0 + spawnsSubprocess=false field-wise; the lint immobilities read off the pin
+# files' own literals and, where the claim is about the tree, re-run over it — the transport
+# permitted set still exactly the two reviewed entries, the FileManager seams still exactly
+# the eight, Family A's seven families and Family B's single minting file unchanged, the
+# policy parameter still default-less with all 96 submit call sites supplying it, the
+# ConversePhase family still confined to WidgetProjection.swift in VoccaCore, and the M4a
+# no-remember scans still green over the unit's own reply rows; the digests — the dictation
+# pair unchanged, AppBootstrap at bc2ce1fd… with all six pin sites carrying the same
+# literal; the module-coverage cross-check recomputed from the manifest and pinned to the
+# same twelve library modules with the cross-check's own equality re-asserted; and the
+# zero-network default-configuration drive green with the reply rendering in the tree).
+# Assertions only — no production code, no lint widening. The tree was green on all ten
+# legs the day the suite landed (the honest pins result: the composed default did not move,
+# the lints did not widen, the digests did not change); nothing was manufactured red. The
+# count taken from the floor script's own parse in the ratchet commit.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3073
+MINIMUM_EXECUTED_TESTS=3083
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
