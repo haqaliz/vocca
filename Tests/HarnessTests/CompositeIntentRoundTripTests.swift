@@ -253,6 +253,41 @@ final class CompositeIntentRoundTripTests: XCTestCase {
         XCTAssertEqual(provider.invokeCount, 0)
     }
 
+    /// An enabled `vocca.agent` coding-agent row whose id tokens are the utterance: the bare
+    /// keyword resolver reaches it through the same wiring (the counterfactual), the composite
+    /// never does — no card, no description, no invocation.
+    func testAnEnabledCodingAgentNeverResolvesByKeywordThroughTheComposite() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let auditStore = FileSystemActionAuditStore(
+            directory: directory.appendingPathComponent("audit"))
+        let provider = RecordingActionProvider(
+            toolIDs: ["claude-review"], describedRadius: .outwardFacing)
+
+        let bare = IntentRoundTripHarness(
+            directory: directory.appendingPathComponent("bare"), provider: provider,
+            auditStore: auditStore, resolverProvider: { KeywordIntentResolver() })
+        try await bare.surface.setToolEnabled(
+            CodingAgentProvider.providerID, "claude-review", true)
+        let reached = await bare.wiring.resolve("claude review")
+        XCTAssertEqual(
+            toolCall(in: reached)?.providerID, CodingAgentProvider.providerID,
+            "counterfactual: the keyword resolver alone must reach the enabled agent row")
+
+        let harness = IntentRoundTripHarness(
+            directory: directory.appendingPathComponent("composite"), provider: provider,
+            auditStore: auditStore,
+            resolverProvider: Self.composedProvider(keywordFallback: true))
+        try await harness.surface.setToolEnabled(
+            CodingAgentProvider.providerID, "claude-review", true)
+
+        let resolution = await harness.wiring.resolve("claude review")
+        XCTAssertEqual(resolution, .none, "a coding agent must never be selected by keyword")
+        XCTAssertNil(harness.root.widgetStore.state.confirmation)
+        XCTAssertEqual(provider.describeCount, 0)
+        XCTAssertEqual(provider.invokeCount, 0)
+    }
+
     /// **The controller's ruling**: the real keyword resolver, through the composite, over a
     /// catalog holding a shell row whose id tokens overlap the utterances — the result never
     /// names the shell row, as a tool call, as an ask candidate, or anywhere in the ask text.

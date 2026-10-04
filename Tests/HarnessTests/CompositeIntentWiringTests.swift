@@ -42,6 +42,13 @@ final class CompositeIntentWiringTests: XCTestCase {
         displayName: "empty downloads")
     private static let shellUtterance = "empty downloads"
 
+    /// An enabled coding-agent row whose id and display-name tokens the utterance below matches
+    /// exactly — the keyword resolver alone resolves it, so only the exclusion closes it.
+    private static let agentRow = ToolReference(
+        providerID: CodingAgentProvider.providerID, toolID: "claude-review",
+        displayName: "claude review")
+    private static let agentUtterance = "claude review"
+
     // MARK: - A6 — the switch picks the type
 
     /// Switch off: the composed resolver is exactly a `PhraseIntentResolver` — the composite is
@@ -56,8 +63,8 @@ final class CompositeIntentWiringTests: XCTestCase {
     }
 
     /// Switch on: the composed resolver is the chain, phrase primary and keyword fallback, with
-    /// the shell provider excluded.
-    func testSwitchOnComposesTheCompositeWithTheShellProviderExcluded() throws {
+    /// the shell **and** coding-agent providers excluded — exactly those two, no more.
+    func testSwitchOnComposesTheCompositeWithShellAndAgentProvidersExcluded() throws {
         let resolver = AppBootstrap.composeIntentResolver(
             file: IntentPhraseFile(phrases: [], keywordFallback: true))
 
@@ -66,7 +73,9 @@ final class CompositeIntentWiringTests: XCTestCase {
             "switch on must compose a CompositeIntentResolver, got \(type(of: resolver))")
         XCTAssertTrue(type(of: composite.primary) == PhraseIntentResolver.self)
         XCTAssertTrue(type(of: composite.fallback) == KeywordIntentResolver.self)
-        XCTAssertEqual(composite.excludedProviderIDs, [ShellProvider.providerID])
+        XCTAssertEqual(
+            composite.excludedProviderIDs,
+            [ShellProvider.providerID, CodingAgentProvider.providerID])
     }
 
     // MARK: - A6 — the shell leg stays closed with the switch on
@@ -94,6 +103,56 @@ final class CompositeIntentWiringTests: XCTestCase {
                 "a shell tool must never be reachable through the keyword fallback")
         }
         XCTAssertEqual(resolution, IntentResolution.none)
+    }
+
+    // MARK: - The coding-agent leg stays closed to the keyword fallback
+
+    /// The composed resolver with the switch on never selects an enabled coding agent by
+    /// keyword, even for an utterance that is the agent row's own tokens — while the keyword
+    /// resolver alone would (the counterfactual). A child-spawning, egress-unprovable provider
+    /// is reachable only by an explicitly authored phrase row.
+    func testSwitchOnNeverResolvesToAnEnabledCodingAgentByKeyword() {
+        let catalog = [Self.agentRow]
+
+        let bare = KeywordIntentResolver().resolve(Self.agentUtterance, against: catalog)
+        guard case .toolCall(let reached) = bare else {
+            return XCTFail("counterfactual: the keyword resolver alone must reach the agent row")
+        }
+        XCTAssertEqual(reached.providerID, CodingAgentProvider.providerID)
+        XCTAssertEqual(reached.toolID, Self.agentRow.toolID)
+
+        let composed = AppBootstrap.composeIntentResolver(
+            file: IntentPhraseFile(phrases: [], keywordFallback: true))
+        let resolution = composed.resolve(Self.agentUtterance, against: catalog)
+
+        if case .toolCall(let invocation) = resolution {
+            XCTAssertNotEqual(
+                invocation.providerID, CodingAgentProvider.providerID,
+                "a coding agent must never be reachable through the keyword fallback")
+        }
+        XCTAssertEqual(resolution, IntentResolution.none)
+    }
+
+    /// A phrase row naming `vocca.agent` still resolves with the switch on: the exclusion closes
+    /// the keyword leg only — the phrase leg is the user's explicit authoring.
+    func testSwitchOnStillResolvesAPhraseRowNamingACodingAgent() {
+        let catalog = [Self.agentRow]
+        let composed = AppBootstrap.composeIntentResolver(
+            file: IntentPhraseFile(
+                phrases: [
+                    PhraseIntentRow(
+                        phrase: "review my branch", providerID: CodingAgentProvider.providerID,
+                        toolID: Self.agentRow.toolID)
+                ],
+                keywordFallback: true))
+
+        guard case .toolCall(let invocation) = composed.resolve(
+            "review my branch", against: catalog)
+        else {
+            return XCTFail("a phrase row naming a coding agent must still resolve")
+        }
+        XCTAssertEqual(invocation.providerID, CodingAgentProvider.providerID)
+        XCTAssertEqual(invocation.toolID, Self.agentRow.toolID)
     }
 
     // MARK: - A6 — re-read per turn
