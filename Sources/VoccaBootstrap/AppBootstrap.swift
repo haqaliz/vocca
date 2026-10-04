@@ -1346,14 +1346,16 @@ public enum AppBootstrap {
 
     /// The composed default's resolver for one turn (`composite-intent-resolver` A6): switch
     /// off, a bare `PhraseIntentResolver` — today's default, the composite not on the path;
-    /// switch on, the chain — phrase first, keyword second, the shell provider closed (the
-    /// identifier is supplied here because `VoccaCore` cannot name it).
+    /// switch on, the chain — phrase first, keyword second, the shell and coding-agent
+    /// providers closed to the keyword leg (child-spawning, egress-unprovable — reachable only
+    /// by an explicitly authored phrase row; the identifiers are supplied here because
+    /// `VoccaCore` cannot name them).
     public static func composeIntentResolver(file: IntentPhraseFile) -> any IntentResolver {
         let phrase = PhraseIntentResolver(rows: file.phrases)
         guard file.keywordFallback else { return phrase }
         return CompositeIntentResolver(
             primary: phrase, fallback: KeywordIntentResolver(),
-            excludedProviderIDs: [ShellProvider.providerID])
+            excludedProviderIDs: [ShellProvider.providerID, CodingAgentProvider.providerID])
     }
 
     /// The per-turn provider `configure` wires: the phrase file is loaded once per turn, never
