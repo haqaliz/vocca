@@ -1304,7 +1304,10 @@ final class ZeroNetworkTests: XCTestCase {
             this invariant — or the composed default no longer resolves nothing and spawns \
             nothing. Do not fix this by deleting the call, and do not fix it by pasting in \
             whatever the probe now prints — see \
-            testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault.
+            testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault. \
+            resolver=other on a dev machine: check `keywordFallback` in your real \
+            intent-phrases.json (the default drive reads the real phrase file — a known \
+            limitation recorded by composite-intent-resolver).
             \(observation.diagnosticSummary)
             """)
 

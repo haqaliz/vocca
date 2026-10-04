@@ -339,6 +339,12 @@ final class WiringBaselineTests: XCTestCase {
     /// The two dictation files are byte-for-byte untouched; the composition root carries the
     /// re-anchor `4e50ab8d…` → `bc2ce1fd…` (computed with `shasum -a 256` on 2026-10-03 by
     /// the `reply-text-rendering` wiring REFACTOR, never edited-to-match).
+    ///
+    /// Re-anchored once more, deliberately, on 2026-10-04 by `composite-intent-resolver`
+    /// (`bc2ce1fd…` → `d46fd928…`, computed with `shasum -a 256` after the unit's last
+    /// composition-root edit, never edited-to-match): the composition root composes the
+    /// per-turn resolver provider over the `keywordFallback` switch. The two dictation
+    /// digests are unchanged.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -352,7 +358,7 @@ final class WiringBaselineTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "bc2ce1fdf261819b8477b7951a6d506c7980c072a674ffc77311014c59b76bd6"
+                "d46fd9284f5142f0d3c616f51bc497a93220f24bd80e2f05ad0c3984e9b6c797"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
