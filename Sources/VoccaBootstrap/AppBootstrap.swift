@@ -719,8 +719,10 @@ public enum AppBootstrap {
         // composed over the **shared** executor (`actionWiring.executor` — the same instance
         // `root.actionExecutor` receives, R5), the enablement catalog (the same `actionConfigStore`
         // the Actions tab edits), and the composed default's resolver — since
-        // `phrase-intent-resolver`, a `PhraseIntentResolver` built each turn over the user's
-        // `intent-phrases.json` (the N1 flip, made deliberately as a reviewed edit). The
+        // `phrase-intent-resolver`, a `PhraseIntentResolver` over the user's
+        // `intent-phrases.json` (the N1 flip, made deliberately as a reviewed edit), or with
+        // `keywordFallback` on, the phrase-then-keyword composite with the shell provider
+        // excluded, built each turn (`composite-intent-resolver`, the file's switch). The
         // D2-analogue posture **narrowed, not dropped**: the shipped configuration voice-acts
         // only after a two-step opt-in — the user writes a phrase **and** enables its tool — and
         // with no file it resolves nothing, exactly as the null default did; a shell target is
