@@ -879,6 +879,62 @@ unchanged). No gate passes.
 SMOKE 164 is written and runnable, recorded and never gated; no reply rate may be quoted.
 Test floor: **3083**.)*
 
+*(Amended by the `composite-intent-resolver` unit, 2026-10-04: **C13 slice 13 — the
+phrase-then-keyword composite resolver ships, opt-in.** The keyword resolver becomes
+reachable behind the phrase resolver, behind its own switch, default off — the shipped
+default is unchanged. Shipped:
+- **The chain**: `CompositeIntentResolver` (`VoccaCore/Intent/`, Foundation-free) — the
+  primary first; any non-`.none` answer returned as-is and the fallback never consulted; on
+  `.none` the fallback resolves against the catalog with every excluded provider's rows
+  removed, and a fallback `.toolCall` naming an excluded provider is discarded (the shell
+  leg closed twice, belt and braces).
+- **The switch**: `keywordFallback`, an additive top-level field of `intent-phrases.json`
+  (`IntentPhraseFile.keywordFallback`; absent → off; the F1 no-coercion rule — `1`/`"true"`
+  are off with one log; an off file encodes byte-identically to the shape before the
+  switch; `version` stays 1). Read per turn — an edit needs no relaunch. **Hand-edited
+  JSON; no settings UI** (the named deferral).
+- **The composition**: `AppBootstrap.composeIntentResolver(file:)` — switch off, a bare
+  `PhraseIntentResolver` (the composite not on the path); switch on, phrase first,
+  `KeywordIntentResolver` second, `ShellProvider.providerID` excluded — and
+  `composeIntentResolverProvider(store:)`, the per-turn provider `configure` wires.
+- **F-C fixed**: `KeywordIntentResolver.jsonEscaped` emits `\u00XX` for every control
+  character (U+0000-U+001F round-trip through `JSONSerialization`).
+- **The probe**: PROBE-INTENT-DEFAULT unchanged (`resolver=PhraseIntentResolver …
+  intentShellRows=0`); the new PROBE-INTENT-COMPOSITE (`resolver=CompositeIntentResolver
+  phraseResolved=1 resolved=1 card=yes invoked=1 shellResolved=0 intentShellRows=0
+  spawnsSubprocess=false`) inside the zero-network interposer, with the `-UNFILTERED`
+  counterfactual that fails when the shell filter is removed.
+- **Known limitations, recorded**: a read-only keyword hit auto-runs audited with no
+  distinct audit marker (D1); the spoken ask names raw `provider/tool` identifiers (the
+  catalog carries empty display names); the fallback's `.ask` is guarded by the catalog
+  filter alone; and PROBE-INTENT-DEFAULT reads the real phrase file, so turning the switch
+  on on a dev machine turns that line red — the fix is a directory seam in
+  `AppBootstrap.configure`, a follow-up that re-anchors G5 again.
+
+**The `phrase-then-keyword composite resolver` retires from the remaining-machinery list
+below.** G5 re-anchored once, deliberately (`bc2ce1fd…` → `d46fd928…`, computed with
+`shasum -a 256` on 2026-10-04 after the unit's last composition-root edit, never
+edited-to-match; all seven pin sites; dictation digests unchanged). No gate passes; no
+resolution rate exists.
+
+**What is still NOT built — the remaining C13 machinery:**
+- an **audit-tools arm section** in the Actions tab
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load and closed
+  in both halves of the composite by decision, and reversing it is a founder call)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- **`$N` parameter slots** (an agent row declares no parameters — the arguments-refusal
+  pin is the shipped record; the spoken task rides the additive `taskText` field, never
+  `arguments`)
+- the follow-ons this unit recorded: a **settings-UI row for `keywordFallback`**, spoken
+  **display names** for the ask, and the **directory seam** that isolates
+  PROBE-INTENT-DEFAULT from the real phrase file
+- the **copy affordance (N1)** from `reply-text-rendering` (the widget panel is non-key)
+- **not machinery, named so it is not lost:** the **turn-history deliverable**
+  (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**.
+
+SMOKE 165 is written and runnable, recorded and never gated; no resolution rate may be
+quoted. Test floor: **3114**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

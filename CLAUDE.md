@@ -2,12 +2,31 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-10-03).** The skeleton exists; **the product does not.**
+> **Status (2026-10-04).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`composite-intent-resolver` (C13 slice 13, shipped 2026-10-04):** the
+> phrase-then-keyword composite ships **opt-in** — `CompositeIntentResolver`
+> (`VoccaCore/Intent/`: phrase first, `KeywordIntentResolver` on the phrase leg's `.none`, the
+> shell provider removed from the fallback's catalog **and** discarded from its result) behind
+> the **`keywordFallback`** switch, an additive field of `intent-phrases.json` (absent → off,
+> the F1 no-coercion rule, read per turn; **hand-edited — no settings UI**, the named
+> deferral). `AppBootstrap.composeIntentResolver(file:)`: off → the bare
+> `PhraseIntentResolver`, so **the shipped default is unchanged** (PROBE-INTENT-DEFAULT as
+> before; the new PROBE-INTENT-COMPOSITE + its `-UNFILTERED` counterfactual drive the switch-on
+> chain). F-C fixed (`jsonEscaped` emits `\u00XX`). Recorded, not fixed: D1 (a read-only
+> keyword hit carries no distinct audit marker), the spoken ask names raw `provider/tool` IDs,
+> the fallback's `.ask` is guarded by the catalog filter alone, and PROBE-INTENT-DEFAULT reads
+> the real phrase file — switching it on on a dev machine turns that line red (the fix, a
+> directory seam in `configure`, re-anchors G5 again). **G5 re-anchored once, deliberately**
+> (`bc2ce1fdf2…` → `d46fd9284f…`, seven pin sites; dictation digests `1baeb2de…`/`ce70ca10…`
+> unchanged). **No gate passes** (nineteenth unit ahead of the uncleared gates); no resolution
+> rate exists; the composed default still reads `agents=0 spawnsSubprocess=false`. SMOKE 165 is
+> **written and runnable** — recorded, never gated. Test floor: **3114**.
 >
 > **`reply-text-rendering` (C13 slice, shipped 2026-10-03):** the CONVERSING surface stops
 > being audio-only — **the spoken reply renders verbatim in a bubble beneath the pill**. The
@@ -591,7 +610,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 2991 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 3114 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam

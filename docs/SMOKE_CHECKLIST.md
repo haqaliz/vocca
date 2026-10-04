@@ -3917,6 +3917,58 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     instead of the scroll), a failed render that clears the text, or the bubble
     replacing/altering any of the pill's five cues (mode clarity is structural).
 
+165. **The keyword fallback answers a phrase miss — opt-in, behind the phrase resolver: with
+    `keywordFallback` on, an utterance no phrase row names resolves through the keyword leg
+    (a destructive hit reaches the card, a read-only hit auto-runs audited, a weak match asks
+    and runs nothing), an enabled shell command never resolves, and the switch off restores
+    phrase-only (`composite-intent-resolver`, recorded — never gated).**
+
+    *Gesture:* the switch has **no settings row** (the named deferral) — it is a hand-edit.
+    Enable both audit tools by hand-editing `<applicationSupport>/Vocca/action-config.json`
+    (the audit tools have no Actions-tab row — F-A; merge into the existing `enablement`
+    array): `{"providerID":"dev.vocca.audit","toolID":"audit.count"}` and
+    `{"providerID":"dev.vocca.audit","toolID":"audit.clear"}`. In
+    `<applicationSupport>/Vocca/intent-phrases.json` keep **no phrase row** for either audit
+    tool and add the top-level field `"keywordFallback": true` (a JSON boolean — `1` or
+    `"true"` is refused and the switch stays off, with one log line). No relaunch is needed;
+    the file is read each turn. Switch to the CONVERSING surface and say "count the audit
+    log" — the read-only tool **auto-runs** with no card (the `autoRanReadOnly` decision),
+    and the audit entry under `<applicationSupport>/Vocca/actions/` carries **no
+    keyword-specific marker** (D1, recorded). Say "clear the audit log" — the **card
+    appears** with the gate's own sentence ("Permanently delete N entries from the action
+    audit log. This cannot be undone."); press **Decline** and verify nothing was cleared
+    and the refusal is recorded. Then a weak wording that shares only part of a seeded row
+    (e.g. "the log") — the reply is a **spoken question** ("Did you mean '…'?", at most three
+    names), nothing runs, and the names are the **raw provider/tool identifiers** (e.g.
+    `dev.vocca.audit/audit.count` — the recorded limitation; record what TTS actually
+    said). Then the shell leg: with a shell command defined in `shell-commands.json` and
+    enabled in the Actions tab, say its command words — the reply is the echo (nothing
+    resolved, no card, no child). Finally set `"keywordFallback": false` (or remove the
+    field) and say "count the audit log" again — the echo answers (phrase-only, the shipped
+    default).
+
+    *Verify the state was entered:* the field really read as a boolean (no `keywordFallback`
+    log line in the unified log), the enablement rows were really on, no phrase row really
+    named either audit tool (a phrase hit proves the phrase leg, not the fallback — rule 1),
+    the audit entries were really read off disk, the card was really read off the rendered
+    surface before Decline, the ask was really heard (the TTS reply, or the reply bubble's
+    verbatim text), and the shell command really was enabled while its words were spoken.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **with the switch on, a
+    phrase miss resolved through the keyword leg — the read-only hit auto-ran audited, the
+    destructive hit reached the card and the decline was recorded, a weak wording was asked
+    about and ran nothing, an enabled shell command never resolved; with the switch off the
+    same utterance echoed** — the keyword leg's first real observation. Record the count of
+    utterances per leg and the spoken ask verbatim, never a rate.
+
+    *Void — not fail — if:* ASR or cleanup produced different words (record the transcript),
+    a phrase row named the tool after all, or the switch did not read (the log line shows a
+    non-Bool, or the field was misspelled).
+
+    *Failure:* a destructive keyword hit without a card, a weak match that runs anything, a
+    shell command resolved or spawned by voice, a switch-off utterance that still resolves
+    through the keyword leg, or an ask naming more than three candidates.
+
 ---
 
 ## When this file is wrong

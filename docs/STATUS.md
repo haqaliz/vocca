@@ -10,6 +10,123 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `composite-intent-resolver` unit shipped 2026-10-04 — C13 slice 13: the
+phrase-then-keyword composite resolver ships, opt-in. With `keywordFallback` on in
+`intent-phrases.json`, a phrase miss falls through to the keyword resolver with the shell
+provider closed in both halves; with it off — the default — the composed resolver is the
+phrase resolver exactly as before; no gate passes.**
+`feat/composite-intent-resolver/aliz`. One aspect (`resolver-chain`), seven tasks (the
+record is this entry). Floor **3083 → 3114** (executed 3114). Q1-Q3 decided by the founder
+delegating to the recommendations (2026-10-03): **Q1** the keyword leg behind its own
+switch, default off; **Q2** fix F-C here; **Q3** the shell filter inside the composite.
+
+**What shipped.**
+*F-C fixed* — `KeywordIntentResolver.jsonEscaped` emitted `\u{XX}` (invalid JSON) for
+control characters; it now emits `\u00XX`, two zero-padded hex digits. Pinned by
+`KeywordIntentResolverTests.testEveryControlScalarExpandsToValidJSON` — every scalar
+U+0000-U+001F round-trips through `JSONSerialization` as the same string. Floor 3083→3084.
+*The switch* — `IntentPhraseFile.keywordFallback` (additive, default `false`) and the store's
+decode: absent → off silently; present but not a `Bool` (`1`, `"true"`, `null`) → off with
+one `onInvalid` log (the F1 no-coercion rule; `contains` first so an explicit `null` is not
+read as absent); `true` → on; unknown keys still ignored; a shell row still refused at load
+with the switch on; `version` stays 1; the encoder writes `nil` for off, so **an off file is
+byte-identical to the shape before the switch** (pinned) and the encode→decode round trip
+preserves it (the PRD's gap 2 — no production save caller exists today; the round trip is
+pinned anyway). `IntentPhraseStoreTests` +7. Floor 3084→3091.
+*The chain* — `CompositeIntentResolver` (`VoccaCore/Intent/`, Foundation-free, the empty
+import allow-list holds): the primary first; any non-`.none` answer returned as-is and the
+fallback **never consulted** (spy-proven, A1); on `.none` the fallback resolves against the
+catalog with every excluded provider's rows removed, and a fallback `.toolCall` naming an
+excluded provider is discarded to `.none` (A4 — each half tested alone with a stub, plus the
+real keyword resolver over an enabled shell row); the sub-threshold `.ask` passes through
+with at most three candidates (A3). The excluded set is caller-supplied — `VoccaCore` cannot
+name the shell provider. `CompositeIntentResolverTests` +11. Lint rows: the
+`IntentSeamBoundaryTests` and `ConverseWiringSeamBoundaryTests` permitted sets gained the
+chain's own file, and `AppBootstrap.swift` for the keyword resolver's construction — reviewed
+row edits (the checkpoint before Task 4). Floor 3091→3102.
+*The composition* — `AppBootstrap.composeIntentResolver(file:)`: switch off, a bare
+`PhraseIntentResolver` (the composite **not on the path**, type-pinned); switch on, phrase
+first, `KeywordIntentResolver()` second, `[ShellProvider.providerID]` excluded; and
+`composeIntentResolverProvider(store:)`, the per-turn provider `configure` now wires in place
+of its inline closure — the file is loaded each turn, so flipping the switch needs no relaunch
+(A6, re-read between two resolves with no recompose). `CompositeIntentWiringTests` +4. Floor
+3102→3106.
+*The round trip* — `CompositeIntentRoundTripTests` through the shared executor: a keyword hit
+on an outward-facing tool presents the card with approval `.withheld` and runs only on
+confirm; a decline records the refusal and never invokes; a read-only keyword hit auto-runs
+(`autoRanReadOnly`) and is audited **without a distinct marker** (D1, below); a sub-threshold
+hit asks naming at most three and executes nothing (engine count 0); an enabled shell tool
+never resolves and is never named in a `.toolCall` or an ask; switch off, the same utterance
+resolves nothing. +7. Floor 3106→3113.
+*The probe* — PROBE-INTENT-DEFAULT **unchanged** (`resolver=PhraseIntentResolver resolves=1
+intentResolved=0 spawnsSubprocess=false intentShellRows=0`); the new **PROBE-INTENT-COMPOSITE**
+drives the switch-on composition over temp files inside the zero-network interposer
+(`store.location=temporary store.isDefaultLocation=false resolver=CompositeIntentResolver
+phraseResolved=1 resolved=1 card=yes invoked=1 shellResolved=0 intentShellRows=0
+spawnsSubprocess=false`), with its counterfactual sibling **PROBE-INTENT-COMPOSITE-UNFILTERED**
+(the same drive with the excluded set emptied — it must differ, or `shellResolved=0` would be
+an absence rather than the filter's effect) and the guard-the-guard row. `IntentDrive`'s
+resolver naming no longer degrades a composite to `other`. Floor 3113→3114 (executed 3114).
+
+**The decisions.** **D1 — a read-only keyword hit carries no distinct audit marker:** it
+auto-runs through the existing `autoRanReadOnly` path and is audited exactly as a phrase hit
+is; the record does not say which leg resolved it. Pinned as the shipped behavior
+(`testAReadOnlyKeywordHitAutoRunsAndIsAuditedWithoutADistinctMarker`), not as a guarantee —
+a distinct marker is a later, reviewed audit-shape change. **The posture:** with the switch
+off the shipped opt-in stays two steps (a phrase **and** an enabled tool); with it on, one
+step (an enabled tool) by the user's explicit choice.
+
+**G5 re-anchored once, deliberately** (`composite-pins`): `AppBootstrap.swift` moved with the
+provider recipe and the comment that describes it, so the pin was recomputed with
+`shasum -a 256` on 2026-10-04 **after the unit's last composition-root edit**, never
+edited-to-match — `bc2ce1fdf2…` → **`d46fd9284f…`**, full literal
+`d46fd9284f5142f0d3c616f51bc497a93220f24bd80e2f05ad0c3984e9b6c797`, **across all seven pin
+sites** (`WiringBaselineTests`, `AuthBaselineInvariantTests`, `AgentPresetsInvariantTests`,
+`ActiveProjectInvariantTests`, `SpokenTaskInvariantTests`, `TurnTakingComposedAcceptanceTests`,
+`ReplyRenderingInvariantTests`) plus the floor script's comment; the dictation digests
+unchanged — `1baeb2de…`/`ce70ca10…`, recomputed and compared.
+
+**Known limitations, recorded — not fixed.**
+- **The switch is hand-edited JSON; there is no settings UI** (the named deferral — the F-A
+  shape). Today the only person who can reach the keyword leg is someone who edits the file.
+- **The spoken ask names raw identifiers.** The production catalog carries `displayName: ""`
+  (`IntentWiring.swift:239`), so the ask falls back to `provider/tool` — TTS reads out
+  `dev.vocca.audit/audit.count`. Safe, and poor; spoken display names are a follow-on.
+- **The fallback's `.ask` is guarded by the catalog filter alone.** The composite discards a
+  keyword `.toolCall` naming an excluded provider, but does not inspect an `.ask`; the ask
+  cannot name a shell row because the keyword resolver never sees one (pinned through the
+  real keyword resolver), not because the composite checks it. A primary `.toolCall` naming
+  an excluded provider passes through — its guard is the phrase store's refusal at load.
+- **PROBE-INTENT-DEFAULT reads the real phrase file.** The default drive composes over the
+  real `~/Library/Application Support/Vocca/intent-phrases.json` (pre-existing since
+  `phrase-intent-resolver`; a `HOME` override does not isolate it — Foundation ignores HOME
+  for `applicationSupportDirectory`), so **turning `keywordFallback` on on a dev machine turns
+  that line red** there (`resolver=CompositeIntentResolver` — CI is unaffected). The failure
+  message now names the cause. The test is deliberately **not** skipped conditionally; the
+  fix is a directory seam in `AppBootstrap.configure`, a follow-up that **re-anchors G5
+  again**.
+- **Shell is closed in both halves** of the composite and refused at load by the phrase store
+  — the intent-seam shell leg stays a founder call.
+- R8 mitigated, not retired: a keyword hit is a classifier guess; confident-but-wrong at ≥0.75
+  is possible and unmeasured; the card and `.withheld` approval are the backstop for an
+  outward-facing tool, and a read-only tool auto-runs. N2 stands (an approval asserts a human
+  said yes, cannot verify it).
+
+**The C13 remaining-machinery list loses the composite resolver** (`CAPABILITY_ROADMAP.md`'s
+new amendment carries the current list: the audit-tools arm section, the intent-seam shell
+leg, the §8 trust deferrals, `$N` parameter slots, and this unit's follow-ons — the settings
+row, spoken display names, the directory seam). `ARCHITECTURE.md`'s Intent row and a new
+annotation describe the chain; `README.md` untouched — it never quoted the intent default.
+
+**No gate passes** (nineteenth unit ahead of the uncleared gates); **no resolution rate
+exists**; the shipped default did not move — the switch is absent, so the composed resolver is
+the phrase resolver alone, and the composed default still reads `agents=0
+spawnsSubprocess=false`; zero network; the dictation path digest-untouched. SMOKE 165 is
+**written and runnable** — recorded, never gated; it records utterance counts and the spoken
+ask verbatim, never a rate.
+
+---
+
 **The `reply-text-rendering` unit shipped 2026-10-03 — the CONVERSING surface stops being
 audio-only: the spoken reply is rendered verbatim in a bubble beneath the pill, bounded at
 2000 characters, cleared by the next utterance and by barge-in, and kept when the render
