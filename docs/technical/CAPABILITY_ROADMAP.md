@@ -947,7 +947,7 @@ resolution rate exists.
   (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**.
 
 SMOKE 165 is written and runnable, recorded and never gated; no resolution rate may be
-quoted. Test floor: **3114**.)*
+quoted. Test floor: **3117**.)*
 
 ---
 

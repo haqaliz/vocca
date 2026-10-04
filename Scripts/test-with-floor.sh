@@ -2407,8 +2407,17 @@ set -euo pipefail
 # unchanged). The shipped default did not move (switch absent → off → phrase-only). The
 # count taken from the floor script's own parse in the ratchet commit.
 #
+# `composite-intent-resolver` final-review fix wave (the coding-agent exclusion): +3 —
+# `CompositeIntentWiringTests` +2 (an enabled `vocca.agent` row the bare keyword resolver
+# reaches returns `.none` through the switch-on composition, with its counterfactual; a phrase
+# row naming the agent still resolves — the exclusion closes the keyword leg only);
+# `CompositeIntentRoundTripTests` +1 (an enabled agent row never resolves by keyword through
+# the composite — no card, no description, no invocation). The exact-set pin widened to the
+# two IDs in place (no count change). G5 re-anchored a second time in the unit
+# (d46fd928… → a0dae00b…). The count taken from the floor script's own parse on a clean build.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3114
+MINIMUM_EXECUTED_TESTS=3117
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

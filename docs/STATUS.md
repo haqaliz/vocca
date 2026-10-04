@@ -17,7 +17,7 @@ wired into the converse path — it is not today, below) with the shell and codi
 providers closed in both halves; with it off — the default — the composed resolver is the
 phrase resolver exactly as before; no gate passes.**
 `feat/composite-intent-resolver/aliz`. One aspect (`resolver-chain`), seven tasks (the
-record is this entry). Floor **3083 → 3114** (executed 3114). Q1-Q3 decided by the founder
+record is this entry). Floor **3083 → 3117** (executed 3117; 3114 at the unit record, +3 in the final-review fix wave). Q1-Q3 decided by the founder
 delegating to the recommendations (2026-10-03): **Q1** the keyword leg behind its own
 switch, default off; **Q2** fix F-C here; **Q3** the shell filter inside the composite.
 

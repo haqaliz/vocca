@@ -36,7 +36,7 @@ This file orients a coding agent working in this repository. Read it first.
 > unchanged). **No gate passes** (nineteenth unit ahead of the uncleared gates); no
 > resolution rate exists; the composed default still reads `agents=0
 > spawnsSubprocess=false`. SMOKE 165 is **written** — recorded, never gated, and VOID until
-> the leg is wired. Test floor: **3114**.
+> the leg is wired. Test floor: **3117**.
 >
 > **`reply-text-rendering` (C13 slice, shipped 2026-10-03):** the CONVERSING surface stops
 > being audio-only — **the spoken reply renders verbatim in a bubble beneath the pill**. The
@@ -620,7 +620,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 3114 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 3117 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
