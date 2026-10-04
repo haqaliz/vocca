@@ -341,7 +341,9 @@ final class WiringBaselineTests: XCTestCase {
     /// the `reply-text-rendering` wiring REFACTOR, never edited-to-match).
     ///
     /// Re-anchored once more, deliberately, on 2026-10-04 by `composite-intent-resolver`
-    /// (`bc2ce1fd…` → `d46fd928…`, computed with `shasum -a 256` after the unit's last
+    /// (`bc2ce1fd…` → `d46fd928…` → `a0dae00b…` — two re-anchors in one unit, the second
+    /// when the keyword leg's exclusion widened to the coding-agent provider; each computed
+    /// with `shasum -a 256` after the unit's last
     /// composition-root edit, never edited-to-match): the composition root composes the
     /// per-turn resolver provider over the `keywordFallback` switch. The two dictation
     /// digests are unchanged.
@@ -358,7 +360,7 @@ final class WiringBaselineTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "d46fd9284f5142f0d3c616f51bc497a93220f24bd80e2f05ad0c3984e9b6c797"
+                "a0dae00bf635ad9a6abd3ed45b5f019fc2c286a8636cf76beccb145d4420a9d7"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")

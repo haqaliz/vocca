@@ -76,11 +76,13 @@ a distinct marker is a later, reviewed audit-shape change. **The posture:** with
 off the shipped opt-in stays two steps (a phrase **and** an enabled tool); with it on, one
 step (an enabled tool) by the user's explicit choice.
 
-**G5 re-anchored once, deliberately** (`composite-pins`): `AppBootstrap.swift` moved with the
-provider recipe and the comment that describes it, so the pin was recomputed with
-`shasum -a 256` on 2026-10-04 **after the unit's last composition-root edit**, never
-edited-to-match — `bc2ce1fdf2…` → **`d46fd9284f…`**, full literal
-`d46fd9284f5142f0d3c616f51bc497a93220f24bd80e2f05ad0c3984e9b6c797`, **across all seven pin
+**G5 re-anchored twice in this one unit, deliberately** (`composite-pins`): `AppBootstrap.swift`
+moved with the provider recipe and the comment that describes it, so the pin was recomputed
+with `shasum -a 256` on 2026-10-04 **after the unit's last composition-root edit**, never
+edited-to-match — `bc2ce1fdf2…` → `d46fd9284f…`; then the final review's fix wave widened the
+keyword leg's exclusion to the coding-agent provider (`AppBootstrap.swift` moved again), and
+the pin was recomputed the same way — `d46fd9284f…` → **`a0dae00bf6…`**, full literal
+`a0dae00bf635ad9a6abd3ed45b5f019fc2c286a8636cf76beccb145d4420a9d7`, **across all seven pin
 sites** (`WiringBaselineTests`, `AuthBaselineInvariantTests`, `AgentPresetsInvariantTests`,
 `ActiveProjectInvariantTests`, `SpokenTaskInvariantTests`, `TurnTakingComposedAcceptanceTests`,
 `ReplyRenderingInvariantTests`) plus the floor script's comment; the dictation digests

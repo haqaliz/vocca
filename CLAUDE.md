@@ -22,9 +22,9 @@ This file orients a coding agent working in this repository. Read it first.
 > keyword hit carries no distinct audit marker), the spoken ask names raw `provider/tool` IDs,
 > the fallback's `.ask` is guarded by the catalog filter alone, and PROBE-INTENT-DEFAULT reads
 > the real phrase file — switching it on on a dev machine turns that line red (the fix, a
-> directory seam in `configure`, re-anchors G5 again). **G5 re-anchored once, deliberately**
-> (`bc2ce1fdf2…` → `d46fd9284f…`, seven pin sites; dictation digests `1baeb2de…`/`ce70ca10…`
-> unchanged). **No gate passes** (nineteenth unit ahead of the uncleared gates); no resolution
+> directory seam in `configure`, re-anchors G5 again). **G5 re-anchored twice, deliberately**
+> (`bc2ce1fdf2…` → `d46fd9284f…` → `a0dae00bf6…`, the second for the agent exclusion; seven pin
+> sites; dictation digests `1baeb2de…`/`ce70ca10…` unchanged). **No gate passes** (nineteenth unit ahead of the uncleared gates); no resolution
 > rate exists; the composed default still reads `agents=0 spawnsSubprocess=false`. SMOKE 165 is
 > **written and runnable** — recorded, never gated. Test floor: **3114**.
 >

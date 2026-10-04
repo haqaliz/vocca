@@ -433,7 +433,8 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > the shell provider excluded (PROBE-INTENT-COMPOSITE). A keyword hit takes the same path as a
 > phrase hit — the shared executor, approval `.withheld`, the card for an outward-facing tool,
 > the audit record; a read-only keyword hit auto-runs with no distinct audit marker (D1). G5
-> was re-anchored once, deliberately: `bc2ce1fd…` → `d46fd928…`; the dictation digests are
+> was re-anchored twice, deliberately: `bc2ce1fd…` → `d46fd928…` → `a0dae00b…` (the second
+> when the keyword exclusion widened to the coding-agent provider); the dictation digests are
 > unchanged.
 
 > *Annotated (`shell-provider`, 2026-09-22) — the shell row above and the widened transport

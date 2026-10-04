@@ -2400,7 +2400,8 @@ set -euo pipefail
 # guard-the-guard; the composite line and its `-UNFILTERED` counterfactual are asserted
 # inside the existing default-configuration drive). The lint rows in
 # `IntentSeamBoundaryTests`/`ConverseWiringSeamBoundaryTests` are reviewed row edits, no
-# count change. The G5 pin re-anchored once, deliberately (bc2ce1fd… → d46fd928…, computed
+# count change. The G5 pin re-anchored twice, deliberately (bc2ce1fd… → d46fd928… →
+# a0dae00b…, the second for the keyword leg's coding-agent exclusion; each computed
 # with `shasum -a 256` after the unit's last composition-root edit, never edited-to-match;
 # all seven pin sites carry the same literal; the dictation pair 1baeb2de…/ce70ca10…
 # unchanged). The shipped default did not move (switch absent → off → phrase-only). The

@@ -912,7 +912,8 @@ default is unchanged. Shipped:
   `AppBootstrap.configure`, a follow-up that re-anchors G5 again.
 
 **The `phrase-then-keyword composite resolver` retires from the remaining-machinery list
-below.** G5 re-anchored once, deliberately (`bc2ce1fd…` → `d46fd928…`, computed with
+below.** G5 re-anchored twice, deliberately (`bc2ce1fd…` → `d46fd928…` → `a0dae00b…`, the
+second for the coding-agent exclusion; each computed with
 `shasum -a 256` on 2026-10-04 after the unit's last composition-root edit, never
 edited-to-match; all seven pin sites; dictation digests unchanged). No gate passes; no
 resolution rate exists.
