@@ -414,7 +414,7 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > `VoccaActions/Config/`: shape-only, tolerant, caps that refuse, and **a shell-target row
 > refused at load**). `composeIntentWiring` takes a per-turn `resolverProvider`, read each
 > turn and never at composition. **The composed default is now that phrase resolver**, not
-> `NullIntentResolver`: it voice-acts only after the user writes a phrase **and** enables the
+> `NullIntentResolver`: it voice-acts [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] only after the user writes a phrase **and** enables the
 > tool, and with no file it resolves nothing (`intentResolved=0` unchanged). The
 > guardrail-7 claim is now **two real classifiers, not composed together**. G5 was
 > re-anchored once, deliberately: `e9aa45bb…` → `eba72eaf…`; the dictation digests are
@@ -423,14 +423,21 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > *Annotated (`composite-intent-resolver`, 2026-10-04): the two classifiers compose, opt-in.*
 > `CompositeIntentResolver` (`VoccaCore/Intent/`, Foundation-free) asks the phrase resolver
 > first and returns any non-`.none` answer untouched; on `.none` it asks `KeywordIntentResolver`
-> over the catalog with every `dev.vocca.shell` row removed, and discards a keyword `.toolCall`
-> that names the shell provider anyway (the identifier is supplied by the composition root —
-> `VoccaCore` cannot name it). The switch is `keywordFallback`, an additive field of
+> over the catalog with every `dev.vocca.shell` and `vocca.agent` row removed, and discards a
+> keyword `.toolCall` that names either provider anyway (the identifiers are supplied by the
+> composition root — `VoccaCore` cannot name them; the agent exclusion is deliberate, a phrase
+> row may still name an agent; the match is case-sensitive — a hand-edited `DEV.VOCCA.SHELL`
+> row fails as an unknown tool at the executor, no child can result). The switch is `keywordFallback`, an additive field of
 > `intent-phrases.json` (absent → off, the F1 no-coercion rule, read per turn, hand-edited —
 > no settings row). **The composed default is still `PhraseIntentResolver`**: with the switch
 > off, `AppBootstrap.composeIntentResolver(file:)` returns the bare phrase resolver and the
 > composite is not on the path (PROBE-INTENT-DEFAULT unchanged); with it on, the composite with
-> the shell provider excluded (PROBE-INTENT-COMPOSITE). A keyword hit takes the same path as a
+> the shell and coding-agent providers excluded (PROBE-INTENT-COMPOSITE). **The intent leg is
+> not wired into the shipped converse path:** `AppBootstrap.configure` calls
+> `composeConverseWiring` without `intentProvider`/`intentActionHandler` (nil defaults), so in
+> the real app neither resolver is reached by voice — every utterance echoes; only tests and
+> probes drive `root.intentWiring` (pre-existing since `phrase-intent-resolver`; wiring it is
+> the recommended next unit, a founder call). Once wired, a keyword hit takes the same path as a
 > phrase hit — the shared executor, approval `.withheld`, the card for an outward-facing tool,
 > the audit record; a read-only keyword hit auto-runs with no distinct audit marker (D1). G5
 > was re-anchored twice, deliberately: `bc2ce1fd…` → `d46fd928…` → `a0dae00b…` (the second

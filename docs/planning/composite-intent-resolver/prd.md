@@ -4,7 +4,7 @@
 > (`docs/planning/_card/issue.md`) + Phase 2 note (`understanding.md`). Q1–Q3 were decided by the
 > founder delegating to the recommendations (2026-10-03): **Q1** keyword leg behind its own switch,
 > default off; **Q2** fix F-C here; **Q3** shell filter inside the composite.
-> No code exists for this unit yet. No gate has passed (eighteenth unit ahead of uncleared gates).
+> No code exists for this unit yet. No gate has passed (nineteenth unit ahead of uncleared gates).
 
 ## Problem Statement
 
@@ -122,5 +122,5 @@ Nice-to-have (deferred, named)
 ### The hard question
 The question I'd want answered before greenlighting this: with the switch defaulting off and no settings
 UI, who flips it? If the only answer is the founder hand-editing JSON, this unit ships a capability
-nobody but the founder can reach — is that worth an eighteenth unit ahead of uncleared gates, versus
+nobody but the founder can reach — is that worth a nineteenth unit ahead of uncleared gates, versus
 spending the slot on gate evidence (the external-users leg)?

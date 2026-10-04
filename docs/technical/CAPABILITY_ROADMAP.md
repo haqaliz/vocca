@@ -549,7 +549,7 @@ intent layer's S1**, the second real intent classifier and the user's tuning pat
 - **The per-turn resolver provider** on `composeIntentWiring`: the file is read each turn,
   never at composition, and an edit takes effect without a relaunch.
 - **The N1 flip.** The composed default is now a `PhraseIntentResolver` over the user's file,
-  so the shipped configuration voice-acts only after a two-step opt-in (a phrase **and** an
+  so the shipped configuration voice-acts [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] only after a two-step opt-in (a phrase **and** an
   enabled tool). With no file it resolves nothing, as the null default did.
 - **PROBE-INTENT-PHRASE** inside the zero-network interposer.
 
@@ -882,12 +882,21 @@ Test floor: **3083**.)*
 *(Amended by the `composite-intent-resolver` unit, 2026-10-04: **C13 slice 13 — the
 phrase-then-keyword composite resolver ships, opt-in.** The keyword resolver becomes
 reachable behind the phrase resolver, behind its own switch, default off — the shipped
-default is unchanged. Shipped:
+default is unchanged. **The leg is not reachable by voice in the shipped app:**
+`AppBootstrap.configure` calls `composeConverseWiring` without
+`intentProvider`/`intentActionHandler` (nil defaults, `ConverseWiring.swift:89-91`), so every
+utterance gets the echo reply and neither the phrase resolver nor the composite runs outside
+tests and probes — pre-existing since `phrase-intent-resolver`, not wired here (a founder
+call; the recommended next unit). Shipped:
 - **The chain**: `CompositeIntentResolver` (`VoccaCore/Intent/`, Foundation-free) — the
   primary first; any non-`.none` answer returned as-is and the fallback never consulted; on
   `.none` the fallback resolves against the catalog with every excluded provider's rows
   removed, and a fallback `.toolCall` naming an excluded provider is discarded (the shell
   leg closed twice, belt and braces).
+- **The exclusion — shell and coding agents**, deliberately: the keyword leg never selects a
+  `dev.vocca.shell` or `vocca.agent` row; a phrase row may still name an agent (explicit user
+  authoring, pinned). Provider-ID matching is case-sensitive — a hand-edited
+  `DEV.VOCCA.SHELL` row fails as an unknown tool at the audit executor; no child can result.
 - **The switch**: `keywordFallback`, an additive top-level field of `intent-phrases.json`
   (`IntentPhraseFile.keywordFallback`; absent → off; the F1 no-coercion rule — `1`/`"true"`
   are off with one log; an off file encodes byte-identically to the shape before the
@@ -895,7 +904,8 @@ default is unchanged. Shipped:
   JSON; no settings UI** (the named deferral).
 - **The composition**: `AppBootstrap.composeIntentResolver(file:)` — switch off, a bare
   `PhraseIntentResolver` (the composite not on the path); switch on, phrase first,
-  `KeywordIntentResolver` second, `ShellProvider.providerID` excluded — and
+  `KeywordIntentResolver` second, `ShellProvider.providerID` and
+  `CodingAgentProvider.providerID` excluded — and
   `composeIntentResolverProvider(store:)`, the per-turn provider `configure` wires.
 - **F-C fixed**: `KeywordIntentResolver.jsonEscaped` emits `\u00XX` for every control
   character (U+0000-U+001F round-trip through `JSONSerialization`).
@@ -919,6 +929,9 @@ edited-to-match; all seven pin sites; dictation digests unchanged). No gate pass
 resolution rate exists.
 
 **What is still NOT built — the remaining C13 machinery:**
+- **the intent leg wired into the shipped converse path** (`configure` passes no
+  `intentProvider`/`intentActionHandler` — the app echoes every utterance; the first time
+  voice can act, its card surface reviewed; a founder call and the recommended next unit)
 - an **audit-tools arm section** in the Actions tab
 - the **intent-seam shell leg** (a voice path to shell commands; refused at load and closed
   in both halves of the composite by decision, and reversing it is a founder call)
