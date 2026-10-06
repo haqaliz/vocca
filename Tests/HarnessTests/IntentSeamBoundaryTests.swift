@@ -162,9 +162,6 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // returns the resolution vocabulary (the closure type's signature). It
                 // produces what the driver branches on; it never branches itself.
                 "VoccaBootstrap/IntentWiring.swift",
-                // `converse-intent-wiring`'s reviewed widening — the converse intent closures'
-                // provider returns the wiring's resolution as-is; it never branches on it.
-                "VoccaBootstrap/AppBootstrap.swift",
             ]
         ),
         (

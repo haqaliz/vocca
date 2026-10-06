@@ -1365,44 +1365,6 @@ public enum AppBootstrap {
     ) -> @Sendable @MainActor () async -> any IntentResolver {
         { composeIntentResolver(file: await store.load()) }
     }
-
-    /// The fixed spoken line for a voice action whose answer is the confirmation card
-    /// (`converse-intent-wiring` Q1): the card is the surface, so the reply says where to look
-    /// rather than echoing the user's words back.
-    public static let confirmOnScreenReply = "Confirm on screen."
-
-    /// **The converse driver's intent slots** (`converse-intent-wiring` D1-D3): the two lazy
-    /// closures `configure` passes to `composeConverseWiring`, reading `root.intentWiring` at
-    /// call time — never at construction, so a wiring composed after the converse task still
-    /// reaches it — through the caller's accessor (`configure`'s weak box: the driver retains
-    /// these closures, so a strong root would cycle). A released root or an empty slot answers
-    /// nil, the driver's existing echo.
-    ///
-    /// The provider maps the wiring's resolution through as-is (`.none` echoes like nil). The
-    /// handler is `performAction` behind one wrapper (D2), kept here so `IntentWiring`'s
-    /// honest-drop contract is untouched: a non-nil answer is returned unchanged — the confirm
-    /// line never replaces an ack or the failure copy — and a nil answer becomes
-    /// ``confirmOnScreenReply`` only while a confirmation card is showing; with no card it stays
-    /// nil and the driver echoes.
-    public static func composeConverseIntentClosures(
-        root: @escaping @Sendable () -> DictationLoopRoot?
-    ) -> (
-        provider: @Sendable (String) async -> IntentResolution?,
-        handler: @Sendable (ActionInvocation, String) async -> String?
-    ) {
-        let provider: @Sendable (String) async -> IntentResolution? = { @MainActor utterance in
-            guard let wiring = root()?.intentWiring else { return nil }
-            return await wiring.resolve(utterance)
-        }
-        let handler: @Sendable (ActionInvocation, String) async -> String? = {
-            @MainActor invocation, utterance in
-            guard let wiring = root()?.intentWiring else { return nil }
-            if let reply = await wiring.performAction(invocation, utterance) { return reply }
-            guard root()?.widgetStore.state.confirmation != nil else { return nil }
-            return confirmOnScreenReply
-        }
-        return (provider: provider, handler: handler)
-    }
 }
 
 // MARK: - The failsafe surface the loop presents on

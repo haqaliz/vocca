@@ -70,6 +70,8 @@ final class ConverseIntentClosuresTests: XCTestCase {
     private func rehosted<Provider>(
         _ wiring: IntentWiring<Provider>, auditStore: FileSystemActionAuditStore
     ) -> IntentWiring<AuditActionProvider> {
+        // The static reads only `resolve`/`performAction` from the wiring, so this copied
+        // executor is never reached.
         let unreached = AuditActionProvider(store: auditStore)
         return IntentWiring(
             resolve: wiring.resolve,
@@ -304,8 +306,23 @@ final class ConverseIntentClosuresTests: XCTestCase {
         XCTAssertNil(direct, "precondition: the wiring answers `.notInvoked` with nil")
         XCTAssertNil(harness.root.widgetStore.state.confirmation, "precondition: no card")
 
+        let invokesBefore = provider.invokeCount
+        let entriesBefore = await harness.auditStore.load()
+
         let reply = await closures.handler(invocation, "count the audit log")
         XCTAssertNil(reply, "no card → nil → the driver's echo, never the confirm line")
+        // The handler delegates to `performAction` exactly once (the precondition call above
+        // is the only other run) and adds nothing of its own: one more invoke, one more
+        // `autoRanReadOnly` record — never a refusal, never a card.
+        XCTAssertEqual(
+            provider.invokeCount, invokesBefore + 1, "one delegation, no retry, no extra invoke")
+        let entriesAfter = await harness.auditStore.load()
+        XCTAssertEqual(entriesAfter.count, entriesBefore.count + 1)
+        XCTAssertEqual(
+            entriesAfter.map(\.decision),
+            entriesBefore.map(\.decision) + [.autoRanReadOnly],
+            "the nil path records the read-only auto-run and nothing else")
+        XCTAssertNil(harness.root.widgetStore.state.confirmation, "still no card afterwards")
     }
 
     // MARK: - B7: the failure copy is never replaced
