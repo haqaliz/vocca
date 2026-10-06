@@ -301,6 +301,9 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // names the invocation in `describe`/`invoke`'s signatures. One of the five
                 // rows the conformance costs.
                 "VoccaNetworkProbe/IntentDrive.swift",
+                // `converse-intent-wiring`'s reviewed widening — the converse intent closures'
+                // handler signature passes the invocation to `performAction`; never decides.
+                "VoccaBootstrap/AppBootstrap.swift",
             ]
         ),
         (
