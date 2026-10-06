@@ -302,6 +302,14 @@ final class SpokenTaskInvariantTests: XCTestCase {
     /// wired the converse reply sink into the widget store's `presentReply(_:)` fold, so the
     /// G5 pin was re-anchored deliberately and this asserts the honest actual: the value the
     /// tree holds.
+    ///
+    /// Re-anchored once more, deliberately, on 2026-10-04 by `composite-intent-resolver`
+    /// (`bc2ce1fd…` → `d46fd928…` → `a0dae00b…` — two re-anchors in one unit, the second
+    /// when the keyword leg's exclusion widened to the coding-agent provider; each computed
+    /// with `shasum -a 256` after the unit's last
+    /// composition-root edit, never edited-to-match): the composition root composes the
+    /// per-turn resolver provider over the `keywordFallback` switch. The two dictation
+    /// digests are unchanged.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -315,7 +323,7 @@ final class SpokenTaskInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "bc2ce1fdf261819b8477b7951a6d506c7980c072a674ffc77311014c59b76bd6"
+                "a0dae00bf635ad9a6abd3ed45b5f019fc2c286a8636cf76beccb145d4420a9d7"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")

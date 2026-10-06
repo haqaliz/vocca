@@ -153,7 +153,8 @@ public actor IntentPhraseStore {
                 version: file.version,
                 phrases: file.phrases.map {
                     RowDTO(phrase: $0.phrase, providerID: $0.providerID, toolID: $0.toolID)
-                }))
+                },
+                keywordFallback: file.keywordFallback ? true : nil))
     }
 
     /// The table ``load()`` reads from `data` — never throws; every refusal goes through
@@ -224,7 +225,11 @@ public actor IntentPhraseStore {
                 "intent-phrases: refusing \(phrases.count) phrases (cap \(maximumPhrases))")
             return .empty
         }
-        return IntentPhraseFile(version: decoded.version, phrases: phrases)
+        if decoded.keywordFallbackInvalid {
+            onInvalid("intent-phrases: ignoring keywordFallback: not a boolean (the switch stays off)")
+        }
+        return IntentPhraseFile(
+            version: decoded.version, phrases: phrases, keywordFallback: decoded.keywordFallback)
     }
 
     // MARK: - The wire shapes
@@ -238,6 +243,9 @@ public actor IntentPhraseStore {
     private struct FileDTO: Encodable {
         let version: Int
         let phrases: [RowDTO]
+        /// `nil` is omitted from the bytes: an off file is byte-identical to the shape before
+        /// the switch existed.
+        let keywordFallback: Bool?
     }
 
     /// One array element, judged alone: a row that does not decode as three strings is `nil`,
@@ -253,6 +261,30 @@ public actor IntentPhraseStore {
     private struct LossyFileDTO: Decodable {
         let version: Int
         let phrases: [LossyRow]
+        /// Absent is off silently; present but not a `Bool` (`1`, `"true"`, `null`) is off and
+        /// flagged — Swift's decoder refuses the coercion, which is the F1 rule.
+        let keywordFallback: Bool
+        let keywordFallbackInvalid: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case version, phrases, keywordFallback
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            version = try container.decode(Int.self, forKey: .version)
+            phrases = try container.decode([LossyRow].self, forKey: .phrases)
+            do {
+                // `contains` first: `decodeIfPresent` would read an explicit `null` as absent.
+                keywordFallback =
+                    container.contains(.keywordFallback)
+                    ? try container.decode(Bool.self, forKey: .keywordFallback) : false
+                keywordFallbackInvalid = false
+            } catch {
+                keywordFallback = false
+                keywordFallbackInvalid = true
+            }
+        }
     }
 
     // MARK: - The one naming convention this file owns
@@ -286,8 +318,12 @@ public struct IntentPhraseFile: Equatable, Sendable {
     /// No phrases — the file's empty spelling, and the answer to every refusal.
     public static let empty = IntentPhraseFile(version: 1, phrases: [])
 
-    public init(version: Int = 1, phrases: [PhraseIntentRow]) {
+    /// Whether the keyword fallback is on. Absent in the file is off.
+    public let keywordFallback: Bool
+
+    public init(version: Int = 1, phrases: [PhraseIntentRow], keywordFallback: Bool = false) {
         self.version = version
         self.phrases = phrases
+        self.keywordFallback = keywordFallback
     }
 }

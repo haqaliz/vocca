@@ -23,7 +23,7 @@ import VoccaInject
 import VoccaUI
 
 // The probe's half of the zero-network invariant for the `intent-layer` voice path (C13 slice
-// 6, `probe` aspect): **two reports, one drive** —
+// 6, `probe` aspect): **five reports, one drive** —
 //
 // - **PROBE-INTENT** — the composed intent recipe's full voice round trip over probe doubles:
 //   real temp-directory stores, a call-logged probe provider, the real `KeywordIntentResolver`
@@ -32,22 +32,32 @@ import VoccaUI
 //   The trip is utterance → resolve → gate → `.confirmationRequired` → card → confirm → the
 //   provider's `invoke` counted → the audit row reconstructing off the disk.
 // - **PROBE-INTENT-DEFAULT** — the composed default's facts, read off the **composed root**
-//   `AppBootstrap.configure` built: the `NullIntentResolver` fact carrier (R7's unwired
-//   posture), one resolution through the composed wiring resolving nothing (`intentResolved=0`
-//   as an effect, distinguishable from "the drive didn't run" by the counted `resolves=1` next
-//   to it), and the composed wiring's declared `spawnsSubprocess=false` (the D2 narrowed
-//   promise extended to the voice leg).
+//   `AppBootstrap.configure` built: the `PhraseIntentResolver` its per-turn provider builds
+//   with the `keywordFallback` switch off (the shipped default since `phrase-intent-resolver`'s
+//   N1 flip; `composite-intent-resolver` leaves it so), one resolution through the composed
+//   wiring resolving nothing (`intentResolved=0` as an effect, distinguishable from "the drive
+//   didn't run" by the counted `resolves=1` next to it), and the composed wiring's declared
+//   `spawnsSubprocess=false` (the D2 narrowed promise extended to the voice leg).
+// - **PROBE-INTENT-PHRASE** — the seeded phrase round trip over a temp phrase file.
+// - **PROBE-INTENT-COMPOSITE** — the switch-on chain (`composite-intent-resolver` A8), built by
+//   the composition root's own per-turn provider over a temp phrase file with the switch on: a
+//   phrase hit, a keyword hit through the card, and an enabled shell row resolving to nothing.
+// - **PROBE-INTENT-COMPOSITE-UNFILTERED** — the same drive with only the chain's excluded set
+//   emptied: the guard-the-guard counterfactual, which must resolve the shell row.
 //
 // ## Why the default leg reads the composed root
 //
-// `intentResolved=0` is only an *effect of the composed root's Null resolver* if the resolution
-// runs through the wiring `configure` actually composed. The drive reads `composedRoot.intentWiring`
-// and `composedRoot.intentResolver` — the slots `configure` fills — so a composition that wired a
-// resolver (N1's flip) flips the report and the guard-the-guard refuses the flip as a reviewed
-// edit. The one read this costs is the real `action-config.json`; `ActionConfigStore.load()`
-// never creates or rewrites anything ("empty config" is a reading, never a repair), and the Null
-// resolver answers `.none` for every catalog, so the field is deterministic even on a machine
-// with tools enabled.
+// `intentResolved=0` is only an *effect of the composed root's resolver* if the resolution runs
+// through the wiring `configure` actually composed. The drive reads `composedRoot.intentWiring`
+// and `composedRoot.intentResolverProvider` — the slots `configure` fills — so a composition that
+// wired a different resolver flips the report and the guard-the-guard refuses the flip as a
+// reviewed edit. The reads this costs are the real `action-config.json` and
+// `intent-phrases.json`; neither store's `load()` creates or rewrites anything ("empty" is a
+// reading, never a repair). The utterance names the probe's own tool, which no real phrase file
+// or enablement row carries, so the field is deterministic on a machine with tools enabled. The
+// switch-on chain is driven over temp files instead (PROBE-INTENT-COMPOSITE): the real phrase
+// file's switch is the user's, so a default line read off it would depend on whose machine ran
+// the probe.
 //
 // ## What a green PROBE-INTENT does NOT prove
 //
@@ -73,7 +83,7 @@ import VoccaUI
 // - `binding` — the confirmed entry's summary is the card's shown sentence: the N2 binding
 //   live in the voice path.
 //
-// PROBE-INTENT-DEFAULT: `resolver=NullIntentResolver resolves=1 intentResolved=0
+// PROBE-INTENT-DEFAULT: `resolver=PhraseIntentResolver resolves=1 intentResolved=0
 // spawnsSubprocess=false intentShellRows=0` — `resolver` derived from the composed root's
 // slot's own dynamic type, `resolves`/`intentResolved` from the resolution the drive actually
 // performed through the composed wiring, `spawnsSubprocess` from the composed wiring's
@@ -81,10 +91,18 @@ import VoccaUI
 // arm-surface-only decision (shell is never composed into the intent seam, the `shell-provider`
 // founder decision) as a reported fact: the voice leg has no learned phrase that could ever
 // resolve to a shell command.
+//
+// PROBE-INTENT-COMPOSITE: `store.location=temporary store.isDefaultLocation=false
+// resolver=CompositeIntentResolver phraseResolved=1 resolved=1 card=yes invoked=1
+// shellResolved=0 intentShellRows=0 spawnsSubprocess=false` — `resolver` from the dynamic type
+// the root's per-turn provider built, `phraseResolved`/`resolved`/`shellResolved` from the
+// resolutions the drive performed, `invoked` from the provider's own call log, and
+// `intentShellRows` counted off the chain's own phrase table and exclusion set. The UNFILTERED
+// line differs in exactly `shellResolved=1 intentShellRows=1`.
 extension VoccaNetworkProbe {
 
-    /// The intent drive's observation: the round trip and the composed default's facts, as two
-    /// lines of `key=value` fields.
+    /// The intent drive's observation: the round trips and the composed default's facts, as
+    /// five lines of `key=value` fields.
     struct IntentDrive {
         /// The PROBE-INTENT line — the voice round trip's effects.
         let report: String
@@ -94,6 +112,13 @@ extension VoccaNetworkProbe {
 
         /// The PROBE-INTENT-PHRASE line — the seeded phrase round trip's effects.
         let phraseReport: String
+
+        /// The PROBE-INTENT-COMPOSITE line — the switch-on composition's effects.
+        let compositeReport: String
+
+        /// The PROBE-INTENT-COMPOSITE-UNFILTERED line — the same drive with the composed
+        /// chain's excluded set emptied, the composite line's guard-the-guard counterfactual.
+        let compositeUnfilteredReport: String
 
         /// A type minted **by this drive**, from which the composition it drove derives its
         /// module's coverage entry — the witness rule every sibling drive follows.
@@ -239,9 +264,9 @@ extension VoccaNetworkProbe {
 
         // The composed default's facts — read off the root `configure` built, never off a
         // composition this drive made for itself: the resolver fact carrier's own dynamic type,
-        // one resolution through the composed wiring (the real config store answers; the Null
-        // resolver answers `.none` for every catalog), and the composed wiring's declared
-        // no-spawn fact.
+        // one resolution through the composed wiring (the real config store answers; the probe
+        // tool's utterance names nothing a real phrase file or enablement row carries, so the
+        // phrase default answers `.none`), and the composed wiring's declared no-spawn fact.
         var resolverFact = "none"
         var resolves = 0
         var intentResolved = 0
@@ -279,6 +304,8 @@ extension VoccaNetworkProbe {
             + composedTable.filter { $0.providerID == ShellProvider.providerID }.count
 
         let phraseReport = await runPhraseRoundTrip(base: base)
+        let compositeReport = await runCompositeRoundTrip(base: base, unfiltered: false)
+        let compositeUnfilteredReport = await runCompositeRoundTrip(base: base, unfiltered: true)
 
         // A second store over the same directory: the reader shares nothing with the writer, so
         // what it returns came off the disk.
@@ -311,6 +338,8 @@ extension VoccaNetworkProbe {
                 "intentShellRows=\(shellRows)",
             ].joined(separator: " "),
             phraseReport: phraseReport,
+            compositeReport: compositeReport,
+            compositeUnfilteredReport: compositeUnfilteredReport,
             moduleWitness: type(of: wiring))
     }
 
@@ -394,6 +423,132 @@ extension VoccaNetworkProbe {
             "card=\(card)",
             "invoked=\(provider.invokeCount)",
             "shellRefused=\(refusals.withLock { $0 })",
+        ].joined(separator: " ")
+    }
+
+    /// **The switch-on composition** (`composite-intent-resolver` A8): a real
+    /// `intent-phrases.json` in a temp directory with `"keywordFallback": true` and one phrase
+    /// the keyword table cannot match, loaded by the real store and built by the composition
+    /// root's **own** per-turn provider — never a chain this drive assembles — over a catalog
+    /// holding the probe's tool and an enabled `dev.vocca.shell` row. Three utterances: the
+    /// phrase (the primary leg), an utterance no phrase names (the keyword leg, carried to the
+    /// card and confirmed through the surface's own closure), and the shell row's own words.
+    ///
+    /// `unfiltered` is the guard-the-guard counterfactual: the same drive over the same composed
+    /// chain with only its excluded-provider set emptied. Its line must report the shell
+    /// resolution the filtered line refuses — otherwise `shellResolved=0` could be an utterance
+    /// that never matched anything rather than the filter's effect. Nothing performs the shell
+    /// resolution: it is read, never submitted, so neither run creates a child.
+    @MainActor
+    private static func runCompositeRoundTrip(base: URL, unfiltered: Bool) async -> String {
+        let leg = unfiltered ? "composite-unfiltered" : "composite"
+        let phraseDirectory = base.appendingPathComponent("\(leg)-phrases")
+        let configStore = ActionConfigStore(directory: base.appendingPathComponent("\(leg)-config"))
+        let auditStore = FileSystemActionAuditStore(
+            directory: base.appendingPathComponent("\(leg)-audit"))
+        let provider = IntentProbeProvider()
+        let defaultLocation = IntentPhraseStore.defaultDirectory(
+            applicationSupport: FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first,
+            home: FileManager.default.homeDirectoryForCurrentUser)
+
+        // Raw bytes, the way a hand edit writes the switch: the store's decode is on the path.
+        let file = """
+            {"version": 1, "keywordFallback": true, "phrases": [\
+            {"phrase": "fire away", "providerID": "\(IntentProbeProvider.providerID)", \
+            "toolID": "\(IntentProbeProvider.toolID)"}]}
+            """
+        try? FileManager.default.createDirectory(
+            at: phraseDirectory, withIntermediateDirectories: true)
+        try? Data(file.utf8).write(
+            to: phraseDirectory.appendingPathComponent("intent-phrases.json"))
+
+        // The composition root's own per-turn provider — the one `configure` wires.
+        let composed = AppBootstrap.composeIntentResolverProvider(
+            store: IntentPhraseStore(directory: phraseDirectory))
+        let built = await composed()
+        let chain = built as? CompositeIntentResolver
+        let resolverFact =
+            String(reflecting: type(of: built)).contains("CompositeIntentResolver")
+            ? "CompositeIntentResolver" : "other"
+
+        let root = makeIntentDriveRoot()
+        let surface = AppBootstrap.composeActionWiring(
+            configStore: configStore,
+            auditStore: auditStore,
+            provider: provider,
+            sessionActive: { false },
+            root: root)
+        let wiring = AppBootstrap.composeIntentWiring(
+            configStore: configStore,
+            provider: provider,
+            executor: ActionExecutor(provider: provider, store: auditStore),
+            resolverProvider: {
+                let resolver = await composed()
+                guard unfiltered, let chain = resolver as? CompositeIntentResolver else {
+                    return resolver
+                }
+                return CompositeIntentResolver(
+                    primary: chain.primary, fallback: chain.fallback, excludedProviderIDs: [])
+            },
+            root: root)
+        try? await surface.setToolEnabled(
+            IntentProbeProvider.providerID, IntentProbeProvider.toolID, true)
+        // The shell row enabled — the threat is a user who enabled a command and switched the
+        // fallback on; the exclusion must hold anyway (Q3).
+        try? await surface.setToolEnabled(ShellProvider.providerID, "empty-downloads", true)
+
+        var phraseResolved = 0
+        if case .toolCall = await wiring.resolve("Fire away.") {
+            phraseResolved = 1
+        }
+
+        var shellResolved = 0
+        if case .toolCall(let invocation) = await wiring.resolve("empty downloads"),
+            invocation.providerID == ShellProvider.providerID
+        {
+            shellResolved = 1
+        }
+
+        var resolved = 0
+        var card = "no"
+        if case .toolCall(let invocation) = await wiring.resolve("use the probe tool") {
+            resolved = 1
+            _ = await wiring.performAction(invocation, "use the probe tool")
+            if root.widgetStore.state.confirmation != nil {
+                card = "yes"
+            }
+            await surface.confirm()
+        }
+
+        // Every shell row either leg could reach: the phrase table the chain was built over,
+        // the shipped synonym table, and — unless the composed exclusion set closes the shell
+        // provider — the enabled shell rows the fallback's catalog would carry. Read off the
+        // chain's own fields, so a composition that dropped the shell identifier flips it.
+        let excluded: Set<String> = unfiltered ? [] : (chain?.excludedProviderIDs ?? [])
+        let phraseTable = (chain?.primary as? PhraseIntentResolver)?.rows ?? []
+        let enabledShellRows = await configStore.load().enablement.filter {
+            $0.providerID == ShellProvider.providerID
+        }.count
+        let shellRows =
+            phraseTable.filter { $0.providerID == ShellProvider.providerID }.count
+            + KeywordIntentResolver.shippedSynonyms.filter {
+                $0.providerID == ShellProvider.providerID
+            }.count
+            + (excluded.contains(ShellProvider.providerID) ? 0 : enabledShellRows)
+
+        return [
+            "store.location=\(phraseDirectory.path.hasPrefix(FileManager.default.temporaryDirectory.path) ? "temporary" : "elsewhere")",
+            "store.isDefaultLocation=\(phraseDirectory == defaultLocation)",
+            "resolver=\(resolverFact)",
+            "phraseResolved=\(phraseResolved)",
+            "resolved=\(resolved)",
+            "card=\(card)",
+            "invoked=\(provider.invokeCount)",
+            "shellResolved=\(shellResolved)",
+            "intentShellRows=\(shellRows)",
+            "spawnsSubprocess=\(wiring.spawnsSubprocess)",
         ].joined(separator: " ")
     }
 

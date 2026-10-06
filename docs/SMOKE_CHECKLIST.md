@@ -3473,6 +3473,7 @@ actually have been entered before a row means anything.
 
     *Void — not fail — if:* the utterance was echoed because ASR or cleanup produced
     different words (record the transcript), or the enablement edit was not in place.
+    Also void while the converse path does not pass the intent leg (`AppBootstrap` calls `composeConverseWiring` without `intentProvider`/`intentActionHandler`): the app echoes, nothing resolves — record VOID, not FAIL (added 2026-10-04).
 
     *Failure:* a card for a read-only tool, a tool other than `audit.count` running, or no
     audit entry for a run that happened.
@@ -3491,7 +3492,7 @@ actually have been entered before a row means anything.
     never-gated note.
 
     *Void — not fail — if:* ASR produced different words for either utterance (record the
-    transcripts).
+    transcripts). Also void while the converse path does not pass the intent leg (`AppBootstrap` calls `composeConverseWiring` without `intentProvider`/`intentActionHandler`): the app echoes, nothing resolves — record VOID, not FAIL (added 2026-10-04).
 
     *Failure:* the old phrase still runs the tool, or the new phrase needs a relaunch.
 
@@ -3511,6 +3512,9 @@ actually have been entered before a row means anything.
     voice`, the utterance echoes, no card appears, and the command does not run. Recorded
     with the never-gated note: **a shell command cannot be reached by voice, however the phrase
     file is edited**.
+
+    *Void — not fail —* while the converse path does not pass the intent leg (`AppBootstrap` calls `composeConverseWiring` without `intentProvider`/`intentActionHandler`): the app echoes, nothing resolves — record VOID, not FAIL (added 2026-10-04; unwired, the store is never loaded, so no
+    refusal line is logged).
 
     *Failure:* a shell card appears, the command runs, or no refusal line is logged.
 
@@ -3916,6 +3920,64 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     long-reply render that truncates the **visible** text without the bound (a silent clamp
     instead of the scroll), a failed render that clears the text, or the bubble
     replacing/altering any of the pill's five cues (mode clarity is structural).
+
+165. **The keyword fallback answers a phrase miss — opt-in, behind the phrase resolver: with
+    `keywordFallback` on, an utterance no phrase row names resolves through the keyword leg
+    (a destructive hit reaches the card, a read-only hit auto-runs audited, a weak match runs
+    nothing), an enabled shell command never resolves, and the switch off restores
+    phrase-only (`composite-intent-resolver`, recorded — never gated).**
+
+    *Void — not fail — while the converse path does not pass the intent leg* (`AppBootstrap`
+    `composeConverseWiring` without `intentProvider`/`intentActionHandler`): the app echoes,
+    nothing resolves — record VOID, not FAIL. As of 2026-10-04 the shipped app is in this
+    state, so this row is runnable only once the leg is wired into the converse path.
+
+    *Gesture:* the switch has **no settings row** (the named deferral) — it is a hand-edit.
+    Enable both audit tools by hand-editing `<applicationSupport>/Vocca/action-config.json`
+    (the audit tools have no Actions-tab row — F-A; merge into the existing `enablement`
+    array): `{"providerID":"dev.vocca.audit","toolID":"audit.count"}` and
+    `{"providerID":"dev.vocca.audit","toolID":"audit.clear"}`. In
+    `<applicationSupport>/Vocca/intent-phrases.json` keep **no phrase row** for either audit
+    tool and add the top-level field `"keywordFallback": true` (a JSON boolean — `1` or
+    `"true"` is refused and the switch stays off, with one log line). No relaunch is needed;
+    the file is read each turn. Switch to the CONVERSING surface and say "count the audit
+    log" — the read-only tool **auto-runs** with no card (the `autoRanReadOnly` decision),
+    and the audit entry under `<applicationSupport>/Vocca/actions/` carries **no
+    keyword-specific marker** (D1, recorded). Say "clear the audit log" — the **card
+    appears** with the gate's own sentence ("Permanently delete N entries from the action
+    audit log. This cannot be undone."); press **Decline** and verify nothing was cleared
+    and the refusal is recorded. Then pick wording that shares only part of a seeded phrase;
+    record what was spoken and what happened. If the reply is a **spoken question** ("Did you
+    mean '…'?"), it names at most three candidates, nothing runs, and the names are the **raw
+    provider/tool identifiers** (e.g. `dev.vocca.audit/audit.count` — the recorded
+    limitation; record what TTS actually said). Then the shell leg: with a shell command defined in `shell-commands.json` and
+    enabled in the Actions tab, say its command words — the reply is the echo (nothing
+    resolved, no card, no child). Finally set `"keywordFallback": false` (or remove the
+    field) and say "count the audit log" again — the echo answers (phrase-only, the shipped
+    default).
+
+    *Verify the state was entered:* the field really read as a boolean (no `keywordFallback`
+    log line in the unified log), the enablement rows were really on, no phrase row really
+    named either audit tool (a phrase hit proves the phrase leg, not the fallback — rule 1),
+    the audit entries were really read off disk, the card was really read off the rendered
+    surface before Decline, the ask was really heard (the TTS reply, or the reply bubble's
+    verbatim text), and the shell command really was enabled while its words were spoken.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **with the switch on, a
+    phrase miss resolved through the keyword leg — the read-only hit auto-ran audited, the
+    destructive hit reached the card and the decline was recorded, a partial wording ran
+    nothing (if it asked, at most three candidates and nothing ran — record which happened),
+    an enabled shell command never resolved; with the switch off the
+    same utterance echoed** — the keyword leg's first real observation. Record the count of
+    utterances per leg and the spoken ask verbatim, never a rate.
+
+    *Void — not fail — if:* ASR or cleanup produced different words (record the transcript),
+    a phrase row named the tool after all, or the switch did not read (the log line shows a
+    non-Bool, or the field was misspelled).
+
+    *Failure:* a destructive keyword hit without a card, a weak match that runs anything, a
+    shell command resolved or spawned by voice, a switch-off utterance that still resolves
+    through the keyword leg, or an ask naming more than three candidates.
 
 ---
 

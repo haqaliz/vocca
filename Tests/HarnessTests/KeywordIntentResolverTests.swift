@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Foundation
 import VoccaCore
 import XCTest
 
@@ -244,6 +245,26 @@ final class KeywordIntentResolverTests: XCTestCase {
                 defaulted.resolve(utterance, against: catalog),
                 explicit.resolve(utterance, against: catalog),
                 "the default init must resolve '\(utterance)' exactly as the explicit seed does")
+        }
+    }
+
+    // MARK: - A7 — control characters emit valid JSON (F-C)
+
+    /// Every scalar U+0000–U+001F, embedded mid-utterance, must survive the template expansion as
+    /// parseable JSON that decodes back to the input — `\u{1f}` is not JSON, `\u001f` is.
+    func testEveryControlScalarExpandsToValidJSON() throws {
+        let resolver = KeywordIntentResolver()
+        let catalog = [Self.postMessage]
+        for value in UInt32(0)..<0x20 {
+            let scalar = try XCTUnwrap(Unicode.Scalar(value))
+            let utterance = "post a message a\(Character(scalar))b"
+            guard case .toolCall(let invocation) = resolver.resolve(utterance, against: catalog)
+            else { return XCTFail("U+\(String(value, radix: 16)) did not resolve to a tool call") }
+            let arguments = try XCTUnwrap(invocation.arguments)
+            let object = try JSONSerialization.jsonObject(
+                with: Data(arguments.utf8), options: [])
+            let decoded = try XCTUnwrap((object as? [String: Any])?["text"] as? String)
+            XCTAssertEqual(decoded, utterance, "U+\(String(value, radix: 16)) must round-trip")
         }
     }
 }

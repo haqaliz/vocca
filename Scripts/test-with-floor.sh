@@ -2377,8 +2377,47 @@ set -euo pipefail
 # the lints did not widen, the digests did not change); nothing was manufactured red. The
 # count taken from the floor script's own parse in the ratchet commit.
 #
+# `composite-intent-resolver` (C13 slice 13, the phrase-then-keyword composite): +31 —
+# `KeywordIntentResolverTests` +1 (F-C: every scalar U+0000-U+001F expands to valid JSON —
+# `\u00XX`, zero-padded — and round-trips through `JSONSerialization`);
+# `IntentPhraseStoreTests` +7 (the `keywordFallback` switch: absent/false off and silent, a
+# non-Bool off with one log — the F1 no-coercion rule, `true` on with unknown keys still
+# ignored, phrase rows unaffected, the shell row still refused at load with the switch on,
+# the encode→decode round trip, and an off file encoding byte-identically to the shape
+# before the switch); `CompositeIntentResolverTests` +11 (A1 the phrase hit short-circuits
+# with the fallback spy at 0, primary toolCall/ask pass through, the fall-through, A3 the
+# sub-threshold ask with at most three candidates, A4 both shell halves independently — the
+# filtered catalog and the discarded fallback `.toolCall` naming an excluded provider, with
+# its counterfactual — plus the real keyword resolver over an enabled shell row, the empty
+# catalog, determinism through the existential); `CompositeIntentWiringTests` +4 (A6: off →
+# a bare `PhraseIntentResolver`, on → the composite with the shell provider excluded and no
+# shell resolution, re-read per turn without recomposing); `CompositeIntentRoundTripTests` +7
+# (A2 a keyword hit on an outward-facing tool through the card — confirm runs, decline
+# records the refusal and never invokes; D1 a read-only keyword hit auto-runs and is
+# audited without a distinct marker; A3 the sub-threshold ask executes nothing; A4 an
+# enabled shell tool never resolves and is never named in a toolCall or an ask; switch off,
+# the same utterance resolves nothing); `ZeroNetworkTests` +1 (the PROBE-INTENT-COMPOSITE
+# guard-the-guard; the composite line and its `-UNFILTERED` counterfactual are asserted
+# inside the existing default-configuration drive). The lint rows in
+# `IntentSeamBoundaryTests`/`ConverseWiringSeamBoundaryTests` are reviewed row edits, no
+# count change. The G5 pin re-anchored twice, deliberately (bc2ce1fd… → d46fd928… →
+# a0dae00b…, the second for the keyword leg's coding-agent exclusion; each computed
+# with `shasum -a 256` after the unit's last composition-root edit, never edited-to-match;
+# all seven pin sites carry the same literal; the dictation pair 1baeb2de…/ce70ca10…
+# unchanged). The shipped default did not move (switch absent → off → phrase-only). The
+# count taken from the floor script's own parse in the ratchet commit.
+#
+# `composite-intent-resolver` final-review fix wave (the coding-agent exclusion): +3 —
+# `CompositeIntentWiringTests` +2 (an enabled `vocca.agent` row the bare keyword resolver
+# reaches returns `.none` through the switch-on composition, with its counterfactual; a phrase
+# row naming the agent still resolves — the exclusion closes the keyword leg only);
+# `CompositeIntentRoundTripTests` +1 (an enabled agent row never resolves by keyword through
+# the composite — no card, no description, no invocation). The exact-set pin widened to the
+# two IDs in place (no count change). G5 re-anchored a second time in the unit
+# (d46fd928… → a0dae00b…). The count taken from the floor script's own parse on a clean build.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3083
+MINIMUM_EXECUTED_TESTS=3117
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

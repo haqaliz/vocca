@@ -381,17 +381,22 @@ struct VoccaNetworkProbe {
 
         // The intent voice path, run rather than referenced — the same shape as the drives
         // above, for the `intent-layer` composition the conversation wiring's closures used to
-        // answer with `nil` alone. Two reports: the composed-recipe round trip over probe
+        // answer with `nil` alone. Five reports: the composed-recipe round trip over probe
         // doubles (PROBE-INTENT — the voice path's full trip through the gate, the card and the
-        // audit reconstruct), and the composed root's default facts (PROBE-INTENT-DEFAULT —
-        // `intentResolved=0` as an effect of the composed `NullIntentResolver`, and the
-        // composed wiring's declared `spawnsSubprocess=false`). Nothing spawns, connects or
-        // dials; the drive composes its own root over probe fakes for the round trip and reads
-        // the composed root's slots for the default facts. See `IntentDrive.swift`.
+        // audit reconstruct), the composed root's default facts (PROBE-INTENT-DEFAULT —
+        // `intentResolved=0` as an effect of the composed `PhraseIntentResolver` with the
+        // switch off, and the composed wiring's declared `spawnsSubprocess=false`), the seeded
+        // phrase round trip (PROBE-INTENT-PHRASE), and the switch-on chain
+        // (PROBE-INTENT-COMPOSITE) with its shell-filter-removed counterfactual
+        // (PROBE-INTENT-COMPOSITE-UNFILTERED). Nothing spawns, connects or dials; the drive
+        // composes its own roots over probe fakes for the round trips and reads the composed
+        // root's slots for the default facts. See `IntentDrive.swift`.
         let intent = exerciseIntent(composedRoot: composedRoot)
         print("PROBE-INTENT\t\(intent.report)")
         print("PROBE-INTENT-DEFAULT\t\(intent.defaultReport)")
         print("PROBE-INTENT-PHRASE\t\(intent.phraseReport)")
+        print("PROBE-INTENT-COMPOSITE\t\(intent.compositeReport)")
+        print("PROBE-INTENT-COMPOSITE-UNFILTERED\t\(intent.compositeUnfilteredReport)")
 
         // The composed shell configuration, run rather than referenced — the same shape as
         // the drives above, for the slice whose provider **can** spawn: the composed
