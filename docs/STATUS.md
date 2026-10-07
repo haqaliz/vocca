@@ -75,6 +75,7 @@ unchanged — `1baeb2de…`/`ce70ca10…`, recomputed and compared.
   Until it lands, the slice-11 (`active-project-detection`) "the voice leg ships (S2)" claim
   for agents stays untrue in the shipped build (a pointer now sits beside it), and SMOKE
   158/162 record the known failure rather than a pass.
+- **`AuditActionProvider` selects its tool by `toolID` alone and ignores `providerID` (`AuditActionProvider.swift:121-139`, `:165-179`): an enabled agent or MCP row whose tool id is `audit.clear`/`audit.count` gets the audit tool's behavior — a foreign `audit.count` row can speak "Done."; every step still needs a click and the card shows the true sentence, so it is not a bypass. Named acceptance test of the provider-routing follow-up unit: every intent dispatch checks `providerID` against the provider that serves it.
 - **`AuditActionProvider` claims read-only for tools it does not serve**, so a stray enabled
   row for an unserved provider auto-runs (and fails) instead of confirming — harmless only
   because the provider is the audit provider; it goes away with the routing follow-up.
@@ -748,7 +749,7 @@ prd.md N1: the `taskPlaceholder` is "never substituted"). This unit retires it:
 **phrases arm rows AND the full spoken utterance fills the argv's `<task>` slot.** What
 stays: the editor's `<task>`-Save refusal (a surface row that means nothing must not
 save) and the "never substituted" claim narrowed to the surface half — the file may carry
-placeholder rows hand-edited, and the voice leg is the only path that fills one.
+placeholder rows hand-edited, and the voice leg is the only path that fills one [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up].
 
 **No gate passes** (sixteenth unit ahead of the uncleared gates); the composed default
 still reads `agents=0 spawnsSubprocess=false`; zero network; the dictation path
@@ -780,7 +781,7 @@ What this changes and what it does not:
   enabled an agent row before the rename re-enables it once. The founder's machine held
   no such rows at the time of the rename.
 - **The `dev.vocca.shell` refusal is untouched** — the intent store refuses only the
-  shell id; `vocca.agent` remains voice-reachable once enabled.
+  shell id; `vocca.agent` remains voice-reachable once enabled [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up].
 - Docs: `docs/STATUS.md`'s historical unit entries and `docs/planning/*` keep the old id
   as the record of what shipped then; `docs/SMOKE_CHECKLIST.md` and
   `docs/technical/ARCHITECTURE.md` (current-state instructions and tables) were synced.
@@ -790,7 +791,7 @@ What this changes and what it does not:
 ---
 
 **The `coding-agent-handoff` unit shipped 2026-10-01 — C13 slice 9 (the P4 table's last
-row): voice → a one-shot coding-agent run with the active project as context, composed onto
+row): voice → a one-shot coding-agent run [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up] with the active project as context, composed onto
 the proven spine; no gate passes.**
 `feat/coding-agent-handoff/aliz`. Six aspects (the record aspect is this entry). Floor
 **2859 → 2916** (executed 2916).
@@ -854,7 +855,7 @@ providerID in `AppBootstrap` — **G5 re-anchored once, deliberately** (`eba72ea
 never edited-to-match; the dictation digests unchanged — `1baeb2de…`, `ce70ca10…`).
 **The gap-3 stale-row reconcile** (the planning refinement): the per-call registry read
 shows an edit on the tab while the provider's fixed tool list answers the read-only refusal
-for the stale id — never pruned, never a trap. **The voice leg (voice-reachable, founder
+for the stale id — never pruned, never a trap. **The voice leg (voice-reachable [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up], founder
 decision Q4):** `IntentPhraseStore` is untouched — a phrase row naming `dev.vocca.agent`
 resolves `.toolCall` once the tool is enabled (the store refuses only `dev.vocca.shell`);
 phrases arm rows, they never carry task text (fixed argv, founder decision Q3). Floor

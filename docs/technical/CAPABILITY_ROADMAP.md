@@ -572,7 +572,7 @@ No gate passes. SMOKE 154-156 are written and runnable, recorded and never gated
 **2859**.)*
 
 *(Amended by the `coding-agent-handoff` unit, 2026-10-01: **slice 9 of C13 shipped — the
-P4 table's last row**: voice → a one-shot coding-agent run with the active project as
+P4 table's last row**: voice → a one-shot coding-agent run [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up] with the active project as
 context, composed onto the proven spine. Shipped:
 - **`CodingAgentRegistry`** (`VoccaActions/Config/`): the user-editable `coding-agents.json`
   — definitions only, tolerant load / throwing save, caps refuse never clamp, absolute
@@ -593,7 +593,7 @@ context, composed onto the proven spine. Shipped:
   the mismatch re-prompt, every decision recorded, `spawnsSubprocess=false` declared for
   the composed default (an absent registry is zero rows — **the default configuration
   cannot create an agent child**).
-- **Voice-reachable**: a phrase row naming `dev.vocca.agent` resolves once the tool is
+- **Voice-reachable** [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up]: a phrase row naming `dev.vocca.agent` resolves once the tool is
   enabled (the store refuses only `dev.vocca.shell`; phrases arm rows, they never carry
   task text).
 - **PROBE-CODING-AGENT** inside the zero-network interposer.
@@ -718,7 +718,7 @@ SMOKE 161 is written and runnable, recorded and never gated; no resolution rate 
 quoted. Test floor: **2991**.)*
 
 *(Amended by the `spoken-task-seeding` unit, 2026-10-01: **slice 12 of C13 shipped — the
-N1 retirement**, the spoken task fills the argv: one row, any task, per conversation.
+N1 retirement**, the spoken task fills the argv: one row, any task, per conversation [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up].
 Shipped:
 - **The carrier**: `ActionInvocation.taskText` (additive, default nil, Foundation-free,
   **never `arguments`** — the gap-1 pin intact) + `WidgetConfirmationSignal.taskText`.
@@ -969,7 +969,7 @@ root box. In the real app a phrase on an enabled tool reaches the shared executo
   the shipped app** — the intent wiring is composed over `AuditActionProvider`, so the phrase
   auto-runs as "read-only" and fails ("Something went wrong.", an audited failed entry, no
   card, nothing spawns), and the slice-11 agent voice claim stays untrue until the routing
-  follow-up; the audit provider claims read-only for tools it does not serve; the confirm line
+  follow-up; the audit provider claims read-only for tools it does not serve; `AuditActionProvider` selects its tool by `toolID` alone and ignores `providerID` (`AuditActionProvider.swift:121-139`, `:165-179`): an enabled agent or MCP row whose tool id is `audit.clear`/`audit.count` gets the audit tool's behavior — a foreign `audit.count` row can speak "Done."; every step still needs a click and the card shows the true sentence, so it is not a bypass. Named acceptance test of the provider-routing follow-up unit: every intent dispatch checks `providerID` against the provider that serves it.; the confirm line
   can name a card that belongs to another action (click-only; the card's sentence is honest);
   no spoken confirm (N2), no session guard — a card can appear mid-conversation and outlives
   the session; the card + reply-bubble layout is unverified (SMOKE 166 only); phrases and

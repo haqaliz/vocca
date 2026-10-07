@@ -4039,8 +4039,8 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     card, not a new one); (4) press **Confirm** on the rendered card — expect the clear to
     run and the audit to gain a `confirmed` entry (the clear's own record follows it, so the
     log is never empty afterwards); (5) if an agent row is configured and enabled, add a phrase
-    naming it and say it — expect the **known result** "Something went wrong.", an audited
-    failed entry, **no card and nothing spawned** (rows 158/162 — the provider-routing
+    naming it and say it — the review PREDICTS (from reading the code; no real run has seen it) "Something went wrong." and an audited
+    failed entry, **no card and nothing spawned**; record what was heard, any non-card answer (rows 158/162 — the provider-routing
     follow-up); (6) remove both phrase rows (or say anything no phrase names) — expect the
     **echo** of your words, exactly as before this unit. Optionally end the session with a
     card up and record that the card stays until clicked (no session guard, recorded).
@@ -4066,8 +4066,8 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     auto-runs, "Confirm on screen." spoken with **no** card anywhere on screen, a second card
     while one waits, a confirm with no audit entry, a success ack on a decision whose record
     failed, an agent phrase that spawns a child or reaches a run without a card, or a
-    no-phrase utterance that does anything but echo. (An agent phrase that fails with
-    "Something went wrong." is the recorded known result, not a failure.)
+    no-phrase utterance that does anything but echo. (An agent phrase that fails without a card is the predicted result, not a failure — predicted from the code, never yet
+    observed; record what was heard.)
 
 ---
 
