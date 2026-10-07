@@ -312,6 +312,21 @@ final class AppBootstrapWiringTests: XCTestCase {
                 voice leg is unwired. If the argument moved, this pin moves with it.
                 """)
         }
+        // The VALUES are the composed closures, not merely the labels: an `{ _ in nil }`
+        // under the right label is the same silent echo-only regression.
+        for (label, value) in [
+            ("intentProvider:", "intentClosures.provider"),
+            ("intentActionHandler:", "intentClosures.handler"),
+        ] {
+            guard let range = block.range(of: label) else { continue }
+            let rest = block[range.upperBound...]
+            let argument = rest.prefix(while: { $0 != "," && $0 != "\n" })
+                .trimmingCharacters(in: .whitespaces)
+            XCTAssertEqual(
+                argument, value,
+                "`\(label)` must receive the composed closure `\(value)`, not another value "
+                    + "(got `\(argument)`) — otherwise the voice leg is unwired")
+        }
         XCTAssertTrue(
             block.contains("converseReplySink:"),
             "the call must still pass `converseReplySink:` — the reply-sink pin's argument")
