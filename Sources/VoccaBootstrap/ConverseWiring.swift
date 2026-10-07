@@ -67,12 +67,12 @@ extension AppBootstrap {
     ///
     /// ## The intent closures
     ///
-    /// The recipe's two intent closures default to the unwired answers (`nil` — today's
-    /// echo-only behavior, byte-identical): the composed default resolves nothing and cannot
-    /// voice-act (PRD R7) until the `action-round-trip` aspect's wiring supplies the resolver
-    /// over the enablement catalog and the shared executor. The action handler carries the
-    /// cleaned utterance (`utterance-threading` — the driver's widened signature, passed
-    /// through; the default ignores it).
+    /// `configure` passes the two intent closures built by `composeConverseIntentClosures`
+    /// (`converse-intent-wiring` B9) — the root's intent wiring, read per turn through the
+    /// weak root box. The parameters keep their unwired defaults (`nil` — echo-only,
+    /// byte-identical) for the probe and the tests, which compose the recipe without a
+    /// resolver. The action handler carries the cleaned utterance (`utterance-threading` —
+    /// the driver's widened signature, passed through; the default ignores it).
     ///
     /// ## The reply sink
     ///
