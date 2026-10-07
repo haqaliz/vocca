@@ -2416,8 +2416,29 @@ set -euo pipefail
 # two IDs in place (no count change). G5 re-anchored a second time in the unit
 # (d46fd928… → a0dae00b…). The count taken from the floor script's own parse on a clean build.
 #
+# `converse-intent-wiring` (the shipped voice leg is wired): +20 — `ConverseIntentClosuresTests`
+# +9 (B1 a released root and an absent wiring answer nil from both closures, a present
+# wiring's resolution returned as-is; B2 a closure built before the wiring is assigned
+# resolves through it after; B3 a read-only tool returns the wiring's ack, audited, no card;
+# B4 a destructive tool speaks "Confirm on screen." with the card up and nothing invoked; B5 a
+# second action while the card is up speaks the line and changes nothing; B6 a nil with no
+# card stays nil so the driver echoes; B7 a non-nil result — the failure copy included — is
+# returned verbatim even with a card up); `ConverseIntentWiringTests` +10 (B8 through the
+# real `ConverseLoopDriver`: a read-only phrase hit speaks "Done.", a destructive hit speaks
+# the confirm line and never the echo, an empty table / no enabled tool / no wiring / a
+# released root / a miss / a nil-with-no-card hit each speak the echo byte-identical, a
+# second destructive request while the card is up speaks the line again, and the turns after
+# a confirmed card behave normally); `AppBootstrapWiringTests` +1 (B9 the
+# `composeConverseWiring(` call site passes `intentProvider:`/`intentActionHandler:` whose
+# values are the static's closures, reaching the root through `rootBox`). No lint rows (the
+# static lives in ConverseWiring.swift, already permitted). The G5 pin re-anchored once,
+# deliberately (a0dae00b… → bfeed81f…, computed with `shasum -a 256` after the unit's only
+# composition-root edit, never edited-to-match; all seven pin sites; the dictation pair
+# 1baeb2de…/ce70ca10… unchanged). PROBE-CONVERSE unchanged (it wires nil closures on
+# purpose). 3117 + 9 + 10 + 1 = 3137, the count taken from the floor script's own parse.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3117
+MINIMUM_EXECUTED_TESTS=3137
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
