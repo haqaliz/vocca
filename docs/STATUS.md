@@ -10,6 +10,112 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `converse-intent-wiring` unit shipped 2026-10-08 — the shipped voice leg is wired: in
+the real app a spoken phrase on an enabled tool reaches the shared executor (a read-only tool
+runs and is acknowledged by voice, an outward-facing tool shows the card and the reply says
+"Confirm on screen."), and with no phrase file or no enabled tool every utterance still
+echoes, byte-identical; no gate passes.**
+`feat/converse-intent-wiring/aliz`. One aspect (`intent-leg-wiring`), four tasks (the record
+is this entry). Floor **3117 → 3137** (executed 3137). Q1 (the fixed "Confirm on screen."
+line) and Q3 (accept a card that appears mid-conversation) taken as the PRD's
+recommendations, confirmed by the founder's approval (2026-10-07). This resolves the
+`composite-intent-resolver` entry's "read this first" block below.
+
+**What shipped.**
+*The closures* — `AppBootstrap.composeConverseIntentClosures(root:)` (`ConverseWiring.swift`
+— a ruling moved it out of `AppBootstrap.swift` so the hashed root's vocabulary stays
+unchanged and no lint row was needed): two lazy `@Sendable` closures over a caller-supplied
+root accessor, reading `root.intentWiring` **at call time** — a closure built before the
+wiring is assigned resolves through it after (B2), a released root or an empty slot answers
+`nil` (the driver's existing echo, B1). The provider maps the wiring's resolution through
+as-is. The handler is `performAction` behind one wrapper: a non-nil answer is returned
+verbatim — the ack, the failure copy (`auditRecorded == false`, B7) — and a `nil` answer
+becomes the fixed line **`AppBootstrap.confirmOnScreenReply` = "Confirm on screen."** only
+while a confirmation card is showing (`widgetStore.state.confirmation != nil`, B4/B5); with
+no card it stays `nil` and the driver echoes (B6). `IntentWiring.swift` and its honest-drop
+test are untouched. `ConverseIntentClosuresTests` +9.
+*Through the real driver* — `ConverseIntentWiringTests` drives the real `ConverseLoopDriver`
+with the static's closures over an `IntentRoundTripHarness` root (B8): a read-only phrase hit
+speaks "Done."; a destructive hit speaks "Confirm on screen." (never the echo) with the card
+up and nothing invoked; an empty table, a phrase with no enabled tool, a root without intent
+wiring, a released root, a miss and a hit answered `nil` with no card each speak the echo
+**byte-identical to the shipped `EchoReplyGenerator`'s output**; a second destructive request
+while the card is up speaks the line again and adds no card; the turns after a confirmed card
+behave normally. `ConverseIntentWiringTests` +10.
+*The call site* — `configure` builds the closures over `{ rootBox.value }` (the weak box —
+the driver retains the closures, a strong root would cycle) and passes them as
+`intentProvider:`/`intentActionHandler:` to `composeConverseWiring` (the unit's only
+composition-root edit, nine lines). `AppBootstrapWiringTests.testTheConverseCallSitePassesTheIntentClosures`
+pins the source (the `converseReplySink:` precedent): both labels present, their values
+`intentClosures.provider`/`.handler`, the static reached through `rootBox.value` — a
+`{ _ in nil }` mutation fails it. +1. The floor was raised once, in `converse-floor`: 3117 + 9 + 10 + 1 = 3137, the floor script's own parse.
+*The probe* — `PROBE-CONVERSE` **unchanged**: the drive passes nil closures on purpose (its
+comment now says so), so `intentResolved=0` and the line stays byte-identical. The composed
+default still reads `agents=0 spawnsSubprocess=false`; the zero-network suite green.
+
+**G5 re-anchored once, deliberately** (`converse-pins`): `AppBootstrap.swift` was recomputed
+with `shasum -a 256` on 2026-10-08 after the unit's only composition-root edit, never
+edited-to-match — `a0dae00bf6…` → **`bfeed81f8c…`**, full literal
+`bfeed81f8cd53cb3190425a48e072e3f316eba5884e7290563fc0b9e16676eba`, across all seven pin sites
+(`WiringBaselineTests`, `AuthBaselineInvariantTests`, `AgentPresetsInvariantTests`,
+`ActiveProjectInvariantTests`, `SpokenTaskInvariantTests`, `TurnTakingComposedAcceptanceTests`,
+`ReplyRenderingInvariantTests`) plus the floor script's comment; the dictation digests
+unchanged — `1baeb2de…`/`ce70ca10…`, recomputed and compared.
+
+**Known limitations, recorded — not fixed.**
+- **A phrase naming a coding agent is NOT voice-reachable in the shipped app.** `configure`
+  composes the intent wiring over `AuditActionProvider` (`AppBootstrap.swift` ~749-755),
+  which does not serve `vocca.agent`: an agent phrase describes as "Vocca's audit provider
+  does not serve the tool … Nothing will happen", claims read-only, auto-runs and **fails** —
+  the reply is "Something went wrong." and the audit gains an `autoRanReadOnly` entry carrying
+  that sentence. No card appears and nothing spawns. The tests that compose the intent wiring
+  over `CodingAgentProvider` (`AgentWiringCwdTests`, `UtteranceThreadingTests`) describe a
+  composition `configure` does not have. **The follow-up — the next unit — routes the intent
+  executor by provider id, as the card closures already do (`AppBootstrap.swift` ~852-876).**
+  Until it lands, the slice-11 (`active-project-detection`) "the voice leg ships (S2)" claim
+  for agents stays untrue in the shipped build (a pointer now sits beside it), and SMOKE
+  158/162 record the known failure rather than a pass.
+- **`AuditActionProvider` claims read-only for tools it does not serve**, so a stray enabled
+  row for an unserved provider auto-runs (and fails) instead of confirming — harmless only
+  because the provider is the audit provider; it goes away with the routing follow-up.
+- **"Confirm on screen." can be spoken for a card that belongs to another action** — the
+  card-up refusal (a second action while a card waits) and a card armed from the Actions tab
+  mid-turn both produce a `nil` with a card showing. The card's own sentence is honest and
+  confirmation is click-only, so nothing runs that the card does not name; the spoken line is
+  just less specific than it sounds.
+- **The line is true only if the card is visible.** The panel is created lazily and the card
+  beside the reply bubble is an unverified layout — SMOKE 166 only.
+- **No spoken confirm or decline** (N2 — a new trust surface, deferred), **and no session
+  guard**: a card can appear during conversation and outlives the session until clicked
+  (generation-tokened and click-only, so a stale card cannot be replayed; a walked-away user
+  leaves an armed card). Clear-on-session-end is deferred.
+- **Reachable by the founder only.** Phrases are hand-edited JSON (`intent-phrases.json`) and
+  the audit tools have no Actions-tab row (F-A) — the enablement is a hand-edit too.
+- **The zero-network dev-machine caveat still stands** (PROBE-INTENT-DEFAULT reads the real
+  phrase file; switching `keywordFallback` on on a dev machine turns that line red; the
+  directory-seam fix re-anchors G5 again).
+
+**The honesty block:**
+- **No gate passes.** The twentieth unit built ahead of the uncleared gates under the
+  recorded posture. Demand: roadmap push, not demand pull — no user asked for voice actions.
+- **No success, resolution or accuracy rate exists.** Every claim here is a test or a probe;
+  "voice acts in the real app" is unmeasured until SMOKE 166 runs on a real machine.
+- **The default did not move.** With no phrase file or no enabled tool the reply is the echo,
+  asserted through the real wiring and the real driver; the composed default still reads
+  `agents=0 spawnsSubprocess=false`; zero network; the dictation path digest-untouched.
+- **R8 is in a real voice path for the first time** — mitigated in structure (the card,
+  approval `.withheld`, every decision audited, the card-up refusal), not retired. N2 stands:
+  an approval asserts a human said yes, cannot verify it.
+- **Builds during the tasks were incremental**; the final verification is a clean build with
+  the floor script (CI's exact command).
+
+**SMOKE**: rows 154-156 and 165 lose their "VOID while the leg is unwired" conditions (148-150
+were already conditioned on the phrase flip, which now reaches the app); 158 and 162 (agent
+phrases) are marked known-failing per the first limit above; the new row **166** — the
+real-app voice round trip — is **written and runnable**, recorded, never gated, no rates.
+
+---
+
 **The `composite-intent-resolver` unit shipped 2026-10-04 — C13 slice 13: the
 phrase-then-keyword composite resolver ships, opt-in. With `keywordFallback` on in
 `intent-phrases.json`, a phrase miss falls through to the keyword resolver (once the leg is
@@ -31,7 +137,10 @@ this unit (since `phrase-intent-resolver`) and **this unit does not wire it**: w
 the first time voice can act, needs its own review of the card surface, and is a founder
 call — **the recommended next unit**. Everything below that describes what a keyword hit
 *does* holds through the composed wiring the tests and probes drive, and will hold in the app
-once the leg is wired into the converse path.
+once the leg is wired into the converse path. **[resolved 2026-10-08 by `converse-intent-wiring`
+(the entry above): `configure` now passes the intent closures; a phrase on an enabled audit
+tool acts by voice in the real app, and a phrase naming a coding agent still does not — the
+provider-routing follow-up.]**
 
 **What shipped.**
 *F-C fixed* — `KeywordIntentResolver.jsonEscaped` emitted `\u{XX}` (invalid JSON) for
@@ -479,7 +588,7 @@ carries `resolvedDirectory`, and confirm/decline rebuild the invocation from
 binding's four renders: the arm's card render, the post-record re-render, the confirm's
 gate render, the mismatch re-prompt render — a focus change mid-card can never produce a
 mismatch loop or a run in a directory the user was not shown, G3/R-B). **The voice leg
-ships (S2):** a phrase resolving to the agent's invocation is enriched with the arm-time
+ships (S2)** [not in the shipped app — an agent phrase is not voice-reachable until the intent executor routes by provider id; see converse-intent-wiring]: a phrase resolving to the agent's invocation is enriched with the arm-time
 resolution — the card carries it, the confirm runs in it; the unwired voice leg's
 clause-less sentence is pinned. The R4 editor caption ("leave empty to detect the focused
 app's project"). Floor 2976→2983. **G5 re-anchored once, deliberately** (the wiring
@@ -985,7 +1094,7 @@ none may be quoted.
 - **No gate passes.** The twelfth unit built ahead of the uncleared gates under the
   recorded posture. Demand: roadmap push, not demand pull. No user asked for this slice.
 - **The unwired posture narrowed, in writing.** Since this unit, **the shipped configuration
-  can voice-act** [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver], after a two-step opt-in: the user writes a phrase **and** enables its tool.
+  can voice-act** [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] [resolved 2026-10-08 by converse-intent-wiring: the leg is wired; phrase rows over the audit tools act by voice, a phrase naming a coding agent does not yet], after a two-step opt-in: the user writes a phrase **and** enables its tool.
   With neither, it resolves nothing (`intentResolved=0`), exactly as the null default did.
 - **Guardrail 7 for the intent seam: two real classifiers, not composed together.** The D3-shaped
   caveat is retired: `KeywordIntentResolver` and `PhraseIntentResolver` are both real. Only the

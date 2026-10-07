@@ -2,12 +2,36 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-10-04).** The skeleton exists; **the product does not.**
+> **Status (2026-10-08).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **`converse-intent-wiring` (C13, shipped 2026-10-08):** **the shipped voice leg is wired.**
+> `configure` passes `intentProvider`/`intentActionHandler` — built by
+> `AppBootstrap.composeConverseIntentClosures(root:)` (`ConverseWiring.swift`), lazy closures
+> reading `root.intentWiring` per turn through the weak rootBox — to `composeConverseWiring`.
+> In the real app a phrase on an enabled tool reaches the shared executor: read-only runs,
+> audited, "Done."; outward-facing shows the card and the reply is the fixed line **"Confirm on
+> screen."** (spoken only for a `nil` while a card is showing — never in place of an ack or the
+> failure copy); no phrase file / no enabled tool → the echo, byte-identical (asserted through
+> the real driver). **Known limits:** **a phrase naming a coding agent is NOT voice-reachable**
+> — the shipped intent wiring runs over `AuditActionProvider`, so an agent phrase auto-runs as
+> "read-only" and fails ("Something went wrong.", an audited failed entry, no card, nothing
+> spawns); **the next unit routes the intent executor by provider id** (the card closures'
+> shape), and the slice-11 agent voice claim stays untrue until then. The line can name a
+> card that belongs to another action (click-only, the card's sentence honest); no spoken
+> confirm, no session guard (a card outlives the session); the card + bubble layout is
+> unverified; phrases and audit enablement are hand-edits (founder-only). R8 in a real voice
+> path for the first time — mitigated in structure, not retired. **G5 re-anchored once,
+> deliberately** (`a0dae00bf6…` → `bfeed81f8c…`, seven pin sites; dictation digests
+> `1baeb2de…`/`ce70ca10…` unchanged); PROBE-CONVERSE unchanged. **No gate passes** (twentieth
+> unit ahead of the uncleared gates); no success rate exists; the composed default still reads
+> `agents=0 spawnsSubprocess=false`. SMOKE 154-156/165 runnable now, 158/162 known-failing,
+> SMOKE 166 (the real-app voice round trip) **written and runnable** — recorded, never gated.
+> Test floor: **3137**.
 >
 > **`composite-intent-resolver` (C13 slice 13, shipped 2026-10-04):** the
 > phrase-then-keyword composite ships **opt-in** — `CompositeIntentResolver`
@@ -19,12 +43,7 @@ This file orients a coding agent working in this repository. Read it first.
 > `AppBootstrap.composeIntentResolver(file:)`: off → the bare `PhraseIntentResolver`, so **the
 > shipped default is unchanged** (PROBE-INTENT-DEFAULT as before; the new
 > PROBE-INTENT-COMPOSITE + its `-UNFILTERED` counterfactual drive the switch-on chain).
-> **The voice leg is not wired into the shipped converse path:** `AppBootstrap.configure` calls
-> `composeConverseWiring` without `intentProvider`/`intentActionHandler` (the nil defaults), so
-> in the real app neither the phrase resolver nor the composite is reached by voice — every
-> utterance gets the echo reply; the resolvers run only in tests and probes. Pre-existing since
-> `phrase-intent-resolver`, not wired here (a founder call — the first time voice can act, with
-> its own card-surface review); **the recommended next unit**. F-C fixed (`jsonEscaped` emits
+> The voice leg was unwired when this shipped (resolved by `converse-intent-wiring`, above). F-C fixed (`jsonEscaped` emits
 > `\u00XX`). Recorded, not fixed: D1 (a read-only keyword hit carries no distinct audit
 > marker), the spoken ask names raw `provider/tool` IDs, the fallback's `.ask` is guarded by
 > the catalog filter alone, provider-ID matching is case-sensitive (a hand-edited
@@ -35,8 +54,8 @@ This file orients a coding agent working in this repository. Read it first.
 > second for the agent exclusion; seven pin sites; dictation digests `1baeb2de…`/`ce70ca10…`
 > unchanged). **No gate passes** (nineteenth unit ahead of the uncleared gates); no
 > resolution rate exists; the composed default still reads `agents=0
-> spawnsSubprocess=false`. SMOKE 165 is **written** — recorded, never gated, and VOID until
-> the leg is wired. Test floor: **3117**.
+> spawnsSubprocess=false`. SMOKE 165 is **written and runnable** — recorded, never gated.
+> Test floor: **3117**.
 >
 > **`reply-text-rendering` (C13 slice, shipped 2026-10-03):** the CONVERSING surface stops
 > being audio-only — **the spoken reply renders verbatim in a bubble beneath the pill**. The
@@ -142,7 +161,7 @@ This file orients a coding agent working in this repository. Read it first.
 > `activeProjectDirectory` closure (nil-shaped default): an empty row resolves **exactly
 > once** at arm (D2 — explicit wins, never for a row that names its own directory), the
 > card carries it, confirm/decline rebuild from `signal.resolvedDirectory` — one
-> resolution, four identical renders; **the voice leg ships (S2)**; the editor caption
+> resolution, four identical renders; **the voice leg ships (S2)** [not in the shipped app — the shipped intent wiring runs over the audit provider, so an agent phrase is not voice-reachable until the intent executor routes by provider id; see converse-intent-wiring]; the editor caption
 > "leave empty to detect the focused app's project". G5 re-anchored once, deliberately
 > (`c7d6767c…` → `641b6445…`, dictation digests unchanged; three pin sites carry the
 > literal). **No gate passes** (fifteenth unit ahead of the uncleared gates); the
@@ -212,7 +231,7 @@ This file orients a coding agent working in this repository. Read it first.
 > refused at load**). `composeIntentWiring` gained a per-turn `resolverProvider` (read each
 > turn, never at composition; an edit needs no relaunch). **The N1 flip, made deliberately:**
 > the composed default is now a `PhraseIntentResolver` over the user's file, so **the shipped
-> configuration can voice-act** [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] after a two-step opt-in (a phrase **and** an enabled tool); with
+> configuration can voice-act** [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] [resolved 2026-10-08 by converse-intent-wiring: the leg is wired; phrase rows over the audit tools act by voice, a phrase naming a coding agent does not yet] after a two-step opt-in (a phrase **and** an enabled tool); with
 > no file it resolves nothing, as Null did. The safety rows hold over a phrase hit — a
 > destructive call refused by attempting it, a shell phrase `.none` even with the command
 > enabled, the §8 floor enumerated in `EscapeValveTests`. `PROBE-INTENT-DEFAULT` reads

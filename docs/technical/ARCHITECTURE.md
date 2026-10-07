@@ -414,7 +414,7 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > `VoccaActions/Config/`: shape-only, tolerant, caps that refuse, and **a shell-target row
 > refused at load**). `composeIntentWiring` takes a per-turn `resolverProvider`, read each
 > turn and never at composition. **The composed default is now that phrase resolver**, not
-> `NullIntentResolver`: it voice-acts [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] only after the user writes a phrase **and** enables the
+> `NullIntentResolver`: it voice-acts [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] [resolved 2026-10-08 by converse-intent-wiring: the leg is wired; phrase rows over the audit tools act by voice, a phrase naming a coding agent does not yet] only after the user writes a phrase **and** enables the
 > tool, and with no file it resolves nothing (`intentResolved=0` unchanged). The
 > guardrail-7 claim is now **two real classifiers, not composed together**. G5 was
 > re-anchored once, deliberately: `e9aa45bb…` → `eba72eaf…`; the dictation digests are
@@ -443,6 +443,30 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > was re-anchored twice, deliberately: `bc2ce1fd…` → `d46fd928…` → `a0dae00b…` (the second
 > when the keyword exclusion widened to the coding-agent provider); the dictation digests are
 > unchanged.
+>
+> [resolved 2026-10-08 by `converse-intent-wiring`: the leg is wired — see the annotation
+> below; the "not wired into the shipped converse path" sentence above is history.]
+
+> *Annotated (`converse-intent-wiring`, 2026-10-08): the intent row reaches the shipped
+> converse path.* `AppBootstrap.configure` now passes `intentProvider`/`intentActionHandler`
+> to `composeConverseWiring`, built by `AppBootstrap.composeConverseIntentClosures(root:)`
+> (`ConverseWiring.swift`): two lazy `@Sendable` closures that hop to the main actor and read
+> `root.intentWiring` **at call time** through the weak root box (the driver retains them; a
+> strong root would cycle) — a released root or an empty slot answers `nil`, the driver's
+> echo. The provider passes the resolution through as-is; the handler is
+> `IntentWiring.performAction` behind one wrapper that returns any non-nil answer verbatim
+> and turns a `nil` into the fixed line `AppBootstrap.confirmOnScreenReply` ("Confirm on
+> screen.") **only while a confirmation card is showing** — `IntentWiring` is untouched. The
+> default is unchanged (no phrase file / no enabled tool → the echo, byte-identical); the probe
+> still wires nil closures, so PROBE-CONVERSE is unchanged. **Known composition gap:** the
+> intent wiring `configure` composes takes a single provider, `AuditActionProvider`
+> (`AppBootstrap.swift` ~749-755), while the card's confirm/decline closures route by provider
+> id (~852-876); so a phrase naming `vocca.agent` is described by the audit provider ("does not
+> serve the tool … Nothing will happen"), claimed read-only, auto-run and **failed** — no card,
+> no child. Routing the intent executor by provider id is the recorded next unit. The
+> audit provider's read-only claim for tools it does not serve is the same gap seen from the
+> provider side. G5 was re-anchored once, deliberately: `a0dae00b…` → `bfeed81f…`; the
+> dictation digests are unchanged.
 
 > *Annotated (`shell-provider`, 2026-09-22) — the shell row above and the widened transport
 > lint.* **The roadmap's highest blast radius ships:** a shell command can delete, modify or
