@@ -460,23 +460,32 @@ final class AuditActionProviderTests: XCTestCase {
 
         for toolID in [AuditActionProvider.countToolID, AuditActionProvider.clearToolID] {
             let foreign = try makeForeignInvocation(toolID: toolID)
+            let beforeDescribe = try committedBytes(in: directory)
             let summary = await provider.describe(foreign)
             XCTAssertEqual(
                 summary.sentence,
                 "Vocca's audit provider does not serve the tool '\(toolID)'. Nothing will happen.",
                 "a foreign provider id is an unserved tool, whatever the tool id says")
             XCTAssertEqual(summary.blastRadius, .readOnly, "a refusal reaches nowhere")
-
-            let decision = await ActionGate.submit(
-                foreign, to: provider, enablement: ActionEnablement([foreign]), policy: .none,
-                approval: .granted, approvedSentence: summary.sentence)
             XCTAssertEqual(
-                decision.outcome, ActionOutcome.failed(reasonKey: "provider.unknownTool"),
+                try committedBytes(in: directory), beforeDescribe,
+                "describing a foreign provider id touches nothing: \(toolID)")
+
+            // Through the gate by the shipped caller (the executor), so this suite adds no
+            // direct gate call site to the pinned count.
+            let executed = await ActionExecutor(provider: provider, store: store).submit(
+                foreign, enablement: ActionEnablement([foreign]), policy: .none,
+                approval: .granted, approvedSentence: summary.sentence, mode: .live)
+            XCTAssertEqual(
+                executed.decision.outcome, ActionOutcome.failed(reasonKey: "provider.unknownTool"),
                 "the foreign call fails closed with the unknown-tool key: \(toolID)")
         }
-        XCTAssertEqual(
-            try committedBytes(in: directory), before,
-            "nothing was touched on the way to refusing a foreign provider id")
+        let after = try committedBytes(in: directory)
+        for (name, bytes) in before {
+            XCTAssertEqual(
+                after[name], bytes,
+                "every seeded entry is untouched by a foreign provider id: \(name)")
+        }
     }
 
     /// **A foreign `audit.clear` never deletes** (E3): the row `vocca.agent/audit.clear`, enabled

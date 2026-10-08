@@ -267,8 +267,16 @@ extension AppBootstrap {
             // nil, byte-identical to today. A placeholder row reached **without** an
             // utterance is refused before the card — the wiring's own stop, never the
             // provider's refusal sentence asked of a human (critique gap 2).
+            //
+            // Both ride an **agent** invocation only (`intent-provider-routing` P2): the guard
+            // below makes the row lookup the agent provider's id AND the agent's id (outside
+            // the lookup, because an unmatched row still reads as blank), so another
+            // provider's tool whose id collides with an agent's is never enriched, refused or
+            // handed the utterance — it reaches its own provider as the resolver built it.
             var invocation = submitted
-            if let registry = root.agentRegistry {
+            if submitted.providerID == CodingAgentProvider.providerID,
+                let registry = root.agentRegistry
+            {
                 let file = await registry.load()
                 let agent = file.agents.first { $0.id == submitted.toolID }
                 let blank = agent.map { $0.projectDirectory == nil } ?? true
