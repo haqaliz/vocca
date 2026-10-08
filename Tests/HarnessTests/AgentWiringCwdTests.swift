@@ -481,6 +481,77 @@ final class AgentWiringCwdTests: XCTestCase {
             "leave empty to detect the focused app's project",
             "the editor's Project directory caption ships the R4 copy")
     }
+
+    // MARK: - intent-provider-routing P2: the agent lookup names the provider too
+
+    /// **An audit-provider invocation whose tool id equals an enabled agent's id takes no agent
+    /// path** (`intent-provider-routing` P2): the lookup requires the agent provider's id AND
+    /// the agent's id, so a foreign row is never enriched with the detected directory, never
+    /// refused for the agent's `<task>` placeholder, and never handed the utterance as task
+    /// text — the provider receives the plain invocation the resolver built.
+    func testAForeignProviderInvocationNamingAnAgentIDTakesNoAgentPath() async throws {
+        let shared = "shared-id"
+        let placeholderRow = try XCTUnwrap(
+            CodingAgentDefinition(
+                id: shared,
+                executablePath: "/usr/bin/true",
+                arguments: [KnownAgentPresets.taskPlaceholder],
+                projectDirectory: nil,
+                timeoutSeconds: 30,
+                environment: nil,
+                clause: nil))
+        let detection = RecordingDetection(answer: Self.detectedPath)
+        let harness = await AgentWiringCwdHarness(
+            agents: [placeholderRow],
+            provider: { _ in RecordingForeignProvider(toolID: shared) },
+            detection: detection)
+        defer { try? FileManager.default.removeItem(at: harness.directory) }
+        try await harness.enable(shared)
+        let config = await harness.configStore.load()
+        try await harness.configStore.save(
+            ActionConfig(
+                servers: config.servers,
+                enablement: config.enablement + [
+                    ActionConfigEnablementRow(
+                        providerID: RecordingForeignProvider.providerID, toolID: shared)
+                ]))
+
+        let intentWiring = AppBootstrap.composeIntentWiring(
+            configStore: harness.configStore,
+            provider: harness.provider,
+            executor: harness.wiring.executor,
+            resolverProvider: { PhraseIntentResolver(rows: []) },
+            root: harness.root,
+            activeProjectDirectory: { await detection.resolve() })
+        let foreign = try XCTUnwrap(
+            ActionInvocation(providerID: RecordingForeignProvider.providerID, toolID: shared))
+
+        let emptyReply = await intentWiring.performAction(foreign, "")
+        XCTAssertEqual(
+            emptyReply, "Done.",
+            "no placeholder refusal — the agent row's <task> is not the foreign row's; the "
+                + "read-only foreign tool ran directly")
+        let spokenReply = await intentWiring.performAction(foreign, "do the thing")
+        XCTAssertEqual(spokenReply, "Done.", "the spoken turn runs the foreign tool directly")
+
+        let seen = await harness.provider.described
+        XCTAssertEqual(seen.count, 2, "each turn reached the foreign provider's describe once")
+        for invocation in seen {
+            XCTAssertEqual(invocation.providerID, RecordingForeignProvider.providerID)
+            XCTAssertNil(
+                invocation.resolvedDirectory,
+                "no cwd enrichment — the foreign row is not an agent row")
+            XCTAssertNil(
+                invocation.taskText,
+                "no task text — the utterance fills only an agent row's <task>")
+        }
+        XCTAssertEqual(
+            detection.callCount, 0,
+            "detection is never consulted for a row that is not an agent row")
+        XCTAssertNil(
+            harness.root.widgetStore.state.confirmation,
+            "the read-only foreign tool ran directly — no agent card")
+    }
 }
 
 /// The wiring test's composition: the real stores over fresh temporary directories, the
@@ -586,6 +657,33 @@ private final class AgentWiringCwdHarness<Provider: ActionProvider> {
             providerID: CodingAgentProvider.providerID, toolID: toolID)
         try await configStore.save(
             ActionConfig(servers: config.servers, enablement: config.enablement + [row]))
+    }
+}
+
+/// The foreign provider for the P2 lookup — a read-only stand-in under the audit provider's id
+/// serving one tool whose id collides with an agent's, recording every invocation it is asked
+/// to describe so the test reads what the intent leg handed it.
+private actor RecordingForeignProvider: ActionProvider {
+    static let providerID = "dev.vocca.audit"
+
+    private let toolID: String
+    private(set) var described: [ActionInvocation] = []
+
+    init(toolID: String) {
+        self.toolID = toolID
+    }
+
+    nonisolated var toolIDs: [String] { [toolID] }
+
+    func describe(_ invocation: ActionInvocation) async -> ActionSummary {
+        described.append(invocation)
+        return ActionSummary(sentence: "Read the foreign tool.", blastRadius: .readOnly)
+    }
+
+    func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) async
+        -> ActionOutcome
+    {
+        .succeeded
     }
 }
 
