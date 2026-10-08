@@ -3260,6 +3260,12 @@ percentage may be quoted** — SMOKE 150 records utterance counts only, and no a
 exists until real runs produce one. Recorded — never gated, each under **rule 1**: the state
 must actually have been entered before a row means anything.
 
+*Update (2026-10-08, `converse-intent-wiring`):* the ground rules above are history. Since
+`phrase-intent-resolver` the composed default is the phrase resolver (the "flip" is a phrase
+row plus an enabled tool), and since `converse-intent-wiring` the shipped converse path
+passes the intent leg — so these rows run on the built bundle with no code edit. Row 166 is
+the end-to-end real-app round trip.
+
 148. **The voice leg's card shows the gate's sentence verbatim (C13 slice 6, recorded —
     never gated).**
 
@@ -3272,6 +3278,10 @@ must actually have been entered before a row means anything.
     (merge into any existing `enablement` array). And since `phrase-intent-resolver` the
     shipped default is the phrase resolver, not the keyword one: "the N1 flip" is now a phrase
     row for "clear the audit log" in `intent-phrases.json` (row 154's shape).
+
+    *Runnable now* (2026-10-08, `converse-intent-wiring`): the shipped converse path passes
+    the intent leg, so the phrase reaches the app. With the card up the spoken reply is the
+    fixed line "Confirm on screen." (never the echo) — record what was heard.
 
     *Gesture:* with the N1 flip in place, enable `audit.clear` in the Actions tab (rows are
     off by default; absent is off), switch to the CONVERSING surface, and say "clear the
@@ -3323,6 +3333,10 @@ must actually have been entered before a row means anything.
 
 150. **An ambiguous utterance is answered with a spoken question, no tool touched (C13
     slice 6, recorded — never gated).**
+
+    *Note (2026-10-08):* the shipped default is the phrase resolver, which **never asks** — a
+    spoken question needs the keyword leg, i.e. `"keywordFallback": true` (row 165's switch).
+    With the switch off this row reads an echo, not a failure.
 
     *Gesture:* with the flip in place and a tool enabled, say an utterance the resolver
     cannot confidently match — one below the not-confident threshold, e.g. "delete the
@@ -3473,7 +3487,7 @@ actually have been entered before a row means anything.
 
     *Void — not fail — if:* the utterance was echoed because ASR or cleanup produced
     different words (record the transcript), or the enablement edit was not in place.
-    Also void while the converse path does not pass the intent leg (`AppBootstrap` calls `composeConverseWiring` without `intentProvider`/`intentActionHandler`): the app echoes, nothing resolves — record VOID, not FAIL (added 2026-10-04).
+    *Runnable now* (2026-10-08, `converse-intent-wiring`): the converse path passes the intent leg, so the former "void while unwired" condition (added 2026-10-04) is retired — an echo now means the phrase did not match or the enablement was not in place.
 
     *Failure:* a card for a read-only tool, a tool other than `audit.count` running, or no
     audit entry for a run that happened.
@@ -3492,7 +3506,7 @@ actually have been entered before a row means anything.
     never-gated note.
 
     *Void — not fail — if:* ASR produced different words for either utterance (record the
-    transcripts). Also void while the converse path does not pass the intent leg (`AppBootstrap` calls `composeConverseWiring` without `intentProvider`/`intentActionHandler`): the app echoes, nothing resolves — record VOID, not FAIL (added 2026-10-04).
+    transcripts). *Runnable now* (2026-10-08, `converse-intent-wiring`): the converse path passes the intent leg, so the former "void while unwired" condition (added 2026-10-04) is retired — an echo now means the phrase did not match or the enablement was not in place.
 
     *Failure:* the old phrase still runs the tool, or the new phrase needs a relaunch.
 
@@ -3513,8 +3527,11 @@ actually have been entered before a row means anything.
     with the never-gated note: **a shell command cannot be reached by voice, however the phrase
     file is edited**.
 
-    *Void — not fail —* while the converse path does not pass the intent leg (`AppBootstrap` calls `composeConverseWiring` without `intentProvider`/`intentActionHandler`): the app echoes, nothing resolves — record VOID, not FAIL (added 2026-10-04; unwired, the store is never loaded, so no
-    refusal line is logged).
+    *Void — not fail — if:* the shell command was not enabled while its phrase was spoken
+    (rule 1). *Runnable now* (2026-10-08, `converse-intent-wiring`): the former "void while
+    the converse path does not pass the intent leg" condition (added 2026-10-04 — unwired, the
+    store was never loaded, so no refusal line could be logged) is retired; the store is now
+    read on every converse turn.
 
     *Failure:* a shell card appears, the command runs, or no refusal line is logged.
 
@@ -3582,6 +3599,15 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
 
 158. **A phrase row naming `vocca.agent` arms the enabled agent; the spoken round trip
     confirms and runs it (C13 slice 9, recorded — never gated).**
+
+    *Known-failing in the shipped app* (2026-10-08, `converse-intent-wiring`): the shipped
+    intent wiring is composed over the audit provider, which does not serve `vocca.agent`, so
+    a phrase naming an agent is described as "does not serve the tool … Nothing will happen",
+    auto-runs as read-only and fails — the expected result today is the spoken "Something went
+    wrong." (or another non-card answer — record what was heard), an audited failed entry, **no
+    card and nothing spawned**. Record that as the known result, never a pass; the row's pass
+    becomes reachable when the intent executor is routed by provider id (the next unit). A
+    card or a spawned child here would be a **failure**, not a pass.
 
     *Gesture:* continuing from 157, add a phrase row to `intent-phrases.json` naming the
     agent — `{"phrase": "summarize the open PRs", "providerID": "vocca.agent", "toolID": "<your agent id>"}` —
@@ -3756,6 +3782,15 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     reconstructs; and the tab refuses to arm the row (`spoken-task-seeding`, recorded —
     never gated).**
 
+    *Known-failing in the shipped app* (2026-10-08, `converse-intent-wiring`): the shipped
+    intent wiring is composed over the audit provider, which does not serve `vocca.agent`, so
+    a phrase naming an agent is described as "does not serve the tool … Nothing will happen",
+    auto-runs as read-only and fails — the expected result today is the spoken "Something went
+    wrong." (or another non-card answer — record what was heard), an audited failed entry, **no
+    card and nothing spawned**. Record that as the known result, never a pass; the row's pass
+    becomes reachable when the intent executor is routed by provider id (the next unit). A
+    card or a spawned child here would be a **failure**, not a pass.
+
     *Gesture:* hand-edit `coding-agents.json` under `<applicationSupport>/Vocca/` (the
     shape is byte-pinned by tests — keep the field names verbatim) with one placeholder
     row — the founder's chosen CLI, **absolute executable path** (no PATH, no `~`) and
@@ -3927,10 +3962,10 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     nothing), an enabled shell command never resolves, and the switch off restores
     phrase-only (`composite-intent-resolver`, recorded — never gated).**
 
-    *Void — not fail — while the converse path does not pass the intent leg* (`AppBootstrap`
-    `composeConverseWiring` without `intentProvider`/`intentActionHandler`): the app echoes,
-    nothing resolves — record VOID, not FAIL. As of 2026-10-04 the shipped app is in this
-    state, so this row is runnable only once the leg is wired into the converse path.
+    *Runnable now* (2026-10-08, `converse-intent-wiring`): the converse path passes the
+    intent leg, so the former "void while the leg is unwired" condition (2026-10-04) is
+    retired. A destructive keyword hit's spoken reply is now "Confirm on screen." with the
+    card (row 166).
 
     *Gesture:* the switch has **no settings row** (the named deferral) — it is a hand-edit.
     Enable both audit tools by hand-editing `<applicationSupport>/Vocca/action-config.json`
@@ -3978,6 +4013,61 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     *Failure:* a destructive keyword hit without a card, a weak match that runs anything, a
     shell command resolved or spawned by voice, a switch-off utterance that still resolves
     through the keyword leg, or an ask naming more than three candidates.
+
+166. **The real-app voice round trip: a read-only phrase acks, a destructive phrase speaks
+    "Confirm on screen." beside its card, Confirm is audited, a second destructive phrase
+    while the card waits adds nothing, an agent phrase fails as the recorded known result,
+    and the default still echoes (`converse-intent-wiring`, recorded — never gated).**
+
+    *Gesture:* on the built bundle, hand-edit `<applicationSupport>/Vocca/action-config.json`
+    to enable both audit tools (no Actions-tab row — F-A; merge into any existing
+    `enablement` array): `{"providerID":"dev.vocca.audit","toolID":"audit.count"}` and
+    `{"providerID":"dev.vocca.audit","toolID":"audit.clear"}`. Write
+    `<applicationSupport>/Vocca/intent-phrases.json` as
+    `{"version":1,"phrases":[{"phrase":"count the audit log","providerID":"dev.vocca.audit","toolID":"audit.count"},{"phrase":"wipe the log","providerID":"dev.vocca.audit","toolID":"audit.clear"}]}`
+    (no `keywordFallback`). Start a CONVERSING session (the converse chord) and, in order:
+    (1) say "count the audit log" — expect the spoken and bubbled reply **"Done."**, **no
+    card**, and one new `autoRanReadOnly` entry under `<applicationSupport>/Vocca/actions/`;
+    (2) say "wipe the log" — expect the spoken reply **"Confirm on screen."** (never your words
+    echoed back) and the confirmation card visible with the gate's own sentence
+    ("Permanently delete N entries from the action audit log. This cannot be undone."), and
+    **record what is actually seen**: where the card sits relative to the pill and the reply
+    bubble, whether both are visible at once, whether either is clipped or overlapping — the
+    layout is unverified and this row is its first observation; (3) **while the card is still
+    up**, say "wipe the log" again — expect "Confirm on screen." again, **no second card**,
+    and the audit unchanged by that turn (the card-up refusal; the line names the waiting
+    card, not a new one); (4) press **Confirm** on the rendered card — expect the clear to
+    run and the audit to gain a `confirmed` entry (the clear's own record follows it, so the
+    log is never empty afterwards); (5) if an agent row is configured and enabled, add a phrase
+    naming it and say it — the review PREDICTS (from reading the code; no real run has seen it) "Something went wrong." and an audited
+    failed entry, **no card and nothing spawned**; record what was heard, any non-card answer (rows 158/162 — the provider-routing
+    follow-up); (6) remove both phrase rows (or say anything no phrase names) — expect the
+    **echo** of your words, exactly as before this unit. Optionally end the session with a
+    card up and record that the card stays until clicked (no session guard, recorded).
+
+    *Verify the state was entered:* the enablement rows were really on and the phrases really
+    matched (an echo on (1) or (2) means ASR/cleanup produced different words — record the
+    transcript; rule 1), the replies were really heard (the TTS, or the bubble's verbatim
+    text), the card was really read off the **rendered** surface before Confirm, the Confirm
+    press really happened on the surface (not a scripted call), and the audit entries were
+    really read off disk.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **in the real app a spoken
+    phrase ran a read-only tool with "Done.", a destructive phrase spoke "Confirm on screen."
+    with the card visible, the second request added no card, Confirm was audited, and the
+    default echoed** — plus the layout as seen, and the agent leg's known result if run.
+    Record the counts (utterances, attempts to be heard, audit entries), **never a rate**.
+
+    *Void — not fail — if:* ASR or cleanup produced different words (record the transcript),
+    the enablement or phrase edits were not in place, or no reply sounded (the render leg was
+    never entered).
+
+    *Failure:* a destructive phrase that runs without a card, an outward-facing tool that
+    auto-runs, "Confirm on screen." spoken with **no** card anywhere on screen, a second card
+    while one waits, a confirm with no audit entry, a success ack on a decision whose record
+    failed, an agent phrase that spawns a child or reaches a run without a card, or a
+    no-phrase utterance that does anything but echo. (An agent phrase that fails without a card is the predicted result, not a failure — predicted from the code, never yet
+    observed; record what was heard.)
 
 ---
 

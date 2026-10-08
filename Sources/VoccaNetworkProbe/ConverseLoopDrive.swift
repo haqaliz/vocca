@@ -189,10 +189,12 @@ extension VoccaNetworkProbe {
             capture: capture,
             asrProvider: { engine },
             cleanupProvider: { cleanup },
-            // The intent step is unwired in the probe — the composed default resolves
+            // The intent step is unwired in the probe on purpose — `configure` wires the
+            // shipped leg (`converse-intent-wiring` B9), but this drive keeps resolving
             // nothing (PRD R7: `intentResolved=0`), so the fallback default work still
-            // echoes. The closures are explicit, not the driver's defaults, so the drive
-            // names the types it deliberately does not wire.
+            // echoes and the PROBE-CONVERSE line stays byte-identical. The closures are
+            // explicit, not the driver's defaults, so the drive names the types it
+            // deliberately does not wire.
             intentProvider: { (_: String) async -> IntentResolution? in nil },
             intentActionHandler: { (_: ActionInvocation, utterance: String) async -> String? in
                 nil

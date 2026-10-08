@@ -1,26 +1,25 @@
-# Brief (no GitHub issue; inline brief from the vocca-next handoff, 2026-10-03)
+# Brief (no GitHub issue; inline brief, 2026-10-07)
 
-Source: `docs/technical/CAPABILITY_ROADMAP.md:861` — "a phrase-then-keyword composite resolver" (C13, P4).
+Source: the `composite-intent-resolver` unit's recorded finding (PR #57; docs/STATUS.md "shipped voice leg is unwired")
+and its recommendation: wire the intent leg into the shipped converse path.
 
-Build a `CompositeIntentResolver` (`VoccaCore/Intent/`, Foundation-free) that chains
-`PhraseIntentResolver` then `KeywordIntentResolver` behind the existing `IntentResolver` seam,
-and make it the composed default in `composeIntentWiring` (per-turn `resolverProvider`, no relaunch).
+**The gap (verified 2026-10-04):** `AppBootstrap.configure` calls `composeConverseWiring` WITHOUT
+`intentProvider` / `intentActionHandler` (ConverseWiring.swift defaults return nil). `root.intentWiring`
+is read only by the probe. So in the real app neither `PhraseIntentResolver` nor the opt-in
+`CompositeIntentResolver` is reached by voice: every utterance gets the echo reply, and "the shipped
+configuration can voice-act" (phrase-intent-resolver, 2026-09-25) is true only in tests/probes.
 
-- A phrase exact-match wins and short-circuits.
-- Otherwise the keyword resolver runs; a low-confidence result may only `.ask`. Never execute below
-  the 0.75 threshold; never resolve to `dev.vocca.shell`.
+**Goal:** pass the composed `IntentWiring`'s resolve and perform legs into the converse driver so a spoken
+phrase (an enabled tool + a phrase row, the two-step opt-in) reaches the shared executor, the confirmation
+card, the audit record and the spoken ack — in the real app.
 
-Caveats: no gate has passed (eighteenth unit ahead of uncleared gates); resolver accuracy is
-unmeasurable in CI (record counts, never a rate); F-C (`KeywordIntentResolver.jsonEscaped` emits
-invalid JSON for control characters) is open — decide explicitly whether to fix it here; expect one
-deliberate G5 re-anchor.
+**Why it needs care:** first time voice can trigger an action in a shipped build. Trust invariants:
+destructive/outward-facing always confirms (approval .withheld → card), every decision audited, shell never
+voice-reachable, the default (no phrase file / no enabled tool) must behave exactly as the echo default
+does today, the dictation path untouched, zero network and no child process by default. G5 will re-anchor
+(AppBootstrap.swift edit).
 
-Acceptances (written first):
-1. A phrase hit short-circuits; the keyword resolver is provably never consulted.
-2. A phrase miss with a confident keyword hit yields a `.toolCall` that still goes through the card
-   with approval `.withheld` and gets an audit record.
-3. A below-threshold keyword hit yields `.ask` naming at most 3 candidates, engine count 0.
-4. A shell tool is never resolved, even when its command is enabled.
-5. PROBE-INTENT-DEFAULT reports `resolver=CompositeIntentResolver` with `spawnsSubprocess=false`
-   inside the zero-network interposer.
-6. Test floor rises from 3083; dictation digests unchanged.
+Known context to verify in the dig: ConverseLoopDriver's intent step (card-up guard, bounded re-ask = 2,
+`auditRecorded == false` → failure copy), WidgetConfirmationSignal / card confirm-decline closures already
+exist, `intentActionHandler` signature `(ActionInvocation, String) async -> String?`, the probe
+(`ConverseLoopDrive.swift:196`) wires nil for these, SMOKE rows 148-165 are VOID until this ships.

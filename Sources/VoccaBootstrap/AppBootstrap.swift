@@ -580,9 +580,18 @@ public enum AppBootstrap {
         // mode-machine aspect) receives the driver's `start()`/`stop()` once its owner is
         // composed.
         Task { @MainActor in
+            // The intent leg (`converse-intent-wiring` B9): the closures read the root's
+            // intent wiring per turn through the weak root box — the driver retains them, so
+            // a strong `root` capture would cycle. With no phrase file or no enabled tool
+            // every utterance still echoes; a phrase on an enabled tool reaches the executor,
+            // the card and the audit.
+            let intentClosures = AppBootstrap.composeConverseIntentClosures(
+                root: { rootBox.value })
             let converseDriver = await AppBootstrap.composeConverseWiring(
                 clock: clock, store: store, resolver: resolver,
                 cleanupResolver: cleanupResolver, root: root,
+                intentProvider: intentClosures.provider,
+                intentActionHandler: intentClosures.handler,
                 converseReplySink: { text in
                     // The reply's lifecycle fold (`reply-text-rendering` R1/R2) — the same
                     // weak-root/MainActor shape as the state sink below: the driver retains

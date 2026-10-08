@@ -293,6 +293,71 @@ final class AppBootstrapWiringTests: XCTestCase {
             "the fold must run on the main actor — the store's one isolation domain")
     }
 
+    /// **The converse call site wires the intent leg** (`converse-intent-wiring` B9):
+    /// `configure`'s `composeConverseWiring` call passes `intentProvider:` and
+    /// `intentActionHandler:`, both built by `composeConverseIntentClosures`, whose root
+    /// accessor reaches the root through the weak root box — the driver retains both closures,
+    /// so a strong `root` capture cycles. `configure` needs an `NSApplication`, so this is a
+    /// source scan of the call site, the reply-sink pin's shape: a reverted call (the recipe's
+    /// `nil` defaults) is a silent return to echo-only conversation, the unwired voice leg.
+    func testTheConverseCallSitePassesTheIntentClosures() throws {
+        let block = try Self.balancedBlock(
+            in: "AppBootstrap.swift", after: "composeConverseWiring(")
+        for label in ["intentProvider:", "intentActionHandler:"] {
+            XCTAssertNotNil(
+                block.range(of: label),
+                """
+                `configure`'s `composeConverseWiring` call does not pass `\(label)`. Without \
+                it the recipe's default answers `nil` and every utterance echoes — the shipped \
+                voice leg is unwired. If the argument moved, this pin moves with it.
+                """)
+        }
+        // The VALUES are the composed closures, not merely the labels: an `{ _ in nil }`
+        // under the right label is the same silent echo-only regression.
+        for (label, value) in [
+            ("intentProvider:", "intentClosures.provider"),
+            ("intentActionHandler:", "intentClosures.handler"),
+        ] {
+            guard let range = block.range(of: label) else { continue }
+            let rest = block[range.upperBound...]
+            let argument = rest.prefix(while: { $0 != "," && $0 != "\n" })
+                .trimmingCharacters(in: .whitespaces)
+            XCTAssertEqual(
+                argument, value,
+                "`\(label)` must receive the composed closure `\(value)`, not another value "
+                    + "(got `\(argument)`) — otherwise the voice leg is unwired")
+        }
+        XCTAssertTrue(
+            block.contains("converseReplySink:"),
+            "the call must still pass `converseReplySink:` — the reply-sink pin's argument")
+
+        // The closures come from the static, and its accessor is the weak box's value.
+        let file = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        guard source.contains("composeConverseIntentClosures(") else {
+            return XCTFail(
+                "`configure` must build the intent closures with `composeConverseIntentClosures`")
+        }
+        let call = try Self.balancedBlock(
+            in: "AppBootstrap.swift", after: "composeConverseIntentClosures(")
+        let after = Array(call)
+        guard let brace = after.firstIndex(of: "{") else {
+            return XCTFail("the `root:` accessor must be a closure")
+        }
+        guard let accessor = SwiftSourceScanner.bracedBody(
+            in: after, openingBraceIndex: after.distance(from: after.startIndex, to: brace))
+        else {
+            return XCTFail("the `root:` accessor closure must balance")
+        }
+        let trimmed = accessor.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(
+            trimmed, "rootBox.value",
+            "the accessor must reach the root through the weak root box — the driver retains "
+                + "the closures, so a strong root capture cycles")
+    }
+
     // MARK: - The context composition (C12, R4)
 
     /// **The context wiring is probe-safe and attached** (`bootstrap-wiring` Phase 2): the
