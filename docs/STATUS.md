@@ -649,7 +649,9 @@ documented fix, never a rewrite of the historical record.
 
 **The `spoken-task-seeding` unit shipped 2026-10-01 — the N1 retirement: phrases arm
 rows AND the full spoken utterance fills the argv's `<task>` placeholder — one row, any
-task, per conversation; no gate passes.**
+task, per conversation; no gate passes.** [Dated history. The voice leg that fills the
+placeholder is wired into the shipped converse path by `converse-intent-wiring`, but a
+phrase naming a coding agent fails closed there and nothing spawns — see that unit.]
 `feat/spoken-task-seeding/aliz`. Four aspects (the record aspect is this entry). Floor
 **3000 → 3023** (executed 3023).
 
@@ -746,7 +748,8 @@ persistent-child/PTY machinery is unbuilt and does not fit the one-shot tool-cal
 deferred N1 — "phrases arm rows, never task text" (`coding-agent-handoff` prd.md N1: the
 phrase resolver produces no arguments and the gap-1 pin refuses them; `agent-presets`
 prd.md N1: the `taskPlaceholder` is "never substituted"). This unit retires it:
-**phrases arm rows AND the full spoken utterance fills the argv's `<task>` slot.** What
+**phrases arm rows AND the full spoken utterance fills the argv's `<task>` slot.** [In the shipped app this applies to the audit tools only;
+a phrase naming a coding agent fails closed — see `converse-intent-wiring`.] What
 stays: the editor's `<task>`-Save refusal (a surface row that means nothing must not
 save) and the "never substituted" claim narrowed to the surface half — the file may carry
 placeholder rows hand-edited, and the voice leg is the only path that fills one [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up].

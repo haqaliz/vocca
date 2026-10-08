@@ -72,7 +72,8 @@ This file orients a coding agent working in this repository. Read it first.
 > cues and the never-a-target render untouched. The wiring: `AppBootstrap` folds the sink
 > into `presentReply(_:)` through the weak rootBox on the main actor. **The reply seam's last
 > piece ships** — the real spoken answer to an agent run; **the remaining C13 machinery is
-> now** the phrase-then-keyword composite resolver, the audit-tools arm section, the
+> now** [since shipped: the composite resolver by `composite-intent-resolver`, the voice leg
+> by `converse-intent-wiring`] the phrase-then-keyword composite resolver, the audit-tools arm section, the
 > intent-seam shell leg and the §8 trust deferrals (`$N` parameter slots too); the
 > turn-history deliverable stays a separate unclaimed P3 item. **G5 re-anchored once,
 > deliberately** (`4e50ab8dde…` → `bc2ce1fdf2…`, six pin sites + the new invariant suite +
