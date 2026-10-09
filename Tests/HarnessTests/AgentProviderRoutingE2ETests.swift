@@ -88,6 +88,8 @@ final class AgentProviderRoutingE2ETests: XCTestCase {
         XCTAssertEqual(invocation.toolID, Self.claudeID)
 
         let reply = await router.performAction(invocation, Self.utterance)
+        // First, before the card is even read: nothing ran before the click.
+        XCTAssertEqual(harness.runner.callCount, 0, "nothing runs before the click")
         XCTAssertNil(reply, "a card is up — the card is the answer")
         let card = try XCTUnwrap(
             harness.root.widgetStore.state.confirmation?.signal,
@@ -96,7 +98,6 @@ final class AgentProviderRoutingE2ETests: XCTestCase {
         XCTAssertEqual(card.sentence, Self.cardSentence, "the argv-derived sentence, verbatim")
         XCTAssertEqual(card.taskText, Self.utterance, "the FULL utterance fills <task>")
         XCTAssertEqual(card.resolvedDirectory, Self.detectedPath, "the resolved directory")
-        XCTAssertEqual(harness.runner.callCount, 0, "nothing runs before the click")
         let armed = await harness.auditStore.load()
         XCTAssertEqual(armed.map(\.decision), [.refused], "the withheld submission's record")
 
