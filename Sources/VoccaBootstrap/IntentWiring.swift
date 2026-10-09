@@ -371,4 +371,41 @@ extension AppBootstrap {
             policy: policy,
             spawnsSubprocess: false)
     }
+
+    /// **The intent router** (`intent-provider-routing` / `provider-dispatch` R1, R2): one
+    /// wiring in the root slot's type that dispatches each resolved `.toolCall` by its
+    /// providerID.
+    ///
+    /// A `vocca.agent` call reaches the agent wiring when one is composed; **everything else**
+    /// — the agent side absent (Q3), the audit tools, shell, an unknown provider — reaches the
+    /// audit wiring, whose provider fails an unserved provider closed (audited, never run).
+    /// `resolve`, `executor` and `policy` are the audit wiring's; `spawnsSubprocess` is the
+    /// declared `false`. The reply passes through unchanged, `nil` included — the converse
+    /// wrapper reads `nil` to detect the card.
+    ///
+    /// ## The agent side is read lazily
+    ///
+    /// `agent` is consulted inside ``IntentWiring/performAction`` at call time, never at
+    /// construction: the agent wiring is composed in a later launch task, after the router is
+    /// already in the root slot.
+    public static func routeIntentWiring(
+        audit: IntentWiring<AuditActionProvider>,
+        agent: @escaping @Sendable @MainActor () -> IntentWiring<CodingAgentProvider>?
+    ) -> IntentWiring<AuditActionProvider> {
+        let performAction: @Sendable @MainActor (ActionInvocation, String) async -> String? = {
+            invocation, utterance in
+            if invocation.providerID == CodingAgentProvider.providerID,
+               let agentWiring = agent() {
+                return await agentWiring.performAction(invocation, utterance)
+            }
+            return await audit.performAction(invocation, utterance)
+        }
+
+        return IntentWiring(
+            resolve: audit.resolve,
+            performAction: performAction,
+            executor: audit.executor,
+            policy: audit.policy,
+            spawnsSubprocess: false)
+    }
 }
