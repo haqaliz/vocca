@@ -549,7 +549,7 @@ intent layer's S1**, the second real intent classifier and the user's tuning pat
 - **The per-turn resolver provider** on `composeIntentWiring`: the file is read each turn,
   never at composition, and an edit takes effect without a relaunch.
 - **The N1 flip.** The composed default is now a `PhraseIntentResolver` over the user's file,
-  so the shipped configuration voice-acts [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] [resolved 2026-10-08 by converse-intent-wiring: the leg is wired; phrase rows over the audit tools act by voice, a phrase naming a coding agent does not yet] only after a two-step opt-in (a phrase **and** an
+  so the shipped configuration voice-acts [corrected 2026-10-04: the leg is not wired into the shipped converse path — see composite-intent-resolver] [resolved 2026-10-08 by converse-intent-wiring: the leg is wired; phrase rows over the audit tools act by voice, a phrase naming a coding agent does not yet] [resolved 2026-10-10 by intent-provider-routing: an agent phrase now reaches the agent's card] only after a two-step opt-in (a phrase **and** an
   enabled tool). With no file it resolves nothing, as the null default did.
 - **PROBE-INTENT-PHRASE** inside the zero-network interposer.
 
@@ -572,7 +572,7 @@ No gate passes. SMOKE 154-156 are written and runnable, recorded and never gated
 **2859**.)*
 
 *(Amended by the `coding-agent-handoff` unit, 2026-10-01: **slice 9 of C13 shipped — the
-P4 table's last row**: voice → a one-shot coding-agent run [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up] with the active project as
+P4 table's last row**: voice → a one-shot coding-agent run [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up] [resolved 2026-10-10 by intent-provider-routing: the intent leg routes by providerID — a phrase naming an enabled agent row reaches the agent's card, and only Confirm runs it] with the active project as
 context, composed onto the proven spine. Shipped:
 - **`CodingAgentRegistry`** (`VoccaActions/Config/`): the user-editable `coding-agents.json`
   — definitions only, tolerant load / throwing save, caps refuse never clamp, absolute
@@ -593,7 +593,7 @@ context, composed onto the proven spine. Shipped:
   the mismatch re-prompt, every decision recorded, `spawnsSubprocess=false` declared for
   the composed default (an absent registry is zero rows — **the default configuration
   cannot create an agent child**).
-- **Voice-reachable** [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up]: a phrase row naming `dev.vocca.agent` resolves once the tool is
+- **Voice-reachable** [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up] [resolved 2026-10-10 by intent-provider-routing: the intent leg routes by providerID — a phrase naming an enabled agent row reaches the agent's card, and only Confirm runs it]: a phrase row naming `dev.vocca.agent` resolves once the tool is
   enabled (the store refuses only `dev.vocca.shell`; phrases arm rows, they never carry
   task text).
 - **PROBE-CODING-AGENT** inside the zero-network interposer.
@@ -683,7 +683,7 @@ directory becomes the empty row's project at arm time. Shipped:
   once** at arm and the value rides the invocation → card → post-record re-render →
   confirm/decline rebuild: one resolution, four identical renders (a focus change
   mid-card can never mismatch or mis-run); **D2 explicit-wins** (a configured row is
-  never re-resolved — the zero-calls proof); the **voice leg ships (S2)** [not in the shipped app — an agent phrase is not voice-reachable until the intent executor routes by provider id; see converse-intent-wiring] (phrase →
+  never re-resolved — the zero-calls proof); the **voice leg ships (S2)** [not in the shipped app — an agent phrase is not voice-reachable until the intent executor routes by provider id; see converse-intent-wiring] [resolved 2026-10-10 by intent-provider-routing: the intent leg routes by providerID — a phrase naming an enabled agent row reaches the agent's card, and only Confirm runs it] (phrase →
   intent-leg enrichment → the card carries the resolution → the confirm runs in it);
   the R4 editor caption.
 - **The seam fact**: the cwd read is `WorkingDirectoryRead` (C12's amendment above),
@@ -718,7 +718,7 @@ SMOKE 161 is written and runnable, recorded and never gated; no resolution rate 
 quoted. Test floor: **2991**.)*
 
 *(Amended by the `spoken-task-seeding` unit, 2026-10-01: **slice 12 of C13 shipped — the
-N1 retirement**, the spoken task fills the argv: one row, any task, per conversation [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up].
+N1 retirement**, the spoken task fills the argv: one row, any task, per conversation [not in the shipped app — see converse-intent-wiring: an agent phrase fails closed, nothing spawns; needs the provider-routing follow-up] [resolved 2026-10-10 by intent-provider-routing: the intent leg routes by providerID — a phrase naming an enabled agent row reaches the agent's card, and only Confirm runs it].
 Shipped:
 - **The carrier**: `ActionInvocation.taskText` (additive, default nil, Foundation-free,
   **never `arguments`** — the gap-1 pin intact) + `WidgetConfirmationSignal.taskText`.
@@ -969,7 +969,7 @@ root box. In the real app a phrase on an enabled tool reaches the shared executo
   the shipped app** — the intent wiring is composed over `AuditActionProvider`, so the phrase
   auto-runs as "read-only" and fails ("Something went wrong.", an audited failed entry, no
   card, nothing spawns), and the slice-11 agent voice claim stays untrue until the routing
-  follow-up; the audit provider claims read-only for tools it does not serve; `AuditActionProvider` selects its tool by `toolID` alone and ignores `providerID` (`AuditActionProvider.swift:121-139`, `:165-179`): an enabled agent or MCP row whose tool id is `audit.clear`/`audit.count` gets the audit tool's behavior — a foreign `audit.count` row can speak "Done."; every step still needs a click and the card shows the true sentence, so it is not a bypass. Named acceptance test of the provider-routing follow-up unit: every intent dispatch checks `providerID` against the provider that serves it.; the confirm line
+  follow-up; the audit provider claims read-only for tools it does not serve; `AuditActionProvider` selects its tool by `toolID` alone and ignores `providerID` (`AuditActionProvider.swift:121-139`, `:165-179`): an enabled agent or MCP row whose tool id is `audit.clear`/`audit.count` gets the audit tool's behavior — a foreign `audit.count` row can speak "Done."; every step still needs a click and the card shows the true sentence, so it is not a bypass. Named acceptance test of the provider-routing follow-up unit: every intent dispatch checks `providerID` against the provider that serves it. [resolved 2026-10-10 by intent-provider-routing: the intent leg routes by providerID — an agent phrase reaches the agent's card; the audit provider serves a tool only under its own providerID]; the confirm line
   can name a card that belongs to another action (click-only; the card's sentence is honest);
   no spoken confirm (N2), no session guard — a card can appear mid-conversation and outlives
   the session; the card + reply-bubble layout is unverified (SMOKE 166 only); phrases and
@@ -983,10 +983,8 @@ gates); R8 is in a real voice path for the first time — mitigated in structure
 no success rate exists.
 
 **What is still NOT built — the remaining C13 machinery:**
-- **intent-executor routing by provider id** — **the next unit**: the shipped intent wiring
-  takes a single provider (`AuditActionProvider`), while the card closures already route by
-  provider id; until it is routed the same way, a phrase naming `vocca.agent` (or any
-  non-audit provider) fails as "read-only" instead of reaching its card
+- ~~**intent-executor routing by provider id**~~ [resolved 2026-10-10 by intent-provider-routing
+  — see the amendment below; the remaining list is carried there]
 - an **audit-tools arm section** in the Actions tab
 - the **intent-seam shell leg** (a voice path to shell commands; refused at load and closed
   in both halves of the composite by decision, and reversing it is a founder call)
@@ -1007,6 +1005,66 @@ no success rate exists.
 
 SMOKE 166 is written and runnable, recorded and never gated; no success rate may be quoted.
 Test floor: **3137**.)*
+
+*(Amended by the `intent-provider-routing` unit, 2026-10-10: **the intent leg routes by
+providerID.** `root.intentWiring` is `AppBootstrap.routeIntentWiring(audit:agent:)`
+(`IntentWiring.swift`) — a function returning an `IntentWiring<AuditActionProvider>` (a recorded
+planning deviation: no new type, so the root slot, the converse closures and the probes are
+untouched) whose `performAction` sends a `vocca.agent` call to the agent intent wiring and every
+other call to the audit wiring. Shipped:
+- **The provider guards**: `AuditActionProvider` serves a tool only under its own providerID — a
+  foreign `audit.count`/`audit.clear` is the "does not serve … Nothing will happen." sentence and
+  fails closed (a foreign `audit.clear` deletes nothing); the intent leg's agent lookup needs
+  `providerID == CodingAgentProvider.providerID` **and** the agent id. A unit result: non-agent
+  voice actions no longer trigger an Accessibility working-directory read.
+- **The router**: exact `String ==` dispatch; `vocca.agent` with the agent side absent (the
+  startup window), `dev.vocca.shell` and every other providerID → the audit wiring; the agent
+  side read lazily from `root.agentIntentWiring` on every call; `spawnsSubprocess = false`.
+- **The composition**: `configure` stores the router with a weak, call-time agent lookup; the
+  agent launch task stores the agent intent wiring over **`agentWiring.executor`**, so the card,
+  the agent wiring's Confirm and the audit trail are one chain. The card's Confirm/Decline route
+  by `card.providerID` (pre-existing) — now pinned by a source scan with a recorded mutation.
+- **End to end over the real wirings**: phrase → the outward-facing card (the argv-derived
+  sentence, the full utterance as `<task>`, the resolved directory), nothing runs before the
+  click; Confirm → one run, `[.refused, .confirmed]`; Decline → no run; no click across many voice
+  turns never runs; the default unchanged (`agents=0 spawnsSubprocess=false`, the echo).
+- **Limits, recorded**: shell and MCP are **not** voice-routed; the startup window speaks the
+  audited "Something went wrong." for a valid agent phrase; the agent card's generation token can
+  come from three independent counters (harmless — confirm reads the signal off the store); the
+  full utterance is the child's `<task>` argv (≤4096 bytes, refused never truncated, visible on
+  the card before the click); N2 unchanged (click-only, no spoken confirm, no session guard); an
+  enabled agent's egress is never provable (D2); the real agent run and the card layout are
+  unverified.
+
+G5 re-anchored once, deliberately (`bfeed81f…` → `8110b86e…`, computed with `shasum -a 256` on
+2026-10-10 after the unit's last composition-root edit, never edited-to-match; all seven pin
+sites; dictation digests unchanged). No gate passes (twenty-first unit ahead of the uncleared
+gates); **the first shipped path from speech to a child process** — R8 mitigated in structure
+(the click is the gate), not retired; no success or agent-success rate exists.
+
+**What is still NOT built — the remaining C13 machinery:**
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load and closed
+  in both halves of the composite by decision, and reversing it is a founder call)
+- **MCP provider routing** in the intent leg (`MCPProvider` is not composed there)
+- an **audit-tools arm section** in the Actions tab
+- **spoken confirm/decline** (N2 — a new trust surface) and a **session guard** (refuse or
+  queue a card during a session; clear an armed card on session end)
+- **startup-window copy** for an agent phrase spoken before the agent side lands
+- a **phrase-authoring UI** (phrases are hand-edited JSON today)
+- a **PROBE drive of the real converse + intent composition** over temp stores
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- **`$N` parameter slots** (an agent row declares no parameters — the arguments-refusal
+  pin is the shipped record; the spoken task rides the additive `taskText` field, never
+  `arguments`)
+- the `composite-intent-resolver` follow-ons: a **settings-UI row for `keywordFallback`**,
+  spoken **display names** for the ask, and the **directory seam** that isolates
+  PROBE-INTENT-DEFAULT from the real phrase file
+- the **copy affordance (N1)** from `reply-text-rendering` (the widget panel is non-key)
+- **not machinery, named so it is not lost:** the **turn-history deliverable**
+  (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**.
+
+SMOKE 158/162/166 are written and runnable, recorded and never gated; no success rate may be
+quoted. Test floor: **3161**.)*
 
 ---
 
