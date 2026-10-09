@@ -969,7 +969,7 @@ root box. In the real app a phrase on an enabled tool reaches the shared executo
   the shipped app** — the intent wiring is composed over `AuditActionProvider`, so the phrase
   auto-runs as "read-only" and fails ("Something went wrong.", an audited failed entry, no
   card, nothing spawns), and the slice-11 agent voice claim stays untrue until the routing
-  follow-up; the audit provider claims read-only for tools it does not serve; `AuditActionProvider` selects its tool by `toolID` alone and ignores `providerID` (`AuditActionProvider.swift:121-139`, `:165-179`): an enabled agent or MCP row whose tool id is `audit.clear`/`audit.count` gets the audit tool's behavior — a foreign `audit.count` row can speak "Done."; every step still needs a click and the card shows the true sentence, so it is not a bypass. Named acceptance test of the provider-routing follow-up unit: every intent dispatch checks `providerID` against the provider that serves it. [resolved 2026-10-10 by intent-provider-routing: the intent leg routes by providerID — an agent phrase reaches the agent's card; the audit provider serves a tool only under its own providerID]; the confirm line
+  follow-up [resolved 2026-10-10 by intent-provider-routing: an agent phrase reaches the agent's card; dated history]; the audit provider claims read-only for tools it does not serve; `AuditActionProvider` selects its tool by `toolID` alone and ignores `providerID` (`AuditActionProvider.swift:121-139`, `:165-179`): an enabled agent or MCP row whose tool id is `audit.clear`/`audit.count` gets the audit tool's behavior — a foreign `audit.count` row can speak "Done."; every step still needs a click and the card shows the true sentence, so it is not a bypass. Named acceptance test of the provider-routing follow-up unit: every intent dispatch checks `providerID` against the provider that serves it. [resolved 2026-10-10 by intent-provider-routing: the intent leg routes by providerID — an agent phrase reaches the agent's card; the audit provider serves a tool only under its own providerID]; the confirm line
   can name a card that belongs to another action (click-only; the card's sentence is honest);
   no spoken confirm (N2), no session guard — a card can appear mid-conversation and outlives
   the session; the card + reply-bubble layout is unverified (SMOKE 166 only); phrases and
@@ -1034,7 +1034,7 @@ other call to the audit wiring. Shipped:
   full utterance is the child's `<task>` argv (≤4096 bytes, refused never truncated, visible on
   the card before the click); N2 unchanged (click-only, no spoken confirm, no session guard); an
   enabled agent's egress is never provable (D2); the real agent run and the card layout are
-  unverified.
+  unverified; `CodingAgentProvider.describe/invoke` do not check the invocation's providerID (unlike the audit provider's new guard); this is safe today because only `vocca.agent` calls reach the agent executor (the router and the card routing) — recorded as defence in depth for the follow-up.
 
 G5 re-anchored once, deliberately (`bfeed81f…` → `8110b86e…`, computed with `shasum -a 256` on
 2026-10-10 after the unit's last composition-root edit, never edited-to-match; all seven pin

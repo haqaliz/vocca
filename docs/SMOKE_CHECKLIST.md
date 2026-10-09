@@ -3609,16 +3609,10 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     becomes reachable when the intent executor is routed by provider id (the next unit). A
     card or a spawned child here would be a **failure**, not a pass.
     **[resolved 2026-10-10 by `intent-provider-routing`: the intent leg routes by providerID —
-    the placeholder row's phrase reaches the agent intent wiring, which fills `<task>` with the
-    full utterance; the row is runnable as written below. The paragraph above is dated
-    history.]** Predicted from the code and the end-to-end tests, never yet observed on a real
-    machine; the startup window (a phrase spoken before the agent composition's launch task
-    lands → the audited "Something went wrong.", no card) is recorded, not a failure — retry,
-    and record what was heard.
-    **[resolved 2026-10-10 by `intent-provider-routing`: the intent leg routes by providerID —
     a `vocca.agent` phrase reaches the agent intent wiring over the agent executor, so the row
-    is runnable as written below: expect the card, nothing running until Confirm. The paragraph
-    above is dated history.]** Predicted from the code and the end-to-end tests, never yet
+    is runnable as written below: expect the fixed-argv sentence on the card, nothing running until Confirm; Confirm runs the
+    agent once and the audit records `confirmed`; Decline runs nothing. The paragraph above is
+    dated history.]** Predicted from the code and the end-to-end tests, never yet
     observed on a real machine: if the phrase is spoken in the first moments after launch
     (before the agent composition's launch task lands) the audited "Something went wrong."
     with no card is the recorded startup window — retry, and record what was heard.
@@ -3797,13 +3791,22 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     never gated).**
 
     *Known-failing in the shipped app* (2026-10-08, `converse-intent-wiring`): the shipped
-    intent wiring is composed over the audit provider, which does not serve `vocca.agent`, so
-    a phrase naming an agent is described as "does not serve the tool … Nothing will happen",
-    auto-runs as read-only and fails — the expected result today is the spoken "Something went
-    wrong." (or another non-card answer — record what was heard), an audited failed entry, **no
-    card and nothing spawned**. Record that as the known result, never a pass; the row's pass
-    becomes reachable when the intent executor is routed by provider id (the next unit). A
-    card or a spawned child here would be a **failure**, not a pass.
+    intent wiring was composed over the audit provider, which does not serve `vocca.agent`, so
+    a phrase naming an agent was described as "does not serve the tool … Nothing will happen",
+    auto-ran as read-only and failed — the spoken "Something went wrong.", an audited failed
+    entry, no card, nothing spawned.
+    **[resolved 2026-10-10 by `intent-provider-routing`: the intent leg routes by providerID —
+    a phrase naming an enabled coding agent reaches the agent intent wiring over the agent
+    executor, which fills `<task>` with the full utterance; the row is runnable as written
+    below. The paragraph above is dated history.]** Predicted from the code and the
+    end-to-end tests, never observed in a real run — record what was seen. **Expected:** the
+    card with the argv-derived sentence, the FULL utterance as `<task>` and the resolved
+    project directory; nothing spawns before the click; **Confirm** runs the agent once and
+    the audit records `confirmed`; **Decline** runs nothing and the audit records `refused`.
+    A working card is the expected result here, not a failure. **Failure:** a spawn before
+    the click, no card, or a sentence that differs from the argv. (The startup window — a
+    phrase spoken before the agent composition's launch task lands → the audited "Something
+    went wrong.", no card — is recorded, not a failure; retry.)
 
     *Gesture:* hand-edit `coding-agents.json` under `<applicationSupport>/Vocca/` (the
     shape is byte-pinned by tests — keep the field names verbatim) with one placeholder

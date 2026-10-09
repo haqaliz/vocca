@@ -2456,8 +2456,8 @@ set -euo pipefail
 # `audit.clear` under the agent provider never deletes); `AppBootstrapWiringTests` +3 (G1
 # `configure` assigns the router with the weak lazy agent lookup; the agent launch task stores
 # the agent intent wiring over the agent executor; the card's Confirm/Decline route by
-# providerID — a swapped agent/audit route fails it, recorded mutation). Lint rows are reviewed
-# row edits, no count change. The G5 pin re-anchored once, deliberately (bfeed81f… →
+# providerID — a swapped agent/audit route fails it, recorded mutation). Lint rows: no lint row
+# was needed. The G5 pin re-anchored once, deliberately (bfeed81f… →
 # 8110b86e…, computed with `shasum -a 256` after the unit's last composition-root edit, never
 # edited-to-match; all seven pin sites; the dictation pair 1baeb2de…/ce70ca10… unchanged).
 # PROBE-CONVERSE / PROBE-INTENT-DEFAULT / PROBE-CODING-AGENT unchanged.

@@ -23,7 +23,7 @@ This file orients a coding agent working in this repository. Read it first.
 > agent phrase spoken before the agent launch task lands gets the audit side's audited
 > "Something went wrong."; N2 unchanged (click-only, no spoken confirm, no session guard); an
 > enabled agent's egress is never provable (D2); the real agent run and the card layout are
-> unverified. **The first shipped speech → child path** — R8 mitigated in structure, **not
+> unverified; `CodingAgentProvider` does not check providerID (safe: only `vocca.agent` reaches its executor). **The first shipped speech → child path** — R8 mitigated in structure, **not
 > retired**. G5 re-anchored once, deliberately (`bfeed81f…` → `8110b86e…`, seven pin sites;
 > dictation digests unchanged). **No gate passes** (twenty-first unit ahead of the uncleared
 > gates); no rate exists; the default is unchanged (`agents=0 spawnsSubprocess=false`, echo).

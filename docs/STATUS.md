@@ -107,6 +107,7 @@ unchanged — `1baeb2de…`/`ce70ca10…`, recomputed and compared.
 - **An enabled agent's egress is never provable** (D2) — the child is not observable by the
   zero-network interposer.
 - **The real agent run and the card layout are unverified** — SMOKE 158/162/166 only.
+- `CodingAgentProvider.describe/invoke` do not check the invocation's providerID (unlike the audit provider's new guard); this is safe today because only `vocca.agent` calls reach the agent executor (the router and the card routing) — recorded as defence in depth for the follow-up.
 - Deferred minors from the reviews: the P1 test has no file-count assertion (E3 covers it);
   `RecordingForeignProvider` hard-codes `"dev.vocca.audit"`; the G1 ordering check uses the
   file's first `root.agentWiring = agentWiring` and substring matches; the strong-root-lookup
@@ -114,7 +115,7 @@ unchanged — `1baeb2de…`/`ce70ca10…`, recomputed and compared.
 
 **The honesty block:**
 - **No gate passes.** The twenty-first unit built ahead of the uncleared gates under the
-  recorded posture. Demand: roadmap push, not demand pull — no user asked for voice → agent.
+  recorded posture. This unit was chosen from the recorded follow-up of `converse-intent-wiring` and the roadmap's P4 `coding-agent-handoff` deliverable; no user request for it is recorded.
 - **No success, resolution, accuracy or agent-success rate exists.** Every claim here is a test
   or a probe; "an agent phrase runs the agent in the real app" is unmeasured until SMOKE 158/162/166
   run on a real machine.
