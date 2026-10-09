@@ -309,15 +309,18 @@ final class AgentProviderRoutingE2ETests: XCTestCase {
             }
             XCTAssertEqual(invocation.providerID, CodingAgentProvider.providerID)
             XCTAssertEqual(invocation.toolID, foreignTool)
-            _ = await router.performAction(invocation, "clear the log")
-            if let card = harness.root.widgetStore.state.confirmation?.signal {
-                // Whatever card appears is answered through the chain the shell would pick.
-                if card.providerID == CodingAgentProvider.providerID {
-                    await harness.agentWiring.confirm()
-                } else {
-                    await harness.actionWiring.confirm()
-                }
-            }
+            let reply = await router.performAction(invocation, "clear the log")
+            // Neither side serves the pair, so it is the unserved tool at `readOnly`: it fails
+            // closed with no card — no destructive "clear" card a click could approve.
+            XCTAssertEqual(
+                reply, "Something went wrong.",
+                "the unserved pair fails closed (agent side composed: \(agentSideComposed))")
+            XCTAssertNil(
+                harness.root.widgetStore.state.confirmation,
+                "no card is ever presented for the foreign clear (\(agentSideComposed))")
+            // Even a click on either chain's confirm finds nothing to approve.
+            await harness.actionWiring.confirm()
+            await harness.agentWiring.confirm()
 
             let after = await harness.auditStore.load()
             for entry in seeded {
