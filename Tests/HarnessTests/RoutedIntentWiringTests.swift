@@ -174,6 +174,10 @@ final class RoutedIntentWiringTests: XCTestCase {
             (AuditActionProvider.providerID, AuditActionProvider.clearToolID),
             (ShellProvider.providerID, "list-files"),
             ("dev.example.unknown", "anything"),
+            // The match is exact: a case or whitespace variant of the agent id is not the
+            // agent provider, and falls to the audit wiring, which fails it closed.
+            ("VOCCA.AGENT", "commit-helper"),
+            ("vocca.agent ", "commit-helper"),
         ]
         for (providerID, toolID) in cases {
             let auditSpy = DispatchSpy()
@@ -207,6 +211,30 @@ final class RoutedIntentWiringTests: XCTestCase {
 
         XCTAssertNil(agentReply)
         XCTAssertNil(auditReply)
+    }
+
+    /// **Each branch passes its own reply through** — one side answers nil, the other a line,
+    /// and the reverse: the two branches are distinguishable, and neither borrows the other's.
+    func testEachBranchPassesItsOwnReplyThrough() async throws {
+        let agentCall = try invocation(CodingAgentProvider.providerID, "commit-helper")
+        let auditCall = try invocation(
+            AuditActionProvider.providerID, AuditActionProvider.countToolID)
+
+        let nilAgent = agentStub(spy: DispatchSpy(), reply: nil)
+        let lineAudit = AppBootstrap.routeIntentWiring(
+            audit: auditStub(spy: DispatchSpy(), reply: "x"), agent: { nilAgent })
+        let agentNil = await lineAudit.performAction(agentCall, "u")
+        let auditX = await lineAudit.performAction(auditCall, "u")
+        XCTAssertNil(agentNil, "the agent branch's nil is not replaced by the audit's line")
+        XCTAssertEqual(auditX, "x")
+
+        let lineAgent = agentStub(spy: DispatchSpy(), reply: "x")
+        let nilAudit = AppBootstrap.routeIntentWiring(
+            audit: auditStub(spy: DispatchSpy(), reply: nil), agent: { lineAgent })
+        let agentX = await nilAudit.performAction(agentCall, "u")
+        let auditNil = await nilAudit.performAction(auditCall, "u")
+        XCTAssertEqual(agentX, "x")
+        XCTAssertNil(auditNil, "the audit branch's nil is not replaced by the agent's line")
     }
 
     // MARK: - R1: the forwarded members

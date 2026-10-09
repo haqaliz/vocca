@@ -358,6 +358,83 @@ final class AppBootstrapWiringTests: XCTestCase {
                 + "the closures, so a strong root capture cycles")
     }
 
+    /// **`configure` routes the intent leg by providerID** (`intent-provider-routing` G1):
+    /// `root.intentWiring` is the router over the audit wiring, never the bare audit wiring —
+    /// a reverted assignment is a silent return to an agent phrase failing closed on the audit
+    /// provider. `configure` needs an `NSApplication`, so this is a source scan, the converse
+    /// call site pin's shape; `AgentProviderRoutingE2ETests` drives the chain this pin says
+    /// `configure` assembles.
+    func testConfigureAssignsTheRoutedIntentWiring() throws {
+        let file = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        XCTAssertTrue(
+            source.contains("root.intentWiring = AppBootstrap.routeIntentWiring("),
+            "`configure` must assign the routed wiring to `root.intentWiring`")
+        XCTAssertFalse(
+            source.contains("root.intentWiring = intentWiring"),
+            "the bare audit wiring must not be the slot's value — the agent leg is unreachable")
+
+        let call = try Self.balancedBlock(in: "AppBootstrap.swift", after: "routeIntentWiring(")
+        XCTAssertTrue(
+            call.contains("audit: intentWiring"),
+            "the router's audit side is the composed audit intent wiring")
+        guard let label = call.range(of: "agent:") else {
+            return XCTFail("the router call must pass the `agent:` lookup")
+        }
+        let after = Array(call[label.upperBound...])
+        guard let brace = after.firstIndex(of: "{") else {
+            return XCTFail("the `agent:` lookup must be a closure")
+        }
+        guard let lookup = SwiftSourceScanner.bracedBody(
+            in: after, openingBraceIndex: after.distance(from: after.startIndex, to: brace))
+        else {
+            return XCTFail("the `agent:` closure must balance")
+        }
+        let trimmed = lookup.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(
+            trimmed, "[weak root] in root?.agentIntentWiring",
+            "the lookup must read the root's slot weakly and at call time — an eager capture "
+                + "holds nil forever (the agent wiring lands in a later launch task), and a "
+                + "strong root capture cycles")
+    }
+
+    /// **The agent launch task stores the agent intent wiring over the agent wiring's own
+    /// executor** (`intent-provider-routing` G1, D3): built after `root.agentWiring` is
+    /// stored, over `agentWiring.executor` — the card, the agent wiring's Confirm and the audit
+    /// trail are one chain — with the shared resolver provider and the detection closure.
+    func testTheAgentLaunchTaskStoresTheAgentIntentWiringOverTheAgentExecutor() throws {
+        let file = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        let header = "root.agentIntentWiring = AppBootstrap.composeIntentWiring("
+        guard let stored = source.range(of: header) else {
+            return XCTFail("the agent launch task must store `root.agentIntentWiring`")
+        }
+        guard let agentStored = source.range(of: "root.agentWiring = agentWiring") else {
+            return XCTFail("the agent launch task must still store `root.agentWiring`")
+        }
+        XCTAssertLessThan(
+            agentStored.lowerBound, stored.lowerBound,
+            "the agent intent wiring is built after the agent wiring it shares an executor with")
+
+        let call = try Self.balancedBlock(in: "AppBootstrap.swift", after: header)
+        for argument in [
+            "configStore: actionConfigStore",
+            "provider: agentProvider",
+            "executor: agentWiring.executor",
+            "resolverProvider: intentResolverProvider",
+            "root: root",
+            "activeProjectDirectory: activeProjectDirectory",
+        ] {
+            XCTAssertTrue(
+                call.contains(argument),
+                "the agent intent wiring must be composed with `\(argument)`")
+        }
+    }
+
     // MARK: - The context composition (C12, R4)
 
     /// **The context wiring is probe-safe and attached** (`bootstrap-wiring` Phase 2): the
