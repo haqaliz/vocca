@@ -1770,26 +1770,33 @@ public final class DictationLoopRoot {
     public var actionConfigStore: ActionConfigStore?
 
     /// The confirmation card's Confirm closure — the **routed** closure (the shell-provider
-    /// wiring's addition): a shell card is answered by the shell wiring's executor, every other
-    /// card by the action wiring's — the card is one surface, and the routing reads the shell
-    /// wiring lazily (a nil read is quiet: a shell card cannot exist before the wiring that
-    /// presented it). Read by the widget panel through the live widget's slot
-    /// (`confirmationActions`). `nil` only in a composition that built no action wiring.
+    /// wiring's addition): a shell card is answered by the shell wiring's executor, an agent
+    /// card by the agent wiring's, every other card by the action wiring's — the card is one
+    /// surface, and the routing reads the shell and agent wirings lazily (a nil read is quiet:
+    /// a card cannot exist before the wiring that presented it). Read by the widget panel
+    /// through the live widget's slot (`confirmationActions`). `nil` only in a composition that
+    /// built no action wiring.
     public var actionConfirm: (@Sendable @MainActor () async -> Void)?
 
     /// The confirmation card's Decline closure — the **routed** closure (the shell-provider
-    /// wiring's addition): a shell card is answered by the shell wiring's executor, every other
-    /// card by the action wiring's. Read by the widget panel through the live widget's slot
-    /// (`confirmationActions`). `nil` only in a composition that built no action wiring.
+    /// wiring's addition): a shell card is answered by the shell wiring's executor, an agent
+    /// card by the agent wiring's, every other card by the action wiring's. Read by the widget
+    /// panel through the live widget's slot (`confirmationActions`). `nil` only in a
+    /// composition that built no action wiring.
     public var actionDecline: (@Sendable @MainActor () async -> Void)?
 
     // MARK: - The intent composition (C13 slice 6, intent-layer)
 
-    /// **The composed intent wiring** (`action-round-trip` + `probe`): the voice path's
-    /// resolution and action-leg closures, composed by `configure` through the probe-safe
-    /// recipe (`composeIntentWiring`) over the **shared** executor (`actionExecutor`) and the
-    /// composed default's `NullIntentResolver`. `nil` only in a composition that built no intent
-    /// wiring — every headless harness in the suite.
+    /// **The composed intent wiring** (`action-round-trip` + `probe`, routed by
+    /// `intent-provider-routing`): the voice path's resolution and action-leg closures —
+    /// `configure` stores the **router** (`routeIntentWiring`) over the audit wiring composed
+    /// through the probe-safe recipe (`composeIntentWiring`, over the **shared** executor
+    /// `actionExecutor`), dispatching a `vocca.agent` call to ``agentIntentWiring`` (read at
+    /// call time) and every other call to the audit side. The resolver is the per-turn
+    /// `PhraseIntentResolver` over the user's phrase file (the phrase-then-keyword composite
+    /// with the file's keyword switch on); the converse driver reaches it through
+    /// `composeConverseIntentClosures`. `nil` only in a composition that built no intent wiring
+    /// — every headless harness in the suite.
     public var intentWiring: IntentWiring<AuditActionProvider>?
 
     /// **The composed default's resolver provider — the fact carrier** (`probe`,
