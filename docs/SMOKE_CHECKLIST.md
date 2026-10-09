@@ -3608,6 +3608,14 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     card and nothing spawned**. Record that as the known result, never a pass; the row's pass
     becomes reachable when the intent executor is routed by provider id (the next unit). A
     card or a spawned child here would be a **failure**, not a pass.
+    **[resolved 2026-10-10 by `intent-provider-routing`: the intent leg routes by providerID —
+    a `vocca.agent` phrase reaches the agent intent wiring over the agent executor, so the row
+    is runnable as written below: expect the fixed-argv sentence on the card, nothing running until Confirm; Confirm runs the
+    agent once and the audit records `confirmed`; Decline runs nothing. The paragraph above is
+    dated history.]** Predicted from the code and the end-to-end tests, never yet
+    observed on a real machine: if the phrase is spoken in the first moments after launch
+    (before the agent composition's launch task lands) the audited "Something went wrong."
+    with no card is the recorded startup window — retry, and record what was heard.
 
     *Gesture:* continuing from 157, add a phrase row to `intent-phrases.json` naming the
     agent — `{"phrase": "summarize the open PRs", "providerID": "vocca.agent", "toolID": "<your agent id>"}` —
@@ -3783,13 +3791,22 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     never gated).**
 
     *Known-failing in the shipped app* (2026-10-08, `converse-intent-wiring`): the shipped
-    intent wiring is composed over the audit provider, which does not serve `vocca.agent`, so
-    a phrase naming an agent is described as "does not serve the tool … Nothing will happen",
-    auto-runs as read-only and fails — the expected result today is the spoken "Something went
-    wrong." (or another non-card answer — record what was heard), an audited failed entry, **no
-    card and nothing spawned**. Record that as the known result, never a pass; the row's pass
-    becomes reachable when the intent executor is routed by provider id (the next unit). A
-    card or a spawned child here would be a **failure**, not a pass.
+    intent wiring was composed over the audit provider, which does not serve `vocca.agent`, so
+    a phrase naming an agent was described as "does not serve the tool … Nothing will happen",
+    auto-ran as read-only and failed — the spoken "Something went wrong.", an audited failed
+    entry, no card, nothing spawned.
+    **[resolved 2026-10-10 by `intent-provider-routing`: the intent leg routes by providerID —
+    a phrase naming an enabled coding agent reaches the agent intent wiring over the agent
+    executor, which fills `<task>` with the full utterance; the row is runnable as written
+    below. The paragraph above is dated history.]** Predicted from the code and the
+    end-to-end tests, never observed in a real run — record what was seen. **Expected:** the
+    card with the argv-derived sentence, the FULL utterance as `<task>` and the resolved
+    project directory; nothing spawns before the click; **Confirm** runs the agent once and
+    the audit records `confirmed`; **Decline** runs nothing and the audit records `refused`.
+    A working card is the expected result here, not a failure. **Failure:** a spawn before
+    the click, no card, or a sentence that differs from the argv. (The startup window — a
+    phrase spoken before the agent composition's launch task lands → the audited "Something
+    went wrong.", no card — is recorded, not a failure; retry.)
 
     *Gesture:* hand-edit `coding-agents.json` under `<applicationSupport>/Vocca/` (the
     shape is byte-pinned by tests — keep the field names verbatim) with one placeholder
@@ -4016,8 +4033,9 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
 
 166. **The real-app voice round trip: a read-only phrase acks, a destructive phrase speaks
     "Confirm on screen." beside its card, Confirm is audited, a second destructive phrase
-    while the card waits adds nothing, an agent phrase fails as the recorded known result,
-    and the default still echoes (`converse-intent-wiring`, recorded — never gated).**
+    while the card waits adds nothing, an agent phrase shows the agent's card and only Confirm
+    runs it, and the default still echoes (`converse-intent-wiring`, step 5 rewritten by
+    `intent-provider-routing` 2026-10-10; recorded — never gated).**
 
     *Gesture:* on the built bundle, hand-edit `<applicationSupport>/Vocca/action-config.json`
     to enable both audit tools (no Actions-tab row — F-A; merge into any existing
@@ -4038,10 +4056,18 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     and the audit unchanged by that turn (the card-up refusal; the line names the waiting
     card, not a new one); (4) press **Confirm** on the rendered card — expect the clear to
     run and the audit to gain a `confirmed` entry (the clear's own record follows it, so the
-    log is never empty afterwards); (5) if an agent row is configured and enabled, add a phrase
-    naming it and say it — the review PREDICTS (from reading the code; no real run has seen it) "Something went wrong." and an audited
-    failed entry, **no card and nothing spawned**; record what was heard, any non-card answer (rows 158/162 — the provider-routing
-    follow-up); (6) remove both phrase rows (or say anything no phrase names) — expect the
+    log is never empty afterwards); (5) if an agent row is configured and enabled (157/160),
+    add a phrase naming it (`"providerID":"vocca.agent","toolID":"<your agent id>"`) and say
+    it — the code and the end-to-end tests PREDICT (no real run has seen it) the spoken
+    "Confirm on screen." and the agent's card with the **argv-derived sentence** (`Run the
+    coding agent '<id>': <argv> in <directory>.` — the full utterance in place of `<task>` for a
+    placeholder row), **nothing running before the click**; press **Decline** first — expect
+    nothing to run and a `refused` audit entry; say the phrase again and press **Confirm** —
+    expect the agent to run once with exactly the card's argv (record the run's own output) and
+    a `confirmed` audit entry carrying the card's sentence. Record what was seen and heard,
+    including the card's layout beside the bubble; a phrase spoken right after launch may hit
+    the recorded startup window (the audited "Something went wrong.", no card) — retry and
+    record it (rows 158/162); (6) remove both phrase rows (or say anything no phrase names) — expect the
     **echo** of your words, exactly as before this unit. Optionally end the session with a
     card up and record that the card stays until clicked (no session guard, recorded).
 
@@ -4055,7 +4081,8 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     *Pass:* the row recorded verbatim with the never-gated note: **in the real app a spoken
     phrase ran a read-only tool with "Done.", a destructive phrase spoke "Confirm on screen."
     with the card visible, the second request added no card, Confirm was audited, and the
-    default echoed** — plus the layout as seen, and the agent leg's known result if run.
+    default echoed** — plus the layout as seen, and the agent leg if run: the card with the
+    argv-derived sentence, Decline ran nothing, Confirm ran the agent once and was audited.
     Record the counts (utterances, attempts to be heard, audit entries), **never a rate**.
 
     *Void — not fail — if:* ASR or cleanup produced different words (record the transcript),
@@ -4065,9 +4092,13 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     *Failure:* a destructive phrase that runs without a card, an outward-facing tool that
     auto-runs, "Confirm on screen." spoken with **no** card anywhere on screen, a second card
     while one waits, a confirm with no audit entry, a success ack on a decision whose record
-    failed, an agent phrase that spawns a child or reaches a run without a card, or a
-    no-phrase utterance that does anything but echo. (An agent phrase that fails without a card is the predicted result, not a failure — predicted from the code, never yet
-    observed; record what was heard.)
+    failed, an agent phrase that spawns a child or reaches a run without a card, an agent run
+    after Decline, an agent run whose argv differs from the card's sentence, a Confirm with no
+    `confirmed` audit entry, or a no-phrase utterance that does anything but echo. (An agent
+    phrase that fails without a card **in the startup window** is the recorded limit, not a
+    failure — retry; one that still fails without a card after the app has settled is a
+    failure. Record what was heard.) [The earlier wording — "an agent phrase that fails without
+    a card is the predicted result" — is resolved 2026-10-10 by `intent-provider-routing`.]
 
 ---
 

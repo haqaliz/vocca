@@ -267,8 +267,16 @@ extension AppBootstrap {
             // nil, byte-identical to today. A placeholder row reached **without** an
             // utterance is refused before the card — the wiring's own stop, never the
             // provider's refusal sentence asked of a human (critique gap 2).
+            //
+            // Both ride an **agent** invocation only (`intent-provider-routing` P2): the guard
+            // below makes the row lookup the agent provider's id AND the agent's id (outside
+            // the lookup, because an unmatched row still reads as blank), so another
+            // provider's tool whose id collides with an agent's is never enriched, refused or
+            // handed the utterance — it reaches its own provider as the resolver built it.
             var invocation = submitted
-            if let registry = root.agentRegistry {
+            if submitted.providerID == CodingAgentProvider.providerID,
+                let registry = root.agentRegistry
+            {
                 let file = await registry.load()
                 let agent = file.agents.first { $0.id == submitted.toolID }
                 let blank = agent.map { $0.projectDirectory == nil } ?? true
@@ -361,6 +369,43 @@ extension AppBootstrap {
             performAction: performAction,
             executor: executor,
             policy: policy,
+            spawnsSubprocess: false)
+    }
+
+    /// **The intent router** (`intent-provider-routing` / `provider-dispatch` R1, R2): one
+    /// wiring in the root slot's type that dispatches each resolved `.toolCall` by its
+    /// providerID.
+    ///
+    /// A `vocca.agent` call reaches the agent wiring when one is composed; **everything else**
+    /// — the agent side absent (Q3), the audit tools, shell, an unknown provider — reaches the
+    /// audit wiring, whose provider fails an unserved provider closed (audited, never run).
+    /// `resolve`, `executor` and `policy` are the audit wiring's; `spawnsSubprocess` is the
+    /// declared `false`. The reply passes through unchanged, `nil` included — the converse
+    /// wrapper reads `nil` to detect the card.
+    ///
+    /// ## The agent side is read lazily
+    ///
+    /// `agent` is consulted inside ``IntentWiring/performAction`` at call time, never at
+    /// construction: the agent wiring is composed in a later launch task, after the router is
+    /// already in the root slot.
+    public static func routeIntentWiring(
+        audit: IntentWiring<AuditActionProvider>,
+        agent: @escaping @Sendable @MainActor () -> IntentWiring<CodingAgentProvider>?
+    ) -> IntentWiring<AuditActionProvider> {
+        let performAction: @Sendable @MainActor (ActionInvocation, String) async -> String? = {
+            invocation, utterance in
+            if invocation.providerID == CodingAgentProvider.providerID,
+               let agentWiring = agent() {
+                return await agentWiring.performAction(invocation, utterance)
+            }
+            return await audit.performAction(invocation, utterance)
+        }
+
+        return IntentWiring(
+            resolve: audit.resolve,
+            performAction: performAction,
+            executor: audit.executor,
+            policy: audit.policy,
             spawnsSubprocess: false)
     }
 }

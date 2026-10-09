@@ -429,4 +429,99 @@ final class AuditActionProviderTests: XCTestCase {
             try committedBytes(in: directory), before,
             "and nothing was touched on the way to refusing")
     }
+
+    // MARK: - 9. A foreign provider id (`intent-provider-routing` P1, E3)
+
+    /// The foreign row's provider id — the agent provider's spelling, the row a phrase could name
+    /// with an `audit.*` tool id.
+    private static let foreignProviderID = "vocca.agent"
+
+    private func makeForeignInvocation(
+        toolID: String, file: StaticString = #filePath, line: UInt = #line
+    ) throws -> ActionInvocation {
+        try XCTUnwrap(
+            ActionInvocation(providerID: Self.foreignProviderID, toolID: toolID),
+            "a non-empty provider id and tool id must construct an invocation", file: file,
+            line: line)
+    }
+
+    /// **A tool is served only for this provider's own id** (P1): a foreign provider id naming
+    /// `audit.count` or `audit.clear` takes the unknown-tool path — the "does not serve … Nothing
+    /// will happen." sentence at `readOnly`, never the audit tool's sentence or radius — and the
+    /// store is not read on the way to refusing.
+    func testAForeignProviderIDIsNotServedEvenWithAnAuditToolID() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = FileSystemActionAuditStore(directory: directory)
+        let provider = AuditActionProvider(store: store)
+        try await seed(3, into: store)
+        let before = try committedBytes(in: directory)
+
+        for toolID in [AuditActionProvider.countToolID, AuditActionProvider.clearToolID] {
+            let foreign = try makeForeignInvocation(toolID: toolID)
+            let beforeDescribe = try committedBytes(in: directory)
+            let summary = await provider.describe(foreign)
+            XCTAssertEqual(
+                summary.sentence,
+                "Vocca's audit provider does not serve the tool '\(toolID)'. Nothing will happen.",
+                "a foreign provider id is an unserved tool, whatever the tool id says")
+            XCTAssertEqual(summary.blastRadius, .readOnly, "a refusal reaches nowhere")
+            XCTAssertEqual(
+                try committedBytes(in: directory), beforeDescribe,
+                "describing a foreign provider id touches nothing: \(toolID)")
+
+            // Through the gate by the shipped caller (the executor), so this suite adds no
+            // direct gate call site to the pinned count.
+            let executed = await ActionExecutor(provider: provider, store: store).submit(
+                foreign, enablement: ActionEnablement([foreign]), policy: .none,
+                approval: .granted, approvedSentence: summary.sentence, mode: .live)
+            XCTAssertEqual(
+                executed.decision.outcome, ActionOutcome.failed(reasonKey: "provider.unknownTool"),
+                "the foreign call fails closed with the unknown-tool key: \(toolID)")
+        }
+        let after = try committedBytes(in: directory)
+        for (name, bytes) in before {
+            XCTAssertEqual(
+                after[name], bytes,
+                "every seeded entry is untouched by a foreign provider id: \(name)")
+        }
+    }
+
+    /// **A foreign `audit.clear` never deletes** (E3): the row `vocca.agent/audit.clear`, enabled
+    /// as that exact pair, submitted through a real ``ActionExecutor`` with the approval granted
+    /// and the sentence the provider described — every seeded entry still exists afterwards,
+    /// byte for byte, and the executor's own record of the failure lands beside them.
+    func testAForeignClearThroughTheExecutorWithApprovalDeletesNothing() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = FileSystemActionAuditStore(directory: directory)
+        let provider = AuditActionProvider(store: store)
+        let executor = ActionExecutor(provider: provider, store: store)
+        let foreign = try makeForeignInvocation(toolID: AuditActionProvider.clearToolID)
+
+        try await seed(4, into: store)
+        let before = try committedBytes(in: directory)
+        XCTAssertEqual(before.count, 4, "the domain must be non-empty — there is something to lose")
+
+        let described = await provider.describe(foreign)
+        let executed = await executor.submit(
+            foreign, enablement: ActionEnablement([foreign]), policy: .none,
+            approval: .granted, approvedSentence: described.sentence, mode: .live)
+
+        XCTAssertTrue(executed.auditRecorded, "the failure is recorded, like every decision")
+        XCTAssertEqual(
+            executed.decision.outcome, ActionOutcome.failed(reasonKey: "provider.unknownTool"),
+            "the foreign clear fails closed — an audited failure, never a clear")
+        let after = try committedBytes(in: directory)
+        for (name, bytes) in before {
+            XCTAssertEqual(
+                after[name], bytes,
+                "every seeded entry still exists, byte for byte, after a foreign clear: \(name)")
+        }
+        XCTAssertEqual(
+            after.count, before.count + 1,
+            "the seeded entries plus the executor's record of the refused call — nothing deleted")
+    }
 }

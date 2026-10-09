@@ -2437,8 +2437,34 @@ set -euo pipefail
 # 1baeb2de…/ce70ca10… unchanged). PROBE-CONVERSE unchanged (it wires nil closures on
 # purpose). 3117 + 9 + 10 + 1 = 3137, the count taken from the floor script's own parse.
 #
+# `intent-provider-routing` (the intent leg routes by providerID): +24 —
+# `AuditActionProviderTests` +2 (P1 a foreign providerID with an `audit.*` tool id is not
+# served — the "does not serve … Nothing will happen." sentence; a foreign `audit.clear`
+# through the real executor with approval deletes nothing); `AgentWiringCwdTests` +1 (P2 an
+# audit-provider invocation whose toolID equals an agent id takes no agent path — no cwd
+# read, no placeholder refusal, no taskText); `RoutedIntentWiringTests` +9 (R1 `vocca.agent`
+# with the agent side composed reaches it, absent falls through to the audit wiring, every
+# other providerID — shell and case/whitespace variants included — reaches the audit wiring,
+# replies pass through including nil and per branch, resolve/executor/policy are the audit
+# wiring's, `spawnsSubprocess` is false even over lying stubs; R2 a router built before the
+# agent slot is assigned dispatches to it after, the slot read on every call);
+# `AgentProviderRoutingE2ETests` +9 (E1 a phrase reaches the agent card and only Confirm runs
+# it, Decline runs nothing, the audit wiring's confirm never runs an agent card, an empty
+# utterance on a placeholder row is cancelled with no card, the converse closures speak
+# "Confirm on screen." and keep one card; E2 no click across many voice turns never runs, no
+# phrase file resolves nothing, the composed default spawns no subprocess; E3 a foreign
+# `audit.clear` under the agent provider never deletes); `AppBootstrapWiringTests` +3 (G1
+# `configure` assigns the router with the weak lazy agent lookup; the agent launch task stores
+# the agent intent wiring over the agent executor; the card's Confirm/Decline route by
+# providerID — a swapped agent/audit route fails it, recorded mutation). Lint rows: no lint row
+# was needed. The G5 pin re-anchored once, deliberately (bfeed81f… →
+# 8110b86e…, computed with `shasum -a 256` after the unit's last composition-root edit, never
+# edited-to-match; all seven pin sites; the dictation pair 1baeb2de…/ce70ca10… unchanged).
+# PROBE-CONVERSE / PROBE-INTENT-DEFAULT / PROBE-CODING-AGENT unchanged.
+# 3137 + 2 + 1 + 9 + 9 + 3 = 3161, the count taken from the floor script's own parse.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3137
+MINIMUM_EXECUTED_TESTS=3161
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -353,6 +353,13 @@ final class WiringBaselineTests: XCTestCase {
     /// unit's only composition-root edit, never edited-to-match): `configure` passes the
     /// intent provider and action handler, built by `composeConverseIntentClosures`, to
     /// `composeConverseWiring`. The two dictation digests are unchanged.
+    ///
+    /// Re-anchored once more, deliberately, on 2026-10-10 by `intent-provider-routing`
+    /// (`bfeed81f…` → `8110b86e…` — one re-anchor, computed with `shasum -a 256` after the
+    /// unit's last composition-root edit, never edited-to-match): `configure` stores the
+    /// router (`routeIntentWiring`) in `root.intentWiring`, the agent launch task stores the
+    /// agent intent wiring, and the slot comments describe the shipped routing. The two
+    /// dictation digests are unchanged.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -366,7 +373,7 @@ final class WiringBaselineTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "bfeed81f8cd53cb3190425a48e072e3f316eba5884e7290563fc0b9e16676eba"
+                "8110b86e520aefa7a310c82181cae6f20483608d2405348b68f324082e1d7555"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")

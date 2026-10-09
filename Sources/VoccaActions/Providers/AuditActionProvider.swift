@@ -117,8 +117,13 @@ public actor AuditActionProvider: ActionProvider {
     /// never-read shape. There is nothing sensitive in a count, but a provider that reads on the
     /// way to saying "I don't serve that" is a provider whose refusals are not free, and the
     /// cheapest place to keep that property is the day it costs nothing.
+    ///
+    /// A tool is served only under this provider's own id (`intent-provider-routing` P1): an
+    /// invocation naming another provider — even with an `audit.*` tool id — is the unserved
+    /// tool, because the gate checks the enablement pair, never which provider it handed the
+    /// call to.
     public func describe(_ invocation: ActionInvocation) async -> ActionSummary {
-        switch invocation.toolID {
+        switch Self.servedToolID(invocation) {
         case Self.countToolID:
             let held = await store.list().count
             return ActionSummary(
@@ -162,7 +167,7 @@ public actor AuditActionProvider: ActionProvider {
     public func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) async
         -> ActionOutcome
     {
-        switch invocation.toolID {
+        switch Self.servedToolID(invocation) {
         case Self.countToolID:
             _ = await store.list()
             return .succeeded
@@ -178,6 +183,12 @@ public actor AuditActionProvider: ActionProvider {
         default:
             return .failed(reasonKey: Self.unknownToolReasonKey)
         }
+    }
+
+    /// The tool id when the invocation names this provider, `nil` otherwise — the one place the
+    /// provider-id guard lives, so `describe` and `invoke` cannot disagree about what is served.
+    private static func servedToolID(_ invocation: ActionInvocation) -> String? {
+        invocation.providerID == providerID ? invocation.toolID : nil
     }
 
     /// `entry` or `entries` — because a sentence a person is asked to approve must not say
