@@ -753,7 +753,11 @@ public enum AppBootstrap {
             resolverProvider: intentResolverProvider,
             root: root,
             activeProjectDirectory: activeProjectDirectory)
-        root.intentWiring = intentWiring
+        // The router (`intent-provider-routing`): a `vocca.agent` call reaches the agent
+        // intent wiring, everything else this one. The agent side lands in the launch task
+        // below, so the lookup reads the root's slot at call time, weakly — never here.
+        root.intentWiring = AppBootstrap.routeIntentWiring(
+            audit: intentWiring, agent: { [weak root] in root?.agentIntentWiring })
         // The fact carrier: the same provider the wiring resolves through, kept so the probe
         // can derive the composed default's posture by calling it.
         root.intentResolverProvider = intentResolverProvider
@@ -848,6 +852,16 @@ public enum AppBootstrap {
                 activeProjectDirectory: activeProjectDirectory)
             root.agentWiring = agentWiring
             root.agentExecutor = agentWiring.executor
+            // The voice leg's agent side (`intent-provider-routing` D3): the intent recipe
+            // over the **same** executor, so the card, the agent wiring's Confirm and the
+            // audit trail are one chain; the router above reads it from this slot.
+            root.agentIntentWiring = AppBootstrap.composeIntentWiring(
+                configStore: actionConfigStore,
+                provider: agentProvider,
+                executor: agentWiring.executor,
+                resolverProvider: intentResolverProvider,
+                root: root,
+                activeProjectDirectory: activeProjectDirectory)
         }
         // The confirmation card's closures, routed by the card's own providerID: a shell card
         // is answered by the shell wiring's executor, an agent card by the agent wiring's,
@@ -1819,6 +1833,13 @@ public final class DictationLoopRoot {
     /// ``ActionGate``, over the shared audit store and the real `CodingAgentProvider`. `nil`
     /// until the agent composition's launch task lands.
     public var agentExecutor: ActionExecutor<CodingAgentProvider>?
+
+    /// **The agent side of the routed intent leg** (`intent-provider-routing` D3): the intent
+    /// recipe over the agent provider and ``agentExecutor`` — the wiring ``intentWiring``'s
+    /// router dispatches a `vocca.agent` call to, read at call time. `nil` until the agent
+    /// composition's launch task lands (an agent call then fails closed on the audit side),
+    /// and in every composition that built no agent wiring.
+    public var agentIntentWiring: IntentWiring<CodingAgentProvider>?
 
     /// The registry the agent wiring reads — the same `coding-agents.json` the agent leg
     /// renders, reached back from `configure` (the ``modelStore`` precedent). `nil` only in a
