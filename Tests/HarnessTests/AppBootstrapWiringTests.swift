@@ -435,6 +435,63 @@ final class AppBootstrapWiringTests: XCTestCase {
         }
     }
 
+    /// **The card's Confirm and Decline route by the card's own providerID**
+    /// (`intent-provider-routing` G1): an agent card is answered by `root.agentWiring`, a
+    /// shell card by `root.shellWiring`, every other card by the action wiring. The router's
+    /// executor is the audit wiring's, so this route is the only thing that sends a
+    /// voice-armed agent card's click to the agent executor — a swapped branch fails closed
+    /// (the audit provider does not serve `vocca.agent`), but the voice leg's click is lost.
+    /// `configure` needs an `NSApplication`, so this is a source scan;
+    /// `AgentProviderRoutingE2ETests` drives the agent wiring's confirm this pin says the
+    /// card reaches.
+    func testTheCardClosuresRouteByProviderID() throws {
+        let file = try PackageRootLocator.find(from: #filePath)
+            .appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
+        let source = Array(SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8)))
+        let text = String(source)
+
+        /// The braced body following `marker` at or after `from`, whitespace-collapsed.
+        func body(after marker: String, from start: String.Index) -> (String, String.Index)? {
+            guard let found = text.range(of: marker, range: start..<text.endIndex),
+                  let brace = text[found.upperBound...].firstIndex(of: "{")
+            else { return nil }
+            let offset = text.distance(from: text.startIndex, to: brace)
+            guard let braced = SwiftSourceScanner.bracedBody(
+                in: source, openingBraceIndex: offset)
+            else { return nil }
+            let collapsed = braced.body
+                .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+            return (collapsed, text.index(text.startIndex, offsetBy: braced.closingBraceIndex))
+        }
+
+        for verb in ["confirm", "decline"] {
+            let slot = verb == "confirm" ? "root.actionConfirm = {" : "root.actionDecline = {"
+            guard let slotRange = text.range(of: slot) else {
+                return XCTFail("`configure` must assign `\(slot)` — the card's \(verb) closure")
+            }
+            let shell = "if card.providerID == ShellProvider.providerID"
+            let agent = "else if card.providerID == CodingAgentProvider.providerID"
+            guard case let (shellBody, afterShell)? = body(after: shell, from: slotRange.lowerBound),
+                  case let (agentBody, afterAgent)? = body(after: agent, from: afterShell),
+                  case let (restBody, _)? = body(after: "else", from: afterAgent)
+            else {
+                return XCTFail(
+                    "the \(verb) closure must branch shell → agent → the rest by `card.providerID`")
+            }
+            XCTAssertEqual(
+                shellBody, "await root.shellWiring?.\(verb)()",
+                "a shell card's \(verb) is the shell wiring's")
+            XCTAssertEqual(
+                agentBody, "await root.agentWiring?.\(verb)()",
+                "an agent card's \(verb) is the agent wiring's — the voice-armed card's click "
+                    + "must reach the agent executor, never the router's audit executor")
+            XCTAssertEqual(
+                restBody, "await actionWiring.\(verb)()",
+                "every other card's \(verb) is the action wiring's")
+        }
+    }
+
     // MARK: - The context composition (C12, R4)
 
     /// **The context wiring is probe-safe and attached** (`bootstrap-wiring` Phase 2): the
