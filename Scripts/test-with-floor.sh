@@ -33,7 +33,7 @@
 # configuration detector. Without a floor under the test count there is no floor under any of them.
 #
 # The floor is the exact current count, ratcheted up in the same commit as every task that adds
-# tests — fourteen times so far. That makes it a check against removing an individual test, not
+# tests — fifteen times so far. That makes it a check against removing an individual test, not
 # only wholesale disappearance of the suite: any drop below the floor, however small, fails CI and
 # has to be a reviewed edit to this line rather than a silent loss. The cost is that every task
 # must remember to raise it; the ledger below records each raise and why.
@@ -2463,8 +2463,31 @@ set -euo pipefail
 # PROBE-CONVERSE / PROBE-INTENT-DEFAULT / PROBE-CODING-AGENT unchanged.
 # 3137 + 2 + 1 + 9 + 9 + 3 = 3161, the count taken from the floor script's own parse.
 #
+# `turn-history` (the bounded recent-turns window): +74 —
+# `VoccaConversationTargetTests` +5 (the module scaffold, the `VoccaContextTargetTests`
+# pattern), `ConversationHistoryStoreTests` +17 (record/round-trip and relaunch, the
+# 51st-turn evicts the oldest, truncation at the 2000-character bound, the most-recent-only
+# interrupted mark and its empty no-op, clear-deletes, load-over-missing never writes, the
+# atomic commit via the injected seam spy, the tolerant decode, the encoded-shape byte pin, the
+# `onChange` counts); `InjectionSeamBoundaryTests` +1 (the "conversation" row — the ninth
+# FileManager seam — with its planted-identifier control; the exact-set pin widened, the
+# Eight→Nine rename); the mirror pins renamed in five suites (net 0);
+# `ConversationRecordingDriverTests` +12 (record at commit, awaited before `.speakReply`, the
+# barge-in mark, the failed/skip rows, default neutrality through the real driver);
+# `ConversationTabCopyTests` +9; `ConversationTabReducerTests` +8; `MenuBarStateTests` +3;
+# `SettingsTabTests` +3 (the eight-tab rename plus the conversation page's row tests);
+# `ConversationWiringTests` +9 (the composition pins and the temp-store round trip);
+# `AppBootstrapWiringTests` +7 (store construction, the recorder passed, the bindings closures,
+# the call-site forward of both menu-bar facts). No lint rows. The G5 pin re-anchored once,
+# deliberately (8110b86e… → 820ffdb2…, computed with `shasum -a 256` on 2026-10-11 after the
+# unit's only composition-root edit, never edited-to-match; all seven pin sites; the dictation
+# pair 1baeb2de…/ce70ca10… unchanged). PROBE-CONVERSATION is new (the store's launch-shaped
+# round trip over a temp directory); PROBE-CONVERSE / PROBE-INTENT-DEFAULT /
+# PROBE-CODING-AGENT unchanged. 3161 + 5 + 17 + 1 + 12 + 9 + 8 + 3 + 3 + 9 + 7 = 3235, the
+# count taken from the floor script's own parse.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3161
+MINIMUM_EXECUTED_TESTS=3235
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
