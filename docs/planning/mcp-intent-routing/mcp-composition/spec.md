@@ -30,10 +30,11 @@ precedent.
   given a `providerID`, obtain (lazily discover once, cache) an
   `IntentWiring<MCPProvider>` for that server — or `nil` if no server matches or
   discovery fails.
-- **Root slots** on `DictationLoopRoot`: the MCP wiring, lazily read (the
-  `agentIntentWiring` pattern).
 - **`spawnsSubprocess` declared truthfully**: `false` with zero configured servers;
   `true` when a server is configured (the capability-vs-configuration contract).
+- **No `AppBootstrap` edit in this aspect** (so the G5 digest is untouched here):
+  the root slots and the `configure` wiring are the `intent-and-surface` aspect's,
+  done in one pass with the router so G5 is re-anchored exactly once.
 
 ## Out of scope
 

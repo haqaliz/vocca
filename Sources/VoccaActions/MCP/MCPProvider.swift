@@ -85,6 +85,28 @@ public actor MCPProvider: ActionProvider {
     /// and a call site that spelled its own would drift from it silently.
     public static let defaultProviderID = "dev.vocca.mcp"
 
+    /// The prefix every per-server provider id carries — `defaultProviderID` plus the dot that
+    /// separates it from the server's own identifier.
+    ///
+    /// A separate constant rather than a string each call site spells, for the same reason
+    /// ``defaultProviderID`` is one: the id is built in one place and matched in another, and two
+    /// spellings of one rule drift silently. The router matches an invocation's providerID by
+    /// ``defaultProviderID``'s prefix; the per-server helper below builds the full id from this
+    /// one.
+    public static let providerIDPrefix = "dev.vocca.mcp."
+
+    /// The provider id for one configured server: ``providerIDPrefix`` + `server.id`.
+    ///
+    /// **One helper, judged in one place.** Discovery hands this value to
+    /// ``discover(session:providerID:)`` so the provider serves tools only under it, and the
+    /// Actions surface and the intent catalog key their enablement rows by the identical value —
+    /// so two servers whose tool lists overlap never collide on one enablement row. The suffix is
+    /// ``MCPServerConfiguration/id`` and nothing else: the id is stable across relaunches, so the
+    /// derived provider id is too.
+    public static func providerID(forServer server: MCPServerConfiguration) -> String {
+        providerIDPrefix + server.id
+    }
+
     // MARK: - Bounded reason keys
 
     /// A tool this server never declared. Bounded key, never a message — the audit entry is
