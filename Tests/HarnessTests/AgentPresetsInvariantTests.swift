@@ -278,12 +278,12 @@ final class AgentPresetsInvariantTests: XCTestCase {
             """)
     }
 
-    /// **Acceptance 3b — the FileManager seam table still names exactly the eight seams.**
+    /// **Acceptance 3b — the FileManager seam table still names exactly the nine seams.**
     /// The `InjectionSeamBoundaryTests` table, read as the current state of the pin file
-    /// itself: the dictionary literal's keys must be exactly the eight shipped seams. The
-    /// per-module scans are that suite's own tests; this leg pins the exact set — a ninth
+    /// itself: the dictionary literal's keys must be exactly the nine shipped seams. The
+    /// per-module scans are that suite's own tests; this leg pins the exact set — a tenth
     /// seam, a renamed seam or a row that moved without its seam fails here first.
-    func testTheFileManagerSeamTableStillNamesExactlyTheEightSeams() throws {
+    func testTheFileManagerSeamTableStillNamesExactlyTheNineSeams() throws {
         let source = try pinFileSource("InjectionSeamBoundaryTests.swift")
         let body = try bracketBody(
             of: source, after: "filesPermittedToNameFileManagerIdentifiersBySeam",
@@ -293,14 +293,14 @@ final class AgentPresetsInvariantTests: XCTestCase {
             keys,
             [
                 "journal", "dictionary", "config", "strategy", "usage", "consent", "actions",
-                "action-config",
+                "action-config", "conversation",
             ],
             """
-            the FileManager seam table must name exactly the eight shipped seams: journal, \
-            dictionary, config, strategy, usage, consent, actions, action-config. The \
-            agent-presets files ride the existing seams (the registry uses \
-            ActionConfigFileSystem) — a new file-system-naming file would be a widening, \
-            never a silent addition. Read off the pin file's own literal: \(body).
+            the FileManager seam table must name exactly the nine shipped seams: journal, \
+            dictionary, config, strategy, usage, consent, actions, action-config, conversation. \
+            The `history-store` unit's ninth seam (conversation, VoccaConversation) is the \
+            reviewed widening this pin expects; a tenth would be the next reviewed act, never a \
+            silent addition. Read off the pin file's own literal: \(body).
             """)
     }
 

@@ -1349,26 +1349,28 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         }
     }
 
-    /// **The FileManager seam table names exactly the eight shipped seams** — the `store-seam`
-    /// aspect's S15 pin, widened four times: `journal` (VoccaInject), `dictionary` (VoccaText),
+    /// **The FileManager seam table names exactly the nine shipped seams** — the `store-seam`
+    /// aspect's S15 pin, widened five times: `journal` (VoccaInject), `dictionary` (VoccaText),
     /// `config` (VoccaText), the strategy store the `store-seam` aspect adds (VoccaInject), the
     /// usage ledger the `usage-store` aspect adds (VoccaUsage), the consent store the
     /// `consent-store` aspect adds (VoccaContext), the audit log the `audit-log` aspect adds
-    /// (VoccaActions), and the action-config store the `enablement-store` aspect adds
-    /// (VoccaActions). An exact-set pin, so a seam
+    /// (VoccaActions), the action-config store the `enablement-store` aspect adds
+    /// (VoccaActions), and the conversation store the `history-store` aspect adds
+    /// (VoccaConversation). An exact-set pin, so a seam
     /// that moves without its row — or a row that appears without a seam — fails here rather
-    /// than in the review. Widening it is the deliberate, reviewable act of admitting an eighth
+    /// than in the review. Widening it is the deliberate, reviewable act of admitting a ninth
     /// place in this tree where the file system is touched at all.
-    func testTheFileManagerSeamTableNamesExactlyTheEightShippedSeams() {
+    func testTheFileManagerSeamTableNamesExactlyTheNineShippedSeams() {
         XCTAssertEqual(
             Set(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys),
             [
                 "journal", "dictionary", "config", "strategy", "usage", "consent", "actions",
-                "action-config",
+                "action-config", "conversation",
             ],
             """
-            The FileManager seam table must name exactly the eight shipped seams: journal, \
-            dictionary, config, strategy, usage, consent, actions, action-config. Got \
+            The FileManager seam table must name exactly the nine shipped seams: journal, \
+            dictionary, config, strategy, usage, consent, actions, action-config, conversation. \
+            Got \
             \(Self.filesPermittedToNameFileManagerIdentifiersBySeam.keys.sorted().joined(separator: ", ")). \
             A seam whose adapter moved without its row, or a row without a seam, is a leak the \
             other pins cannot see.
