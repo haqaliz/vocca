@@ -414,6 +414,14 @@ final class AgentPresetsInvariantTests: XCTestCase {
     /// router (`routeIntentWiring`) in `root.intentWiring`, the agent launch task stores the
     /// agent intent wiring, and the slot comments describe the shipped routing. The two
     /// dictation digests are unchanged.
+    /// Re-anchored once more, deliberately, on 2026-10-11 by the `turn-history`
+    /// `conversation-surface` REFACTOR (`8110b86e…` → `820ffdb2…` — one re-anchor, computed
+    /// with `shasum -a 256` after the unit's single composition-root edit, never
+    /// edited-to-match): the conversation surface wired at the root — the store, its
+    /// `onChange` fold into the menu conditions, the driver's recorder, the two Settings
+    /// bindings, the menu's forget row, and the call-site forward of both conditions
+    /// (finding F1, the C12 kill row's restored rendering). The two dictation digests are
+    /// unchanged.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -427,7 +435,7 @@ final class AgentPresetsInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "8110b86e520aefa7a310c82181cae6f20483608d2405348b68f324082e1d7555"
+                "820ffdb26e9415dcf28cf9085b3677af4666537d27b9d27608c8f488edf24bc8"
             ),
         ]
         for (file, expected) in pinned {
