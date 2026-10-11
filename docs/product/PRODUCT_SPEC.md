@@ -274,6 +274,8 @@ Selecting the cloud rung shows a one-time confirmation naming exactly what gets 
 
 **Apps** — per-app injection strategy and overrides, with a plain-language health column (`typing directly` / `pasting` / `manual only`) and a "reset what Vocca learned" button.
 
+**Conversation** — the bounded recent-turns window (§12's reconciliation): the last 50 CONVERSING exchanges, newest first, each showing the spoken utterance and the spoken reply verbatim with an interrupted marker on a turn cut short by barge-in. An empty window reads `No conversation yet.` `[ Forget conversation ]` below the rows deletes the file on disk behind the same confirmation the Usage clear carries; the menu bar's "Forget conversation" row clears it in one action (the friction split, recorded). "Keeps the last 50 turns" is on the page; nothing else about a turn is stored — no timestamps, no search, no export.
+
 **Usage** — the local metrics viewer §12 promises: the screen a sceptical user opens to see exactly what Vocca keeps about them. Every number on it is read from one file on this Mac.
 
 ```
@@ -406,7 +408,7 @@ Minimal by design: current state, mode toggle, "show last transcript" (re-opens 
 
 ## 12. Deliberately not in the product
 
-- **No transcript history browser.** A searchable archive of everything you've ever said is a liability, not a feature, in a privacy-first tool. The recovery journal is bounded, purposeful, and purged.
+- **No transcript history browser.** A searchable archive of everything you've ever said is a liability, not a feature, in a privacy-first tool. The recovery journal is bounded, purposeful, and purged. The recent-turns window in Settings → Conversation is not this browser: it is the roadmap's own deliverable (`ROADMAP.md:205`), bounded at the last 50 turns, purged by an explicit Forget, and forgettable — never a searchable archive, never a record of anything but the latest exchanges.
 - **No account, no login, no sync.** Nothing to sign into. Settings are a JSON file the user can sync themselves if they want to.
 - **No usage analytics.** Metrics are local and inspectable — §7's **Usage** tab is where you inspect them, and the button that clears them. P5's install counting is opt-in and aggregate-only.
 - **No floating "AI suggestions."** Vocca acts when asked. It does not volunteer.

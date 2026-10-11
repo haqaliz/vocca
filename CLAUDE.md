@@ -9,6 +9,18 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`turn-history` (P3, shipped 2026-10-11):** the bounded recent-turns window is real —
+> `VoccaConversation` (the package's 13th library module, the `ConversationRecording` seam's
+> adapter in `VoccaCore/Conversation/`): `conversation.json`, 50 turns / 2000 characters,
+> oldest-first eviction, clear deletes the file; the converse driver records at the reply-commit
+> point, barge-in marks the interrupted turn; the eighth Settings tab ("Conversation", newest
+> first, the confirmed Forget) and the menu bar's one-action "Forget conversation" row; the F1
+> fix pinned — `onMenuBarConditionsChanged` now forwards `isContextReading` (the C12 kill row
+> could not render at runtime before). G5 re-anchored once, deliberately (`8110b86e…` →
+> `820ffdb2…`, seven pin sites; dictation digests unchanged). **No gate passes** (twenty-second
+> unit ahead of the uncleared gates); no rate exists; the real surface unverified (SMOKE 167
+> written, recorded, never gated). Test floor: **3235**.
+>
 > **`intent-provider-routing` (C13, shipped 2026-10-10):** **the intent leg routes by
 > providerID** — a phrase naming an enabled `vocca.agent` row reaches the agent's
 > outward-facing card (the argv-derived sentence, the full utterance as `<task>`, the row's
