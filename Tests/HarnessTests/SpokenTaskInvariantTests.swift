@@ -77,6 +77,16 @@ final class SpokenTaskInvariantTests: XCTestCase {
         + "spawnsSubprocess=false seeded=1 card=yes invoked=1 "
         + "decisions=refused,confirmed,dryRun ordinals=1-3 binding=matched"
 
+    /// The `ZeroNetworkTests.expectedMCPVoiceLifecycle` literal, mirrored for the reason the
+    /// coding-agent mirror above gives: the composed default's MCP line must move in review on
+    /// both sides together. The MCP routing is composed behind the root's `mcpWiring` slot and
+    /// the round trip runs over an in-memory transport, so the default's facts are unchanged.
+    private static let expectedMCPVoiceLifecycle =
+        "store=real store.location=temporary store.isDefaultLocation=false servers=0 "
+        + "spawnsSubprocess=false launched=0 providers=0 seeded=1 tools=2 card=yes invoked=1 "
+        + "decisions=refused,confirmed ordinals=1-2 binding=matched disabledRefused=1 "
+        + "foreignRefused=1"
+
     /// Raised when the probe's report cannot be parsed meaningfully, so that reading nothing is
     /// a failure rather than a pass.
     private enum ProbeReportError: Error, CustomStringConvertible {
@@ -166,6 +176,56 @@ final class SpokenTaskInvariantTests: XCTestCase {
             try value("spawnsSubprocess"), "false",
             "the composed default still declares it spawns no child — the wiring's declared "
                 + "fact, folded into the probe line, not commented")
+    }
+
+    /// **Acceptance 1b — the PROBE-MCP-VOICE line is verbatim-unchanged with the unit's files in
+    /// the tree.** The composed MCP arm's own composed-default facts (`servers=0`,
+    /// `spawnsSubprocess=false`, no launch) and its in-memory round trip, read off the real probe
+    /// under the interposer (the `ZeroNetworkTests` drive shape — same preconditions, same
+    /// accessor), compared whole against the pinned literal and read back field by field. The MCP
+    /// routing is composed behind the root's `mcpWiring` slot and the round trip's transport is
+    /// in-memory, so nothing here can reach the network or a child and the line must read exactly
+    /// as it did.
+    func testTheProbeMCPVoiceLineIsVerbatimUnchangedWithTheUnitInTheTree() throws {
+        let observation = try runProbe(mode: .defaultConfiguration)
+
+        let payload = try XCTUnwrap(
+            mcpVoicePayload(of: observation),
+            """
+            The probe did not report the PROBE-MCP-VOICE line at all. Either \
+            VoccaNetworkProbe.exerciseMCPVoice() was deleted from the default-configuration \
+            path — which puts the MCP composition's round trip outside the zero-network \
+            invariant — or the drive never ran. Do not fix this by deleting the assertion; the \
+            line must stay, verbatim.
+            \(observation.diagnosticSummary)
+            """)
+        XCTAssertEqual(
+            payload, Self.expectedMCPVoiceLifecycle,
+            """
+            The PROBE-MCP-VOICE line is no longer verbatim-unchanged.
+              expected: \(Self.expectedMCPVoiceLifecycle)
+              observed: \(payload)
+            The composed default's promises must not move with the MCP routing in the tree — if \
+            the drive's report changed deliberately, re-anchor this literal and ZeroNetworkTests' \
+            own constant in the same reviewed edit, never edited-to-match.
+            """)
+
+        let fields = try parseFields(of: payload)
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ProbeReportError.missingField(key, present: fields.keys.sorted())
+            }
+            return found
+        }
+        XCTAssertEqual(
+            try value("servers"), "0",
+            "the composed default still reads zero configured servers — an absent "
+                + "action-config.json is the empty config, and the D2 promise "
+                + "('no child by default') is intact")
+        XCTAssertEqual(
+            try value("spawnsSubprocess"), "false",
+            "the composed default still declares it spawns no child (the MCP routing adds none) — "
+                + "the wiring's declared fact, folded into the probe line, not commented")
     }
 
     // MARK: - Acceptance 2: the lint immobilities
@@ -704,6 +764,17 @@ final class SpokenTaskInvariantTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-CODING-AGENT\t") {
             return String(line.dropFirst("PROBE-CODING-AGENT\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-MCP-VOICE` line's payload — the `ZeroNetworkTests.mcpVoicePayload(of:)`
+    /// accessor, mirrored. The line exists only when `exerciseMCPVoice()` ran on the
+    /// default-configuration path, so its absence is a missing drive, not an empty report.
+    private func mcpVoicePayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-MCP-VOICE\t") {
+            return String(line.dropFirst("PROBE-MCP-VOICE\t".count))
         }
         return nil
     }
