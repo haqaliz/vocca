@@ -49,9 +49,9 @@ final class ConversationTabReducerTests: XCTestCase {
     /// scrolled from the oldest is the same finding-the-newest walk for every single visit.
     func testRowsRenderNewestFirst() {
         let snapshot = ConversationSnapshot(turns: [
-            row(0, utterance: "first", reply: "first answer"),
-            row(1, utterance: "second", reply: "second answer"),
-            row(2, utterance: "third", reply: "third answer"),
+            Self.row(0, utterance: "first", reply: "first answer"),
+            Self.row(1, utterance: "second", reply: "second answer"),
+            Self.row(2, utterance: "third", reply: "third answer"),
         ])
         let state = ConversationTabReducer.reduce(
             ConversationTabState.initial, .snapshotLoaded(snapshot))
@@ -63,8 +63,8 @@ final class ConversationTabReducerTests: XCTestCase {
     /// what the driver's barge-in mark wrote, never a re-derivation.
     func testTheInterruptedFlagRidesTheRow() {
         let snapshot = ConversationSnapshot(turns: [
-            row(0, utterance: "hello", reply: "hi", interrupted: false),
-            row(1, utterance: "wait", reply: "long answer", interrupted: true),
+            Self.row(0, utterance: "hello", reply: "hi", interrupted: false),
+            Self.row(1, utterance: "wait", reply: "long answer", interrupted: true),
         ])
         let state = ConversationTabReducer.reduce(
             ConversationTabState.initial, .snapshotLoaded(snapshot))
@@ -77,8 +77,8 @@ final class ConversationTabReducerTests: XCTestCase {
     /// needs").
     func testARowIsIdentifiedByItsAppendPosition() {
         let snapshot = ConversationSnapshot(turns: [
-            row(0, utterance: "a", reply: "b"),
-            row(1, utterance: "c", reply: "d"),
+            Self.row(0, utterance: "a", reply: "b"),
+            Self.row(1, utterance: "c", reply: "d"),
         ])
         let state = ConversationTabReducer.reduce(
             ConversationTabState.initial, .snapshotLoaded(snapshot))
@@ -93,7 +93,7 @@ final class ConversationTabReducerTests: XCTestCase {
         let loaded = ConversationTabReducer.reduce(
             ConversationTabState.initial,
             .snapshotLoaded(
-                ConversationSnapshot(turns: [row(0, utterance: "a", reply: "b")])))
+                ConversationSnapshot(turns: [Self.row(0, utterance: "a", reply: "b")])))
         let cleared = ConversationTabReducer.reduce(loaded, .cleared)
         XCTAssertTrue(cleared.rows.isEmpty)
         XCTAssertTrue(
@@ -109,21 +109,21 @@ final class ConversationTabReducerTests: XCTestCase {
             ConversationTabState(rows: [], isLoaded: false),
             ConversationTabState(rows: [], isLoaded: true))
         XCTAssertNotEqual(
-            ConversationTabState(rows: [row(0, utterance: "a", reply: "b")], isLoaded: true),
+            ConversationTabState(rows: [Self.row(0, utterance: "a", reply: "b")], isLoaded: true),
             ConversationTabState(rows: [], isLoaded: true))
     }
 
     /// Row equality distinguishes every field — the interrupted flag especially: a row that
     /// lost its marker and a row that kept it are different renderings.
     func testRowEqualityDistinguishesEveryField() {
-        XCTAssertNotEqual(row(0, utterance: "a", reply: "b"), row(1, utterance: "a", reply: "b"))
-        XCTAssertNotEqual(row(0, utterance: "a", reply: "b"), row(0, utterance: "c", reply: "b"))
-        XCTAssertNotEqual(row(0, utterance: "a", reply: "b"), row(0, utterance: "a", reply: "c"))
+        XCTAssertNotEqual(Self.row(0, utterance: "a", reply: "b"), Self.row(1, utterance: "a", reply: "b"))
+        XCTAssertNotEqual(Self.row(0, utterance: "a", reply: "b"), Self.row(0, utterance: "c", reply: "b"))
+        XCTAssertNotEqual(Self.row(0, utterance: "a", reply: "b"), Self.row(0, utterance: "a", reply: "c"))
         XCTAssertNotEqual(
-            row(0, utterance: "a", reply: "b", interrupted: true),
-            row(0, utterance: "a", reply: "b", interrupted: false))
+            Self.row(0, utterance: "a", reply: "b", interrupted: true),
+            Self.row(0, utterance: "a", reply: "b", interrupted: false))
         XCTAssertNotEqual(
-            ConversationSnapshot(turns: [row(0, utterance: "a", reply: "b")]),
+            ConversationSnapshot(turns: [Self.row(0, utterance: "a", reply: "b")]),
             ConversationSnapshot(turns: []))
     }
 

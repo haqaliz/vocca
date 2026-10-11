@@ -172,6 +172,26 @@ public struct SettingsBindings {
     /// empty window marked unwritten, so the next write empties the file anyway.
     public var clearUsage: () async -> Void
 
+    // MARK: - Conversation (turn-history, conversation-surface)
+
+    /// The recent turns as the Conversation tab reads them — one snapshot, read once, when the
+    /// page opens (`conversation-surface` D2: no observation path, the Usage-tab shape).
+    ///
+    /// The page is static by design: nothing here should change while a user is reading it, and
+    /// a live tick would be an observation path this side of the window has no contract for.
+    /// The map from the store's turns to this window's rows happens at the composition root —
+    /// `VoccaUI` may not name `VoccaConversation` (`ModuleBoundaryTests`), the
+    /// `UsageSnapshot`/`SettingsBindings` precedent.
+    public var loadConversationSnapshot: () async -> ConversationSnapshot
+
+    /// Deletes the conversation from disk — **the whole bounded window, file and all**.
+    ///
+    /// Routed to the store's `clear()`, the one object that holds both the in-memory turns and
+    /// the file: a clear that emptied only the page would leave the file to reload at the next
+    /// launch. Reports no failure because the page offers no words for one — a deletion the
+    /// store could not perform is logged loudly by the store itself.
+    public var clearConversation: () async -> Void
+
     // MARK: - Speech
 
     /// The engine and tier in use **right now**, read rather than captured: the window is built
@@ -308,6 +328,16 @@ public struct SettingsBindings {
             UsageSnapshot(days: [], streak: 0)
         },
         clearUsage: @escaping () async -> Void = {},
+        // The conversation defaults claim **nothing** and delete **nothing**, for the reason the
+        // usage defaults do. An empty snapshot renders the honest empty state — the store has
+        // not been read, and claiming turns nobody recorded would be inventing a conversation.
+        // And a clear that deletes nothing is the safe direction of a destructive control: a
+        // default that reported a deletion nothing performed would let the page tell a user
+        // their conversation was gone while it sat on disk.
+        loadConversationSnapshot: @escaping () async -> ConversationSnapshot = {
+            ConversationSnapshot(turns: [])
+        },
+        clearConversation: @escaping () async -> Void = {},
         // The Speech defaults claim **nothing**, and that is deliberate. A default that pretended
         // to work — a `ready` gate, a tier reported present — would let a page offer a dictation
         // and a download that nothing is behind. Closed and empty is the safe direction, exactly
@@ -377,6 +407,8 @@ public struct SettingsBindings {
         self.saveContextConsent = saveContextConsent
         self.loadUsageSnapshot = loadUsageSnapshot
         self.clearUsage = clearUsage
+        self.loadConversationSnapshot = loadConversationSnapshot
+        self.clearConversation = clearConversation
         self.engineSelection = engineSelection
         self.setEngineSelection = setEngineSelection
         self.engineReadiness = engineReadiness
@@ -457,6 +489,7 @@ public struct SettingsView: View {
         case .dictionary: DictionarySettingsPage(bindings: bindings)
         case .apps: AppsSettingsPage(bindings: bindings)
         case .actions: ActionsTabPage(bindings: bindings)
+        case .conversation: ConversationSettingsPage(bindings: bindings)
         case .usage: UsageSettingsPage(bindings: bindings)
         }
     }

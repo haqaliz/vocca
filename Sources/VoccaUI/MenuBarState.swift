@@ -173,6 +173,13 @@ public struct MenuBarConditions: Sendable, Hashable {
     /// `bootstrap-wiring`'s work (recorded hand-off).
     public var isContextReading: Bool
 
+    /// Whether the conversation history holds at least one turn (`turn-history` D4) — the
+    /// menu's forget row's fact. The row appears only while this is `true`: a forget row shown
+    /// over an empty history would be an invitation to delete nothing. The defaulted field
+    /// keeps every existing construction site compiling; feeding it is the wiring's work (the
+    /// store's `onChange` fold).
+    public var isHistoryPresent: Bool
+
     public init(
         isCapturing: Bool = false,
         isTranscribing: Bool = false,
@@ -184,7 +191,8 @@ public struct MenuBarConditions: Sendable, Hashable {
         isMicrophoneAvailable: Bool = true,
         isBlockedBySecureInput: Bool = false,
         mode: SessionMode = .dictation,
-        isContextReading: Bool = false
+        isContextReading: Bool = false,
+        isHistoryPresent: Bool = false
     ) {
         self.isCapturing = isCapturing
         self.isTranscribing = isTranscribing
@@ -197,6 +205,7 @@ public struct MenuBarConditions: Sendable, Hashable {
         self.isBlockedBySecureInput = isBlockedBySecureInput
         self.mode = mode
         self.isContextReading = isContextReading
+        self.isHistoryPresent = isHistoryPresent
     }
 }
 

@@ -16,16 +16,23 @@ import VoccaCore
 
 /// The settings window's tabs, and the words on them.
 ///
-/// Six tabs because there are six things a user can decide: how they start a dictation, which
-/// engine hears them, what happens to the text afterwards, which words Vocca gets wrong, how
-/// it types into a given application, and which server tools may act on their behalf. Every one
-/// of these has been editable since the day it shipped — by hand, in JSON, in Application
-/// Support. This window is the same settings with a surface on them.
+/// Eight tabs because there are eight things a user can decide or inspect: how they start a
+/// dictation, which engine hears them, what happens to the text afterwards, which words Vocca
+/// gets wrong, how it types into a given application, which server tools may act on their
+/// behalf, what Vocca remembers of a conversation, and how it went. Every one of these has been
+/// editable since the day it shipped — by hand, in JSON, in Application Support. This window
+/// is the same settings with a surface on them.
 ///
-/// **Usage is the seventh, and it is not a decision.** It changes nothing: it is the screen a user
+/// **Usage is the eighth, and it is not a decision.** It changes nothing: it is the screen a user
 /// opens to see what Vocca has recorded about them, which is what makes `PRODUCT_SPEC.md` §12's
 /// *"Metrics are local and inspectable"* something checkable rather than a claim. It reads last
 /// because it is the only tab about what already happened.
+///
+/// **Conversation is the seventh, and it is the first tab that shows what the user *said*.**
+/// (`turn-history` D2 — inserted after Actions so the inspect-last tab stays last.) It changes
+/// one thing: a confirmed Forget deletes the bounded recent-turns window from disk. It sits
+/// beside Actions because its content is what the conversation did with the action surface's
+/// tools — the voice exchange itself, kept local and bounded and purged by design.
 public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
 
     /// The hotkey and how it activates.
@@ -41,6 +48,9 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
     /// The servers whose tools may act, and the tools the user enables — one at a time, off by
     /// default, and armed only through the confirmation card.
     case actions
+    /// The recent CONVERSING turns — what the user said and what Vocca replied, with the
+    /// forget control that deletes the window from disk.
+    case conversation
     /// What Vocca has recorded about its own use — the ledger, and the button that empties it.
     case usage
 
@@ -55,6 +65,8 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
         case .dictionary: return "Dictionary"
         case .apps: return "Apps"
         case .actions: return "Actions"
+        // The conversation itself, in the mode's own vocabulary (`MenuBarCopy.modeTitle`).
+        case .conversation: return "Conversation"
         case .usage: return "Usage"
         }
     }
@@ -70,6 +82,10 @@ public enum SettingsTab: String, Sendable, CaseIterable, Identifiable {
         // `bolt` rather than a network glyph: the tab is about what may act on this machine,
         // and a cloud-shaped picture would be the analytics-tab mistake in reverse.
         case .actions: return "bolt"
+        // The bubble pair is the exchange itself (`turn-history` D2): two speech bubbles, the
+        // user's words and Vocca's reply — never a chart and never a cloud, for the same
+        // reasons `bolt` and `calendar` say what they say.
+        case .conversation: return "bubble.left.and.bubble.right"
         // `calendar` rather than a chart glyph: this tab is a ledger of days, and a bar chart is
         // the picture of exactly the analytics dashboard `PRODUCT_SPEC.md` §12 says the product
         // does not have.
