@@ -419,14 +419,15 @@ final class ConversationRecordingDriverTests: XCTestCase {
         for _ in 0..<8 { capture.push([TurnLoopFixtures.silence()]) }
         await waitUntil { await playback.playCount == 1 }
 
-        var expectedPlayCount = 2
-        for _ in 0..<2 {
+        // A per-iteration constant: the old `var expectedPlayCount` was captured (and mutated)
+        // by the sendable `waitUntil` closure — Swift 6.2's diagnostics flag that capture
+        // (CI's strict-concurrency job), even though the mutation is single-threaded.
+        for expectedPlayCount in 2...3 {
             capture.push([Self.userSpeech])  // the accepted residue
             capture.push([Self.userSpeech])  // the barge-in
             capture.push([Self.userSpeech, Self.userSpeech, Self.userSpeech, Self.userSpeech])
             for _ in 0..<8 { capture.push([TurnLoopFixtures.silence()]) }
             await waitUntil { await playback.playCount == expectedPlayCount }
-            expectedPlayCount += 1
         }
         await waitUntil { await spy.marks == 2 }
         await driver.stop()
