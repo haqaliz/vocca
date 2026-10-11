@@ -425,6 +425,15 @@ struct VoccaNetworkProbe {
         let codingAgent = exerciseCodingAgent()
         print("PROBE-CODING-AGENT\t\(codingAgent.report)")
 
+        // `VoccaConversation`'s default-configuration surface, run rather than referenced — the
+        // same shape as the drives above, for the module the `history-store` aspect adds. The
+        // store is driven through a real load/record/reload/clear round trip over a temporary
+        // directory — never the location a real install keeps its conversation — and the
+        // report prints counts and booleans only, never the text. The witness it mints is
+        // produced *by* the call, so the entry cannot outlive it. See `ConversationDrive.swift`.
+        let conversation = exerciseConversation()
+        print("PROBE-CONVERSATION\t\(conversation.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -443,6 +452,7 @@ struct VoccaNetworkProbe {
             intent.moduleWitness,
             shell.moduleWitness,
             codingAgent.moduleWitness,
+            conversation.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be

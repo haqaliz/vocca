@@ -137,9 +137,18 @@ final class ModuleBoundaryTests: XCTestCase {
     /// every use of that vocabulary outside `VoccaCore` a reviewed row. It is a module rather than
     /// a folder in `VoccaCore` because the core imports nothing at all — not even Foundation — and
     /// a log is a file.
+    ///
+    /// `VoccaConversation` joined in the `history-store` aspect: it holds the bounded turn history
+    /// the conversation surface reads (`ConversationHistoryStore`), the module the aspect's D1
+    /// records. The move is what lets it import `VoccaCore` — the seam it implements
+    /// (`ConversationRecording`) lives there — while the per-seam FileManager lint in
+    /// `InjectionSeamBoundaryTests` keeps the file system confined to the store's one file. It is
+    /// a module rather than a folder in `VoccaBootstrap` for the recorded reason (the
+    /// usage-store rejected alternatives): rooting a FileManager seam in the composition root
+    /// would have forced permitting `AppBootstrap.swift`, which already names `FileManager`.
     private static let adapterModules: Set<String> = [
         "VoccaHotkey", "VoccaASR", "VoccaInject", "VoccaAudio", "VoccaText", "VoccaUsage",
-        "VoccaSpeech", "VoccaContext", "VoccaActions",
+        "VoccaSpeech", "VoccaContext", "VoccaActions", "VoccaConversation",
     ]
 
     /// The app's composition root. Depends on modules; nothing in the package may depend on it.

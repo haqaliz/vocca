@@ -327,4 +327,52 @@ final class MenuBarStateTests: XCTestCase {
             killed,
             "construction and apply must not fire the kill — only the row's own action does")
     }
+
+    // MARK: - The forget-conversation row (turn-history, conversation-surface)
+
+    /// The forget row's fact rides in the conditions (`conversation-surface` D4): `false` is
+    /// the shipped default (no history at launch), and a hand-built carry round-trips — the
+    /// ``isContextReading`` field's precedent, so the root feeds one more fact and every
+    /// existing construction site compiles.
+    func testMenuBarConditionsCarryAHistoryPresentFact() {
+        XCTAssertFalse(MenuBarConditions().isHistoryPresent, "off is the shipped default")
+        XCTAssertTrue(MenuBarConditions(isHistoryPresent: true).isHistoryPresent)
+        XCTAssertNotEqual(
+            MenuBarConditions().isHistoryPresent,
+            MenuBarConditions(isHistoryPresent: true).isHistoryPresent)
+    }
+
+    /// The forget row's words (`conversation-surface` D1/D3): one-action consequence copy in
+    /// the ``contextKillRowTitle`` doctrine — the row appears only while history exists and
+    /// says exactly what it does — exact-equality pinned, copy is a decision.
+    func testTheForgetConversationCopyIsPinned() {
+        XCTAssertEqual(MenuBarCopy.forgetConversationRowTitle, "Forget conversation")
+        XCTAssertEqual(
+            MenuBarCopy.forgetConversationAccessibilityLabel,
+            "Forget the conversation Vocca has kept")
+    }
+
+    /// The forget row's surface shape (`conversation-surface` S3) — the kill-row test's shape:
+    /// the row is constructed over the defaulted ``onForgetConversation`` closure and the
+    /// fourth ``apply`` input `historyPresent`, so `AppBootstrap`'s construction compiles
+    /// unchanged and a stale `true` cannot keep the row alive after a clear fold (the
+    /// idempotence guard). The row itself is window-server glue executed by nothing in CI —
+    /// the tested halves are the fact, the copy, and the closure wiring.
+    @MainActor
+    func testTheForgetRowSurfaceIsConstructedOverTheDefaultedClosure() {
+        var forgotten = false
+        let item = MenuBarItem(
+            hotkey: { "⌥Space" },
+            onAction: { _ in },
+            onOpenSettings: {},
+            onQuit: {},
+            onSelectMode: { _ in },
+            onKillContext: {},
+            onForgetConversation: { forgotten = true })
+        item.apply(.ready, historyPresent: true)
+        item.apply(.ready, historyPresent: false)
+        XCTAssertFalse(
+            forgotten,
+            "construction and apply must not fire the forget — only the row's own action does")
+    }
 }

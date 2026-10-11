@@ -18,8 +18,10 @@ import XCTest
 
 /// **The settings window's tabs** — the first test this enum has ever had, added because the
 /// Apps tab is the first case appended to it since the window shipped, and updated for Usage,
-/// the sixth (`daily-use-ledger/usage-tab/spec.md` E1), and Actions, the seventh
-/// (`action-surface-wiring/actions-tab`).
+/// the sixth (`daily-use-ledger/usage-tab/spec.md` E1), Actions, the seventh
+/// (`action-surface-wiring/actions-tab`), and Conversation, the eighth (`turn-history`,
+/// `conversation-surface` D2 — inserted after Actions so Usage, the inspect-last tab, stays
+/// last).
 ///
 /// `SettingsView` iterates `allCases` and switches exhaustively over them, so a case that exists
 /// gets a tab and a page or the build fails. What the compiler cannot check is the part a user
@@ -27,16 +29,17 @@ import XCTest
 /// case was not silently dropped while another was added.
 final class SettingsTabTests: XCTestCase {
 
-    /// Seven tabs: the four the window shipped with, Apps, Actions, and Usage.
-    func testAllCasesAreTheSevenShippedTabs() {
+    /// Eight tabs: the four the window shipped with, Apps, Actions, Conversation, and Usage.
+    func testAllCasesAreTheEightShippedTabs() {
         XCTAssertEqual(
             SettingsTab.allCases,
-            [.general, .speech, .cleanup, .dictionary, .apps, .actions, .usage],
+            [.general, .speech, .cleanup, .dictionary, .apps, .actions, .conversation, .usage],
             """
             The settings window's tabs changed. Each one is a thing a user can decide about, so \
             adding or removing one is a product decision — and the order is the order they read \
             in: how you start, who hears you, what happens to the text, which words Vocca gets \
-            wrong, where it all ends up, what may act on your behalf, and how it went.
+            wrong, where it all ends up, what may act on your behalf, what Vocca remembers of a \
+            conversation, and how it went.
             """)
     }
 
@@ -63,6 +66,15 @@ final class SettingsTabTests: XCTestCase {
         XCTAssertEqual(SettingsTab.actions.title, "Actions")
         XCTAssertEqual(SettingsTab.actions.symbolName, "bolt")
         XCTAssertEqual(SettingsTab.actions.id, "actions")
+    }
+
+    /// The Conversation tab's own label and symbol (`turn-history` D2). The bubble-pair glyph
+    /// is the exchange itself, never a chart or a cloud: this tab is a window of turns that
+    /// lives on the machine.
+    func testTheConversationTabIsLabelledAndSymbolled() {
+        XCTAssertEqual(SettingsTab.conversation.title, "Conversation")
+        XCTAssertEqual(SettingsTab.conversation.symbolName, "bubble.left.and.bubble.right")
+        XCTAssertEqual(SettingsTab.conversation.id, "conversation")
     }
 
     /// Every tab has a non-empty title and symbol, and no two share either. A duplicate symbol
@@ -106,5 +118,29 @@ final class SettingsTabTests: XCTestCase {
             planted.contains("case .actions: ActionsTabPage"),
             "the scan would pass an Actions case rendering another tab's page — it is looking "
                 + "for the wrong thing")
+    }
+
+    /// **The Conversation tab renders the Conversation page** (`conversation-surface` S1): the
+    /// ``testTheActionsCaseRendersTheActionsPage`` scan, applied to the eighth case — a case
+    /// that exists must get its own page, not another tab's.
+    func testTheConversationCaseRendersTheConversationPage() throws {
+        let view = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaUI/SettingsView.swift"),
+            encoding: .utf8)
+        XCTAssertTrue(
+            view.contains("case .conversation: ConversationSettingsPage(bindings: bindings)"),
+            "The Conversation case no longer renders ConversationSettingsPage — a case that "
+                + "exists must get its own page, not another tab's.")
+    }
+
+    /// The conversation mapping scan is not vacuous: a mapping that fell back to another tab's
+    /// page would pass a scan looking for the wrong fragment.
+    func testTheConversationMappingScanRejectsABorrowedPage() {
+        let planted = "case .conversation: UsageSettingsPage(bindings: bindings)"
+        XCTAssertFalse(
+            planted.contains("case .conversation: ConversationSettingsPage"),
+            "the scan would pass a Conversation case rendering another tab's page — it is "
+                + "looking for the wrong thing")
     }
 }

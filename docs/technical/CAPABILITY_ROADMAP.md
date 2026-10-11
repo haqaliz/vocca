@@ -874,7 +874,8 @@ unchanged). No gate passes.
   (`ROADMAP.md:205` — "bounded, inspectable, local turn history — with a visible 'forget'
   control") stays a **separate, unclaimed P3 item** — this unit renders the current reply,
   not history; the bubble is single-turn by construction, and the item was never part of
-  this list.
+  this list. [resolved 2026-10-11 by `turn-history`: shipped — the bounded, forgettable
+  recent-turns window with the visible Forget; see `docs/STATUS.md`.]
 
 SMOKE 164 is written and runnable, recorded and never gated; no reply rate may be quoted.
 Test floor: **3083**.)*
@@ -944,7 +945,9 @@ resolution rate exists.
   PROBE-INTENT-DEFAULT from the real phrase file
 - the **copy affordance (N1)** from `reply-text-rendering` (the widget panel is non-key)
 - **not machinery, named so it is not lost:** the **turn-history deliverable**
-  (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**.
+  (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**. [resolved 2026-10-11 by
+  `turn-history`: shipped — the bounded, forgettable recent-turns window; see
+  `docs/STATUS.md`.]
 
 SMOKE 165 is written and runnable, recorded and never gated; no resolution rate may be
 quoted. Test floor: **3117**.)*
@@ -1001,7 +1004,9 @@ no success rate exists.
   PROBE-INTENT-DEFAULT from the real phrase file
 - the **copy affordance (N1)** from `reply-text-rendering` (the widget panel is non-key)
 - **not machinery, named so it is not lost:** the **turn-history deliverable**
-  (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**.
+  (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**. [resolved 2026-10-11 by
+  `turn-history`: shipped — the bounded, forgettable recent-turns window; see
+  `docs/STATUS.md`.]
 
 SMOKE 166 is written and runnable, recorded and never gated; no success rate may be quoted.
 Test floor: **3137**.)*
@@ -1061,7 +1066,9 @@ gates); **the first shipped path from speech to a child process** — R8 mitigat
   PROBE-INTENT-DEFAULT from the real phrase file
 - the **copy affordance (N1)** from `reply-text-rendering` (the widget panel is non-key)
 - **not machinery, named so it is not lost:** the **turn-history deliverable**
-  (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**.
+  (`ROADMAP.md:205`) stays a **separate, unclaimed P3 item**. [resolved 2026-10-11 by
+  `turn-history`: shipped — the bounded, forgettable recent-turns window, the P3
+  deliverable's own unit; see `docs/STATUS.md`.]
 
 SMOKE 158/162/166 are written and runnable, recorded and never gated; no success rate may be
 quoted. Test floor: **3161**.)*

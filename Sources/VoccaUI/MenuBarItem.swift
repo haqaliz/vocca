@@ -53,6 +53,11 @@ public final class MenuBarItem {
     /// clear. Defaulted so `AppBootstrap`'s construction compiles unchanged; the wiring is
     /// `bootstrap-wiring`'s (recorded hand-off).
     private let onKillContext: () -> Void
+    /// What to run when the user picks the forget-conversation row (`turn-history` D1) — the
+    /// one-action clear: the store's `clear()` deletes the file and folds the condition false.
+    /// Defaulted so `AppBootstrap`'s construction compiles unchanged; the wiring is the
+    /// `conversation-surface` aspect's (D4).
+    private let onForgetConversation: () -> Void
     /// What to run for Settings.
     private let onOpenSettings: () -> Void
     /// What to run for Quit.
@@ -70,6 +75,11 @@ public final class MenuBarItem {
     /// so a stale `true` cannot keep the row alive after a kill fold (D7).
     private var renderedContextReading: Bool = false
 
+    /// Whether the forget-conversation row was last drawn — the fifth input to the idempotence
+    /// guard, so a stale `true` cannot keep the row alive after a clear fold (`turn-history`
+    /// D4).
+    private var renderedHistoryPresent: Bool = false
+
     /// The hotkey string the label was last drawn with. Part of the idempotence guard rather than
     /// a separate refresh call, so a rebind heals the label on the next condition tick — the ~1 s
     /// health poll — with nothing for a caller to forget to wire.
@@ -84,13 +94,17 @@ public final class MenuBarItem {
     ///     compiles unchanged; `converse-wiring` wires it to the mode machine.
     ///   - onKillContext: invoked for the context kill row — defaulted so `AppBootstrap`'s
     ///     construction compiles unchanged; `bootstrap-wiring` wires it to the kill handler.
+    ///   - onForgetConversation: invoked for the forget-conversation row — defaulted so
+    ///     `AppBootstrap`'s construction compiles unchanged; `conversation-surface` wires it to
+    ///     the conversation store's clear.
     public init(
         hotkey: @escaping () -> String,
         onAction: @escaping (MenuBarState) -> Void,
         onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         onSelectMode: @escaping (SessionMode) -> Void = { _ in },
-        onKillContext: @escaping () -> Void = {}
+        onKillContext: @escaping () -> Void = {},
+        onForgetConversation: @escaping () -> Void = {}
     ) {
         self.hotkey = hotkey
         self.onAction = onAction
@@ -98,6 +112,7 @@ public final class MenuBarItem {
         self.onQuit = onQuit
         self.onSelectMode = onSelectMode
         self.onKillContext = onKillContext
+        self.onForgetConversation = onForgetConversation
         // `.variableLength` because the item is an icon whose symbol changes width between states.
         self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         apply(.ready)
@@ -105,20 +120,22 @@ public final class MenuBarItem {
 
     /// Draws a state: the icon, its accessibility label, and the menu behind it.
     ///
-    /// Idempotent by state (and by mode, and by the context-reading fact), so the ~1 s health
-    /// poll that feeds this can call it every tick without rebuilding an open menu out from
-    /// under the user's cursor.
+    /// Idempotent by state (and by mode, and by the context-reading and history-present facts),
+    /// so the ~1 s health poll that feeds this can call it every tick without rebuilding an
+    /// open menu out from under the user's cursor.
     public func apply(
-        _ next: MenuBarState, mode: SessionMode = .dictation, contextReading: Bool = false
+        _ next: MenuBarState, mode: SessionMode = .dictation, contextReading: Bool = false,
+        historyPresent: Bool = false
     ) {
         let hotkeyNow = hotkey()
         guard next != state || mode != renderedMode || hotkeyNow != renderedHotkey
-            || contextReading != renderedContextReading
+            || contextReading != renderedContextReading || historyPresent != renderedHistoryPresent
         else { return }
         state = next
         renderedMode = mode
         renderedHotkey = hotkeyNow
         renderedContextReading = contextReading
+        renderedHistoryPresent = historyPresent
 
         if let button = item.button {
             // A **template** image: monochrome, tinted by the system for a light or dark menu bar
@@ -133,7 +150,9 @@ public final class MenuBarItem {
                 MenuBarCopy.accessibilityLabel(for: next, hotkey: hotkeyNow))
         }
 
-        item.menu = menu(for: next, mode: mode, contextReading: contextReading)
+        item.menu = menu(
+            for: next, mode: mode, contextReading: contextReading,
+            historyPresent: historyPresent)
     }
 
     /// Builds the menu for a state and mode.
@@ -149,8 +168,12 @@ public final class MenuBarItem {
     /// the two mode rows, the active one checked (from the current mode), each row selecting its
     /// mode explicitly — the menu offers, the machine routes. The context kill row (`widget-indicator`
     /// D7) follows, present only while `contextReading` — a kill row shown when nothing is being
-    /// read would be an invitation (M9).
-    private func menu(for state: MenuBarState, mode: SessionMode, contextReading: Bool) -> NSMenu {
+    /// read would be an invitation (M9). The forget-conversation row (`turn-history` D1) follows
+    /// the kill block, present only while `historyPresent` — a forget row shown over an empty
+    /// history would be an invitation to delete nothing.
+    private func menu(
+        for state: MenuBarState, mode: SessionMode, contextReading: Bool, historyPresent: Bool
+    ) -> NSMenu {
         let menu = NSMenu()
 
         if let actionTitle = MenuBarCopy.actionTitle(for: state) {
@@ -185,6 +208,17 @@ public final class MenuBarItem {
             menu.addItem(.separator())
         }
 
+        if historyPresent {
+            let forget = NSMenuItem(
+                title: MenuBarCopy.forgetConversationRowTitle,
+                action: #selector(forgetConversation),
+                keyEquivalent: "")
+            forget.target = self
+            forget.setAccessibilityLabel(MenuBarCopy.forgetConversationAccessibilityLabel)
+            menu.addItem(forget)
+            menu.addItem(.separator())
+        }
+
         let settings = NSMenuItem(
             title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -208,6 +242,8 @@ public final class MenuBarItem {
     }
 
     @objc private func killContext() { onKillContext() }
+
+    @objc private func forgetConversation() { onForgetConversation() }
 
     @objc private func openSettings() { onOpenSettings() }
 

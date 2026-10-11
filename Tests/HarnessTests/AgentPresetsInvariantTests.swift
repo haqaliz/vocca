@@ -278,12 +278,12 @@ final class AgentPresetsInvariantTests: XCTestCase {
             """)
     }
 
-    /// **Acceptance 3b — the FileManager seam table still names exactly the eight seams.**
+    /// **Acceptance 3b — the FileManager seam table still names exactly the nine seams.**
     /// The `InjectionSeamBoundaryTests` table, read as the current state of the pin file
-    /// itself: the dictionary literal's keys must be exactly the eight shipped seams. The
-    /// per-module scans are that suite's own tests; this leg pins the exact set — a ninth
+    /// itself: the dictionary literal's keys must be exactly the nine shipped seams. The
+    /// per-module scans are that suite's own tests; this leg pins the exact set — a tenth
     /// seam, a renamed seam or a row that moved without its seam fails here first.
-    func testTheFileManagerSeamTableStillNamesExactlyTheEightSeams() throws {
+    func testTheFileManagerSeamTableStillNamesExactlyTheNineSeams() throws {
         let source = try pinFileSource("InjectionSeamBoundaryTests.swift")
         let body = try bracketBody(
             of: source, after: "filesPermittedToNameFileManagerIdentifiersBySeam",
@@ -293,14 +293,14 @@ final class AgentPresetsInvariantTests: XCTestCase {
             keys,
             [
                 "journal", "dictionary", "config", "strategy", "usage", "consent", "actions",
-                "action-config",
+                "action-config", "conversation",
             ],
             """
-            the FileManager seam table must name exactly the eight shipped seams: journal, \
-            dictionary, config, strategy, usage, consent, actions, action-config. The \
-            agent-presets files ride the existing seams (the registry uses \
-            ActionConfigFileSystem) — a new file-system-naming file would be a widening, \
-            never a silent addition. Read off the pin file's own literal: \(body).
+            the FileManager seam table must name exactly the nine shipped seams: journal, \
+            dictionary, config, strategy, usage, consent, actions, action-config, conversation. \
+            The `history-store` unit's ninth seam (conversation, VoccaConversation) is the \
+            reviewed widening this pin expects; a tenth would be the next reviewed act, never a \
+            silent addition. Read off the pin file's own literal: \(body).
             """)
     }
 
@@ -414,6 +414,14 @@ final class AgentPresetsInvariantTests: XCTestCase {
     /// router (`routeIntentWiring`) in `root.intentWiring`, the agent launch task stores the
     /// agent intent wiring, and the slot comments describe the shipped routing. The two
     /// dictation digests are unchanged.
+    /// Re-anchored once more, deliberately, on 2026-10-11 by the `turn-history`
+    /// `conversation-surface` REFACTOR (`8110b86e…` → `820ffdb2…` — one re-anchor, computed
+    /// with `shasum -a 256` after the unit's single composition-root edit, never
+    /// edited-to-match): the conversation surface wired at the root — the store, its
+    /// `onChange` fold into the menu conditions, the driver's recorder, the two Settings
+    /// bindings, the menu's forget row, and the call-site forward of both conditions
+    /// (finding F1, the C12 kill row's restored rendering). The two dictation digests are
+    /// unchanged.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -427,7 +435,7 @@ final class AgentPresetsInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "8110b86e520aefa7a310c82181cae6f20483608d2405348b68f324082e1d7555"
+                "820ffdb26e9415dcf28cf9085b3677af4666537d27b9d27608c8f488edf24bc8"
             ),
         ]
         for (file, expected) in pinned {

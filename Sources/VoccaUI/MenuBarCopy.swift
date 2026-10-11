@@ -160,4 +160,14 @@ public enum MenuBarCopy {
     /// reader hears exactly what the row stops. Exact-equality pinned.
     public static let contextKillAccessibilityLabel =
         "Stop Vocca from reading the focused app's content"
+
+    /// The forget-conversation row's title (`turn-history` D1): one-action consequence copy,
+    /// appearing only while history exists — the row deletes the file, and the sentence says
+    /// exactly what goes. Exact-equality pinned in `MenuBarStateTests`.
+    public static let forgetConversationRowTitle = "Forget conversation"
+
+    /// The forget row's VoiceOver label — what the row deletes, stated in full, so a screen
+    /// reader hears the consequence rather than a vague command. Exact-equality pinned.
+    public static let forgetConversationAccessibilityLabel =
+        "Forget the conversation Vocca has kept"
 }

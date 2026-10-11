@@ -20,6 +20,7 @@ import VoccaActions
 import VoccaASR
 import VoccaAudio
 import VoccaContext
+import VoccaConversation
 import VoccaCore
 import VoccaHotkey
 import VoccaInject
@@ -349,6 +350,32 @@ public enum AppBootstrap {
             toggleMicrophone = RefusingAudioSource()
         }
 
+        // MARK: The conversation history
+        //
+        // The bounded recent-turns store (`turn-history` D4): the shipped store over
+        // `~/Library/Application Support/Vocca/conversation.json` — path-injected the
+        // `PersistentConsentStore` way (the store's zero-argument `init()` cannot carry the
+        // `onChange` fold, so the root resolves the same default directory through
+        // `conversationDirectory`). The launch load, in a task for the reason the journal's
+        // assembly is in one: `configure` may not block, and the store's load reads a file.
+        //
+        // The `onChange` fold is the menu's history fact: every record, clear and launch load
+        // reports the new turn count (`markLastTurnInterrupted` never does — the count did not
+        // change), folded into the menu-bar conditions on the main actor. The root is reached
+        // through the weak box — it does not exist yet at this point in `configure`, the
+        // microphone graphs' callback shape — so a store-side fold can never retain the root.
+        let conversationHistory = ConversationHistoryStore(
+            directory: Self.conversationDirectory(
+                applicationSupport: FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask).first,
+                home: FileManager.default.homeDirectoryForCurrentUser),
+            onChange: { [weak rootBox] count in
+                Task { @MainActor in
+                    rootBox?.value?.updateMenuBarConditions { $0.isHistoryPresent = count > 0 }
+                }
+            })
+        Task { await conversationHistory.load() }
+
         // MARK: The live widget
         //
         // The pill's window is created **lazily** — `LiveWidget` constructs the panel on the
@@ -541,6 +568,11 @@ public enum AppBootstrap {
         // assigned-after-construction shape. Nothing on the dictation path reads it; the sink
         // above holds the recorder directly.
         root.usageRecorder = usageRecorder
+        // The conversation history store, assigned after construction — the `usageRecorder`
+        // shape: the tab's read-on-open snapshot, the menu's forget row and the driver's
+        // recorder all reach the one store through it, and amending nothing on the dictation
+        // path.
+        root.conversationHistory = conversationHistory
         // The Speech tab's store: the same one every engine loads through, so a row's
         // `[ installed ]`, the bytes beside [Remove] and the model the engine opens are all one
         // directory. Assigned after construction, the `strategyMemory` shape.
@@ -601,7 +633,12 @@ public enum AppBootstrap {
                         guard let root = rootBox.value else { return }
                         root.widgetStore.presentReply(text)
                     }
-                })
+                },
+                // The completed-turn recorder (`turn-history` D4): the shipped conversation
+                // store — a turn committed to speak lands in `conversation.json`, bounded and
+                // forgettable, and a barge-in marks that turn interrupted. The driver holds
+                // only the Core protocol; the store reaches the app through this one call.
+                conversationRecorder: conversationHistory)
             root.converseDriver = converseDriver
             // The state sink's shipped composition — the widget-converse plan's recorded
             // hand-off ("replaces it with the widget projection's fold", D4) wired at last:
@@ -995,15 +1032,31 @@ public enum AppBootstrap {
             // folds the badge clear in the same call.
             onKillContext: { [weak root] in
                 root?.contextKillSwitch?()
+            },
+            // The forget-conversation row's destination (`turn-history` D4): the menu offers
+            // the one-action clear (D1) and the store's `clear()` deletes the file — the
+            // `onChange` fold turns the row's fact off in the same call, so the row and the
+            // disk cannot disagree.
+            onForgetConversation: { [weak root] in
+                Task { @MainActor in
+                    try? await root?.conversationHistory?.clear()
+                }
             })
         root.menuBarItem = item
         root.onMenuBarConditionsChanged = { [weak item] conditions in
             item?.apply(
-                MenuBarStateReducer.state(for: conditions), mode: conditions.mode)
+                MenuBarStateReducer.state(for: conditions), mode: conditions.mode,
+                // Both facts forwarded (finding F1, `conversation-surface` S4): the shipped
+                // call site never forwarded `contextReading`, so the C12 kill row could not
+                // render at runtime; the fix forwards it and the history fact together.
+                contextReading: conditions.isContextReading,
+                historyPresent: conditions.isHistoryPresent)
         }
         item.apply(
             MenuBarStateReducer.state(for: root.menuBarConditions),
-            mode: root.menuBarConditions.mode)
+            mode: root.menuBarConditions.mode,
+            contextReading: root.menuBarConditions.isContextReading,
+            historyPresent: root.menuBarConditions.isHistoryPresent)
 
         // The session's phase, taken from the widget's own store rather than tracked a second
         // time — so the icon and the pill can never disagree about whether Vocca is listening.
@@ -1156,6 +1209,17 @@ public enum AppBootstrap {
     /// does not resolve. A pure function makes both branches assertable without a test ever
     /// creating a file where a real install keeps its consent.
     static func contextConsentDirectory(applicationSupport: URL?, home: URL) -> URL {
+        let base =
+            applicationSupport ?? home.appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("Vocca")
+    }
+
+    /// The conversation store's directory — the same Application Support/Vocca the usage
+    /// ledger and the consent store persist to, so `conversation.json` sits beside `usage.json`
+    /// as a sibling file. Resolved exactly the way ``contextConsentDirectory`` is — the store's
+    /// own zero-argument `init()` answers the same location, but it cannot carry the `onChange`
+    /// fold this composition wires, so the root resolves the directory and path-injects it.
+    static func conversationDirectory(applicationSupport: URL?, home: URL) -> URL {
         let base =
             applicationSupport ?? home.appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("Vocca")
@@ -2053,6 +2117,36 @@ public final class DictationLoopRoot {
                     clearUsage: { [weak self] in
                         await self?.usageRecorder?.clear()
                     },
+                    // MARK: Conversation
+                    //
+                    // Read once, on open — the page is deliberately static (`conversation-surface`
+                    // D2: no observation path), so the store's held turns are the whole answer.
+                    // The map to the tab's rows happens here, at the root: VoccaUI may not name
+                    // the store's types, the `UsageSnapshot`/`SettingsBindings` precedent. An
+                    // absent store answers empty — the honest headless default.
+                    loadConversationSnapshot: { [weak self] in
+                        guard let store = self?.conversationHistory else {
+                            return ConversationSnapshot(turns: [])
+                        }
+                        let turns = await store.currentTurns()
+                        return ConversationSnapshot(
+                            turns: turns.enumerated().map { position, turn in
+                                ConversationTurnRow(
+                                    position: position,
+                                    utterance: turn.utterance,
+                                    reply: turn.reply,
+                                    interrupted: turn.interrupted)
+                            })
+                    },
+                    // Routed to the store because it is the only object holding both halves: the
+                    // held turns and the file. A store-only clear would leave the page's rows to
+                    // reload at the next launch, and the tab's own `.cleared` fold empties the
+                    // window after this returns — the page's "store first, page second" order.
+                    // The failure is reported through the store's loud log: the page offers no
+                    // words for a deletion that did not take.
+                    clearConversation: { [weak self] in
+                        try? await self?.conversationHistory?.clear()
+                    },
                     // MARK: Speech
                     //
                     // The selection is read off the resolver, which *is* the fact rather than a
@@ -2338,6 +2432,16 @@ public final class DictationLoopRoot {
     /// The root carries it for one reason: `configure` builds it and `main()` needs it, because
     /// the last write of a run happens on the quit `main()` installs the policy for.
     public var usageRecorder: UsageRecorder?
+
+    /// The conversation history store, assigned by `configure` after construction — the
+    /// `usageRecorder` shape.
+    ///
+    /// The root carries it because three surfaces read through it: the driver records through
+    /// it, the Conversation tab reads its snapshot from it, and the menu's forget row clears
+    /// through it — one store, reached by all, with its `onChange` fold keeping the menu
+    /// condition in step. `nil` only in a composition that built no store — every headless
+    /// harness in the suite.
+    public var conversationHistory: ConversationHistoryStore?
 
     /// Called on every change to ``menuBarConditions``. `main()` connects the status item here;
     /// `configure` leaves it nil, which is what keeps the composition root window-free for the

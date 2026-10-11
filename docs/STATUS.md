@@ -10,7 +10,147 @@ carries the current state and the rules that still bind.
 
 ---
 
-**The `intent-provider-routing` unit shipped 2026-10-10 — the intent leg routes by providerID:
+**The `turn-history` unit shipped 2026-10-11 — the bounded recent-turns window is real: a
+completed CONVERSING turn is recorded at the driver's reply-commit point, rendered in an
+eighth Settings tab (newest first, with the interrupted marker), forgotten from the tab
+behind a confirmation or from the menu bar in one action, and the window survives a relaunch;
+no gate passes.**
+`feat/turn-history/aliz`. Four aspects (`history-store`, `driver-recording`,
+`conversation-surface`, `unit-record` — this entry). Floor **3161 → 3235** (executed 3235).
+The unit is the roadmap's own deliverable — `ROADMAP.md:205`'s "bounded, inspectable, local
+turn history — with a visible 'forget' control" — the P3 item the C13 amendments had named
+"separate, unclaimed"; the four pointers resolve in `CAPABILITY_ROADMAP.md` with the dated
+text kept.
+
+**What shipped.**
+*The module and the store* (`history-store`) — the package's **13th library module**,
+`VoccaConversation`, as its own adapter (the recorded `ModuleBoundaryTests` rule: rooting a
+FileManager seam in the composition root would force permitting `AppBootstrap.swift`): the
+seam `ConversationRecording` (`VoccaCore/Conversation/`, Foundation-free, `async` never
+`async throws` — the `local-data-provider` lesson), `ConversationHistoryStore` (one file, the
+**ninth FileManager seam**; `conversation.json`, atomic temp→replace, tolerant per-row decode,
+load never writes, clear deletes the file, `onChange` fires after every mutation and the
+launch load). **The decision record:** **oldest-first eviction at 50 turns** — a deliberate,
+documented divergence from the settings stores' refuse-never-clamp (refusing the 51st would
+silently stop recording; eviction keeps the disclosed window fresh) — and **2000-character
+truncation as the single text bound** (the bubble's `WidgetTiming.maxReplyCharacters` value
+reused: one disclosed bound, truncation never a surprise). The seam table's mirror pins live
+in **five suites, not one** (the `…StillNamesExactlyTheNineSeams` family:
+`ReplyRenderingInvariantTests`, `ActiveProjectInvariantTests`, `AgentPresetsInvariantTests`,
+`AuthBaselineInvariantTests`, `SpokenTaskInvariantTests`) beside `InjectionSeamBoundaryTests`'
+own exact-set pin and its planted-identifier control.
+*The driver hook* (`driver-recording`) — `ConverseLoopDriver` records the **cleaned**
+utterance and the exact reply at the one commit point, awaited **before**
+`loop.scheduleReply` (the ordering that lets a later barge-in's mark be addressed to the turn
+it cut); every barge-in delivers `markLastTurnInterrupted`; the store owns the empty-history
+no-op. The recorder parameter is additive and defaulted — probes and prior suites
+byte-identical.
+*The surfaces* (`conversation-surface`) — the eighth `SettingsTab` (Conversation): read-on-
+open, the honest empty copy `No conversation yet.`, the disclosed bound ("Vocca keeps the
+last 50 turns; when the window is full, the oldest are dropped."), rows **newest first** (the
+store keeps append order because eviction takes from the front), the `Interrupted` marker,
+and a **destructive-confirmed Forget** ("Forget the whole conversation?" … **Forget it** /
+**Keep it**, deletes the file on disk); the menu bar's **"Forget conversation" row appears
+only while history exists and clears in one action, no dialog** — the friction split
+(one-action vs Settings-confirmed), founder-approved at plan review.
+*The composition* — the store is constructed in `configure` **after the microphone section**,
+for a recipe reason: the `onChange` fold reaches the root through the weak root box, and the
+root does not exist yet before that point (the microphone graphs' callback shape); the launch
+load runs in a task; the store is passed as the driver's `conversationRecorder`; the root maps
+the store's turns to the tab's rows (`VoccaUI` may not name the store's types — the
+`UsageSnapshot` precedent); the menu closure routes to `store.clear()`, the `onChange` fold
+turning `isHistoryPresent` off in the same call, so the row and the disk cannot disagree.
+*The probes* — `PROBE-CONVERSATION` (new): the store's launch-shaped round trip over a
+temporary directory — load-over-missing, record, **reload through a second store over the
+committed bytes**, clear-deletes — reporting counts and booleans, never the text;
+PROBE-CONVERSE / PROBE-INTENT-DEFAULT / PROBE-CODING-AGENT byte-identical; the zero-network
+suite green.
+
+**Finding F1, fixed and pinned** (`conversation-surface` S4): the shipped
+`onMenuBarConditionsChanged` call site **never forwarded `isContextReading`** — it called
+`apply` with the state and the mode only — so the C12 kill row could not render at runtime
+(the tests called `apply` directly; the row is window-server glue executed by nothing in CI).
+The fix is the same call-site edit that forwards the history fact, and a source-scan test pins
+both facts together. A restored intended surface, not a new feature.
+
+**Findings, recorded — not fixed** (the unit's own audit):
+- **(a) The plan's probe-drive gap.** The `history-store` plan slated `VoccaConversation`'s
+  probe drive later, but adding a `.library` product makes the module a *shipping target*,
+  which the zero-network coverage cross-check (`modulesRequiringCoverage`) requires the probe
+  to witness and `justifiedExclusions` refuses to excuse: the scaffold drive had to ship with
+  the module, the real round trip with the store. Recorded: any new module must ship its probe
+  drive with it.
+- **(b) The D2/replyFailed reconciliation.** The spec's D3 counted `replyFailed` among
+  zero-call failures — unreachable under D2's record point: a render failure happens strictly
+  after the record, and `.replyFailed` is post-commit by definition (`ConverseTurnFailure`:
+  "after the reply was scheduled"). **A render-failed turn keeps its committed record**; only
+  pre-commit failures (ASR, capture, an empty transcript, cancellation) skip. Pinned.
+- **(c) Superseded turns record.** The record precedes `scheduleReply`, and the loop can
+  refuse the schedule (a superseded turn emits no `.speakReply` effect — never a phantom
+  bubble): a turn whose schedule is refused has **already recorded**. The window shows a
+  committed exchange; it cannot show one that never was.
+- **(d)** the F1 above.
+- **(e) The SwiftPM "6 unhandled fixture files" planner notice** is pre-existing
+  (`barge-in-loop`'s and `kokoro-binding`'s fixture directories) — noticed, not a warning to
+  "fix"; no fixture file moved.
+- **(f) The acknowledged plan-replication cost.** The seam/module pins (the
+  `VoccaConversationTargetTests` manifest facts, the `ModuleBoundaryTests` rows, the seam-table
+  entries) are duplicated across five invariant families by design; the plan named the cost
+  and paid it rather than inventing a new mechanism.
+
+**G5 re-anchored once, deliberately** (`history-pins`): `AppBootstrap.swift` was recomputed
+with `shasum -a 256` on 2026-10-11 after the unit's only composition-root edit, never
+edited-to-match — `8110b86e52…` → **`820ffdb2…`**, full literal
+`820ffdb26e9415dcf28cf9085b3677af4666537d27b9d27608c8f488edf24bc8`, across all seven pin sites
+(`WiringBaselineTests`, `AuthBaselineInvariantTests`, `AgentPresetsInvariantTests`,
+`ActiveProjectInvariantTests`, `SpokenTaskInvariantTests`, `TurnTakingComposedAcceptanceTests`,
+`ReplyRenderingInvariantTests`) plus the floor script's comment; the dictation digests
+unchanged — `1baeb2de…`/`ce70ca10…`, recomputed and compared. The floor was raised once:
+3161 + 5 + 17 + 1 + 12 + 9 + 8 + 3 + 3 + 9 + 7 = 3235, the floor script's own parse.
+
+**Known limitations, recorded — not fixed.**
+- **The tab is read-on-open, never live.** A turn recorded while the tab is open appears at
+  the next open — deliberate (`conversation-surface` D2, no observation path); a live tab is a
+  later polish, not a bug.
+- **No timestamps, search, per-session grouping or export** by design. Version 1 is one file,
+  `version` + `turns`, two strings and a bool per turn — the byte pin is its shape.
+- **Only completed turns exist.** Failed turns never record; a render-failed turn keeps its
+  committed record even though nothing was heard; a superseded turn's record stands.
+- **The 50-turn window is the whole history.** Eviction is silent and oldest-first; the
+  disclosure is on the tab.
+- **The interrupted marker is the driver's word, not the audio's** — the mark lands on the
+  turn the driver cut; a barge-in that lands between turns marks at most the last recorded
+  turn (the store's most-recent-only rule).
+- **No migration.** No conversation file predates this unit; a future version's file whose
+  shape is unknown loads as empty, loudly.
+- **The real surface is unverified** — SMOKE 167 is its first observation; the tab, the
+  dialog and the menu row have never been rendered by a human, and the tests are the only
+  evidence.
+
+**The honesty block:**
+- **No gate passes.** The **twenty-second unit** built ahead of the uncleared gates under the
+  recorded posture. This unit was chosen from the roadmap's own P3 deliverable
+  (`ROADMAP.md:205`); no user request for it is recorded.
+- **No rate exists** — no success, resolution, accuracy or latency number may be quoted from
+  this unit. Every claim here is a test or a probe; "the conversation window works in the real
+  app" is unmeasured until SMOKE 167 runs on a real machine — written, runnable, recorded,
+  never gated.
+- **The defaults did not move.** The composed default still reads `agents=0
+  spawnsSubprocess=false`; the echo still answers; zero network; the dictation path
+  digest-untouched. The record adds one awaited file write at the turn's commit point — off
+  the audio path, so **no latency number is claimed** (the `driver-recording` plan says so).
+- **The window is stores-only and text-only** — it never plays a turn back, never re-injects,
+  never exports; the tab's privacy line — "All of this is read from a file on this Mac. None
+  of it has ever left it." — is the Usage tab's claim, reused.
+- **Builds during the tasks were incremental**; the final verification is a clean build with
+  the floor script (CI's exact command).
+
+**SMOKE**: row 167 written and runnable — the exchange in the Conversation tab (utterance +
+reply verbatim), the interrupted marker, the confirmed Forget and the one-action menu Forget
+clearing both surfaces and the file, survival across relaunch — recorded, never gated; counts,
+never rates.
+
+---
 a phrase naming an enabled coding-agent row reaches that agent's outward-facing card, and only a
 click on Confirm runs it; every intent dispatch is checked against the provider that serves it;
 the default is unchanged; no gate passes.**

@@ -171,8 +171,9 @@ final class ActiveProjectInvariantTests: XCTestCase {
     /// every module directory ∪ every drivable target, minus the non-drivable kinds, minus
     /// only the exclusions the manifest justifies (`VoccaNetworkProbe`, `CVoccaNetworkInterposer`
     /// — each re-asserted to exist and not to ship). This leg recomputes that set the same way,
-    /// pins it to the same twelve library modules (the set is unchanged — the unit added no
-    /// module, only a file inside a covered one), and re-asserts the cross-check's own equality
+    /// pins it to the thirteen library modules (the `history-store` aspect's
+    /// `VoccaConversation` joined the set, driven by the probe's conversation drive — the unit
+    /// also added only files inside covered modules), and re-asserts the cross-check's own equality
     /// against what the probe actually reported driving.
     func testTheModuleCoverageCrossCheckStillCoversEveryModuleWithTheNewFileInTheTree() throws {
         let observation = try runProbe(mode: .defaultConfiguration)
@@ -204,21 +205,21 @@ final class ActiveProjectInvariantTests: XCTestCase {
             "the required module set is empty — the cross-check would be asserting against "
                 + "nothing")
 
-        // The module set is unchanged: exactly the twelve library modules, VoccaContext among
-        // them — the unit's new file lives in a module the drive's witnesses already cover.
+        // The module set: the thirteen library modules, VoccaConversation among them — the
+        // `history-store` aspect's adapter joined the set, and the drive's witness covers it.
         let shippedModules: Set<String> = [
             "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR", "VoccaText",
             "VoccaInject", "VoccaSpeech", "VoccaContext", "VoccaActions", "VoccaUI",
-            "VoccaUsage", "VoccaBootstrap",
+            "VoccaUsage", "VoccaConversation", "VoccaBootstrap",
         ]
         XCTAssertEqual(
-            shippedModules.count, 12,
-            "the pinned module set must be exactly the twelve library modules — the vacuity "
+            shippedModules.count, 13,
+            "the pinned module set must be exactly the thirteen library modules — the vacuity "
                 + "guard that keeps this pin watching something")
         XCTAssertEqual(
             required, shippedModules,
             """
-            The module set the cross-check derives is no longer the twelve library modules. \
+            The module set the cross-check derives is no longer the thirteen library modules. \
             Got \(required.sorted()). A module added to this package must be driven by the \
             probe's default-configuration path (a reviewed edit to VoccaNetworkProbe), never \
             excluded silently — and one removed must be removed here too.
@@ -272,12 +273,12 @@ final class ActiveProjectInvariantTests: XCTestCase {
             """)
     }
 
-    /// **Acceptance 3b — the FileManager seam table still names exactly the eight seams.**
+    /// **Acceptance 3b — the FileManager seam table still names exactly the nine seams.**
     /// The `InjectionSeamBoundaryTests` table, read as the current state of the pin file
-    /// itself: the dictionary literal's keys must be exactly the eight shipped seams. The
-    /// per-module scans are that suite's own tests; this leg pins the exact set — a ninth
+    /// itself: the dictionary literal's keys must be exactly the nine shipped seams. The
+    /// per-module scans are that suite's own tests; this leg pins the exact set — a tenth
     /// seam, a renamed seam or a row that moved without its seam fails here first.
-    func testTheFileManagerSeamTableStillNamesExactlyTheEightSeams() throws {
+    func testTheFileManagerSeamTableStillNamesExactlyTheNineSeams() throws {
         let source = try pinFileSource("InjectionSeamBoundaryTests.swift")
         let body = try bracketBody(
             of: source, after: "filesPermittedToNameFileManagerIdentifiersBySeam",
@@ -287,14 +288,14 @@ final class ActiveProjectInvariantTests: XCTestCase {
             keys,
             [
                 "journal", "dictionary", "config", "strategy", "usage", "consent", "actions",
-                "action-config",
+                "action-config", "conversation",
             ],
             """
-            the FileManager seam table must name exactly the eight shipped seams: journal, \
-            dictionary, config, strategy, usage, consent, actions, action-config. The \
-            active-project-detection files ride the existing seams (the cwd read is a libproc \
-            call, not a FileManager one — a new file-system-naming file would be a widening, \
-            never a silent addition). Read off the pin file's own literal: \(body).
+            the FileManager seam table must name exactly the nine shipped seams: journal, \
+            dictionary, config, strategy, usage, consent, actions, action-config, conversation. \
+            The `history-store` unit's ninth seam (conversation, VoccaConversation) is the \
+            reviewed widening this pin expects; a tenth would be the next reviewed act, never a \
+            silent addition. Read off the pin file's own literal: \(body).
             """)
     }
 
@@ -465,6 +466,14 @@ final class ActiveProjectInvariantTests: XCTestCase {
     /// router (`routeIntentWiring`) in `root.intentWiring`, the agent launch task stores the
     /// agent intent wiring, and the slot comments describe the shipped routing. The two
     /// dictation digests are unchanged.
+    /// Re-anchored once more, deliberately, on 2026-10-11 by the `turn-history`
+    /// `conversation-surface` REFACTOR (`8110b86e…` → `820ffdb2…` — one re-anchor, computed
+    /// with `shasum -a 256` after the unit's single composition-root edit, never
+    /// edited-to-match): the conversation surface wired at the root — the store, its
+    /// `onChange` fold into the menu conditions, the driver's recorder, the two Settings
+    /// bindings, the menu's forget row, and the call-site forward of both conditions
+    /// (finding F1, the C12 kill row's restored rendering). The two dictation digests are
+    /// unchanged.
     func testTheDictationDigestsAreUnchangedAndAppBootstrapHoldsTheReanchoredLiteral() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let pinned: [(file: String, digest: String)] = [
@@ -478,7 +487,7 @@ final class ActiveProjectInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "8110b86e520aefa7a310c82181cae6f20483608d2405348b68f324082e1d7555"
+                "820ffdb26e9415dcf28cf9085b3677af4666537d27b9d27608c8f488edf24bc8"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
