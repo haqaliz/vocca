@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import Foundation
 import Synchronization
-import VoccaBootstrap
+import VoccaASR
+@testable import VoccaBootstrap
 import VoccaCore
+@testable import VoccaInject
+import VoccaText
 import XCTest
 
 // MARK: - The doubles
@@ -130,6 +134,20 @@ private final class RecordingDriverFailureSink: @unchecked Sendable {
 /// `@Sendable` provider closure (the ``CurrentEngineBox`` shape).
 private final class RecordingEngineSlot: @unchecked Sendable {
     var engine: (any ASREngine)?
+}
+
+/// A level source that never moves — the wiring test's `SilentLevelSource` (the shared double
+/// is file-private to its own suites).
+private struct QuietRecordingLevelSource: LiveLevelSource {
+    func latestLevel() -> Float { 0 }
+}
+
+/// A key-seam double for the compose test — never a real Keychain (the `StubWiringKeyProvider`
+/// shape).
+private struct StubComposeKeyProvider: KeyProvider {
+    func key() throws -> String? {
+        "stub-key"
+    }
 }
 
 // MARK: - The suite
@@ -464,6 +482,7 @@ final class ConversationRecordingDriverTests: XCTestCase {
         let nilSpy = ConversationRecorderSpy()
         let nilCapture = ScriptedContinuousCapture()
         let nilPlayback = FakePlaybackEngine()
+        let nilFailures = RecordingDriverFailureSink()
         let nilDriver = makeDriver(
             vad: Self.turnScript() + [SpeechActivity](repeating: .speech, count: 4)
                 + [SpeechActivity](repeating: .silence, count: 8),
@@ -471,13 +490,14 @@ final class ConversationRecordingDriverTests: XCTestCase {
             asrProvider: { engineBox.engine },
             synthesizerProvider: { Self.stubSynthesizer },
             playback: nilPlayback,
-            recorder: nilSpy)
+            recorder: nilSpy,
+            failureSink: { nilFailures.record($0) })
 
         try nilDriver.start()
         nilCapture.push([TurnLoopFixtures.silence(), TurnLoopFixtures.silence()])
         nilCapture.push([Self.userSpeech, Self.userSpeech, Self.userSpeech, Self.userSpeech])
         for _ in 0..<8 { nilCapture.push([TurnLoopFixtures.silence()]) }
-        await waitUntil { await nilSpy.hasRecordedNothing() }
+        await waitUntil { nilFailures.values == [.asrFailed] }
         XCTAssertEqual(nilDriver.loop.state, .committed, "the readiness-gate nil drops the turn")
 
         engineBox.engine = nilASR
@@ -624,6 +644,7 @@ final class ConversationRecordingDriverTests: XCTestCase {
         let duringFailureMarks = await spy.marks
         XCTAssertEqual(duringFailureMarks, 0, "no barge-in — no mark")
 
+        capture.push([TurnLoopFixtures.silence(), TurnLoopFixtures.silence()])
         capture.push([Self.userSpeech, Self.userSpeech, Self.userSpeech, Self.userSpeech])
         for _ in 0..<8 { capture.push([TurnLoopFixtures.silence()]) }
         await waitUntil { await playback.playCount == 1 }
@@ -756,5 +777,133 @@ final class ConversationRecordingDriverTests: XCTestCase {
                 RecordedTurn(utterance: "two", reply: "two"),
             ],
             "the same recorder accumulates across a restart — sessions share the seam")
+    }
+
+    // MARK: - D4 · the compose seam
+
+    /// `composeConverseWiring` accepts a recorder at its (defaulted) slot and stays the
+    /// probe-safe recipe: the composed driver constructs idle and nothing starts — the
+    /// ``AppBootstrapWiringTests`` acceptance, with the recorder passed. RED: the parameter
+    /// does not exist yet, so this call fails to compile.
+    func testComposeConverseWiringAcceptsARecorder() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let engine = StubEngine.parakeet()
+        let holdToTalkSource = RecordingAudioSource()
+        let toggleSource = RecordingAudioSource()
+        let root = DictationLoopRoot(
+            configuration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .holdToTalk),
+            ceiling: SessionCeiling.default,
+            clock: TestClock(),
+            audioSource: holdToTalkSource,
+            keyState: TruthfulKeyState(Keyboard()),
+            watchdogTimer: FakeTimer(),
+            healthTimer: FakeTimer(),
+            deferOpening: { $0() },
+            tap: FakeHotkeyEventSource(),
+            secureInput: FakeSecureInputState(),
+            resolver: DictationEngineResolver(selection: .defaultSelection) { _ in engine },
+            targetResolution: TargetResolution(
+                focusedApp: FakeFocusedApp(
+                    identity: FocusedAppIdentity(
+                        bundleID: "com.apple.Notes", windowTitle: "The Draft")),
+                secureInput: FakeSecureInput(),
+                frontmost: FakeFrontmostApp()),
+            panel: RecordingPanel(holder: LedgerHolder()),
+            toggleConfiguration: HotkeyConfiguration(
+                keyCode: 49, modifiers: [.option], activation: .toggle),
+            toggleSource: toggleSource,
+            toggleTimer: FakeTimer(),
+            runningAppName: FakeRunningAppName(),
+            widgetClock: FakeTimer(),
+            liveLevel: QuietRecordingLevelSource(),
+            sessionKind: .dictation)
+
+        let store = ModelStore(rootURL: directory)
+        let cleanupResolver = CleanupResolver(
+            store: CleanupConfigStore(directory: directory, log: { _ in }),
+            transport: { StubLLMTransport(mode: .happyPath(
+                response: LLMResponse(statusCode: 200, body: Data()))) },
+            keyProvider: { StubComposeKeyProvider() },
+            log: { _ in })
+        let spy = ConversationRecorderSpy()
+
+        let driver = await AppBootstrap.composeConverseWiring(
+            clock: ContinuousMonotonicClock(), store: store, resolver: root.resolver,
+            cleanupResolver: cleanupResolver, root: root, conversationRecorder: spy)
+
+        XCTAssertEqual(driver.loop.state, .idle, "the recipe constructs; nothing starts")
+        XCTAssertEqual(
+            holdToTalkSource.beginCount, 0,
+            "passing a recorder changes nothing about the dictation mics")
+        XCTAssertEqual(toggleSource.beginCount, 0)
+    }
+
+    /// `composeConverseWiring` **forwards** the recorder to the driver's init: source scan of
+    /// the construction call (the ``AppBootstrapWiringTests`` call-site-pin shape — the
+    /// composed driver's recorder is private, and the recipe's capture cannot be started on a
+    /// hosted runner, so the forward is pinned where it happens). A reverted call (the
+    /// default `nil`) would compose a conversation that never records — the unwired answer,
+    /// silently.
+    func testComposeConverseWiringForwardsTheRecorderToTheDriver() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaBootstrap/ConverseWiring.swift")
+        let block = try Self.balancedBlock(
+            in: "ConverseWiring.swift", after: "ConverseLoopDriver(")
+        XCTAssertNotNil(
+            block.range(of: "conversationRecorder: conversationRecorder"),
+            """
+            the recipe's `ConverseLoopDriver(` construction must pass the recorder through \
+            (`conversationRecorder: conversationRecorder`). Without it the composed app \
+            composes a driver that never records, and the seam's default answers nil silently.
+            """)
+        XCTAssertTrue(
+            try String(
+                contentsOf: file, encoding: .utf8
+            ).contains("conversationRecorder: (any ConversationRecording)? = nil"),
+            "the recipe's parameter declaration must carry the defaulted recorder slot")
+    }
+
+    // MARK: - Fixtures
+
+    /// The balanced parenthesized block following `header` in a `VoccaBootstrap` source file —
+    /// the `AppBootstrapWiringTests.balancedBlock` extraction, generalised to the file param.
+    private static func balancedBlock(in fileName: String, after header: String) throws -> String {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaBootstrap/\(fileName)")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        guard let start = source.range(
+            of: "\\b" + NSRegularExpression.escapedPattern(for: header),
+            options: .regularExpression)
+        else {
+            XCTFail(
+                """
+                `\(fileName)` no longer constructs `\(header)`. That construction is where \
+                the recorder forwarding happens; if it moved, this pin has to move with it \
+                rather than be deleted.
+                """)
+            return ""
+        }
+        var depth = 0
+        var body = ""
+        for character in source[start.lowerBound...] {
+            if character == "(" { depth += 1 }
+            if depth > 0 { body.append(character) }
+            if character == ")" {
+                depth -= 1
+                if depth == 0 { break }
+            }
+        }
+        XCTAssertFalse(body.isEmpty, "the \(header) construction must have a body")
+        return body
+    }
+
+    /// A fresh throwaway directory for one test.
+    private static func tempDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-conversation-recording-\(UUID().uuidString)")
     }
 }
