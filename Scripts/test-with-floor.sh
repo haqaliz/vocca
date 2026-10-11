@@ -2486,8 +2486,23 @@ set -euo pipefail
 # PROBE-CODING-AGENT unchanged. 3161 + 5 + 17 + 1 + 12 + 9 + 8 + 3 + 3 + 9 + 7 = 3235, the
 # count taken from the floor script's own parse.
 #
+# `intent-and-surface` (the MCP router arm, card routing, prefix exclusion and surface
+# discovery): +7 — `MCPIntentAndSurfaceTests` +6 (A1 the phrase→card→confirm round trip over the
+# real MCP wiring with the G2 no-click-before-a-click check, A2 the disabled tool refused by
+# attempting the call, A3 the foreign providerID never reaching the MCP provider, A4 the
+# composite prefix exclusion with its discard and filter counterfactuals, A5 discovery's
+# per-server rows and the enablement key they toggle, A6 the discovery failure keys with nothing
+# enabled); `CompositeIntentResolverTests` +1 (the prefix half and its counterfactual). No lint
+# row was needed — the changes sit in already-permitted files, and no new `BlastRadius`/
+# `ActionSummary` identifier is spelled. The G5 pin re-anchored once, deliberately
+# (820ffdb2… → d2b8452e…, computed with `shasum -a 256` on 2026-10-12 after the unit's last
+# composition-root edit, never edited-to-match; all seven pin sites; the dictation pair
+# 1baeb2de…/ce70ca10… unchanged). PROBE-INTENT-DEFAULT / PROBE-INTENT-COMPOSITE /
+# PROBE-CODING-AGENT unchanged. 3235 + 11 (the two unraised `mcp-*` units) + 7 = 3253, the
+# count taken from the floor script's own parse.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3235
+MINIMUM_EXECUTED_TESTS=3253
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

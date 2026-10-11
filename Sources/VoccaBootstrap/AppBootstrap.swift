@@ -747,12 +747,28 @@ public enum AppBootstrap {
                 // quiet: there is no session a card could interrupt (the `isQuiet` shape).
                 || (root.converseDriver.map { $0.loop.state != .idle } ?? false)
         }
+        // The MCP composition (`mcp-composition` + `intent-and-surface` — the same additive
+        // shape): the per-server lookup and the Actions-tab discovery over the shipped config
+        // store and the real stdio transport **factory** (named through
+        // `MCPStdioTransportFactory`, never the actor — the D2 pin's placement), the same audit
+        // store, and the same in-flight read. Probe-safe by construction: the factory is called
+        // lazily, per lookup and only for a configured server, so the composed default with zero
+        // servers launches nothing and declares `spawnsSubprocess = false` (the narrowed D2
+        // promise). Composed **before** the action wiring so its `discoverTools` can be injected.
+        let mcpWiring = AppBootstrap.composeMCPWiring(
+            configStore: actionConfigStore,
+            auditStore: actionAuditStore,
+            transportFactory: { server in await MCPStdioTransportFactory.make(server) },
+            sessionActive: sessionActive,
+            root: root)
+        root.mcpWiring = mcpWiring
         let actionWiring = AppBootstrap.composeActionWiring(
             configStore: actionConfigStore,
             auditStore: actionAuditStore,
             provider: actionProvider,
             sessionActive: sessionActive,
-            root: root)
+            root: root,
+            toolDiscovery: mcpWiring.discoverTools)
         root.actionWiring = actionWiring
         root.actionExecutor = actionWiring.executor
         root.actionConfigStore = actionConfigStore
@@ -790,11 +806,14 @@ public enum AppBootstrap {
             resolverProvider: intentResolverProvider,
             root: root,
             activeProjectDirectory: activeProjectDirectory)
-        // The router (`intent-provider-routing`): a `vocca.agent` call reaches the agent
-        // intent wiring, everything else this one. The agent side lands in the launch task
-        // below, so the lookup reads the root's slot at call time, weakly — never here.
+        // The router (`intent-provider-routing`; `intent-and-surface` adds the MCP arm): a
+        // `vocca.agent` call reaches the agent intent wiring, a `dev.vocca.mcp.*` call the MCP
+        // server's wiring, everything else this one. Both sides land later / are composed above,
+        // so each lookup reads the root's slot at call time, weakly — never here.
         root.intentWiring = AppBootstrap.routeIntentWiring(
-            audit: intentWiring, agent: { [weak root] in root?.agentIntentWiring })
+            audit: intentWiring,
+            agent: { [weak root] in root?.agentIntentWiring },
+            mcp: { [weak root] providerID in await root?.mcpWiring?.lookup(providerID) })
         // The fact carrier: the same provider the wiring resolves through, kept so the probe
         // can derive the composed default's posture by calling it.
         root.intentResolverProvider = intentResolverProvider
@@ -901,9 +920,10 @@ public enum AppBootstrap {
                 activeProjectDirectory: activeProjectDirectory)
         }
         // The confirmation card's closures, routed by the card's own providerID: a shell card
-        // is answered by the shell wiring's executor, an agent card by the agent wiring's,
+        // is answered by the shell wiring's executor, an agent card by the agent wiring's, an
+        // MCP card by the matching server's wiring (looked up lazily from `root.mcpWiring`),
         // every other card by the action wiring's — the card is one surface, and the routing
-        // reads `shellWiring`/`agentWiring` lazily (the composition tasks above may not have
+        // reads the two per-provider wirings lazily (the composition tasks above may not have
         // landed; a card cannot exist before the wiring that presented it, so a nil read is
         // quiet either way).
         root.actionConfirm = { @MainActor [weak root] in
@@ -913,6 +933,10 @@ public enum AppBootstrap {
                 await root.shellWiring?.confirm()
             } else if card.providerID == CodingAgentProvider.providerID {
                 await root.agentWiring?.confirm()
+            } else if card.providerID.hasPrefix(MCPProvider.providerIDPrefix) {
+                if let server = await root.mcpWiring?.lookup(card.providerID) {
+                    await server.confirm()
+                }
             } else {
                 await actionWiring.confirm()
             }
@@ -924,6 +948,10 @@ public enum AppBootstrap {
                 await root.shellWiring?.decline()
             } else if card.providerID == CodingAgentProvider.providerID {
                 await root.agentWiring?.decline()
+            } else if card.providerID.hasPrefix(MCPProvider.providerIDPrefix) {
+                if let server = await root.mcpWiring?.lookup(card.providerID) {
+                    await server.decline()
+                }
             } else {
                 await actionWiring.decline()
             }
@@ -1436,13 +1464,16 @@ public enum AppBootstrap {
     /// switch on, the chain — phrase first, keyword second, the shell and coding-agent
     /// providers closed to the keyword leg (child-spawning, egress-unprovable — reachable only
     /// by an explicitly authored phrase row; the identifiers are supplied here because
-    /// `VoccaCore` cannot name them).
+    /// `VoccaCore` cannot name them), and the whole **MCP family** closed by its dynamic
+    /// per-server prefix (`intent-and-surface`, PRD risk row: the fallback never selects an MCP
+    /// tool; a phrase row may still name one explicitly).
     public static func composeIntentResolver(file: IntentPhraseFile) -> any IntentResolver {
         let phrase = PhraseIntentResolver(rows: file.phrases)
         guard file.keywordFallback else { return phrase }
         return CompositeIntentResolver(
             primary: phrase, fallback: KeywordIntentResolver(),
-            excludedProviderIDs: [ShellProvider.providerID, CodingAgentProvider.providerID])
+            excludedProviderIDs: [ShellProvider.providerID, CodingAgentProvider.providerID],
+            excludedProviderIDPrefixes: [MCPProvider.providerIDPrefix])
     }
 
     /// The per-turn provider `configure` wires: the phrase file is loaded once per turn, never
@@ -1917,6 +1948,16 @@ public final class DictationLoopRoot {
     /// composition that built no agent wiring.
     public var agentRegistry: CodingAgentRegistry?
 
+    // MARK: - The MCP composition (C13, mcp-composition + intent-and-surface)
+
+    /// **The composed MCP wiring** (`mcp-composition`): the per-server lookup, the Actions-tab
+    /// discovery and the per-server card lifecycle — composed by `configure` through the
+    /// probe-safe recipe (`composeMCPWiring`; construction only, nothing spawns, reads or starts
+    /// at composition). The intent router's third arm, the card routing and the tab's arm/preview
+    /// bindings reach it by the card's (or the invocation's) `dev.vocca.mcp.*` providerID.
+    /// `nil` only in a composition that built no MCP wiring — every headless harness in the suite.
+    public var mcpWiring: MCPWiring?
+
     /// The settings window, built on first use and kept for the process's lifetime.
     ///
     /// Lazy for the reason every window in this app is lazy: `configure` is driven by the
@@ -2293,9 +2334,10 @@ public final class DictationLoopRoot {
                     },
                     // The arm and preview bindings, routed by the provider's own id: a shell
                     // command goes through the shell wiring's executor, an agent through the
-                    // agent wiring's, everything else through the action wiring's — one
-                    // surface, three per-provider executors, the routing read lazily (a nil
-                    // shell or agent wiring is quiet: no row can exist before the wiring that
+                    // agent wiring's, a `dev.vocca.mcp.*` tool through the matching server's
+                    // wiring (looked up lazily), everything else through the action wiring's —
+                    // one surface, four per-provider executors, the routing read lazily (a nil
+                    // shell/agent/MCP wiring is quiet: no row can exist before the wiring that
                     // lists it).
                     armAction: { [weak self] providerID, toolID in
                         guard let self else { return }
@@ -2303,6 +2345,10 @@ public final class DictationLoopRoot {
                             try await self.shellWiring?.arm(providerID, toolID)
                         } else if providerID == CodingAgentProvider.providerID {
                             try await self.agentWiring?.arm(providerID, toolID)
+                        } else if providerID.hasPrefix(MCPProvider.providerIDPrefix) {
+                            if let server = await self.mcpWiring?.lookup(providerID) {
+                                try await server.arm(toolID)
+                            }
                         } else {
                             try await self.actionWiring?.arm(providerID, toolID)
                         }
@@ -2313,6 +2359,10 @@ public final class DictationLoopRoot {
                             return await self.shellWiring?.preview(providerID, toolID)
                         } else if providerID == CodingAgentProvider.providerID {
                             return await self.agentWiring?.preview(providerID, toolID)
+                        } else if providerID.hasPrefix(MCPProvider.providerIDPrefix) {
+                            guard let server = await self.mcpWiring?.lookup(providerID)
+                            else { return nil }
+                            return await server.preview(toolID)
                         }
                         return await self.actionWiring?.preview(providerID, toolID)
                     },

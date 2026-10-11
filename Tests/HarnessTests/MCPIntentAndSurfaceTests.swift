@@ -114,7 +114,8 @@ final class MCPIntentAndSurfaceTests: XCTestCase {
             beforeConfirm, ["initialize", "tools/list"],
             "no click means no run — the discovery frames only")
 
-        let serverWiring = try XCTUnwrap(await harness.mcpWiring.lookup(providerID))
+        let lookedUp = await harness.mcpWiring.lookup(providerID)
+        let serverWiring = try XCTUnwrap(lookedUp)
         await serverWiring.confirm()
         XCTAssertNil(harness.root.widgetStore.state.confirmation, "the confirm clears the card")
 
@@ -150,7 +151,7 @@ final class MCPIntentAndSurfaceTests: XCTestCase {
 
         XCTAssertEqual(reply, "Cancelled.", "the gate's enablement decline is spoken")
         let audit = await harness.auditStore.load()
-        XCTAssertEqual(audit.map(\.decision), [.declined], "the refusal is recorded")
+        XCTAssertEqual(audit.map(\.decision), [.refused], "the refusal is recorded")
         let sent = await transport.sentMethods
         XCTAssertEqual(
             sent, ["initialize", "tools/list"],

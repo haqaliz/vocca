@@ -75,13 +75,30 @@ public struct MCPWiring: Sendable {
     /// servers, `true` once one is. Read lazily from the config store, never at composition.
     public let spawnsSubprocess: @Sendable @MainActor () async -> Bool
 
+    /// **The Actions-tab discovery** (`intent-and-surface`): given a configured server's id, the
+    /// same lookup the voice leg uses — launched, discovered and cached once per process — as the
+    /// tab's tool rows, or the bounded reason there are none. The rows carry the **per-server**
+    /// providerID (``MCPProvider/providerID(forServer:)``), so the enablement a row toggles is
+    /// keyed by the identical value the router matches. Opt-in per configured server: nothing is
+    /// launched until the surface asks.
+    public let discoverTools: @Sendable @MainActor (String) async -> ActionsDiscoveryResult
+
     public init(
         lookup: @escaping @Sendable @MainActor (String) async -> MCPServerWiring?,
-        spawnsSubprocess: @escaping @Sendable @MainActor () async -> Bool
+        spawnsSubprocess: @escaping @Sendable @MainActor () async -> Bool,
+        discoverTools: @escaping @Sendable @MainActor (String) async -> ActionsDiscoveryResult
     ) {
         self.lookup = lookup
         self.spawnsSubprocess = spawnsSubprocess
+        self.discoverTools = discoverTools
     }
+
+    /// ``discoverTools``'s bounded failure key for a configured server whose launch or discovery
+    /// failed. A key chosen here, in review — never the raw transport error text.
+    public static let discoveryFailedReasonKey = "mcp.discoveryFailed"
+
+    /// ``discoverTools``'s bounded failure key for a server id the config does not name.
+    public static let unknownServerReasonKey = "mcp.unknownServer"
 }
 
 /// One configured server's wiring — the closures the composition root's slots route to once the
@@ -109,6 +126,15 @@ public struct MCPServerWiring: Sendable {
     /// The confirmation card's Decline: records the refused decision and clears the card.
     public let decline: @Sendable @MainActor () async -> Void
 
+    /// Renders the server's sentence for one tool, without acting — the tab's preview half.
+    /// `invoke` is reached zero times: the executor submits a `.dryRun`.
+    public let preview: @Sendable @MainActor (String) async -> String?
+
+    /// The server's tools as the Actions tab renders them — providerID set to this server's own
+    /// per-server id, radius from the provider's `describe` (a tool with no `readOnlyHint` reads
+    /// `outwardFacing` — absent means unsafe). The discovery's row source.
+    public let toolRows: [ActionsToolRow]
+
     /// The executor this server submits through — per-server by construction.
     public let executor: ActionExecutor<MCPProvider>
 
@@ -121,6 +147,8 @@ public struct MCPServerWiring: Sendable {
         performAction: @escaping @Sendable @MainActor (ActionInvocation, String) async -> String?,
         confirm: @escaping @Sendable @MainActor () async -> Void,
         decline: @escaping @Sendable @MainActor () async -> Void,
+        preview: @escaping @Sendable @MainActor (String) async -> String?,
+        toolRows: [ActionsToolRow],
         executor: ActionExecutor<MCPProvider>,
         policy: ActionRadiusPolicy
     ) {
@@ -129,6 +157,8 @@ public struct MCPServerWiring: Sendable {
         self.performAction = performAction
         self.confirm = confirm
         self.decline = decline
+        self.preview = preview
+        self.toolRows = toolRows
         self.executor = executor
         self.policy = policy
     }
@@ -205,22 +235,13 @@ extension AppBootstrap {
             !(await configStore.load().servers.isEmpty)
         }
 
-        let lookup: @Sendable @MainActor (String) async -> MCPServerWiring? = { providerID in
-            // The cache first: discovery runs at most once per server per process, and a Confirm
-            // reuses the entry rather than spawning again.
+        // The shared build: launch, discover **once** and assemble the server's wiring, cached —
+        // so a second lookup, a Confirm and the tab's discovery all reuse the same entry rather
+        // than spawning again. Only a configured server reaches this.
+        let buildWiring:
+            @Sendable @MainActor (String, MCPServerConfiguration) async -> MCPServerWiring? =
+        { providerID, server in
             if let cached = cache.wiring(for: providerID) { return cached }
-
-            // The server this providerID names — the one place the per-server helper is read for
-            // matching, so discovery and enablement cannot disagree about the id.
-            let config = await configStore.load()
-            guard
-                let server = config.servers.first(where: {
-                    MCPProvider.providerID(forServer: $0) == providerID
-                })
-            else {
-                logger.error("mcp-wiring: no configured server matches \(providerID)")
-                return nil
-            }
 
             let transport: any MCPTransport
             switch await transportFactory(server) {
@@ -367,18 +388,89 @@ extension AppBootstrap {
                     approval: .withheld, approvedSentence: nil, mode: .live)
             }
 
+            // The tab's preview half: the dry-run submission — `invoke` is reached zero times.
+            let preview: @Sendable @MainActor (String) async -> String? = { toolID in
+                guard
+                    let invocation = ActionInvocation(providerID: providerID, toolID: toolID)
+                else { return nil }
+                let enablement = await configStore.loadEnablement()
+                let decision = await executor.submit(
+                    invocation, enablement: enablement, policy: policy,
+                    approval: .withheld, approvedSentence: nil, mode: .dryRun)
+                return decision.decision.summary?.sentence
+            }
+
+            // The tab's row source: the server's tools with the **per-server** providerID (the
+            // same value the router matches), and the radius from the provider's own `describe`
+            // — a claim never believed on the user's behalf (a tool with no `readOnlyHint` reads
+            // `outwardFacing`; absent means unsafe). `describe` sends nothing.
+            var toolRows: [ActionsToolRow] = []
+            toolRows.reserveCapacity(provider.toolIDs.count)
+            for toolID in provider.toolIDs {
+                guard
+                    let invocation = ActionInvocation(providerID: providerID, toolID: toolID)
+                else { continue }
+                let summary = await provider.describe(invocation)
+                let radius: ActionsTabRadius
+                switch summary.blastRadius {
+                case .readOnly: radius = .readOnly
+                case .destructive: radius = .destructive
+                case .outwardFacing: radius = .outwardFacing
+                }
+                toolRows.append(
+                    ActionsToolRow(
+                        providerID: providerID, toolID: toolID,
+                        summary: summary.sentence, radius: radius))
+            }
+
             let wiring = MCPServerWiring(
                 providerID: providerID,
                 arm: arm,
                 performAction: performAction,
                 confirm: confirm,
                 decline: decline,
+                preview: preview,
+                toolRows: toolRows,
                 executor: executor,
                 policy: policy)
             cache.store(wiring, for: providerID)
             return wiring
         }
 
-        return MCPWiring(lookup: lookup, spawnsSubprocess: spawnsSubprocess)
+        // The per-server lookup: the invocation's providerID names one configured server.
+        let lookup: @Sendable @MainActor (String) async -> MCPServerWiring? = { providerID in
+            let config = await configStore.load()
+            guard
+                let server = config.servers.first(where: {
+                    MCPProvider.providerID(forServer: $0) == providerID
+                })
+            else {
+                logger.error("mcp-wiring: no configured server matches \(providerID)")
+                return nil
+            }
+            return await buildWiring(providerID, server)
+        }
+
+        // The Actions-tab discovery: a configured server id → the same cached build → its rows.
+        // Opt-in per configured server; nothing launches until the surface asks.
+        let discoverTools: @Sendable @MainActor (String) async -> ActionsDiscoveryResult = {
+            serverID in
+            let config = await configStore.load()
+            guard let server = config.servers.first(where: { $0.id == serverID }) else {
+                logger.error("mcp-wiring: discovery for unconfigured server \(serverID)")
+                return .failed(MCPWiring.unknownServerReasonKey)
+            }
+            let providerID = MCPProvider.providerID(forServer: server)
+            guard let wiring = await buildWiring(providerID, server) else {
+                logger.error("mcp-wiring: discovery for \(serverID) failed")
+                return .failed(MCPWiring.discoveryFailedReasonKey)
+            }
+            return .succeeded(wiring.toolRows)
+        }
+
+        return MCPWiring(
+            lookup: lookup,
+            spawnsSubprocess: spawnsSubprocess,
+            discoverTools: discoverTools)
     }
 }

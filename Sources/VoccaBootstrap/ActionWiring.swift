@@ -193,7 +193,8 @@ extension AppBootstrap {
         auditStore: FileSystemActionAuditStore,
         provider: Provider,
         sessionActive: @escaping @Sendable @MainActor () -> Bool,
-        root: DictationLoopRoot
+        root: DictationLoopRoot,
+        toolDiscovery: (@Sendable @MainActor (String) async -> ActionsDiscoveryResult)? = nil
     ) -> ActionWiring<Provider> {
         let executor = ActionExecutor(provider: provider, store: auditStore)
         let generation = ActionGeneration()
@@ -236,15 +237,14 @@ extension AppBootstrap {
             try await configStore.save(config)
         }
 
-        let discoverTools: @Sendable @MainActor (String) async -> ActionsDiscoveryResult = {
-            serverID in
-            // D2, spoken by the wiring that cannot spawn: tool discovery runs the server's
-            // executable, and the stdio transport is unwired by decision — the transport's own
-            // confinement test says "wiring it is a later slice with its own review, not an
-            // import". The honest answer of this wiring is the bounded refusal.
-            logger.error("action-wiring: discovery for server \(serverID) is not wired (D2)")
-            return .failed("discovery.unwired")
-        }
+        let discoverTools: @Sendable @MainActor (String) async -> ActionsDiscoveryResult =
+            toolDiscovery ?? { serverID in
+                // D2, spoken by the wiring that cannot spawn: tool discovery runs the server's
+                // executable. A composition that wired no discovery (the default, and every
+                // harness that passes none) answers the bounded refusal.
+                logger.error("action-wiring: discovery for server \(serverID) is not wired (D2)")
+                return .failed("discovery.unwired")
+            }
 
         let setToolEnabled: @Sendable @MainActor (String, String, Bool) async throws -> Void = {
             providerID, toolID, enabled in
