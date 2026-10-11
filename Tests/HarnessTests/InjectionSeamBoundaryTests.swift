@@ -1188,7 +1188,15 @@ final class InjectionSeamBoundaryTests: XCTestCase {
     /// injected seam. A second FileManager-naming file in `VoccaActions` was deliberately made
     /// this seam rather than a widening of the audit one: the audit protocol (ordinals, listing,
     /// removal) is the audit's vocabulary, not the config's, and one seam per concern is what
-    /// keeps each decision headless-testable over its own double.
+    /// keeps each decision headless-testable over its own double. `ConversationHistoryStore` is
+    /// the conversation seam's, added by the `history-store` aspect: the same adapter shape once
+    /// more — directory creation, the atomic temp-write→`replaceItemAt` commit, reads, an
+    /// existence check and removal — with every decision (the tolerant per-row decode, the 50-turn
+    /// oldest-first eviction, the 2000-character truncation, the load-never-writes contract)
+    /// above it in the store over the injected seam. A bounded conversation history whose
+    /// eviction or truncation lived below the seam would be the one decision in this module that
+    /// no headless run could ever reach — and it is the decision that can silently delete what a
+    /// user said.
     ///
     /// **The family is scoped per module, and that is a correction to the plan, not a
     /// weakening of it.** `FileManager` is already named in three `VoccaASR` files
@@ -1208,15 +1216,16 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         "consent": ["Consent/PersistentConsentStore.swift"],
         "actions": ["Audit/ActionAuditFileSystem.swift"],
         "action-config": ["Config/ActionConfigFileSystem.swift"],
+        "conversation": ["ConversationHistoryStore.swift"],
     ]
 
     /// The module root each FileManager seam scans, keyed by the same seam names as
     /// ``filesPermittedToNameFileManagerIdentifiersBySeam``. The table's paths are
     /// module-relative, so each row needs its own root: the journal and strategy rows scan
     /// `VoccaInject`, the dictionary and config rows scan `VoccaText`, the usage row scans
-    /// `VoccaUsage`, the consent row scans `VoccaContext`, and the actions row scans
-    /// `VoccaActions` — the per-seam claim actually reaches the module that owns each seam, and
-    /// stops at it.
+    /// `VoccaUsage`, the consent row scans `VoccaContext`, the actions and action-config rows scan
+    /// `VoccaActions`, and the conversation row scans `VoccaConversation` — the per-seam claim
+    /// actually reaches the module that owns each seam, and stops at it.
     private static let fileManagerSeamModuleRoots: [String: String] = [
         "journal": "VoccaInject",
         "dictionary": "VoccaText",
@@ -1226,6 +1235,7 @@ final class InjectionSeamBoundaryTests: XCTestCase {
         "consent": "VoccaContext",
         "actions": "VoccaActions",
         "action-config": "VoccaActions",
+        "conversation": "VoccaConversation",
     ]
 
     /// The FileManager table flattened — every permitted file in every seam. The module-wide
@@ -1514,6 +1524,46 @@ final class InjectionSeamBoundaryTests: XCTestCase {
             \(Set(sightings.map(\.file)).sorted().joined(separator: ", ")). A second \
             VoccaContext file that is not flagged is a consent-store decision that escaped CI \
             forever.
+            """)
+    }
+
+    /// The conversation row's planted-tree negative control: with `VoccaConversation` now a scanned
+    /// module, a `FileManager` sighting in a **second** `VoccaConversation` file — beyond the
+    /// conversation seam's one permitted adapter — is detected.
+    ///
+    /// The real check's own walk (`sightings(under:permitting:identifiersIn:)`) is run against
+    /// a fabricated `VoccaConversation` root holding the permitted path's shape and a planted
+    /// leak, with the permit set the real scan uses for the module: only
+    /// `ConversationHistoryStore.swift`. The planted file is sighted and the permitted file is
+    /// not: a row whose permit is narrower than its module must fail the module the moment a
+    /// second file names the family.
+    func testTheFileManagerScanSeesAPlantedIdentifierBeyondTheConversationSeamFile() throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-filemanager-\(UUID().uuidString)")
+        let conversationRoot = scratch.appendingPathComponent("VoccaConversation")
+        try FileManager.default.createDirectory(
+            at: conversationRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        try "let manager = FileManager.default\n".write(
+            to: conversationRoot.appendingPathComponent("ConversationHistoryStore.swift"),
+            atomically: true, encoding: .utf8)
+        try "let manager = FileManager.default\n".write(
+            to: conversationRoot.appendingPathComponent("Leaky.swift"),
+            atomically: true, encoding: .utf8)
+
+        let sightings = try Self.sightings(
+            under: conversationRoot, permitting: ["ConversationHistoryStore.swift"],
+            identifiersIn: Self.fileManagerIdentifiers)
+
+        XCTAssertEqual(
+            Set(sightings.map(\.file)), ["Leaky.swift"],
+            """
+            The VoccaConversation-rooted scan must see the second file naming FileManager and \
+            permit only the conversation seam's adapter: got \
+            \(Set(sightings.map(\.file)).sorted().joined(separator: ", ")). A second \
+            VoccaConversation file that is not flagged is a conversation-store decision that \
+            escaped CI forever.
             """)
     }
 
