@@ -147,6 +147,13 @@ public final class ConverseLoopDriver {
     /// the recorded rule).
     private let converseReplySink: @Sendable (String?) -> Void
 
+    /// The completed-turn recorder (`turn-history`, `driver-recording`): the one seam a
+    /// completed CONVERSING turn is captured through — `recordTurn` at the commit point, the
+    /// interrupted mark at the barge-in. The driver holds only the protocol (the store lives in
+    /// `VoccaConversation`, wired at the composition root); `nil` is the unwired answer —
+    /// byte-identical behavior.
+    private let conversationRecorder: (any ConversationRecording)?
+
     /// The replyFailed clear suppression: the render failure's `reportPlaybackEnded()`
     /// transitions `.playing → .listening`, but the recorded rule keeps the text — the clear
     /// is withheld for exactly that transition. Armed and disarmed around the one
@@ -224,6 +231,10 @@ public final class ConverseLoopDriver {
     ///     listening, idle, or a barge-in — and **no clear on a render failure** (the text
     ///     stays: the reply happened as text; nothing was heard — the recorded rule). The
     ///     default no-op is the unwired answer, byte-identical to today.
+    ///   - conversationRecorder: the completed-turn recorder (`turn-history` D1-D3) — the
+    ///     single seam a completed CONVERSING turn is captured through: `recordTurn` at the
+    ///     commit point, the interrupted mark at every barge-in. `nil` (the default) is the
+    ///     unwired answer, byte-identical to today.
     ///   - failureSink: the honest-drop notice sink.
     public init(
         vad: any VoiceActivityDetector,
@@ -241,6 +252,7 @@ public final class ConverseLoopDriver {
         playback: any PlaybackEngine,
         onStateChange: @escaping @Sendable (TurnState) -> Void,
         converseReplySink: @escaping @Sendable (String?) -> Void = { _ in },
+        conversationRecorder: (any ConversationRecording)? = nil,
         failureSink: @escaping @Sendable (ConverseTurnFailure) -> Void
     ) {
         self.capture = capture
@@ -254,6 +266,7 @@ public final class ConverseLoopDriver {
         self.clock = clock
         self.failureSink = failureSink
         self.converseReplySink = converseReplySink
+        self.conversationRecorder = conversationRecorder
         let ledger = EffectLedgerBox()
         let pending = EffectLedgerBox()
         let suppression = ReplyClearSuppressionBox()
@@ -350,6 +363,14 @@ public final class ConverseLoopDriver {
                 // The interrupted reply's text is discarded with its audio (Q3): the clear is
                 // the driver's, at the moment it cancels.
                 converseReplySink(nil)
+                // The interrupted turn's mark (`turn-history` D3), after the text's clear:
+                // the turn whose reply was playing is the one the store marks last. The
+                // delivery is detached — the awaited record at the commit point already
+                // orders this mark behind the record it addresses, so the mark cannot race
+                // ahead of it; the store owns the empty/no-turn no-op.
+                if let conversationRecorder {
+                    Task { await conversationRecorder.markLastTurnInterrupted() }
+                }
                 if let synthesizer {
                     await synthesizer.cancel()
                 }
@@ -441,6 +462,14 @@ public final class ConverseLoopDriver {
             reply = replyGenerator.reply(to: raw)
         }
         guard !Task.isCancelled else { return }
+        // The record at the commit point (`turn-history` D2): the one place the cleaned
+        // utterance and the computed reply both exist, awaited **before** `scheduleReply` —
+        // the record strictly precedes the `.speakReply` effect (and any playback), which is
+        // what lets a later barge-in's mark be addressed to this turn. A fire-and-forget
+        // record would race the barge-in and mark a neighbor's turn.
+        if let conversationRecorder {
+            await conversationRecorder.recordTurn(utterance: raw, reply: reply)
+        }
         loop.scheduleReply(reply)
         // The `.speakReply` we just queued is drained here — the drive task may be awaiting the
         // next capture frame, and the reply must not wait for one.
