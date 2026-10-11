@@ -4100,6 +4100,61 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     failure. Record what was heard.) [The earlier wording — "an agent phrase that fails without
     a card is the predicted result" — is resolved 2026-10-10 by `intent-provider-routing`.]
 
+167. **A real spoken exchange appears in Settings → Conversation as turns with utterance and
+    reply, a barge-in'd turn carries the interrupted marker, Forget clears both surfaces and
+    the file, and the history survives a relaunch (`turn-history`, recorded — never
+    gated).**
+
+    *Gesture:* on the built bundle, start a CONVERSING session (the converse chord) and speak
+    at least **two** full utterances back to back — with the shipped stand-in
+    `EchoReplyGenerator` each reply is your words echoed, so the comparison is exact. Open
+    Settings → **Conversation**: the window shows the exchanges **newest first**, each row the
+    spoken utterance and the spoken reply **verbatim** (the sentence doctrine — a paraphrase
+    is a failure). Then the barge-in leg: start another turn and interrupt its reply
+    mid-playback (speak over it) — that turn's row carries the **"Interrupted"** marker (the
+    word the driver's mark earned; attached to the row it marked, never to a guess). Then the
+    relaunch leg: quit Vocca entirely and relaunch, reopen the tab — the **same turns are
+    still there** (the store reloads `conversation.json` at launch; the empty window's copy is
+    `No conversation yet.` and the bound disclosure reads **"Vocca keeps the last 50 turns;
+    when the window is full, the oldest are dropped."**). Then the Forget legs, in order:
+    (1) from the tab, press **Forget conversation** — the confirmation asks **"Forget the
+    whole conversation?"** with **Forget it** and **Keep it**; press **Keep it** first and
+    verify nothing changed (the dialog is real), then **Forget it** — the tab reads
+    `No conversation yet.`, the menu bar's **Forget conversation** row is gone, and
+    `<applicationSupport>/Vocca/conversation.json` no longer exists; (2) speak a new exchange,
+    open the menu bar — the **Forget conversation** row is present **only while history
+    exists** — press it (**one action, no dialog** — the recorded friction split) and verify
+    the same three consequences: tab empty, row gone, file gone. Record the file's absence by
+    listing the directory, never by the app's word for it. Count the turns, the markers, the
+    forgets and the file checks — never a rate.
+
+    *Verify the state was entered:* a real exchange really sounded and really echoed (two
+    committed turns exist in the store), the rows were really read off the **rendered**
+    surface (never inferred from the log), the barge-in really interrupted (a real marker on
+    the row), the relaunch really happened (the same rows after a fresh launch), the
+    confirmation dialog was really seen before **Forget it**, the menu row was really pressed
+    on the rendered menu, and the file's disappearance was really observed off disk.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a spoken exchange of ≥2
+    turns appeared in Settings → Conversation with the utterance and the reply verbatim, a
+    barge-in'd turn carried the interrupted marker, the confirmed Forget and the one-action
+    menu Forget both cleared the tab, the row and the file, and the history survived a
+    relaunch** — the recent-turns surface's first real observation. Record the counts
+    (turns, interrupted markers, forgets), never a rate.
+
+    *Void — not fail — if:* ASR or cleanup produced different words (record the transcript),
+    no reply sounded (the render leg was never entered), the barge-in leg could not be
+    produced on the machine (best-effort — a row without it is partial, not a failure), or
+    the conversation file never existed (nothing was recorded — rule 1).
+
+    *Failure:* a row whose utterance or reply differs from what was spoken (the sentence
+    doctrine is verbatim), turns that vanish or reorder without a Forget, a barge-in'd turn
+    without the **Interrupted** marker, a marker on a turn that was not interrupted, a
+    history that does not survive a relaunch, a Forget that leaves any row on the tab or the
+    file on disk, a menu row that survives an empty store or appears with none, a menu row
+    that asks a question (it is one action by decision), or the tab and the menu disagreeing
+    about whether history exists.
+
 ---
 
 ## When this file is wrong
