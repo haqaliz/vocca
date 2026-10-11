@@ -1,41 +1,61 @@
-# Brief (no GitHub issue; inline brief, 2026-10-08)
+# Brief (no GitHub issue exists; inline brief, 2026-10-11)
 
-Source: the recorded follow-up of `converse-intent-wiring` (PR #58; docs/STATUS.md "Known limitations",
-CAPABILITY_ROADMAP slice amendment) and the Task 3 / final-review findings.
+**Unit:** `feat turn-history` — the P3 conversation-state deliverable.
 
-**The gap (verified in the final review):** in the shipped app the intent wiring is composed over
-`AuditActionProvider` only (`AppBootstrap.swift` ~749-755: `composeIntentWiring(... provider: actionProvider ...)`),
-while the card CONFIRM/DECLINE closures already route by `providerID` (`AppBootstrap.swift` ~852-876: shell /
-agent / otherwise `actionWiring`). Consequences:
-1. **A phrase naming an enabled coding agent (`vocca.agent`) fails closed but uselessly:** `AuditActionProvider.describe`
-   answers "does not serve the tool … Nothing will happen." and claims `.readOnly`, so the call auto-runs and FAILS —
-   spoken "Something went wrong." + an audited `autoRanReadOnly` failed entry. No card, nothing spawns. The slice-11
-   claim "voice → coding agent" is therefore untrue in the shipped build (tests compose the wiring over
-   `CodingAgentProvider`, a composition `configure` does not have).
-2. **`AuditActionProvider` selects its tool by `toolID` alone and ignores `providerID`**
-   (`AuditActionProvider.swift:121-139`, `:165-179`): an enabled agent/MCP row whose tool id is `audit.clear`/`audit.count`
-   gets the audit tool's behavior (a foreign `audit.count` row can speak "Done."). Not a bypass (click-gated; the card
-   shows the true sentence) but wrong.
-3. Unserved providers are described as `.readOnly`, so a stray enabled row for any unserved provider auto-runs and fails
-   instead of being refused/confirmed.
+**Source:** `docs/ROADMAP.md:205` — the P3 "Conversation state" row: **"Bounded, inspectable,
+local turn history — with a visible 'forget' control"** — kept alive as "a separate, unclaimed
+P3 item" by `docs/technical/CAPABILITY_ROADMAP.md:1063-1064`. Chosen by `vocca-next`
+(2026-10-11) as the last unshipped row of P3's deliverables table; its dependencies are
+shipped: C9 (`kokoro-voice-output` + `kokoro-binding`), C10 (`turn-taking-barge-in`), C11
+(`dual-mode`). The repo has zero GitHub issues; this brief is the source.
 
-**Goal:** route the intent leg's describe/invoke by `providerID` to the provider that serves it, so (a) a phrase naming
-an enabled coding agent reaches `CodingAgentProvider`: describe → the argv-derived sentence → the outward-facing CARD →
-click Confirm → the reviewed `ShellExecutor` child (never before the click); (b) every intent dispatch checks `providerID`
-against the provider that serves it (the named acceptance test), (c) an unserved provider is refused loudly, never
-auto-run as read-only.
+**Goal.** Give CONVERSING mode a conversation state: a bounded, local record of completed
+turns (what the user said and what Vocca replied), inspectable on a surface, with a visible
+"forget" control that clears it. Today only the current reply is visible (the bubble,
+`reply-text-rendering`); the moment the next turn starts or the mode changes, the exchange is
+gone. The roadmap's own words tie the three properties together — bounded, inspectable,
+local — into one deliverable; the unit must not grow into a browser.
 
-**Why it needs care:** the first slice where a spoken phrase can lead to a CHILD PROCESS in a shipped build. Trust
-invariants: the card always precedes the spawn (outward-facing → confirm), approval `.withheld` on the voice leg, every
-decision audited, the sentence binding intact, shell still never voice-reachable (phrase store refuses at load; keyword
-leg excludes shell + agents), default (no file / no enabled tool) byte-identical echo, zero network / no child by default
-(`agents=0 spawnsSubprocess=false` for the composed default), dictation untouched. G5 re-anchors (AppBootstrap.swift edit).
-The shipped-default posture "the default configuration spawns no child process" must stay TRUE: spawning is reachable only
-after a hand-authored phrase + an enabled agent row + a click.
+**Acceptance (write first):**
+1. The converse driver records each **completed turn** into a **bounded** local store; at the
+   cap it **refuses** (cap-refuse-never-clamp is the repo convention) rather than evicting or
+   clamping.
+2. An **inspect surface** lists the stored turns.
+3. One **visible forget action** clears the store, and the surface reflects the clear.
+4. The store is **local**: the zero-network suite is unaffected, and no turn text reaches any
+   other file (the `usage.json` byte-level pin precedent).
 
-Known context to verify in the dig: `composeIntentWiring`'s generic parameter (`IntentWiring<AuditActionProvider>`),
-`root.intentWiring` typing, `composeCodingAgentWiring` / `composeShellWiring` (their executors, cards, `spawnsSubprocess`),
-how `actionConfirm`/`actionDecline` route (~852-876) and whether the intent leg can reuse that routing, the placeholder
-`<task>` flow (`ActionInvocation.taskText`, the pre-card refusal, `WidgetConfirmationSignal.taskText/resolvedDirectory`),
-the tests that compose over `CodingAgentProvider` (AgentWiringCwdTests:311, UtteranceThreadingTests:486), PROBE-INTENT-*,
-PROBE-CODING-AGENT, SMOKE 158/162 (known-failing until this ships).
+**Caveats / known tensions to reconcile (do not paper over):**
+- **No gate passes.** This would be the 22nd unit built ahead of the uncleared gates under the
+  recorded posture (`docs/STATUS.md:117`). The project's binding constraint is real use (P0
+  7-day streak, P1 blind ballot, P2 external users) — no code unit advances that; say so in
+  the record.
+- **`PRODUCT_SPEC.md:409`** (a deliberate non-goal): "**No transcript history browser.** A
+  searchable archive of everything you've ever said is a liability, not a feature, in a
+  privacy-first tool. The recovery journal is bounded, purposeful, and purged." The unit must
+  reconcile this with `ROADMAP.md:205` — bounded window, purposeful, purged; never searchable
+  or archival.
+- **`PRODUCT_SPEC.md:421`** (§13.3): "Converse-mode transcript surface. Where the agent's
+  replies render — inside the widget, or an expanded panel — is a genuine P3 design question
+  that deserves its own pass with mockups."
+- **The widget panel is non-key** (`WidgetPanel.canBecomeKey == false`; recorded blocker of
+  the N1 copy affordance, `reply-text-rendering`). Any in-widget interaction (select/copy/
+  forget) hits this; the menu-bar "Stop reading context" kill row (C12) and the Settings tabs
+  are the precedents for interactive surfaces.
+- This is the **first store of conversation content** — every other persisted store carries
+  metadata only. The store's shape, bound, purge semantics, and no-other-file-reaches-it pin
+  are the unit's core privacy work.
+
+**Context to verify in the dig:**
+- `ConverseLoopDriver` (`VoccaBootstrap/ConverseWiring.swift`): where a turn completes
+  (cleaned transcript + reply text, `converseReplySink`); the turn/session lifecycle.
+- `WidgetReducerState.replyText`, the `.replyPresented` action, `ReplyClearSuppressionBox`,
+  `WidgetTiming.maxReplyCharacters = 2000` (`reply-text-rendering`).
+- `SessionModeMachine` / `ModeSession` reset semantics — what "turn" and "session" mean and
+  what survives a mode transition (`dual-mode`).
+- Menu bar construction (kill-row precedent), `SettingsTab` structure (Usage tab precedent).
+- Store precedents: `PersistentUsageStore` (atomic, shape-only, byte-level pin),
+  `PersistentConsentStore` (cap 512, refuse-never-clamp), `IntentPhraseStore`,
+  `ActionConfigStore`.
+- Test patterns: `TurnTakingComposedAcceptanceTests`, `ReplyRenderingInvariantTests`, the
+  zero-network suite, and the G5 wiring pins.
