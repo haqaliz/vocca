@@ -490,7 +490,8 @@ final class SpokenTaskInvariantTests: XCTestCase {
     /// every module directory ∪ every drivable target, minus the non-drivable kinds, minus
     /// only the exclusions the manifest justifies (`VoccaNetworkProbe`, `CVoccaNetworkInterposer`
     /// — each re-asserted to exist and not to ship). This leg recomputes that set the same way,
-    /// pins it to the same twelve library modules (the set is unchanged — the unit added a
+    /// pins it to the thirteen library modules (the `history-store` aspect's `VoccaConversation`
+    /// joined the set, driven by the probe's conversation drive; the unit added a
     /// field and wiring, no module files), and re-asserts the cross-check's own equality
     /// against what the probe actually reported driving.
     func testTheModuleCoverageCrossCheckStillCoversEveryModuleWithTheUnitInTheTree() throws {
@@ -523,23 +524,24 @@ final class SpokenTaskInvariantTests: XCTestCase {
             "the required module set is empty — the cross-check would be asserting against "
                 + "nothing")
 
-        // The module set is unchanged: exactly the twelve library modules — the unit's files
-        // all live in modules the drive's witnesses already cover (the carrier rides
+        // The module set: the thirteen library modules — the `history-store` aspect's
+        // `VoccaConversation` joined it, driven by the probe's conversation drive; the unit's
+        // files all live in modules the drive's witnesses already cover (the carrier rides
         // VoccaCore's invocation, the substitution VoccaActions', the threading the
         // VoccaBootstrap wirings the probe drives).
         let shippedModules: Set<String> = [
             "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR", "VoccaText",
             "VoccaInject", "VoccaSpeech", "VoccaContext", "VoccaActions", "VoccaUI",
-            "VoccaUsage", "VoccaBootstrap",
+            "VoccaUsage", "VoccaConversation", "VoccaBootstrap",
         ]
         XCTAssertEqual(
-            shippedModules.count, 12,
-            "the pinned module set must be exactly the twelve library modules — the vacuity "
+            shippedModules.count, 13,
+            "the pinned module set must be exactly the thirteen library modules — the vacuity "
                 + "guard that keeps this pin watching something")
         XCTAssertEqual(
             required, shippedModules,
             """
-            The module set the cross-check derives is no longer the twelve library modules. \
+            The module set the cross-check derives is no longer the thirteen library modules. \
             Got \(required.sorted()). A module added to this package must be driven by the \
             probe's default-configuration path (a reviewed edit to VoccaNetworkProbe), never \
             excluded silently — and one removed must be removed here too.

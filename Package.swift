@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "VoccaActions", targets: ["VoccaActions"]),
         .library(name: "VoccaUI", targets: ["VoccaUI"]),
         .library(name: "VoccaUsage", targets: ["VoccaUsage"]),
+        .library(name: "VoccaConversation", targets: ["VoccaConversation"]),
         // The app's composition root. It is a package module rather than a file in the Xcode app
         // target so that VoccaNetworkProbe can drive it: sources under App/ are outside the
         // package and therefore outside the zero-network invariant.
@@ -165,6 +166,20 @@ let package = Package(
             dependencies: ["VoccaCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // An adapter, not a leaf: it implements a seam VoccaCore owns (the
+        // ConversationRecording, via the ConversationHistoryStore conformance), so it depends on
+        // VoccaCore and VoccaCore does not depend on it. See ModuleBoundaryTests' rule 3 for why
+        // the arrow points this way and what still constrains it. It is a module rather than a
+        // folder in VoccaBootstrap for the recorded reason (the usage-store rejected
+        // alternatives): rooting a FileManager seam in the composition root would have forced
+        // permitting AppBootstrap.swift, which already names FileManager. Its one file is the
+        // conversation seam's entry in the per-seam FileManager table — the bounded turn
+        // history's path resolution and atomic commit, with every decision above it.
+        .target(
+            name: "VoccaConversation",
+            dependencies: ["VoccaCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // The app's composition root. It wires the other modules together, so it depends on them
         // (ModuleBoundaryTests' rule 5 pins the direction: the root may import modules, and
         // nothing in the package may import it). It is a package module rather than a file in the
@@ -189,6 +204,7 @@ let package = Package(
                 "VoccaActions",
                 "VoccaUI",
                 "VoccaUsage",
+                "VoccaConversation",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -206,7 +222,7 @@ let package = Package(
             dependencies: [
                 "VoccaCore", "VoccaAudio", "VoccaHotkey", "VoccaASR",
                 "VoccaText", "VoccaInject", "VoccaSpeech", "VoccaContext", "VoccaActions",
-                "VoccaUI", "VoccaUsage", "VoccaBootstrap",
+                "VoccaUI", "VoccaUsage", "VoccaConversation", "VoccaBootstrap",
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -220,7 +236,10 @@ let package = Package(
             // yet: the `audit-log` aspect wires nothing into the composition root, which is what
             // keeps the G5 digest pin untouched. Without this edge the module would not be built
             // by `swift test` at all, and its suite would fail to compile rather than run.
-            dependencies: ["VoccaNetworkProbe", "VoccaActions"],
+            // VoccaConversation is named for the same reason the other adapters are reachable:
+            // the edge is declared so the module is directly reachable from CI, the
+            // `VoccaConversationTargetTests` manifest fact.
+            dependencies: ["VoccaNetworkProbe", "VoccaActions", "VoccaConversation"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
