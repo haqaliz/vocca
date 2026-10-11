@@ -729,6 +729,139 @@ final class AppBootstrapWiringTests: XCTestCase {
         try Self.balancedBlock(in: "AppBootstrap.swift", after: "MenuBarItem(")
     }
 
+    // MARK: - The conversation composition (turn-history, conversation-surface D4)
+
+    /// **`configure` constructs the conversation store over the real directory** — the
+    /// `ConversationHistoryStore()` default initializer (the Application Support/Vocca seam),
+    /// never a parameterized directory: a store pointed anywhere else would persist where a
+    /// fresh install never looks. The construction, the launch load and the root slot are the
+    /// store's whole wiring; `configure` needs an `NSApplication`, so this is a source scan,
+    /// the `testTheShippedContextCompositionUsesTheRealProviderAndStore` shape.
+    func testConfigureConstructsTheConversationStoreWithTheRealDirectory() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(
+                contentsOf: root.appendingPathComponent(
+                    "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8))
+        XCTAssertTrue(
+            source.contains("let conversationHistory = ConversationHistoryStore()"),
+            "the shipped composition must construct the store with the default initializer — "
+                + "the real Application Support/Vocca directory")
+        XCTAssertFalse(
+            source.contains("ConversationHistoryStore(directory: "),
+            "the shipped composition must not point the store at a parameterized directory")
+        XCTAssertTrue(
+            source.contains("Task { await conversationHistory.load() }"),
+            "the launch-load task must read the file once at launch — the fold that answers "
+                + "`isHistoryPresent` before the first turn")
+        XCTAssertTrue(
+            source.contains("root.conversationHistory = conversationHistory"),
+            "configure must attach the store to the root's slot — the tab and the menu read "
+                + "through it")
+    }
+
+    /// **`configure` wires the store as the driver's conversation recorder** — the same
+    /// `composeConverseWiring(` call that passes the intent closures must pass the store on the
+    /// `conversationRecorder:` argument: a reverted call (the recipe's `nil` default) is a
+    /// silent return to a conversation that forgets itself the moment it ends.
+    func testTheConverseCallSitePassesTheConversationRecorder() throws {
+        let block = try Self.balancedBlock(
+            in: "AppBootstrap.swift", after: "composeConverseWiring(")
+        XCTAssertTrue(
+            block.contains("conversationRecorder: conversationHistory"),
+            """
+            `configure`'s `composeConverseWiring` call does not pass the conversation store as \
+            `conversationRecorder:`. Without it the recipe's default answers nil and every turn \
+            is forgotten at the session's end — the shipped history never exists. If the \
+            argument moved, this pin moves with it.
+            """)
+    }
+
+    /// **Settings wires the two conversation bindings** (the `usage` block's shape): the
+    /// shipped `SettingsBindings` construction names `loadConversationSnapshot:` and
+    /// `clearConversation:` — the tab's read-once snapshot and its destructive Forget — and
+    /// both reach the store through the root's slot. The defaulted closures that claim nothing
+    /// have no place at the shipped call site.
+    func testShowSettingsWiresTheTwoConversationBindings() throws {
+        let block = try Self.settingsBindingsConstructionBlock()
+        for binding in ["loadConversationSnapshot:", "clearConversation:"] {
+            XCTAssertTrue(
+                block.contains(binding),
+                "the SettingsBindings construction must name \(binding) — the defaulted "
+                    + "closure that claims nothing has no place at the shipped call site")
+        }
+        XCTAssertTrue(
+            block.contains("conversationHistory"),
+            "the bindings must reach the store through the root's slot — never a second store")
+    }
+
+    /// **`attachMenuBarItem` wires the forget-conversation row** — the `onKillContext:` scan's
+    /// shape: the shipped `MenuBarItem` construction names `onForgetConversation:` and reaches
+    /// the store's `clear()` through the root's slot. The row is window-server glue executed
+    /// by nothing in CI; this is the construction site itself.
+    func testAttachMenuBarItemWiresTheForgetConversationRow() throws {
+        let block = try Self.menuBarItemConstructionBlock()
+        XCTAssertTrue(
+            block.contains("onForgetConversation:"),
+            "the menu bar item must wire onForgetConversation — the one-action forget row (D1) "
+                + "calls the store's clear")
+        XCTAssertTrue(
+            block.contains("conversationHistory?.clear()"),
+            "the forget row must reach the store's clear through the root's slot")
+    }
+
+    /// **The menu call site forwards both conditions** (finding F1, pinned): the
+    /// `onMenuBarConditionsChanged` closure passes `contextReading: conditions.isContextReading`
+    /// **and** `historyPresent: conditions.isHistoryPresent` to `apply` — the fix that restores
+    /// the C12 kill row's intended runtime rendering, extended with the conversation row's
+    /// fact. Before this unit the shipped call site forwarded neither, so the kill row could
+    /// not render; the fixing edit is this unit's one sanctioned behavior change beyond its own
+    /// surface (S4).
+    func testOnMenuBarConditionsChangedForwardsBothConditions() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let source = Array(SwiftSourceScanner.stripComments(
+            from: try String(
+                contentsOf: root.appendingPathComponent(
+                    "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8)))
+        let text = String(source)
+        guard let assignment = text.range(of: "root.onMenuBarConditionsChanged = {"),
+            let brace = text[assignment.upperBound...].firstIndex(of: "{")
+        else {
+            return XCTFail(
+                "`attachMenuBarItem` must assign the conditions closure — the status item's "
+                    + "one render path")
+        }
+        let offset = text.distance(from: text.startIndex, to: brace)
+        guard let closure = SwiftSourceScanner.bracedBody(
+            in: source, openingBraceIndex: offset)
+        else {
+            return XCTFail("the conditions closure must balance")
+        }
+        XCTAssertTrue(
+            closure.body.contains("contextReading: conditions.isContextReading"),
+            "the closure must forward the context-reading fact — the shipped call site never "
+                + "did, so the C12 kill row could not render at runtime (finding F1)")
+        XCTAssertTrue(
+            closure.body.contains("historyPresent: conditions.isHistoryPresent"),
+            "the closure must forward the history-present fact — without it the forget row "
+                + "can never render from the store's own fold")
+    }
+
+    /// The F1 scan is not vacuous: a call site that forwards neither condition must fail it.
+    func testTheConditionsForwardingScanRejectsAForgottenForward() {
+        let planted = """
+            root.onMenuBarConditionsChanged = { [weak item] conditions in
+                item?.apply(MenuBarStateReducer.state(for: conditions), mode: conditions.mode)
+            }
+            """
+        XCTAssertFalse(
+            planted.contains("contextReading: conditions.isContextReading"),
+            "the scan would pass a call site that never forwards the context fact")
+        XCTAssertFalse(
+            planted.contains("historyPresent: conditions.isHistoryPresent"),
+            "the scan would pass a call site that never forwards the history fact")
+    }
+
     /// The `SettingsBindings(` call's parenthesized block in `AppBootstrap.swift`, comments
     /// stripped — the `contextCompositionBlock` shape, for the settings window's construction.
     private static func settingsBindingsConstructionBlock() throws -> String {
