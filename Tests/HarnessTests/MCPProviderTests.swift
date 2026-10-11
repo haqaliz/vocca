@@ -124,6 +124,44 @@ final class MCPProviderTests: XCTestCase {
             "the invocation under test must construct", file: file, line: line)
     }
 
+    /// A discovered provider under a **custom** `providerID`, plus its scripted peer — the shape
+    /// ``discovered(tools:calls:)`` has, but for a server that is not the default one.
+    private func discoveredAs(
+        tools: String, providerID: String, calls: [Data] = [], file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> (MCPProvider, InMemoryMCPTransport) {
+        let transport = InMemoryMCPTransport(
+            replies: [initializeReply, toolsListReply(tools)] + calls)
+        let session = MCPSession(transport: transport)
+        let result = await MCPProvider.discover(session: session, providerID: providerID)
+        switch result {
+        case .success(let provider):
+            return (provider, transport)
+        case .failure(let failure):
+            XCTFail("discovery must succeed against a well-formed peer: \(failure)",
+                file: file, line: line)
+            throw MCPProviderTestError.discoveryFailed(failure)
+        }
+    }
+
+    /// A fresh temp directory for an ``ActionExecutor``'s audit store, removed by the test that
+    /// owns it — the ``AuditActionProviderTests`` shape.
+    private static func tempDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-mcp-provider-\(UUID().uuidString)")
+    }
+
+    /// An invocation carrying an explicit `providerID` — the guard's subject. ``makeInvocation``
+    /// hard-codes the default id, which is exactly what a foreign-id test must not reuse.
+    private func invocation(
+        providerID: String, toolID: String, arguments: String? = nil, file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ActionInvocation {
+        try XCTUnwrap(
+            ActionInvocation(providerID: providerID, toolID: toolID, arguments: arguments),
+            "the invocation under test must construct", file: file, line: line)
+    }
+
     private func methodsAsked(of transport: InMemoryMCPTransport) async -> [String] {
         await transport.sentMethods
     }
@@ -565,6 +603,113 @@ final class MCPProviderTests: XCTestCase {
         }
         let asked = await methodsAsked(of: transport)
         XCTAssertEqual(asked, ["initialize", "tools/list"])
+    }
+
+    // MARK: - 7. The provider-id guard
+
+    /// **A1 — `describe` with a foreign `providerID` is refused as unserved**, even when the
+    /// `toolID` names a tool the server really declared.
+    ///
+    /// The provider serves a tool only under its own id; a foreign id is treated exactly like an
+    /// unknown tool, so the sentence is the existing "does not serve … Nothing will happen." at
+    /// `.readOnly`. Reporting the real tool here would let a caller believe a tool it does not own
+    /// is about to run.
+    func testDescribeRefusesAToolSubmittedUnderAForeignProviderID() async throws {
+        let (provider, _) = try await discovered(tools: tool("ping"))
+        let foreign = try invocation(providerID: "dev.vocca.other", toolID: "ping")
+
+        let summary = await provider.describe(foreign)
+
+        XCTAssertTrue(
+            summary.sentence.contains("does not serve"),
+            "a foreign providerID must be refused as unserved, even for a real tool: "
+                + "\(summary.sentence)")
+        XCTAssertTrue(
+            summary.sentence.contains("Nothing will happen"),
+            "the refusal is the existing unserved sentence: \(summary.sentence)")
+        XCTAssertEqual(
+            summary.blastRadius, .readOnly,
+            "nothing will happen, so nothing reaches far enough to need confirming")
+    }
+
+    /// **A2 — `invoke` with a foreign `providerID` fails closed and sends nothing.**
+    ///
+    /// The guard is checked before the arguments are parsed and before ``MCPSession/callTool``, so
+    /// the transport records no `tools/call` and no other extra frame. A foreign call that reached
+    /// the wire and whose answer was discarded would be the same return value and a very different
+    /// event.
+    func testInvokeWithAForeignProviderIDFailsClosedWithoutSendingToolsCall() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileSystemActionAuditStore(directory: directory)
+
+        let (provider, transport) = try await discovered(
+            tools: tool("ping"), calls: [toolCallReply(text: "pong")])
+        let foreign = try invocation(providerID: "dev.vocca.other", toolID: "ping")
+        let described = await provider.describe(foreign)
+
+        // Through the gate by the shipped caller (the executor), so this suite adds no direct
+        // gate call site to the pinned count — the `AuditActionProviderTests` shape.
+        let executed = await ActionExecutor(provider: provider, store: store).submit(
+            foreign, enablement: ActionEnablement([foreign]), policy: .none,
+            approval: .granted, approvedSentence: described.sentence, mode: .live)
+
+        XCTAssertEqual(
+            executed.decision.outcome, .failed(reasonKey: "provider.unknownTool"),
+            "a foreign providerID fails as an unknown tool, with the bounded key")
+        let asked = await methodsAsked(of: transport)
+        XCTAssertEqual(
+            asked, ["initialize", "tools/list"],
+            "a tool submitted under a foreign providerID must not reach the wire: \(asked)")
+    }
+
+    /// **A3 — the regression fence:** the same tool under the provider's **own** id still
+    /// describes and invokes exactly as before.
+    func testTheSameToolUnderTheProvidersOwnIDStillDescribesAndInvokes() async throws {
+        let directory = Self.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileSystemActionAuditStore(directory: directory)
+
+        let (provider, transport) = try await discovered(
+            tools: tool("ping"), calls: [toolCallReply(text: "pong")])
+        let own = try makeInvocation(toolID: "ping")
+
+        let summary = await provider.describe(own)
+        XCTAssertFalse(
+            summary.sentence.contains("does not serve"),
+            "the provider's own tool must still describe normally: \(summary.sentence)")
+
+        let executed = await ActionExecutor(provider: provider, store: store).submit(
+            own, enablement: ActionEnablement([own]), policy: .none,
+            approval: .granted, approvedSentence: summary.sentence, mode: .live)
+
+        XCTAssertEqual(
+            executed.decision.outcome, .succeeded, "the provider's own tool still runs")
+        let asked = await methodsAsked(of: transport)
+        XCTAssertEqual(asked, ["initialize", "tools/list", "tools/call"])
+    }
+
+    /// **A4 — a custom `providerID` passed to `discover(session:providerID:)` is the one the guard
+    /// honours.** The custom id works; a call under any other id (here the default) is refused.
+    func testACustomProviderIDIsTheOneTheGuardHonours() async throws {
+        let custom = "dev.vocca.mcp.files"
+        let (provider, _) = try await discoveredAs(
+            tools: tool("ping"), providerID: custom, calls: [toolCallReply(text: "pong")])
+        XCTAssertEqual(provider.providerID, custom, "the provider carries the id it was given")
+
+        let own = try invocation(providerID: custom, toolID: "ping")
+        let ownSummary = await provider.describe(own)
+        XCTAssertFalse(
+            ownSummary.sentence.contains("does not serve"),
+            "the custom id is the one served: \(ownSummary.sentence)")
+
+        let foreign = try makeInvocation(toolID: "ping")
+        let foreignSummary = await provider.describe(foreign)
+        XCTAssertTrue(
+            foreignSummary.sentence.contains("does not serve"),
+            "the default id is foreign to a provider discovered under a custom id: "
+                + "\(foreignSummary.sentence)")
+        XCTAssertEqual(foreignSummary.blastRadius, .readOnly)
     }
 }
 
