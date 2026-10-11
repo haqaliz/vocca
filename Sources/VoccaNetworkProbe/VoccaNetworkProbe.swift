@@ -426,12 +426,11 @@ struct VoccaNetworkProbe {
         print("PROBE-CODING-AGENT\t\(codingAgent.report)")
 
         // `VoccaConversation`'s default-configuration surface, run rather than referenced — the
-        // same shape as the drives above, for the module the `history-store` aspect adds. Phase
-        // 1 drives the module's target scaffold (the store type exists and compiles, the
-        // witness is taken from the store this drive constructed); Phase 2 rewrites the drive
-        // to run the store's real round trip over a temporary directory — never the location a
-        // real install keeps its conversation. The witness it mints is produced *by* the call,
-        // so the entry cannot outlive it. See `ConversationDrive.swift`.
+        // same shape as the drives above, for the module the `history-store` aspect adds. The
+        // store is driven through a real load/record/reload/clear round trip over a temporary
+        // directory — never the location a real install keeps its conversation — and the
+        // report prints counts and booleans only, never the text. The witness it mints is
+        // produced *by* the call, so the entry cannot outlive it. See `ConversationDrive.swift`.
         let conversation = exerciseConversation()
         print("PROBE-CONVERSATION\t\(conversation.report)")
 
