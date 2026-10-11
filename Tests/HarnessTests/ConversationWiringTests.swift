@@ -289,19 +289,22 @@ final class ConversationWiringTests: XCTestCase {
     /// A store over a temp directory whose `onChange` folds the D4 wire — the main actor's
     /// `updateMenuBarConditions { $0.isHistoryPresent = count > 0 }` — through a weak box, the
     /// AppBootstrap wiring's exact shape (a `@Sendable` closure cannot capture the main-actor
-    /// root directly).
+    /// root directly). Attached to the root's slot the way `configure` attaches it, so the
+    /// bindings' closures read the one store.
     private static func store(over directory: URL, foldingInto root: DictationLoopRoot)
         -> ConversationHistoryStore
     {
         let box = WeakRootBoxForTests()
         box.value = root
-        return ConversationHistoryStore(
+        let store = ConversationHistoryStore(
             directory: directory,
             onChange: { count in
                 Task { @MainActor in
                     box.value?.updateMenuBarConditions { $0.isHistoryPresent = count > 0 }
                 }
             })
+        root.conversationHistory = store
+        return store
     }
 
     /// The two closures the app fills, filled the way the app fills them — read through the

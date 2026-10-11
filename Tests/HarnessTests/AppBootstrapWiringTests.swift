@@ -731,12 +731,13 @@ final class AppBootstrapWiringTests: XCTestCase {
 
     // MARK: - The conversation composition (turn-history, conversation-surface D4)
 
-    /// **`configure` constructs the conversation store over the real directory** — the
-    /// `ConversationHistoryStore()` default initializer (the Application Support/Vocca seam),
-    /// never a parameterized directory: a store pointed anywhere else would persist where a
-    /// fresh install never looks. The construction, the launch load and the root slot are the
-    /// store's whole wiring; `configure` needs an `NSApplication`, so this is a source scan,
-    /// the `testTheShippedContextCompositionUsesTheRealProviderAndStore` shape.
+    /// **`configure` constructs the conversation store over the real directory** — path-injected
+    /// the consent store's way through `conversationDirectory` (the same default location the
+    /// store's zero-argument `init()` resolves — which cannot carry the `onChange` fold, the
+    /// recorded deviation): a store pointed anywhere else would persist where a fresh install
+    /// never looks. The construction names the `onChange` fold (the menu's history fact) and
+    /// the launch load; the root slot is what the tab and the menu read through. `configure`
+    /// needs an `NSApplication`, so this is a source scan, the consent-store pin's shape.
     func testConfigureConstructsTheConversationStoreWithTheRealDirectory() throws {
         let root = try PackageRootLocator.find(from: #filePath)
         let source = SwiftSourceScanner.stripComments(
@@ -744,12 +745,16 @@ final class AppBootstrapWiringTests: XCTestCase {
                 contentsOf: root.appendingPathComponent(
                     "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8))
         XCTAssertTrue(
-            source.contains("let conversationHistory = ConversationHistoryStore()"),
-            "the shipped composition must construct the store with the default initializer — "
-                + "the real Application Support/Vocca directory")
-        XCTAssertFalse(
-            source.contains("ConversationHistoryStore(directory: "),
-            "the shipped composition must not point the store at a parameterized directory")
+            source.contains("let conversationHistory = ConversationHistoryStore("),
+            "the shipped composition must construct the conversation store")
+        XCTAssertTrue(
+            source.contains("directory: Self.conversationDirectory("),
+            "the store must be path-injected through `conversationDirectory` — the real "
+                + "Application Support/Vocca directory, the consent-store shape")
+        XCTAssertTrue(
+            source.contains("updateMenuBarConditions { $0.isHistoryPresent = count > 0 }"),
+            "the `onChange` fold must be the menu's history fact — a bare defaulted closure "
+                + "would leave the forget row blind")
         XCTAssertTrue(
             source.contains("Task { await conversationHistory.load() }"),
             "the launch-load task must read the file once at launch — the fold that answers "
@@ -758,6 +763,23 @@ final class AppBootstrapWiringTests: XCTestCase {
             source.contains("root.conversationHistory = conversationHistory"),
             "configure must attach the store to the root's slot — the tab and the menu read "
                 + "through it")
+    }
+
+    /// **The conversation store's directory resolves beside the usage ledger** — the
+    /// ``testContextConsentDirectoryResolvesBesideTheUsageLedger`` shape: the resolved
+    /// Application Support answers `<applicationSupport>/Vocca`, and an unresolvable one falls
+    /// back to `<home>/Library/Application Support/Vocca` rather than dropping the store.
+    func testConversationDirectoryResolvesBesideTheUsageLedger() {
+        let appSupport = URL(fileURLWithPath: "/tmp/Application Support")
+        let home = URL(fileURLWithPath: "/tmp/home")
+        XCTAssertEqual(
+            AppBootstrap.conversationDirectory(applicationSupport: appSupport, home: home),
+            appSupport.appendingPathComponent("Vocca"),
+            "the resolved branch — the conversation file sits beside usage.json")
+        XCTAssertEqual(
+            AppBootstrap.conversationDirectory(applicationSupport: nil, home: home),
+            home.appendingPathComponent("Library/Application Support/Vocca"),
+            "the home fallback — an unresolvable Application Support must not lose the store")
     }
 
     /// **`configure` wires the store as the driver's conversation recorder** — the same
@@ -824,7 +846,9 @@ final class AppBootstrapWiringTests: XCTestCase {
                 contentsOf: root.appendingPathComponent(
                     "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8)))
         let text = String(source)
-        guard let assignment = text.range(of: "root.onMenuBarConditionsChanged = {"),
+        // The assignment, not the assignment plus its brace — the closure's opening brace is
+        // searched for next.
+        guard let assignment = text.range(of: "root.onMenuBarConditionsChanged ="),
             let brace = text[assignment.upperBound...].firstIndex(of: "{")
         else {
             return XCTFail(
