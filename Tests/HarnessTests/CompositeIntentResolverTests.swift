@@ -179,6 +179,32 @@ final class CompositeIntentResolverTests: XCTestCase {
             .toolCall(shellCall))
     }
 
+    /// The prefix half (`intent-and-surface` A4): an MCP row is excluded by its **dynamic
+    /// per-server prefix**, so the fallback neither sees it nor may return it — the exact-ID
+    /// exclusion cannot name `dev.vocca.mcp.<serverID>` in advance.
+    func testTheFallbackExcludesARowByProviderIDPrefix() throws {
+        let mcpProviderID = "dev.vocca.mcp.files"
+        let mcpRow = ToolReference(providerID: mcpProviderID, toolID: "ping", displayName: "")
+        let mcpCall = try makeInvocation(providerID: mcpProviderID, toolID: "ping")
+
+        let spy = SpyIntentResolver(returning: .toolCall(mcpCall))
+        let filtered = CompositeIntentResolver(
+            primary: PhraseIntentResolver(rows: []), fallback: spy,
+            excludedProviderIDs: [], excludedProviderIDPrefixes: ["dev.vocca.mcp."])
+        XCTAssertEqual(
+            filtered.resolve("ping it", against: [mcpRow]), .none,
+            "a row whose providerID has an excluded prefix is filtered and discarded")
+        XCTAssertEqual(spy.catalogs, [[]], "the fallback never saw the MCP row")
+
+        let unfiltered = CompositeIntentResolver(
+            primary: PhraseIntentResolver(rows: []), fallback: spy,
+            excludedProviderIDs: [])
+        XCTAssertEqual(
+            unfiltered.resolve("ping it", against: [mcpRow]), .toolCall(mcpCall),
+            "the counterfactual — without the prefix the call survives")
+        XCTAssertEqual(spy.catalogs, [[], [mcpRow]])
+    }
+
     /// Both halves together over the real keyword resolver seeded with a shell synonym: an
     /// enabled shell row in the catalog never resolves.
     func testAnEnabledShellRowNeverResolvesThroughTheRealKeywordResolver() {
