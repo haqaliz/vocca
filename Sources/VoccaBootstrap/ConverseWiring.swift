@@ -79,6 +79,14 @@ extension AppBootstrap {
     /// The recipe passes the caller's reply sink through to the driver; the default no-op is
     /// the unwired answer (byte-identical behavior). The reply-text-rendering wiring supplies
     /// the widget store's fold.
+    ///
+    /// ## The recorder
+    ///
+    /// The recipe passes the caller's conversation recorder through to the driver; the default
+    /// `nil` is the unwired answer (byte-identical behavior — the capability does not exist
+    /// at runtime until the composition root hands the store in). The driver holds only the
+    /// `VoccaCore` protocol; the store itself (`VoccaConversation.ConversationHistoryStore`)
+    /// reaches the app through the composition root, never through this file.
     @MainActor
     public static func composeConverseWiring(
         clock: any MonotonicClock & Sendable,
@@ -89,7 +97,8 @@ extension AppBootstrap {
         intentProvider: @escaping @Sendable (String) async -> IntentResolution? = { _ in nil },
         intentActionHandler: @escaping @Sendable (ActionInvocation, String) async -> String?
             = { _, _ in nil },
-        converseReplySink: @escaping @Sendable (String?) -> Void = { _ in }
+        converseReplySink: @escaping @Sendable (String?) -> Void = { _ in },
+        conversationRecorder: (any ConversationRecording)? = nil
     ) async -> ConverseLoopDriver {
         // The third graph, with the configuration-change callback ending the converse session —
         // a device switch mid-capture is "the loop's trigger" (`StreamingCapture.swift:131-133`).
@@ -164,6 +173,7 @@ extension AppBootstrap {
                 }
             },
             converseReplySink: converseReplySink,
+            conversationRecorder: conversationRecorder,
             failureSink: { failure in
                 Task { @MainActor in
                     rootBox.value?.converseFailureSink?(failure)
