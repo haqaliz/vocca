@@ -1137,6 +1137,38 @@ rate exists.
 SMOKE 168 is written and runnable, recorded and never gated; no success or resolution rate may be
 quoted. Test floor: **3259**.)*
 
+*(Amended by the `agent-home-detection` unit, 2026-10-12: **the detection widening — home-installed
+CLIs are detected**, a demand-pulled follow-on to `agent-presets`. The founder's `opencode` lives
+at `~/.opencode/bin/opencode` and read **not detected**, because home-relative dirs had been kept
+out — the recorded deferral this unit lifts (*"a home-injecting widening is a reviewed edit to
+`candidatePaths` when the seam grows one"*). Shipped:
+- **The parameter**: `AgentCLIDetection.detect` gains an additive `homeDirectory: String? = nil`;
+  `nil` (or empty) widens nothing, so the check set is byte-identical to the absolute-trio-only
+  resolver; one trailing `/` is stripped before the join (one rule, tested).
+- **The pinned constant**: `homeRelativeCandidatePaths = [".local/bin", ".opencode/bin",
+  ".bun/bin", ".cargo/bin", ".nix-profile/bin", ".volta/bin", "bin"]` — the demand-pull dir and the
+  common installers; every entry **relative** (no leading `/`, no `~`), pinned verbatim by
+  `AgentCLIDetectionTests` (a retune is a reviewed edit).
+- **The order**: per candidate name, name-major, first existence wins — the absolute
+  `candidatePaths` trio → the home-expanded dirs (only when a home is present) → the injected
+  PATH's absolute components. A `REFACTOR` folded the resolution onto one ordered directory list
+  (no behaviour change).
+- **The root**: `AppBootstrap.swift`'s `detectAgents` closure passes
+  `homeDirectory: NSHomeDirectory()`; the resolver stays **Foundation-free** and names no
+  `FileManager` — the file's own lint test re-asserts it, and no lint row was needed.
+
+**The "tilde paths pending a home accessor" deferral is retired** from the `agent-presets`
+(:665-666) and `active-project-detection` (:713-714) remaining-machinery lists by this unit.
+
+G5 re-anchored once, deliberately (`d2b8452e…` → `88172139…`, computed with `shasum -a 256` on
+2026-10-12 after the unit's only composition-root edit, never edited-to-match; all seven pin sites;
+the dictation pair `1baeb2de…`/`ce70ca10…` unchanged). No gate passes (twenty-fourth unit ahead of
+the uncleared gates); no rate exists; the home-relative list is a pinned, reviewed-edit guess, the
+login-shell PATH is deliberately not read (a spawn is forbidden by the transport lint), and
+"detected" still means only "the binary exists at that path", never that it runs. SMOKE 169 is
+written and runnable, recorded and never gated; no accuracy rate may be quoted. Test floor:
+**3266**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+
