@@ -10,6 +10,136 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `mcp-intent-routing` unit shipped 2026-10-12 — the MCP action arm is real and
+voice-reachable: a phrase naming an enabled `dev.vocca.mcp.<serverID>` tool resolves to the
+sentence-bound confirmation card, only a click on Confirm runs it once and the run appears in the
+audit; every intent dispatch is checked against the provider that serves it; the composed default
+still cannot spawn; no gate passes.**
+`feat/mcp-intent-routing/aliz`. Four aspects (`mcp-provider-guard`, `mcp-composition`,
+`intent-and-surface`, `probe-and-pins` — this entry). Floor **3235 → 3259** (executed 3259).
+The unit is the route to the P4 objective — "Vocca … can drive MCP tools … using active-app
+context" (`ROADMAP.md:225`) — and to the P4→P5 gate's "**≥3 distinct MCP tool integrations
+working end-to-end from voice**" (`ROADMAP.md:250`); it retires `intent-provider-routing`'s
+"MCP provider routing in the intent leg" line.
+
+**What shipped.**
+*The provider guard* (`mcp-provider-guard`) — `MCPProvider` serves a tool only under its own
+`providerID` (one private `servedToolID(_:)`, the `AuditActionProvider.servedToolID` precedent):
+`describe` falls into the existing "does not serve the tool '…'. Nothing will happen." sentence
+and `invoke` returns `.failed(reasonKey: "provider.unknownTool")` for a foreign providerID — with
+**zero `tools/call` frames** on the transport, asserted on `InMemoryMCPTransport.sentMethods`.
+The recorded defence-in-depth gap for MCP retires (the `CodingAgentProvider` twin stays recorded
+for a follow-up — safe: only `vocca.agent` reaches its executor). `MCPProviderTests` 16 → 20.
+*The composition* (`mcp-composition`) — a stdio **factory** (`MCPStdioTransportFactory` +
+`MCPTransportLaunch`) defined **inside** `StdioMCPTransport.swift`, the already-permitted file, so
+the `StdioMCPTransportTests` D2 pin stays green and the transport-permit lint stays at exactly two
+files; the composition root names the factory, never the actor. `MCPProvider.providerIDPrefix =
+"dev.vocca.mcp."` and `providerID(forServer:)` (the suffix is `MCPServerConfiguration.id`) — **one
+helper, judged in one place**, so enablement rows never collide across servers. `composeMCPWiring`
+/`MCPWiring`/`MCPServerWiring` (`MCPWiring.swift`): because `ActionExecutor<Provider>` holds one
+provider and MCP has one per server, the recipe is a **per-server lookup** — a `providerID`
+resolves to that server's wiring (launched through the injected factory, discovered, and **cached
+for the process**: at most one discovery per server, Confirm reuses it, never eager at launch),
+policy floor **`.none`** (the recorded decision), the in-flight (`sessionActive`) refusal at arm,
+the sentence-bound card with the mismatch re-prompt, and a truthful `spawnsSubprocess` (`false`
+with zero configured servers, read per call). `MCPWiringTests` +7.
+*The intent and the surface* (`intent-and-surface`) — `routeIntentWiring` (`IntentWiring.swift`)
+gains a third arm: a `dev.vocca.mcp.*` invocation reaches the matching server's `MCPServerWiring`,
+read **lazily** from the new `root.mcpWiring` slot; absent or failed MCP (startup window,
+discovery failure) falls through to the audit side's audited fail-closed. The card's
+Confirm/Decline (`AppBootstrap.swift:936`, `:951`) and the tab arm/preview bindings (`:2348`,
+`:2362`) route the same prefix. `CompositeIntentResolver` gains `excludedProviderIDPrefixes`
+(additive, default empty — the `excludedProviderIDs` sibling); the composed default passes
+`MCPProvider.providerIDPrefix` (`AppBootstrap.swift:1476`) so the keyword fallback never selects
+an MCP row, while a hand-written phrase row may still name one. The Actions-tab `discoverTools`
+(`ActionWiring.swift`) is wired to the MCP factory (opt-in per configured server, replacing the
+`.unwired` refusal); the discovered rows carry the **per-server** providerID so the enablement a
+row toggles is keyed by the identical value the router matches (default off; the D2 copy — "an
+enabled MCP child's egress is never provable" — sits on the section). `MCPIntentAndSurfaceTests`
++6, `CompositeIntentResolverTests` +1 (the prefix half and its discard/filter counterfactuals).
+**The unit's only composition-root edit is here** — the MCP wiring slot, the router's `mcp:`
+lookup, the card/tab routing and the composite prefix, in one pass, so G5 re-anchors exactly once.
+*The probe and the pins* (`probe-and-pins`) — `PROBE-MCP-VOICE` (a new drive in
+`Sources/VoccaNetworkProbe/MCPVoiceDrive.swift`) exercises the composed MCP arm **over an
+in-memory factory** inside the zero-network interposer: the composed default's facts (an absent
+config → `servers=0`, `spawnsSubprocess=false`, `launched=0`, `providers=0`) and the seeded round
+trip (phrase → the sentence-bound card → Confirm → exactly one `tools/call`, the audit
+reconstructed off the disk), plus the disabled-tool refusal (by attempting the call, no card) and
+the foreign-provider refusal (nothing recorded, no card, no call). The line, verbatim:
+`PROBE-MCP-VOICE	store=real store.location=temporary store.isDefaultLocation=false servers=0 spawnsSubprocess=false launched=0 providers=0 seeded=1 tools=2 card=yes invoked=1 decisions=refused,confirmed ordinals=1-2 binding=matched disabledRefused=1 foreignRefused=1`.
+`ZeroNetworkTests` +1 (the
+guard-the-guard line) and the **five invariant mirrors** +1 each (`ReplyRenderingInvariantTests`,
+`AuthBaselineInvariantTests`, `ActiveProjectInvariantTests`, `AgentPresetsInvariantTests`,
+`SpokenTaskInvariantTests`) — the `PROBE-CODING-AGENT` mirror precedent. Lint tables widened, no
+new tests: `ActionSeamBoundaryTests` +1 `ActionInvocation` row, `IntentSeamBoundaryTests` +1 row
+each for `ToolReference`/`PhraseIntentResolver`/`PhraseIntentRow`. PROBE-MCP,
+PROBE-INTENT-DEFAULT, PROBE-INTENT-COMPOSITE and PROBE-CODING-AGENT unchanged; the module-coverage
+cross-check unchanged (no new module). The floor was raised once, in the closing commit:
+3235 + 4 + 7 + 7 + 6 = 3259, the floor script's own parse.
+
+**G5 re-anchored once, deliberately** (`intent-and-surface`): `AppBootstrap.swift` was recomputed
+with `shasum -a 256` on 2026-10-12 after the unit's only composition-root edit, never
+edited-to-match — `820ffdb2…` → **`d2b8452e06bf3e8b758d0288b5c6a1a2d8a736f40ff4e145e6d3cc8f4add8abe`**,
+across all seven pin sites (`WiringBaselineTests`, `AuthBaselineInvariantTests`,
+`AgentPresetsInvariantTests`, `ActiveProjectInvariantTests`, `SpokenTaskInvariantTests`,
+`TurnTakingComposedAcceptanceTests`, `ReplyRenderingInvariantTests`) plus the floor script's
+comment; the dictation digests unchanged — `1baeb2de…`/`ce70ca10…`, recomputed and compared.
+
+**Known limitations, recorded — not fixed.**
+- **MCP phrases and enablement are hand-operated.** A phrase row is a hand-edit of
+  `intent-phrases.json` naming `dev.vocca.mcp.<serverID>` + the tool id; enablement is the
+  Actions-tab toggle (opt-in, default off). The capability is reachable by the founder; a
+  phrase-authoring UI stays deferred.
+- **A voice MCP call carries no arguments.** The phrase and keyword resolvers supply none
+  (`ActionInvocation.arguments = nil`), so the card reads "with no arguments"; `$N` parameter
+  slots and argument construction from voice stay deferred, bounding what "end-to-end from voice"
+  means this slice.
+- **Shell and MCP are both excluded from the composite keyword fallback.** With `keywordFallback`
+  on, the keyword resolver never selects a `dev.vocca.mcp.*` row (a phrase row may still name one
+  explicitly). The shell leg stays closed by decision.
+- **D2 stands.** An enabled MCP child's egress is never provable — a restricted child ignores
+  `DYLD_INSERT_LIBRARIES` and purges it from the environment it passes on, so the interposer is
+  blind to it; the default configuration has **zero configured servers** and cannot spawn
+  (`servers=0 spawnsSubprocess=false`), and the promise is a **narrowed claim**, carried in
+  writing (the `README.md` limit).
+- **R8 is mitigated in structure, not retired** — the card, the click, the sentence binding, the
+  audit and the reaping gate a run; an enabled MCP tool can be destructive and its effect is
+  unbounded. N2 stands: an approval asserts a human said yes and cannot verify it; no spoken
+  confirm, no session guard.
+- **The real surface and a real MCP server run are unverified.** The card, the Tools section, the
+  discovery launch and a real stdio server have never been observed by a human; the tests and the
+  probe are the only evidence. SMOKE 168 is the first observation.
+- **Discovery is lazy and cached, and fails closed.** At most one launch/discovery per configured
+  server per process (keyed by server id); a hung or failed discovery is bounded by the
+  transport's own `readTimeout` and resolves to the audit side's audited fail-closed — never a
+  card, never a run, nothing blocked indefinitely.
+- **The card and the surface are rendered by nothing in CI** — a standing, recorded limit.
+
+**The honesty block:**
+- **No gate passes.** The **twenty-third unit** built ahead of the uncleared P2/P3 gates under the
+  recorded posture. This unit was chosen from the roadmap's own P4 C13 deliverable; no user
+  request for it is recorded.
+- **No rate exists** — no success, resolution, accuracy or latency number may be quoted from this
+  unit. Every claim here is a test or a probe; "an MCP tool runs from voice in the real app" is
+  unmeasured until SMOKE 168 runs on a real machine — written, runnable, recorded, never gated.
+- **The defaults did not move.** With zero configured servers the composed default reads
+  `servers=0 spawnsSubprocess=false`, the echo still answers, zero network; a spawn needs a
+  configured server, a hand-written phrase, an enabled tool **and** a click. The dictation path is
+  digest-untouched (the G5 pin proves it) — this unit touches no audio path, so **no latency
+  number is claimed**.
+- **The probe is a statement about the default, not about a child.** `PROBE-MCP-VOICE` drives an
+  **in-memory** transport and starts **no child at all**; it proves the composed default cannot
+  spawn, never that an enabled server cannot egress (D2). `ActionTransportProhibitionTests` is not
+  made redundant by it.
+- **Builds during the tasks were incremental**; the final verification is a clean build with the
+  floor script (CI's exact command).
+
+**SMOKE**: row 168 written and runnable — configure a local MCP server, discover its tools, enable
+one, speak a phrase naming `dev.vocca.mcp.<serverID>`, read the sentence off the card, Confirm it
+once and find the run in the audit — recorded, never gated; counts, never rates.
+
+---
+
 **The `turn-history` unit shipped 2026-10-11 — the bounded recent-turns window is real: a
 completed CONVERSING turn is recorded at the driver's reply-commit point, rendered in an
 eighth Settings tab (newest first, with the interrupted marker), forgotten from the tab

@@ -4155,6 +4155,66 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
     that asks a question (it is one action by decision), or the tab and the menu disagreeing
     about whether history exists.
 
+168. **The real-surface MCP round trip: configure a local MCP server, discover its tools in the
+    Tools section, enable one, speak a phrase naming `dev.vocca.mcp.<serverID>`, read the
+    sentence off the card, and Confirm it once with the run in the audit (`mcp-intent-routing`,
+    recorded — never gated).**
+
+    *Gesture:* on the built bundle, open Settings → **Actions** and configure a real local
+    **stdio MCP server** (its own binary) in **Configured servers** — Save, and the server row
+    renders. Open the **Tools** section (or the server's section): **discovery runs** — the
+    server process is launched and its `tools/list` read, cached for the process (at most one
+    launch per server) — and its tools appear as rows. **Enable one tool** (default off). Then
+    hand-edit `<applicationSupport>/Vocca/intent-phrases.json` to add a phrase row naming the
+    **per-server providerID** `dev.vocca.mcp.<serverID>` (the suffix is `MCPServerConfiguration.id`
+    — the server's own id, as saved) and the enabled tool's id; no relaunch is needed (the file is
+    read each turn). Start a CONVERSING session (the converse chord) and speak the phrase: the
+    **sentence-bound card** appears with the concrete sentence ("Run the MCP tool '…' on the
+    server '…', with no arguments.") and the spoken reply is **"Confirm on screen."** —
+    **nothing has run yet**. Press **Confirm**: the tool runs **exactly once** (the server's own
+    observable effect — its log, its output, or the state it changes), and an audit entry appears
+    under `<applicationSupport>/Vocca/actions/` whose summary is the **card's own sentence**.
+    Record the file's evidence by reading the directory, never by the app's word for it.
+
+    Then the two refusal legs. (1) **Disabled tool:** speak a phrase naming an MCP tool that is
+    **not** enabled — it is refused **by attempting the call** (the gate's enablement decline): no
+    card, no invocation, no server run. (2) **Foreign provider:** speak a phrase whose providerID
+    is not this server's (e.g. an MCP tool id under a non-MCP provider, or another server's
+    providerID) — nothing reaches this server's executor: no card, no call, nothing recorded
+    against it.
+
+    *Verify the state was entered:* the server was really configured and persisted (the saved
+    `action-config.json` names it), discovery really launched the server (its own log/side effect
+    — a section that showed zero rows proves discovery never ran, rule 1), the tool row was really
+    enabled in the saved file, the phrase file really named the **per-server** providerID (a
+    phrase naming the bare `dev.vocca.mcp` would not match), the card was really **read off the
+    rendered surface** before the click, the tool really ran **once** (the server's own effect,
+    counted — not the app's claim), the audit entry's summary was really the **card's sentence**,
+    and both refusal legs were really attempted (a refusal never attempted proves nothing). With
+    `keywordFallback` on, confirm the keyword leg never resolves an MCP row (the composite
+    exclusion) while the explicit phrase row still reaches it.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a local MCP server's tool was
+    discovered in the Tools section, enabled, reached by a spoken phrase through the
+    sentence-bound card, run exactly once on Confirm, and found in the audit with the card's
+    sentence — while a disabled tool and a foreign provider both refused with nothing run** — the
+    MCP voice arm's first real observation. Record the counts (servers configured, tools
+    discovered, the confirmation read, invocations, audit entries, refusals), never a rate.
+
+    *Void — not fail — if:* the server binary was not installed or would not start (rule 1 — a
+    server that never ran proves nothing), ASR or cleanup produced different words (record the
+    transcript), discovery returned an empty tool list (a server with no tools), or the machine
+    could not run a local MCP server at all (best-effort — a row without the round trip is
+    partial, not a failure).
+
+    *Failure:* a tool that runs **without** a card, a run **before** Confirm, more than **one**
+    invocation for one Confirm, a Confirm with **no** audit entry or one whose summary differs
+    from the card's shown sentence, a **disabled** tool that ran, a **foreign** providerID that
+    reached this server's executor or left a record, a discovery that spawned more than once per
+    server per process (Confirm spawning a second time), a discovery failure that surfaced a raw
+    transport error text instead of the bounded key, or — with `keywordFallback` on — the keyword
+    leg resolving to an MCP row.
+
 ---
 
 ## When this file is wrong
