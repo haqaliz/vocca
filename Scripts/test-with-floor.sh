@@ -2501,8 +2501,26 @@ set -euo pipefail
 # PROBE-CODING-AGENT unchanged. 3235 + 11 (the two unraised `mcp-*` units) + 7 = 3253, the
 # count taken from the floor script's own parse.
 #
+# `probe-and-pins` (the PROBE-MCP-VOICE drive and the pinned default): +6 —
+# `ZeroNetworkTests` +1 (the guard-the-guard for the new PROBE-MCP-VOICE line: the composed MCP
+# default's facts — `servers=0`, `spawnsSubprocess=false`, no launch, no provider — and the
+# seeded in-memory round trip, the disabled-tool refusal and the foreign-provider refusal)
+# plus the five invariant suites' mirror tests +1 each (`ReplyRenderingInvariantTests`,
+# `AuthBaselineInvariantTests`, `ActiveProjectInvariantTests`, `AgentPresetsInvariantTests`,
+# `SpokenTaskInvariantTests`) — the PROBE-CODING-AGENT mirror precedent, applied to the new
+# line. No new drive test file, no new module: the drive lives in `Sources/VoccaNetworkProbe/
+# MCPVoiceDrive.swift` and the witness it mints is the already-covered `VoccaBootstrap` /
+# `VoccaActions`. Lint tables widened, no new tests: `ActionSeamBoundaryTests` +1 ActionInvocation
+# row (`VoccaNetworkProbe/MCPVoiceDrive.swift`), `IntentSeamBoundaryTests` +1 row each for
+# `ToolReference`, `PhraseIntentResolver` and `PhraseIntentRow` (the drive builds the one-tool
+# catalog its phrase resolves against and constructs the real classifier — the `IntentDrive`
+# precedent). The G5 pin is **not** re-anchored — `AppBootstrap.swift` was not edited, and the
+# digest stays `d2b8452e…`; the dictation pair `1baeb2de…`/`ce70ca10…` unchanged. PROBE-MCP is
+# unchanged; PROBE-MCP-VOICE is new. 3253 + 6 = 3259, the count taken from the floor script's
+# own parse.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3253
+MINIMUM_EXECUTED_TESTS=3259
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -307,6 +307,12 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // names the invocation in `describe`/`invoke`'s signatures. One of the five
                 // rows the conformance costs.
                 "VoccaNetworkProbe/IntentDrive.swift",
+                // `mcp-intent-routing`'s reviewed widening (`probe-and-pins`) — the composed MCP
+                // voice drive names the invocation it hands the arm's `performAction` (the voice
+                // arm, the disabled-tool submission and the foreign-provider submission all
+                // construct one). It reads the vocabulary to build the gate's input; it never
+                // decides with it.
+                "VoccaNetworkProbe/MCPVoiceDrive.swift",
             ]
         ),
         (

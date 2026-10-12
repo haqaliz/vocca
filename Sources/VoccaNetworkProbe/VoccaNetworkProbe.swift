@@ -434,6 +434,20 @@ struct VoccaNetworkProbe {
         let conversation = exerciseConversation()
         print("PROBE-CONVERSATION\t\(conversation.report)")
 
+        // The composed MCP configuration, run rather than referenced — the same shape as the
+        // shell and coding-agent drives above, for the `mcp-intent-routing` slice's third wiring
+        // whose provider could one day spawn: the composed default's facts (`servers=0`,
+        // `spawnsSubprocess=false`, no launch, no provider — the D2 narrowed promise) and the
+        // seeded round trip over an **in-memory** transport (a phrase resolved by the real
+        // `PhraseIntentResolver` → the sentence-bound card → confirm → the tool called exactly
+        // once on the wire → the audit reconstructs), plus the disabled-tool refusal and the
+        // foreign-provider refusal. Unlike the shell and agent drives, this one starts **no child
+        // at all** — the in-memory transport makes zero syscalls — so the line is a statement
+        // about the composed MCP arm; a configured stdio server is exactly what the interposer
+        // cannot see (D2, recorded in the drive's own documentation). See `MCPVoiceDrive.swift`.
+        let mcpVoice = exerciseMCPVoice()
+        print("PROBE-MCP-VOICE\t\(mcpVoice.report)")
+
         let placeholders: [Any.Type] = [
             session.moduleWitness,
             cycle.audioModuleWitness,
@@ -453,6 +467,7 @@ struct VoccaNetworkProbe {
             shell.moduleWitness,
             codingAgent.moduleWitness,
             conversation.moduleWitness,
+            mcpVoice.moduleWitness,
         ]
         // `String(reflecting:)` on a metatype yields "ModuleName.TypeName", so each module name is
         // derived from the type itself rather than written out by hand. A module cannot be

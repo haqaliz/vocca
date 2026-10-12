@@ -181,6 +181,11 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // resolver resolves against, from the enablement rows (R3). It reads the
                 // vocabulary to build the seam's input; it never decides with it.
                 "VoccaBootstrap/IntentWiring.swift",
+                // `mcp-intent-routing`'s reviewed widening (`probe-and-pins`) — the composed MCP
+                // voice drive builds the one-tool catalog its phrase resolves against, the same
+                // shape the wiring builds from the enablement. It reads the vocabulary to build
+                // the seam's input; it never decides with it.
+                "VoccaNetworkProbe/MCPVoiceDrive.swift",
             ]
         ),
         (
@@ -231,6 +236,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // the composed root's fact. Neither branches a resolution on the concrete type.
                 "VoccaBootstrap/AppBootstrap.swift",
                 "VoccaNetworkProbe/IntentDrive.swift",
+                // `mcp-intent-routing`'s reviewed widening (`probe-and-pins`) — the composed MCP
+                // voice drive constructs the real classifier over one phrase row. It runs the
+                // shipped machinery; it never branches a resolution on the concrete type.
+                "VoccaNetworkProbe/MCPVoiceDrive.swift",
             ]
         ),
         (
@@ -244,6 +253,10 @@ final class IntentSeamBoundaryTests: XCTestCase {
                 // the composed default was actually built over (`intentShellRows`). It reads
                 // the rows; it never resolves with them.
                 "VoccaNetworkProbe/IntentDrive.swift",
+                // `mcp-intent-routing`'s reviewed widening (`probe-and-pins`) — the composed MCP
+                // voice drive builds the one phrase row its resolver is constructed over. It
+                // reads the rows; it never resolves with them.
+                "VoccaNetworkProbe/MCPVoiceDrive.swift",
             ]
         ),
     ]
