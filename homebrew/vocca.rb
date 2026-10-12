@@ -34,7 +34,7 @@
 # docs/planning/notarization/runbook.md step 6 for everything to delete then.
 cask "vocca" do
   version "0.5.1"
-  sha256 "0f2aae334c6cd2bf8442cd643a9e8bb9ada4d7cce1dd5121969140bf95d49a1a"
+  sha256 "3a40d5364ea401c1549b1619d098040329e2b161861b2e75547c1415d2988bc2"
 
   url "https://github.com/haqaliz/vocca/releases/download/v#{version}/Vocca-v#{version}.dmg"
   name "Vocca"
