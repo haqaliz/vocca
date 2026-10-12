@@ -114,39 +114,26 @@ public enum AgentCLIDetection {
     ) async -> AgentCLIDetectionResult {
         let pathDirectories = absolutePathComponents(of: path)
         let homeDirectories = expandedHomeDirectories(homeDirectory)
+        let directories = candidatePaths + homeDirectories + pathDirectories
         var result: AgentCLIDetectionResult = [:]
         result.reserveCapacity(catalog.count)
         for preset in catalog {
             result[preset.id] = await detect(
-                preset, fileExists: fileExists, pathDirectories: pathDirectories,
-                homeDirectories: homeDirectories)
+                preset, fileExists: fileExists, directories: directories)
         }
         return result
     }
 
-    /// Resolve one preset: candidate names in order, each asked against the candidate paths, then
-    /// the home-expanded dirs, then the PATH's directories. First existence wins and returns
-    /// immediately.
+    /// Resolve one preset: candidate names in order, each asked against the one ordered
+    /// `directories` list — the candidate paths, then the home-expanded dirs, then the PATH's
+    /// directories. First existence wins and returns immediately.
     private static func detect(
         _ preset: KnownAgentPreset,
         fileExists: @escaping @Sendable (String) async -> Bool,
-        pathDirectories: [String],
-        homeDirectories: [String]
+        directories: [String]
     ) async -> AgentDetection {
         for name in preset.candidateNames {
-            for directory in candidatePaths {
-                let candidate = directory + "/" + name
-                if await fileExists(candidate) {
-                    return .detected(path: candidate)
-                }
-            }
-            for directory in homeDirectories {
-                let candidate = directory + "/" + name
-                if await fileExists(candidate) {
-                    return .detected(path: candidate)
-                }
-            }
-            for directory in pathDirectories {
+            for directory in directories {
                 let candidate = directory + "/" + name
                 if await fileExists(candidate) {
                     return .detected(path: candidate)
