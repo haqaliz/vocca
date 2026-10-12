@@ -9,6 +9,28 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`agent-home-detection` (P4, C13 follow-on to `agent-presets`, shipped 2026-10-12):**
+> **home-installed CLIs are detected** — the Actions-tab Coding-agents check resolves the CLIs a
+> developer actually has, not only the absolute trio. `AgentCLIDetection.detect` gained an additive
+> `homeDirectory: String? = nil` (`nil`/empty → byte-identical to before; one trailing `/`
+> stripped); a new pinned constant `homeRelativeCandidatePaths` (`[".local/bin", ".opencode/bin",
+> ".bun/bin", ".cargo/bin", ".nix-profile/bin", ".volta/bin", "bin"]`, every entry **relative** —
+> no leading `/`, no `~`) is expanded against the home the composition root injects
+> (`NSHomeDirectory()` at `AppBootstrap.swift` ~:2300). Resolution order, name-major, first wins:
+> absolute `candidatePaths` → home-expanded dirs (only when a home is present) → the PATH's
+> absolute components. The resolver stays **Foundation-free**, names no `FileManager` (string
+> joining only; its own file-lint test re-asserts it, no lint row needed). The founder's real case
+> (`~/.opencode/bin/opencode`) now detects. **Demand-pulled** — the founder hit it live; lifts the
+> `agent-presets`/`active-project-detection` "tilde paths pending a home accessor" deferral.
+> **Limits:** the home-relative list is a pinned, reviewed-edit guess (extending it is a one-line
+> edit); the login-shell PATH is deliberately NOT read (needs a spawn — forbidden by the transport
+> lint — or fragile rc parsing); "detected" still means only "the binary exists at that path", never
+> that it runs; the row's executable path is absolute and user-editable; the real surface is
+> unverified (SMOKE only). G5 re-anchored once, deliberately (`d2b8452e…` → `88172139…`, seven pin
+> sites; dictation digests `1baeb2de…`/`ce70ca10…` unchanged). **No gate passes** (twenty-fourth
+> unit ahead of the uncleared gates); no rate exists; zero network, no spawn; the dictation path is
+> digest-untouched. SMOKE 169 written, recorded, never gated. Test floor: **3266**.
+>
 > **`mcp-intent-routing` (P4, C13, shipped 2026-10-12):** **the MCP action arm is real and
 > voice-reachable** — a phrase naming an enabled `dev.vocca.mcp.<serverID>` tool reaches the
 > sentence-bound card (the server discovered per server through a stdio **factory**,
@@ -694,7 +716,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 3259 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 3266 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam

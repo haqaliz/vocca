@@ -4217,6 +4217,42 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
 
 ---
 
+169. **A home-installed coding-agent CLI shows as detected in the Actions tab
+    (`agent-home-detection`, recorded — never gated).**
+
+    *Gesture:* on the built bundle, have a coding-agent CLI installed **under your home
+    directory** — the founder's case is `opencode` at `~/.opencode/bin/opencode`; any of
+    `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/.nix-profile/bin`, `~/.volta/bin`, `~/bin`
+    works. Confirm the binary really exists at an absolute home path (`ls ~/.opencode/bin/opencode`
+    — note the resolved absolute path). Open Settings → **Actions** and look at the **Coding
+    agents** section: the matching preset row (or a row saved with that preset) shows
+    **detected** — and the path it names is the home path you confirmed. Record the row's shown
+    path.
+
+    *Verify the state was entered:* the CLI really existed at that home path **before** opening
+    the section (rule 1), the section was really opened (detection runs on section open, Q3), and
+    the shown path is the **home** path, not a PATH hit or the absolute trio — a row that reads
+    detected because the binary also sits in `/opt/homebrew/bin` proves nothing about the widening.
+    A control: with a second home-only CLI (or the same one with its `~` dir temporarily renamed
+    away), the section shows **not detected** — the check tracks the file, not a hard-coded fact.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a CLI installed under the home
+    directory was shown as detected at its home path in the Coding-agents section, while the same
+    CLI absent from its home dir showed not detected** — the home-detection surface's first real
+    observation. Record the counts (rows checked, home dirs that hit, the shown path), never a
+    rate.
+
+    *Void — not fail — if:* no coding-agent CLI is installed under the home directory on the
+    machine (rule 1 — nothing to detect proves nothing), the app was not rebuilt from this branch,
+    or the section could not be opened at all (best-effort — a partial row, not a failure).
+
+    *Failure:* a home-installed CLI shown as **not detected** while the binary really exists at the
+    named home path, a detected row whose shown path is **not** the home path that was confirmed,
+    the control CLI still shown detected after its home dir was made absent, or a `~`-prefixed path
+    rendered in the row (the resolver joins an absolute home, never `~`).
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

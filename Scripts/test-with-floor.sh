@@ -2519,8 +2519,22 @@ set -euo pipefail
 # unchanged; PROBE-MCP-VOICE is new. 3253 + 6 = 3259, the count taken from the floor script's
 # own parse.
 #
+# `agent-home-detection` (the home-relative detection widening): +7 — `AgentCLIDetectionTests`
+# +7 (A1 a home-installed CLI resolves against the injected home — the founder's
+# `~/.opencode/bin/opencode`; A2 a nil/empty home widens nothing and is byte-identical to
+# today; A3 the resolution order is name-major with a home: absolute trio → home dirs → PATH;
+# A4 `homeRelativeCandidatePaths` pinned verbatim and every entry relative; A7 a trailing-slash
+# home is normalised by one rule; A6 the composition root's `detectAgents` closure passes
+# `homeDirectory: NSHomeDirectory()`). No lint row was needed — a new `AgentCLIDetection`
+# parameter and constant and a call-site edit; `AgentCLIDetection.swift` stays Foundation-free
+# and names no `FileManager`/transport family (its own file-lint test re-asserts it). The G5 pin
+# re-anchored once, deliberately (d2b8452e… → 88172139…, computed with `shasum -a 256` on
+# 2026-10-12 after the unit's last composition-root edit, never edited-to-match; all seven pin
+# sites; the dictation pair 1baeb2de…/ce70ca10… unchanged). PROBE-* unchanged. 3259 + 7 = 3266,
+# the count taken from the floor script's own parse.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3259
+MINIMUM_EXECUTED_TESTS=3266
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

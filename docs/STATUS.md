@@ -10,6 +10,80 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `agent-home-detection` unit shipped 2026-10-12 — home-installed CLIs are detected: the
+Actions-tab Coding-agents check now resolves the CLIs a developer actually has (`~/.opencode/bin`,
+`~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/.nix-profile/bin`, `~/.volta/bin`, `~/bin`)
+against the home the composition root injects; with no home injected the check set is
+byte-identical to before; no gate passes.**
+`feat/agent-home-detection/aliz`. Demand-pulled — the founder hit it live: `opencode` lives at
+`/Users/aliz/.opencode/bin/opencode` and the surface reported **not detected**, because
+home-relative dirs had been deliberately excluded (the recorded deferral: *"a home-injecting
+widening is a reviewed edit to `candidatePaths` when the seam grows one"*). One aspect
+(`home-detection`). Floor **3259 → 3266** (executed 3266). The unit lifts the `agent-presets` /
+`active-project-detection` "tilde paths pending a home accessor" deferral, retiring it from their
+remaining-machinery lists.
+
+**What shipped.** `AgentCLIDetection.detect` gains an additive `homeDirectory: String? = nil` —
+`nil` (or empty, or a trailing-slash home, normalised by one rule) widens nothing, so behaviour is
+byte-identical to the absolute-trio-only resolver. A new pinned constant
+`homeRelativeCandidatePaths` (`[".local/bin", ".opencode/bin", ".bun/bin", ".cargo/bin",
+".nix-profile/bin", ".volta/bin", "bin"]`, every entry **relative** — no leading `/`, no `~`) is
+expanded against the injected home as `home + "/" + component`. Resolution order, name-major, first
+existence wins: the absolute `candidatePaths` trio (`/opt/homebrew/bin`, `/usr/local/bin`,
+`/usr/local/sbin`) → the home-expanded dirs (only when a home is present) → the injected PATH's
+absolute components. The resolver stays **Foundation-free** and names no `FileManager` — string
+joining only; the file's own lint test re-asserts it and no lint row was needed (a new parameter
+and constant, a call-site edit). `AppBootstrap.swift`'s `detectAgents` closure now passes
+`homeDirectory: NSHomeDirectory()` — the root may name Foundation, `VoccaActions` still may not.
+`AgentCLIDetectionTests` +7 (A1 a home-installed CLI resolves against the injected home — the
+founder's real case; A2 a nil/empty home widens nothing, byte-identical; A3 the order is
+name-major with a home; A4 the constant pinned verbatim and every entry relative; A6 the root's
+call site passes `NSHomeDirectory()`; A7 a trailing-slash home is normalised). A `REFACTOR` folded
+the per-preset resolution onto one ordered directory list (no behaviour change); the
+`AgentPresetsInvariantTests` detection pin was updated.
+
+**G5 re-anchored once, deliberately:** `AppBootstrap.swift` was recomputed with `shasum -a 256`
+on 2026-10-12 after the unit's only composition-root edit, never edited-to-match — `d2b8452e…` →
+**`88172139dc63778c7c67d21df72a706e686e361dff4762308f4886f8664bfd9b`**, across all seven pin
+sites (`WiringBaselineTests`, `AuthBaselineInvariantTests`, `AgentPresetsInvariantTests`,
+`ActiveProjectInvariantTests`, `SpokenTaskInvariantTests`, `TurnTakingComposedAcceptanceTests`,
+`ReplyRenderingInvariantTests`) plus the floor script's comment; the dictation digests unchanged —
+`1baeb2de…`/`ce70ca10…`.
+
+**Known limitations, recorded — not fixed.**
+- **The home-relative list is a pinned, reviewed-edit guess.** It covers the demand-pull dir
+  (`.opencode/bin`) and the common installers (`.local/bin`, `.cargo/bin`, `.bun/bin`,
+  `.nix-profile/bin`, `.volta/bin`, a bare `bin`), but it is a guess at where CLIs live; extending
+  it is a one-line reviewed edit (the pin is what makes it one).
+- **The login-shell PATH is deliberately NOT read.** Deriving the user's real PATH would need a
+  spawn (forbidden by the transport lint) or fragile rc-file parsing (`.zprofile`/`.zshrc`); the
+  home-relative list is the honest, spawn-free fix this slice.
+- **"Detected" still means only "the binary exists at that path", never that it runs.** The honest
+  fact is unchanged; no execution is attempted.
+- **The detected path is whatever the join produces** — the row's executable path is absolute and
+  the user may edit it; a symlinked home (`/Users/x` vs `/private/…`) is not this unit's problem.
+- **The real surface is unverified** — the Actions-tab Coding-agents section showing a home-installed
+  CLI as detected has never been observed by a human; the tests are the only evidence. SMOKE 169 is
+  the first observation.
+
+**The honesty block:**
+- **No gate passes.** The **twenty-fourth unit** built ahead of the uncleared P2/P3 gates under the
+  recorded posture. This unit was **demand-pulled** by the founder on his own machine.
+- **No rate exists** — no accuracy, resolution or latency number may be quoted from this unit.
+  "A home-installed CLI is detected in the real app" is unmeasured until SMOKE 169 runs on a real
+  machine — written, runnable, recorded, never gated.
+- **Zero network, no spawn.** The change is string joining over an injected closure; it touches no
+  audio path, so **no latency number is claimed**, and the dictation path is digest-untouched (the
+  G5 pin proves it).
+- **Builds during the tasks were incremental**; the final verification is a clean build with the
+  floor script (CI's exact command).
+
+**SMOKE**: row 169 written and runnable — with `opencode` (or another `~`-installed CLI) present,
+the Actions-tab Coding-agents section shows it as **detected** at its home path — recorded, never
+gated; counts, never rates.
+
+---
+
 **The `mcp-intent-routing` unit shipped 2026-10-12 — the MCP action arm is real and
 voice-reachable: a phrase naming an enabled `dev.vocca.mcp.<serverID>` tool resolves to the
 sentence-bound confirmation card, only a click on Confirm runs it once and the run appears in the

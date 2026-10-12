@@ -195,6 +195,184 @@ final class AgentCLIDetectionTests: XCTestCase {
             "an injected PATH widens the check set, never narrows it")
     }
 
+    // MARK: - A1/A7 — a home-relative CLI resolves when a home is injected
+
+    /// **A1 — a binary under the injected home resolves**, the founder's real case: `opencode`
+    /// lives at `~/.opencode/bin/opencode` and was reported not detected because the resolver
+    /// only looked at the absolute trio. With `homeDirectory:` injected, the home dirs are asked
+    /// after the absolute trio and the first existence ends the resolution — the exact check
+    /// sequence is pinned so the join rule and the order cannot drift apart.
+    func testAHomeInstalledCLIResolvesWhenAHomeIsInjected() async {
+        let fake = RecordingFileExistence(existing: ["/Users/aliz/.opencode/bin/opencode"])
+
+        let result = await AgentCLIDetection.detect(
+            catalog: [preset("opencode", names: ["opencode"])],
+            fileExists: fake.fileExists,
+            path: nil,
+            homeDirectory: "/Users/aliz")
+
+        XCTAssertEqual(
+            result, ["opencode": .detected(path: "/Users/aliz/.opencode/bin/opencode")],
+            "a binary under the injected home must resolve to its joined exact path")
+        XCTAssertEqual(
+            fake.recordedPaths,
+            [
+                "/opt/homebrew/bin/opencode",
+                "/usr/local/bin/opencode",
+                "/usr/local/sbin/opencode",
+                "/Users/aliz/.local/bin/opencode",
+                "/Users/aliz/.opencode/bin/opencode",
+            ],
+            """
+            the absolute trio is asked first, then the home-relative dirs in the pinned order — \
+            and the first existence ends the preset's resolution
+            """)
+    }
+
+    /// **A7 — a trailing slash on the injected home is normalised by one rule**: strip one
+    /// trailing `/`, then join `home + "/" + component`. Without it the join would produce
+    /// `/Users/aliz//.opencode/bin/…`, a path the file system is not asked about in the form the
+    /// surface reports.
+    func testATrailingSlashHomeIsNormalised() async {
+        let fake = RecordingFileExistence(existing: ["/Users/aliz/.opencode/bin/opencode"])
+
+        let result = await AgentCLIDetection.detect(
+            catalog: [preset("opencode", names: ["opencode"])],
+            fileExists: fake.fileExists,
+            path: nil,
+            homeDirectory: "/Users/aliz/")
+
+        XCTAssertEqual(
+            result, ["opencode": .detected(path: "/Users/aliz/.opencode/bin/opencode")],
+            "a trailing slash must be stripped before the join — one rule, one path shape")
+        XCTAssertEqual(
+            fake.recordedPaths.last, "/Users/aliz/.opencode/bin/opencode",
+            "the joined candidate must carry exactly one slash between the home and the component")
+    }
+
+    // MARK: - A2 — no home widens nothing (byte-identical to today)
+
+    /// **A2 — a `nil` home is byte-identical to today**: the absolute trio (and the PATH, when
+    /// injected) is the whole check set, and no home-relative dir is ever asked. The exact
+    /// recorded sequence proves the widening is gated on a present home rather than checked
+    /// against an empty prefix.
+    func testANilHomeAsksNoHomeRelativeDirectory() async {
+        let fake = RecordingFileExistence(existing: [])
+
+        let result = await AgentCLIDetection.detect(
+            catalog: [preset("opencode", names: ["opencode"])],
+            fileExists: fake.fileExists,
+            path: nil,
+            homeDirectory: nil)
+
+        XCTAssertEqual(result, ["opencode": .notDetected])
+        XCTAssertEqual(
+            fake.recordedPaths,
+            [
+                "/opt/homebrew/bin/opencode",
+                "/usr/local/bin/opencode",
+                "/usr/local/sbin/opencode",
+            ],
+            "a nil home must add no check — the check set is exactly today's candidate paths")
+    }
+
+    /// **A2 (empty half) — an empty home string widens nothing**, the `nil`-equivalent edge: it
+    /// must never produce a check like `/.local/bin/opencode` from an empty prefix.
+    func testAnEmptyHomeWidensNothing() async {
+        let fake = RecordingFileExistence(existing: [])
+
+        _ = await AgentCLIDetection.detect(
+            catalog: [preset("opencode", names: ["opencode"])],
+            fileExists: fake.fileExists,
+            path: nil,
+            homeDirectory: "")
+
+        XCTAssertEqual(
+            fake.recordedPaths,
+            [
+                "/opt/homebrew/bin/opencode",
+                "/usr/local/bin/opencode",
+                "/usr/local/sbin/opencode",
+            ],
+            "an empty home is treated as no home — it widens nothing and never joins an empty "
+                + "prefix")
+    }
+
+    // MARK: - A3 — the resolution order, name-major, with a home
+
+    /// **A3 — the order is pinned**: per candidate name, the absolute trio, then the
+    /// home-expanded dirs (in ``AgentCLIDetection/homeRelativeCandidatePaths`` order), then the
+    /// PATH's absolute components — and it is **name-major**, so every leg is asked for the first
+    /// name before the second name is tried anywhere. The recording fake asserts the exact
+    /// sequence.
+    func testTheHomeWidenedResolutionOrderIsNameMajor() async {
+        let fake = RecordingFileExistence(existing: [])
+
+        let result = await AgentCLIDetection.detect(
+            catalog: [preset("hybrid", names: ["primary", "fallback"])],
+            fileExists: fake.fileExists,
+            path: "/opt/tools",
+            homeDirectory: "/Users/aliz")
+
+        XCTAssertEqual(result, ["hybrid": .notDetected])
+        XCTAssertEqual(
+            fake.recordedPaths,
+            [
+                "/opt/homebrew/bin/primary",
+                "/usr/local/bin/primary",
+                "/usr/local/sbin/primary",
+                "/Users/aliz/.local/bin/primary",
+                "/Users/aliz/.opencode/bin/primary",
+                "/Users/aliz/.bun/bin/primary",
+                "/Users/aliz/.cargo/bin/primary",
+                "/Users/aliz/.nix-profile/bin/primary",
+                "/Users/aliz/.volta/bin/primary",
+                "/Users/aliz/bin/primary",
+                "/opt/tools/primary",
+                "/opt/homebrew/bin/fallback",
+                "/usr/local/bin/fallback",
+                "/usr/local/sbin/fallback",
+                "/Users/aliz/.local/bin/fallback",
+                "/Users/aliz/.opencode/bin/fallback",
+                "/Users/aliz/.bun/bin/fallback",
+                "/Users/aliz/.cargo/bin/fallback",
+                "/Users/aliz/.nix-profile/bin/fallback",
+                "/Users/aliz/.volta/bin/fallback",
+                "/Users/aliz/bin/fallback",
+                "/opt/tools/fallback",
+            ],
+            """
+            per name the absolute trio comes first, then the home dirs, then the PATH — and the \
+            first name is asked everywhere before the second is tried anywhere
+            """)
+    }
+
+    // MARK: - A4 — the home-relative constant, pinned
+
+    /// **A4 — the home-relative directory list is pinned verbatim** and every entry is relative:
+    /// no leading `/`, no `~`, not empty. A `~`/absolute entry here would be a path nobody checks
+    /// (the join is `home + "/" + component`), so the pin refuses the shape at the source.
+    func testTheHomeRelativeCandidatePathsArePinned() {
+        XCTAssertEqual(
+            AgentCLIDetection.homeRelativeCandidatePaths,
+            [
+                ".local/bin",
+                ".opencode/bin",
+                ".bun/bin",
+                ".cargo/bin",
+                ".nix-profile/bin",
+                ".volta/bin",
+                "bin",
+            ],
+            "the home-relative list is the pinned widening — a retune is a reviewed edit, and "
+                + "this pin is what makes it one")
+        for entry in AgentCLIDetection.homeRelativeCandidatePaths {
+            XCTAssertFalse(entry.isEmpty, "an empty component would join to the home itself")
+            XCTAssertFalse(entry.hasPrefix("/"), "an absolute component ignores the home entirely")
+            XCTAssertFalse(entry.hasPrefix("~"), "a tilde is not expanded by the join rule")
+        }
+    }
+
     // MARK: - Acceptance 6 — the exact check set, over the shipped catalog
 
     /// The recording fake over the **shipped catalog** proves the honest fact: detection is
@@ -292,6 +470,48 @@ final class AgentCLIDetectionTests: XCTestCase {
             "the resolver must import nothing — not even Foundation; the catalog types are "
                 + "Foundation-free and the seam is injected, so an import is the first step "
                 + "away from the pure resolver")
+    }
+
+    // MARK: - A6 — the composition root passes the real home
+
+    /// **A6 — `configure`'s `detectAgents` closure passes `homeDirectory: NSHomeDirectory()`**:
+    /// the resolver takes the home as a parameter and never computes it, so the widening is inert
+    /// unless the composition root supplies the real home. `configure` needs an `NSApplication`,
+    /// so this is a source scan of the one `AgentCLIDetection.detect(` call — the
+    /// `AppBootstrapWiringTests` precedent: a reverted call (the defaulted `nil`) silently
+    /// reports every home-installed CLI as not detected.
+    func testTheCompositionRootPassesTheRealHome() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let file = root.appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(contentsOf: file, encoding: .utf8))
+        let header = "AgentCLIDetection.detect("
+        guard let start = source.range(of: header) else {
+            return XCTFail(
+                """
+                `configure`'s `detectAgents` closure no longer calls `AgentCLIDetection.detect(`. \
+                That call is where the home-installed detection happens; if it moved, this pin \
+                has to move with it rather than be deleted.
+                """)
+        }
+        var depth = 0
+        var body = ""
+        for character in source[start.lowerBound...] {
+            if character == "(" { depth += 1 }
+            if depth > 0 { body.append(character) }
+            if character == ")" {
+                depth -= 1
+                if depth == 0 { break }
+            }
+        }
+        XCTAssertFalse(body.isEmpty, "the `AgentCLIDetection.detect(` call must have arguments")
+        XCTAssertTrue(
+            body.contains("homeDirectory: NSHomeDirectory()"),
+            """
+            the composition root must pass `homeDirectory: NSHomeDirectory()` — the resolver \
+            computes no home of its own, so without this argument every home-installed CLI \
+            (the founder's `~/.opencode/bin/opencode`) is reported not detected
+            """)
     }
 }
 
