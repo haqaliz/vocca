@@ -2302,7 +2302,8 @@ public final class DictationLoopRoot {
                         return await AgentCLIDetection.detect(
                             catalog: KnownAgentPresets.all,
                             fileExists: { path in await fileSystem.fileExists(atPath: path) },
-                            path: ProcessInfo.processInfo.environment["PATH"])
+                            path: ProcessInfo.processInfo.environment["PATH"],
+                            homeDirectory: NSHomeDirectory())
                             .mapValues { detection in
                                 switch detection {
                                 case .detected(let path):

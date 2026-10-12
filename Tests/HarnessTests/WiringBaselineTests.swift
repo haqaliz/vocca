@@ -381,7 +381,7 @@ final class WiringBaselineTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "d2b8452e06bf3e8b758d0288b5c6a1a2d8a736f40ff4e145e6d3cc8f4add8abe"
+                "88172139dc63778c7c67d21df72a706e686e361dff4762308f4886f8664bfd9b"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")
