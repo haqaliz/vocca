@@ -436,14 +436,15 @@ final class AppBootstrapWiringTests: XCTestCase {
     }
 
     /// **The card's Confirm and Decline route by the card's own providerID**
-    /// (`intent-provider-routing` G1): an agent card is answered by `root.agentWiring`, a
-    /// shell card by `root.shellWiring`, every other card by the action wiring. The router's
-    /// executor is the audit wiring's, so this route is the only thing that sends a
-    /// voice-armed agent card's click to the agent executor — a swapped branch fails closed
-    /// (the audit provider does not serve `vocca.agent`), but the voice leg's click is lost.
-    /// `configure` needs an `NSApplication`, so this is a source scan;
-    /// `AgentProviderRoutingE2ETests` drives the agent wiring's confirm this pin says the
-    /// card reaches.
+    /// (`intent-provider-routing` G1; `intent-and-surface` adds the MCP arm): an agent card is
+    /// answered by `root.agentWiring`, a shell card by `root.shellWiring`, an MCP card by the
+    /// matching server's wiring (looked up lazily from `root.mcpWiring`), every other card by the
+    /// action wiring. The router's executor is the audit wiring's, so this route is the only
+    /// thing that sends a voice-armed agent card's click to the agent executor — a swapped branch
+    /// fails closed (the audit provider does not serve `vocca.agent`), but the voice leg's click
+    /// is lost. `configure` needs an `NSApplication`, so this is a source scan;
+    /// `AgentProviderRoutingE2ETests` drives the agent wiring's confirm this pin says the card
+    /// reaches.
     func testTheCardClosuresRouteByProviderID() throws {
         let file = try PackageRootLocator.find(from: #filePath)
             .appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift")
@@ -472,12 +473,15 @@ final class AppBootstrapWiringTests: XCTestCase {
             }
             let shell = "if card.providerID == ShellProvider.providerID"
             let agent = "else if card.providerID == CodingAgentProvider.providerID"
+            let mcp = "else if card.providerID.hasPrefix(MCPProvider.providerIDPrefix)"
             guard case let (shellBody, afterShell)? = body(after: shell, from: slotRange.lowerBound),
                   case let (agentBody, afterAgent)? = body(after: agent, from: afterShell),
-                  case let (restBody, _)? = body(after: "else", from: afterAgent)
+                  case let (mcpBody, afterMCP)? = body(after: mcp, from: afterAgent),
+                  case let (restBody, _)? = body(after: "else", from: afterMCP)
             else {
                 return XCTFail(
-                    "the \(verb) closure must branch shell → agent → the rest by `card.providerID`")
+                    "the \(verb) closure must branch shell → agent → MCP → the rest by "
+                        + "`card.providerID`")
             }
             XCTAssertEqual(
                 shellBody, "await root.shellWiring?.\(verb)()",
@@ -486,6 +490,12 @@ final class AppBootstrapWiringTests: XCTestCase {
                 agentBody, "await root.agentWiring?.\(verb)()",
                 "an agent card's \(verb) is the agent wiring's — the voice-armed card's click "
                     + "must reach the agent executor, never the router's audit executor")
+            XCTAssertEqual(
+                mcpBody,
+                "if let server = await root.mcpWiring?.lookup(card.providerID) "
+                    + "{ await server.\(verb)() }",
+                "an MCP card's \(verb) is the matching server wiring's — the card's providerID "
+                    + "names the server, read lazily from the root slot")
             XCTAssertEqual(
                 restBody, "await actionWiring.\(verb)()",
                 "every other card's \(verb) is the action wiring's")

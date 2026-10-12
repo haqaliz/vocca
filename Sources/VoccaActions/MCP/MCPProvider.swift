@@ -85,6 +85,28 @@ public actor MCPProvider: ActionProvider {
     /// and a call site that spelled its own would drift from it silently.
     public static let defaultProviderID = "dev.vocca.mcp"
 
+    /// The prefix every per-server provider id carries — `defaultProviderID` plus the dot that
+    /// separates it from the server's own identifier.
+    ///
+    /// A separate constant rather than a string each call site spells, for the same reason
+    /// ``defaultProviderID`` is one: the id is built in one place and matched in another, and two
+    /// spellings of one rule drift silently. The router matches an invocation's providerID by
+    /// ``defaultProviderID``'s prefix; the per-server helper below builds the full id from this
+    /// one.
+    public static let providerIDPrefix = "dev.vocca.mcp."
+
+    /// The provider id for one configured server: ``providerIDPrefix`` + `server.id`.
+    ///
+    /// **One helper, judged in one place.** Discovery hands this value to
+    /// ``discover(session:providerID:)`` so the provider serves tools only under it, and the
+    /// Actions surface and the intent catalog key their enablement rows by the identical value —
+    /// so two servers whose tool lists overlap never collide on one enablement row. The suffix is
+    /// ``MCPServerConfiguration/id`` and nothing else: the id is stable across relaunches, so the
+    /// derived provider id is too.
+    public static func providerID(forServer server: MCPServerConfiguration) -> String {
+        providerIDPrefix + server.id
+    }
+
     // MARK: - Bounded reason keys
 
     /// A tool this server never declared. Bounded key, never a message — the audit entry is
@@ -188,7 +210,7 @@ public actor MCPProvider: ActionProvider {
     /// and leave the refusal resting on ``invoke(_:confirmation:)`` remembering to check again.
     /// A de-escalation is a de-escalation however it is arrived at.
     public func describe(_ invocation: ActionInvocation) async -> ActionSummary {
-        guard let tool = toolsByName[invocation.toolID] else {
+        guard let toolID = servedToolID(invocation), let tool = toolsByName[toolID] else {
             return ActionSummary(
                 sentence: "The MCP server '\(serverName)' does not serve the tool "
                     + "'\(Self.sanitised(invocation.toolID))'. Nothing will happen.",
@@ -236,20 +258,34 @@ public actor MCPProvider: ActionProvider {
     public func invoke(_ invocation: ActionInvocation, confirmation: ActionConfirmation) async
         -> ActionOutcome
     {
-        guard toolsByName[invocation.toolID] != nil else {
+        guard let toolID = servedToolID(invocation), toolsByName[toolID] != nil else {
             return .failed(reasonKey: Self.unknownToolReasonKey)
         }
         guard let arguments = Self.parsedArguments(invocation.arguments) else {
             return .failed(reasonKey: Self.unreadableArgumentsReasonKey)
         }
 
-        switch await session.callTool(invocation.toolID, arguments: arguments) {
+        switch await session.callTool(toolID, arguments: arguments) {
         case .failure(let failure):
             return .failed(reasonKey: Self.reasonKey(for: failure))
         case .success(let result):
             return result.isError
                 ? .failed(reasonKey: Self.toolReportedErrorReasonKey) : .succeeded
         }
+    }
+
+    /// The tool id when the invocation names this provider, `nil` otherwise — the one place the
+    /// provider-id guard lives, so `describe` and `invoke` cannot disagree about what is served.
+    ///
+    /// Mirrors ``AuditActionProvider/servedToolID(_:)``. The difference is only where the id comes
+    /// from: the audit provider's is a static constant, while this provider's is the per-server id
+    /// supplied to ``discover(session:providerID:)``, so the comparison is against the instance's
+    /// ``providerID``. A foreign id is treated exactly like a tool the server never declared: the
+    /// existing "does not serve … Nothing will happen." sentence (`.readOnly`) in ``describe(_:)``,
+    /// and ``unknownToolReasonKey`` in ``invoke(_:confirmation:)`` — before the arguments are
+    /// parsed and before any frame is sent.
+    private func servedToolID(_ invocation: ActionInvocation) -> String? {
+        invocation.providerID == providerID ? invocation.toolID : nil
     }
 
     /// A session failure as a bounded key.

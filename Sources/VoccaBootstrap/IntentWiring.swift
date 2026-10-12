@@ -372,31 +372,39 @@ extension AppBootstrap {
             spawnsSubprocess: false)
     }
 
-    /// **The intent router** (`intent-provider-routing` / `provider-dispatch` R1, R2): one
-    /// wiring in the root slot's type that dispatches each resolved `.toolCall` by its
-    /// providerID.
+    /// **The intent router** (`intent-provider-routing` / `provider-dispatch` R1, R2;
+    /// `intent-and-surface` adds the third arm): one wiring in the root slot's type that
+    /// dispatches each resolved `.toolCall` by its providerID.
     ///
-    /// A `vocca.agent` call reaches the agent wiring when one is composed; **everything else**
-    /// — the agent side absent (Q3), the audit tools, shell, an unknown provider — reaches the
-    /// audit wiring, whose provider fails an unserved provider closed (audited, never run).
-    /// `resolve`, `executor` and `policy` are the audit wiring's; `spawnsSubprocess` is the
-    /// declared `false`. The reply passes through unchanged, `nil` included — the converse
-    /// wrapper reads `nil` to detect the card.
+    /// A `vocca.agent` call reaches the agent wiring when one is composed; an invocation whose
+    /// providerID carries the `dev.vocca.mcp` prefix reaches the matching server's wiring when
+    /// the MCP side is composed and the server resolves (discovery succeeded); **everything
+    /// else** — the agent or MCP side absent, a launch/discovery failure, the audit tools,
+    /// shell, an unknown provider — reaches the audit wiring, whose provider fails an unserved
+    /// provider closed (audited, never run). `resolve`, `executor` and `policy` are the audit
+    /// wiring's; `spawnsSubprocess` is the declared `false`. The reply passes through unchanged,
+    /// `nil` included — the converse wrapper reads `nil` to detect the card.
     ///
-    /// ## The agent side is read lazily
+    /// ## The agent and MCP sides are read lazily
     ///
     /// `agent` is consulted inside ``IntentWiring/performAction`` at call time, never at
     /// construction: the agent wiring is composed in a later launch task, after the router is
-    /// already in the root slot.
+    /// already in the root slot. `mcp` is consulted the same way, and its `nil`/absent answers
+    /// fall through to the audit side's audited fail-closed.
     public static func routeIntentWiring(
         audit: IntentWiring<AuditActionProvider>,
-        agent: @escaping @Sendable @MainActor () -> IntentWiring<CodingAgentProvider>?
+        agent: @escaping @Sendable @MainActor () -> IntentWiring<CodingAgentProvider>?,
+        mcp: @escaping @Sendable @MainActor (String) async -> MCPServerWiring? = { _ in nil }
     ) -> IntentWiring<AuditActionProvider> {
         let performAction: @Sendable @MainActor (ActionInvocation, String) async -> String? = {
             invocation, utterance in
             if invocation.providerID == CodingAgentProvider.providerID,
                let agentWiring = agent() {
                 return await agentWiring.performAction(invocation, utterance)
+            }
+            if invocation.providerID.hasPrefix(MCPProvider.providerIDPrefix),
+               let server = await mcp(invocation.providerID) {
+                return await server.performAction(invocation, utterance)
             }
             return await audit.performAction(invocation, utterance)
         }

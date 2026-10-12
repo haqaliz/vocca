@@ -768,6 +768,67 @@ final class ZeroNetworkTests: XCTestCase {
         "binding=matched",
     ].joined(separator: " ")
 
+    /// **The composed MCP voice drive's post-condition** (PROBE-MCP-VOICE): the verbatim report
+    /// of the `mcp-intent-routing` probe drive — the composed MCP arm over an **in-memory**
+    /// transport factory (nothing spawns; the whole round trip runs inside the interposer), the
+    /// default's facts (`servers=0`, `spawnsSubprocess=false`, no launch, no provider — the D2
+    /// narrowed promise extended to the MCP arm), and the seeded round trip: a phrase resolving
+    /// through the real `PhraseIntentResolver`, the sentence-bound card, Confirm recording exactly
+    /// one invocation, the audit reconstructing off the disk (ordinals, decisions, binding), plus
+    /// the disabled-tool refusal and the foreign-provider refusal. Asserted whole, as one line —
+    /// the `expectedCodingAgentLifecycle` shape. This is deliberately **not** a golden string to
+    /// be regenerated when it fails:
+    /// ``testTheAssertedMCPVoicePostConditionStillDescribesTheDefaultAndARoundTripThroughInMemoryBytes``
+    /// reads it back and refuses a version that no longer describes the composed default and a
+    /// round trip.
+    ///
+    /// `store.location` and `store.isDefaultLocation` are the `expectedUsageLedgerLifecycle`
+    /// promise, restated for the MCP leg: **no probe run writes to the founder's real
+    /// `~/Library/Application Support/Vocca/`**.
+    ///
+    /// The drive exists because the MCP arm is the slice's route to a configured server: the
+    /// default cannot spawn (the wiring's declared fact and the zero-server config) and the seeded
+    /// round trip drives the whole arm through the gate over the in-memory transport, which makes
+    /// zero syscalls. It proves the composed arm reaches no network name; it proves NOTHING about
+    /// a configured **stdio** server, which is D2 and invisible to this interposer.
+    private static let expectedMCPVoiceLifecycle = [
+        // The real store, named from its own type — a swapped-in double flips it.
+        "store=real",
+        // Where the drive wrote — the two halves of the temp-directory promise.
+        "store.location=temporary",
+        "store.isDefaultLocation=false",
+        // The composed default's facts: an absent config is zero servers, and the composed
+        // default cannot create a child — the D2 narrowed promise, reported not commented.
+        "servers=0",
+        "spawnsSubprocess=false",
+        // Nothing was launched and no provider was built for the default — a providerID with no
+        // configured server resolves to nothing.
+        "launched=0",
+        "providers=0",
+        // The seeded config's own answer — the round trip had a server to arm.
+        "seeded=1",
+        // The discovered tool list, off the server's own `tools/list` — the arm had a tool.
+        "tools=2",
+        // The gate asked: the card appeared with the provider's sentence.
+        "card=yes",
+        // The wire's own count: the confirm ran the tool exactly once; nothing else reached a
+        // call — counted, never inferred from the audit.
+        "invoked=1",
+        // The audit store's own decoded answer: the arm's withheld stop (refused) and the
+        // confirmed run, in ordinal order — the reconstruct, read off the disk by a second store.
+        "decisions=refused,confirmed",
+        "ordinals=1-2",
+        // The N2 binding live in the MCP path: the confirmed entry's summary is the card's shown
+        // sentence, verbatim.
+        "binding=matched",
+        // The disabled-tool refusal: an un-enabled tool is refused by attempting the call — one
+        // more recorded refused decision, and no card.
+        "disabledRefused=1",
+        // The foreign-provider refusal: an invocation naming another providerID never reaches this
+        // server's executor — nothing recorded, no card, no call.
+        "foreignRefused=1",
+    ].joined(separator: " ")
+
     /// The only modules the probe is not required to drive.
     ///
     /// This list is deliberately *not* trusted on its own. `justifiedExclusions()` refuses any
@@ -1455,6 +1516,41 @@ final class ZeroNetworkTests: XCTestCase {
             Note what this line does NOT cover: the spawned child itself is invisible to this \
             interposer (D2) — the line proves the default cannot spawn, never that an enabled \
             agent cannot egress.
+            \(observation.diagnosticSummary)
+            """)
+
+        // The composed MCP voice drive's post-condition. The twentieth effect-not-reference
+        // check, and the one that pins the `mcp-intent-routing` slice's own half of the
+        // invariant: the composed default's facts (`servers=0`, `spawnsSubprocess=false`, no
+        // launch, no provider — read off a wiring composed over an absent config) and the seeded
+        // round trip over an **in-memory** transport — a phrase resolving through the real
+        // `PhraseIntentResolver`, the sentence-bound card, Confirm recording exactly one
+        // invocation (the wire's own count), the audit reconstructing off the disk (the arm's
+        // refused stop, the confirmed run), plus the disabled-tool refusal and the
+        // foreign-provider refusal. Every field is a fact the drive can only produce by running
+        // the round trip: `invoked` is the transport's own record of `tools/call`, `decisions`
+        // and `ordinals` come from the second store's own answer, and `binding` compares the
+        // confirmed entry's summary with the card's shown sentence.
+        //
+        // Deleting the drive removes the line from the probe's output entirely, so the comparison
+        // fails against nil rather than quietly covering less.
+        XCTAssertEqual(
+            try XCTUnwrap(mcpVoicePayload(of: observation)),
+            Self.expectedMCPVoiceLifecycle,
+            """
+            The probe did not report driving the composed MCP configuration.
+              expected: \(Self.expectedMCPVoiceLifecycle)
+              observed: \(mcpVoicePayload(of: observation) ?? "no report at all")
+            Either VoccaNetworkProbe.exerciseMCPVoice() was not called on the \
+            default-configuration path — in which case the MCP composition's round trip is outside \
+            this invariant — or the composed default no longer reads zero servers and declares no \
+            spawn, or the seeded round trip no longer reconstructs over the in-memory transport. \
+            Do not fix this by deleting the call, and do not fix it by pasting in whatever the \
+            probe now prints — see \
+            testTheAssertedMCPVoicePostConditionStillDescribesTheDefaultAndARoundTripThroughInMemoryBytes. \
+            Note what this line does NOT cover: a configured stdio server is invisible to this \
+            interposer (D2) — the line proves the default cannot spawn, never that an enabled \
+            server cannot egress.
             \(observation.diagnosticSummary)
             """)
 
@@ -2735,6 +2831,123 @@ final class ZeroNetworkTests: XCTestCase {
                 + "audit log.")
     }
 
+    /// **Guards the guard.** ``expectedMCPVoiceLifecycle`` must keep describing **the composed
+    /// default and a round trip through in-memory bytes**: the real store, the composed default's
+    /// facts (`servers=0`, `spawnsSubprocess=false` — the D2 narrowed promise as a reported
+    /// line), no launch and no provider, the seeded config, the discovered tools, the card the
+    /// gate asked for, the wire's counted call, and the audit reconstructing off the disk with the
+    /// N2 binding matched, the disabled-tool refusal and the foreign-provider refusal.
+    ///
+    /// The fields that cannot weaken:
+    ///
+    /// - `servers` — must be `0`: the composed default's fact, read off a wiring composed over an
+    ///   absent config. A constant weakened to `servers=1` would pass the verbatim comparison
+    ///   while the D2 narrowed promise — the thing this line exists to prove about the default —
+    ///   was gone.
+    /// - `spawnsSubprocess` — must be `false`: the wiring's declared fact. A composition that
+    ///   wired servers by default would declare it here, and the zero-network line would still be
+    ///   green if nothing read the fact.
+    /// - `launched` — exactly `0`: the factory was never called for the default — zero servers is
+    ///   zero launches, the fact that makes "the default cannot spawn" structural.
+    /// - `invoked` — exactly `1`: the transport's own record of `tools/call` — the confirm ran the
+    ///   tool exactly once, and neither the disabled nor the foreign submission reached a call. A
+    ///   constant with `invoked=0` would still satisfy the verbatim comparison while no human yes
+    ///   ever ran anything.
+    /// - `decisions` — exactly `refused,confirmed`: the arm's withheld stop and the confirmed run,
+    ///   in ordinal order.
+    /// - `binding` — `matched`: the confirmed entry's summary is the card's shown sentence, the N2
+    ///   binding live in the one path that proves the MCP leg reaches no network name while a
+    ///   round trip runs.
+    /// - `disabledRefused` / `foreignRefused` — exactly `1`: the disabled tool was refused by
+    ///   attempting the call, and the foreign providerID never reached this server's executor.
+    func testTheAssertedMCPVoicePostConditionStillDescribesTheDefaultAndARoundTripThroughInMemoryBytes()
+        throws
+    {
+        let fields = try Self.parseFields(of: Self.expectedMCPVoiceLifecycle)
+
+        func value(_ key: String) throws -> String {
+            guard let found = fields[key] else {
+                throw ZeroNetworkTestError.postConditionMissingField(
+                    key: key, present: fields.keys.sorted())
+            }
+            return found
+        }
+
+        XCTAssertEqual(
+            try value("store"), "real",
+            "The asserted MCP voice post-condition no longer names the real store — the drive "
+                + "could be reporting a test double, which would put none of the MCP leg's file "
+                + "I/O inside this invariant.")
+        XCTAssertEqual(
+            try value("servers"), "0",
+            "The asserted MCP voice post-condition no longer requires the composed default's zero "
+                + "servers — an absent config is the empty config, and the D2 narrowed promise "
+                + "could silently gain a configured server while this line watched nothing.")
+        XCTAssertEqual(
+            try value("spawnsSubprocess"), "false",
+            "The asserted MCP voice post-condition no longer requires the composed default's "
+                + "no-spawn fact — a composition that wired a server would declare it here, and "
+                + "the zero-network line would still be green if nothing read the fact.")
+        XCTAssertEqual(
+            Int(try value("launched")) ?? -1, 0,
+            "The asserted MCP voice post-condition launched something for the composed default — "
+                + "zero servers must mean zero factory calls, or 'the default cannot spawn' is a "
+                + "comment rather than a fact.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("seeded")) ?? 0, 1,
+            "The asserted MCP voice post-condition seeded nothing — a round trip over an empty "
+                + "config arms nothing, and the drive would prove only that the wiring can be "
+                + "constructed.")
+        XCTAssertGreaterThanOrEqual(
+            Int(try value("tools")) ?? 0, 1,
+            "The asserted MCP voice post-condition discovered no tools — the arm had nothing to "
+                + "reach the card with.")
+        XCTAssertEqual(
+            try value("card"), "yes",
+            "The asserted MCP voice post-condition no longer requires the card — without it the "
+                + "drive could be confirming a card that was never presented, and the gate's ask "
+                + "leg would be watching nothing.")
+        XCTAssertEqual(
+            Int(try value("invoked")) ?? -1, 1,
+            "The asserted MCP voice post-condition no longer requires the tool to be reached "
+                + "exactly once — a constant with invoked=0 would pass the verbatim comparison "
+                + "while no human yes ever ran anything, and one with invoked=2 would mean a "
+                + "refused submission had called.")
+        XCTAssertEqual(
+            try value("decisions"), "refused,confirmed",
+            "The asserted MCP voice post-condition no longer reconstructs the arm's stop and the "
+                + "confirmed run, in ordinal order — the refused entry is the round trip's "
+                + "recorded foundation and the confirmed entry is its proof.")
+        XCTAssertEqual(
+            try value("ordinals"), "1-2",
+            "The asserted MCP voice post-condition no longer carries the rebuilt ordinals — read "
+                + "off the directory, not off any counter.")
+        XCTAssertEqual(
+            try value("binding"), "matched",
+            "The asserted MCP voice post-condition no longer carries the matched binding — the "
+                + "drive could be confirming without the shown sentence, and the N2 binding would "
+                + "be absent from the one path that proves the MCP leg reaches no network name "
+                + "while a round trip runs.")
+        XCTAssertEqual(
+            Int(try value("disabledRefused")) ?? -1, 1,
+            "The asserted MCP voice post-condition no longer requires the disabled tool to be "
+                + "refused by attempting the call (G3) — an un-enabled tool could be called while "
+                + "this line watched nothing.")
+        XCTAssertEqual(
+            Int(try value("foreignRefused")) ?? -1, 1,
+            "The asserted MCP voice post-condition no longer requires the foreign providerID to be "
+                + "refused (G4) — a foreign invocation could reach this server's executor.")
+        XCTAssertEqual(
+            try value("store.location"), "temporary",
+            "The asserted MCP voice post-condition no longer requires the temporary directory — a "
+                + "probe run must never write an audit entry where a real install keeps its own.")
+        XCTAssertEqual(
+            try value("store.isDefaultLocation"), "false",
+            "The asserted MCP voice post-condition no longer refuses the shipped location — "
+                + "without this the drive could fold probe entries into the founder's real audit "
+                + "log.")
+    }
+
     /// **Guards the guard.** ``expectedIntentPhraseLifecycle`` must keep describing **a phrase
     /// round trip and the shell refusal**. The fields that cannot weaken:
     ///
@@ -3000,6 +3213,22 @@ final class ZeroNetworkTests: XCTestCase {
         for line in observation.probeStandardOutput.split(separator: "\n")
         where line.hasPrefix("PROBE-CODING-AGENT\t") {
             return String(line.dropFirst("PROBE-CODING-AGENT\t".count))
+        }
+        return nil
+    }
+
+    /// The `PROBE-MCP-VOICE` line's payload — the composed MCP voice drive's report — or `nil`
+    /// when the probe never reported one.
+    ///
+    /// The `PROBE-CODING-AGENT` parser shape: the line exists only when `exerciseMCPVoice()` ran
+    /// on the default-configuration path, so its absence is a missing drive rather than an empty
+    /// report. `VoccaActions` is already covered by the audit drive's witness, so the module
+    /// coverage list alone would not notice a deleted drive — this accessor and its assertion are
+    /// the MCP arm's survival guarantee.
+    private func mcpVoicePayload(of observation: NetworkObservation) -> String? {
+        for line in observation.probeStandardOutput.split(separator: "\n")
+        where line.hasPrefix("PROBE-MCP-VOICE\t") {
+            return String(line.dropFirst("PROBE-MCP-VOICE\t".count))
         }
         return nil
     }

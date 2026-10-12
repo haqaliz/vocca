@@ -297,10 +297,22 @@ final class ActionSeamBoundaryTests: XCTestCase {
                 // what a `.toolCall` resolved to). It moves the type through the executor; it
                 // never decides with it.
                 "VoccaBootstrap/IntentWiring.swift",
+                // `mcp-composition`'s reviewed widening — the MCP recipe builds invocations
+                // from the server's provider/tool identifiers (the arm, confirm and decline
+                // paths all construct one to submit), and the voice leg takes the invocation
+                // its closure signature names. It reads the vocabulary to build the gate's
+                // input; it never decides with it.
+                "VoccaBootstrap/MCPWiring.swift",
                 // `probe`'s reviewed widening — the voice round trip's call-logged provider
                 // names the invocation in `describe`/`invoke`'s signatures. One of the five
                 // rows the conformance costs.
                 "VoccaNetworkProbe/IntentDrive.swift",
+                // `mcp-intent-routing`'s reviewed widening (`probe-and-pins`) — the composed MCP
+                // voice drive names the invocation it hands the arm's `performAction` (the voice
+                // arm, the disabled-tool submission and the foreign-provider submission all
+                // construct one). It reads the vocabulary to build the gate's input; it never
+                // decides with it.
+                "VoccaNetworkProbe/MCPVoiceDrive.swift",
             ]
         ),
         (

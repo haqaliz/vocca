@@ -1073,6 +1073,70 @@ gates); **the first shipped path from speech to a child process** — R8 mitigat
 SMOKE 158/162/166 are written and runnable, recorded and never gated; no success rate may be
 quoted. Test floor: **3161**.)*
 
+*(Amended by the `mcp-intent-routing` unit, 2026-10-12: **the MCP action arm is real and
+voice-reachable** — the router's third arm, the per-server wiring, the stdio factory, the
+providerID guard, the surface discovery and the composite prefix exclusion. This closes the P4
+objective's MCP half ("Vocca … can drive MCP tools … using active-app context", `ROADMAP.md:225`)
+and makes the P4→P5 gate's "≥3 distinct MCP tool integrations working end-to-end from voice"
+(`ROADMAP.md:250`) reachable. Shipped:
+- **The provider guard**: `MCPProvider.servedToolID` — `describe`/`invoke` serve a tool **only
+  under the provider's own providerID** (the `AuditActionProvider.servedToolID` precedent); a
+  foreign providerID is the "does not serve the tool '…'. Nothing will happen." sentence and
+  `provider.unknownTool`, with **zero `tools/call` frames**. The recorded defence-in-depth gap
+  for MCP retires (`CodingAgentProvider`'s twin stays a named follow-up).
+- **The composition**: `MCPStdioTransportFactory` + `MCPTransportLaunch` defined **inside**
+  `StdioMCPTransport.swift` — the composition root names a factory, never `StdioMCPTransport`, so
+  the `StdioMCPTransportTests` D2 pin stays green and the transport-permit lint stays exactly two
+  files; `MCPProvider.providerIDPrefix = "dev.vocca.mcp."` and `providerID(forServer:)` (the
+  suffix is `MCPServerConfiguration.id`); and `composeMCPWiring`/`MCPWiring`/`MCPServerWiring` —
+  a **per-server lookup** (one `ActionExecutor` per server; lazily launched, discovered **once per
+  server per process**, cached; Confirm reuses the cache, never a second spawn), policy floor
+  `.none`, the in-flight refusal at arm, the sentence-bound card with the mismatch re-prompt, and
+  a truthful `spawnsSubprocess` (false with zero servers).
+- **The router and the surface**: `routeIntentWiring` gains a **third arm** — a `dev.vocca.mcp.*`
+  invocation reaches the matching server's wiring, read lazily from the new `root.mcpWiring` slot;
+  absent or failed MCP falls through to the audit side's audited fail-closed. The card
+  Confirm/Decline and the tab arm/preview bindings route the same prefix.
+  `CompositeIntentResolver` gains `excludedProviderIDPrefixes` (additive, default empty); the
+  composed default passes `MCPProvider.providerIDPrefix`, so the keyword fallback never selects an
+  MCP row (a phrase row may still name MCP explicitly). The Actions-tab `discoverTools` is wired to
+  the MCP factory (opt-in per configured server, replacing the `.unwired` refusal), its rows
+  carrying the **per-server** providerID so enablement is keyed by the identical value the router
+  matches; default off, the D2 copy on the section.
+- **The probe**: `PROBE-MCP-VOICE` (the composed MCP arm driven over an **in-memory** factory,
+  starting no child) inside the zero-network interposer — the default's facts (`servers=0
+  spawnsSubprocess=false launched=0 providers=0`) and the seeded round trip (phrase → card →
+  Confirm → one recorded `tools/call`), the disabled-tool refusal and the foreign-provider
+  refusal. `ZeroNetworkTests` +1 and five invariant mirrors +1 each.
+
+G5 re-anchored once, deliberately (`820ffdb2…` → `d2b8452e…`, computed with `shasum -a 256` on
+2026-10-12 after the unit's only composition-root edit, never edited-to-match; all seven pin
+sites; dictation digests unchanged). No gate passes (twenty-third unit ahead of the uncleared
+gates); an enabled MCP child's egress is never provable (D2 — the default cannot spawn); R8
+mitigated in structure (card + click + audit), not retired; N2 stands; no success or resolution
+rate exists.
+
+**What is still NOT built — the remaining C13 machinery:**
+- the **intent-seam shell leg** (a voice path to shell commands; refused at load and closed in
+  both halves of the composite by decision, and reversing it is a founder call)
+- an **audit-tools arm section** in the Actions tab
+- **spoken confirm/decline** (N2 — a new trust surface) and a **session guard** (refuse or queue a
+  card during a session; clear an armed card on session end)
+- a **phrase-authoring UI** (phrases are hand-edited JSON today)
+- **`$N` parameter slots** and argument construction from voice (a voice MCP call carries no
+  arguments this slice; `ActionInvocation.arguments` stays nil)
+- **time-boxed and decaying per-tool trust** (§8, decided and deferred)
+- the `composite-intent-resolver` follow-ons: a **settings-UI row for `keywordFallback`**, spoken
+  **display names** for the ask, and the **directory seam** that isolates PROBE-INTENT-DEFAULT
+  from the real phrase file
+- the **copy affordance (N1)** from `reply-text-rendering` (the widget panel is non-key)
+- **C14** (model registry + out-of-tree provider proof)
+- **not machinery, named so it is not lost:** the **turn-history deliverable** (`ROADMAP.md:205`)
+  shipped 2026-10-11 by `turn-history`; see `docs/STATUS.md`.
+
+SMOKE 168 is written and runnable, recorded and never gated; no success or resolution rate may be
+quoted. Test floor: **3259**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

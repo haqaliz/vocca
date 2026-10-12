@@ -46,21 +46,39 @@ public struct CompositeIntentResolver: IntentResolver {
     /// The resolver asked only when the primary resolves to nothing.
     public let fallback: any IntentResolver
 
-    /// The providers the fallback may never see or resolve to.
+    /// The providers the fallback may never see or resolve to — matched **exactly**.
     public let excludedProviderIDs: Set<String>
+
+    /// The provider-id **prefixes** the fallback may never see or resolve to.
+    ///
+    /// The exact-ID set cannot name a family whose members are dynamic: an MCP server's
+    /// provider id is `dev.vocca.mcp.<serverID>`, and the server id is not known when the
+    /// composition builds the chain. A prefix closes the whole family with one entry. Empty by
+    /// default, so a caller that names only exact ids is byte-for-byte unchanged.
+    public let excludedProviderIDPrefixes: Set<String>
 
     /// - Parameters:
     ///   - primary: The resolver asked first.
     ///   - fallback: The resolver asked on the primary's `.none`.
     ///   - excludedProviderIDs: The providers removed from the fallback's catalog and refused
-    ///     from its result.
+    ///     from its result, matched exactly.
+    ///   - excludedProviderIDPrefixes: The provider-id prefixes removed from the fallback's
+    ///     catalog and refused from its result. Empty by default.
     public init(
         primary: any IntentResolver, fallback: any IntentResolver,
-        excludedProviderIDs: Set<String>
+        excludedProviderIDs: Set<String>, excludedProviderIDPrefixes: Set<String> = []
     ) {
         self.primary = primary
         self.fallback = fallback
         self.excludedProviderIDs = excludedProviderIDs
+        self.excludedProviderIDPrefixes = excludedProviderIDPrefixes
+    }
+
+    /// Whether `providerID` is closed to the fallback — by exact id or by any excluded prefix.
+    /// One rule judged in one place, so the filter and the discard cannot disagree.
+    private func isExcluded(_ providerID: String) -> Bool {
+        excludedProviderIDs.contains(providerID)
+            || excludedProviderIDPrefixes.contains(where: { providerID.hasPrefix($0) })
     }
 
     /// Primary first, then the filtered fallback, per the type documentation.
@@ -70,10 +88,10 @@ public struct CompositeIntentResolver: IntentResolver {
         let first = primary.resolve(utterance, against: catalog)
         guard first == .none else { return first }
 
-        let permitted = catalog.filter { !excludedProviderIDs.contains($0.providerID) }
+        let permitted = catalog.filter { !isExcluded($0.providerID) }
         let second = fallback.resolve(utterance, against: permitted)
         if case .toolCall(let invocation) = second,
-            excludedProviderIDs.contains(invocation.providerID)
+            isExcluded(invocation.providerID)
         {
             return .none
         }

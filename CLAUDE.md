@@ -9,6 +9,30 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`mcp-intent-routing` (P4, C13, shipped 2026-10-12):** **the MCP action arm is real and
+> voice-reachable** — a phrase naming an enabled `dev.vocca.mcp.<serverID>` tool reaches the
+> sentence-bound card (the server discovered per server through a stdio **factory**,
+> `MCPStdioTransportFactory` inside the already-permitted `StdioMCPTransport.swift`, so the D2
+> pin stays green and the transport-permit lint stays two files), and **only a click on Confirm
+> runs it once**, audited. `root.intentWiring` is `AppBootstrap.routeIntentWiring(audit:agent:mcp:)`
+> (`IntentWiring.swift`): a `dev.vocca.mcp.*` call → the matching server's `MCPServerWiring` (read
+> lazily from `root.mcpWiring`), `vocca.agent` → the agent wiring, everything else → the audit
+> wiring. Guards: `MCPProvider` serves a tool only under its own providerID (a foreign call fails
+> closed, zero `tools/call` frames); `CompositeIntentResolver` gained `excludedProviderIDPrefixes`
+> (default empty) and the composed default passes the MCP prefix, so the keyword fallback never
+> selects an MCP tool. The per-server providerID is `dev.vocca.mcp.<serverID>` (suffix =
+> `MCPServerConfiguration.id`), so enablement rows never collide; discovery is lazy and cached
+> (at most one launch per server per process, failing closed). **Limits:** MCP phrases are
+> hand-edited JSON and enablement is the Actions tab (opt-in, default off); a voice MCP call
+> carries **no arguments** (`$N` deferred); shell and MCP are both excluded from the composite
+> fallback; an enabled MCP child's egress is never provable (D2 — the default cannot spawn, zero
+> servers); N2 stands (click-only, no spoken confirm, no session guard); R8 mitigated in
+> structure, not retired; the real surface and a real MCP server run are unverified (SMOKE only).
+> G5 re-anchored once, deliberately (`820ffdb2…` → `d2b8452e…`, seven pin sites; dictation
+> digests unchanged). **No gate passes** (twenty-third unit ahead of the uncleared gates); no
+> rate exists; the default is unchanged (`servers=0 spawnsSubprocess=false`, echo). SMOKE 168
+> written, recorded, never gated. Test floor: **3259**.
+>
 > **`turn-history` (P3, shipped 2026-10-11):** the bounded recent-turns window is real —
 > `VoccaConversation` (the package's 13th library module, the `ConversationRecording` seam's
 > adapter in `VoccaCore/Conversation/`): `conversation.json`, 50 turns / 2000 characters,
@@ -670,7 +694,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 3161 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 3259 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam

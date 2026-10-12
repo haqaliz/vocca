@@ -516,6 +516,82 @@ public enum StdioLaunchFailure: Error, Equatable, Sendable {
     case notLaunched(String)
 }
 
+// MARK: - The factory the composition root names
+
+/// What a transport factory produced: a started transport, or the bounded reason there is none.
+///
+/// A returned value rather than a throw, following the seam's posture — a caller cannot drop a
+/// returned failure by omitting a `catch`, and a launch that failed is a fact the composition
+/// decides something about. The failure carries a **bounded key**, never a message: the raw
+/// `Process` error text and the configured path are unbounded strings, and the house rule is that
+/// a reason recorded or logged is a key chosen here, in review.
+public enum MCPTransportLaunch: Sendable {
+    /// A transport whose ``StdioMCPTransport/start()`` succeeded — ready to carry frames.
+    case launched(any MCPTransport)
+
+    /// The child could not be started, named by one of
+    /// ``MCPStdioTransportFactory``'s bounded reason keys.
+    case failed(String)
+}
+
+/// **The factory the composition root names, so it never names ``StdioMCPTransport``.**
+///
+/// This type lives in the transport's own file — the one file the D2 pin permits to name
+/// ``StdioMCPTransport`` — and that placement is the whole design: the composition root and the
+/// wiring name `MCPStdioTransportFactory`, never the actor, so
+/// `StdioMCPTransportTests.testNothingOutsideTheTransportFileConstructsTheStdioTransport` stays
+/// green without a reviewed edit. The **only** thing that spawns is still ``start()``, reached
+/// through ``make(_:)``; a build that configures no server never calls it.
+///
+/// The factory is injectable at the composition seam (a closure of this shape), so a test or a
+/// probe substitutes ``InMemoryMCPTransport`` and the zero-network invariant holds over the whole
+/// wiring.
+public struct MCPStdioTransportFactory {
+
+    /// ``StdioLaunchFailure/alreadyStarted`` — a transport that already has, or had, a child.
+    public static let alreadyStartedReasonKey = "stdio.alreadyStarted"
+
+    /// ``StdioLaunchFailure/executableNotFound(_:)`` — nothing executable at the configured path.
+    /// The path itself is deliberately **not** carried: it is unbounded user text, and a reason is
+    /// a bounded key.
+    public static let executableNotFoundReasonKey = "stdio.executableNotFound"
+
+    /// ``StdioLaunchFailure/notLaunched(_:)`` — the spawn failed, or the child could not be set up
+    /// safely. The underlying error text is deliberately **not** carried, for the same reason.
+    public static let notLaunchedReasonKey = "stdio.notLaunched"
+
+    /// Builds a ``StdioMCPTransport`` for `server` over the shipped clock and sleeper, and starts
+    /// it.
+    ///
+    /// - Returns: ``MCPTransportLaunch/launched(_:)`` with the running transport, or
+    ///   ``MCPTransportLaunch/failed(_:)`` with a bounded key. `async` because ``start()`` is
+    ///   actor-isolated.
+    public static func make(_ server: MCPServerConfiguration) async -> MCPTransportLaunch {
+        let transport = StdioMCPTransport(
+            configuration: StdioMCPTransport.Configuration(
+                executablePath: server.executablePath,
+                arguments: server.arguments),
+            clock: ContinuousStdioClock(),
+            sleeper: TaskStdioPollSleeper())
+        if let failure = await transport.start() {
+            return .failed(reasonKey(for: failure))
+        }
+        return .launched(transport)
+    }
+
+    /// A launch failure as a bounded key.
+    ///
+    /// Exhaustive rather than `default`-terminated, so a new failure case has to be given a key
+    /// here, in review, instead of inheriting whichever one a default returned.
+    private static func reasonKey(for failure: StdioLaunchFailure) -> String {
+        switch failure {
+        case .alreadyStarted: return alreadyStartedReasonKey
+        case .executableNotFound: return executableNotFoundReasonKey
+        case .notLaunched: return notLaunchedReasonKey
+        }
+    }
+}
+
 // MARK: - The injected wait
 
 /// How the transport waits between polls of a child that has not spoken yet.
