@@ -506,6 +506,25 @@ Each protocol below is the pluggable boundary named in `CAPABILITY_ROADMAP.md`. 
 > store). G5 was re-anchored once, deliberately: `bfeed81f…` → `8110b86e…`; the dictation
 > digests are unchanged.
 
+> *Annotated (`phrase-authoring-ui`, 2026-10-17): the phrase file gains its first in-app author
+> and its first production save caller.* The `Intent` row's `intent-phrases.json` /
+> `IntentPhraseStore` is now edited from the Actions tab: the **Phrases** section authors rows
+> (a phrase + a validated `(providerID, toolID)` target; a `dev.vocca.shell` target refused in
+> the editor **and** the store) and a `keywordFallback` toggle, through
+> `SettingsBindings.loadPhrases`/`savePhrases`. `IntentPhraseStore.save` now enforces on the
+> write what `load` had only filtered on the next read — a shell/duplicate/empty/over-length row
+> throws `invalidRow(reason:)` and writes nothing (deterministic order shell → duplicate → empty
+> → length), and `save(_:ifUnchangedFrom:)` refuses (`.fileChangedOnDisk`, writes nothing) when
+> the committed file changed since the snapshot the section loaded. `load` is untouched; the
+> encoded shape is byte-stable (`version`/`keywordFallback` carried through a round trip).
+> `VoccaUI` names its own `ActionsPhraseRow`/`ActionsPhraseFile` and the root maps them
+> (`AppBootstrap.phraseFile(from:)`, the `agentFile(from:)` precedent) — the intent seam lint is
+> unmodified. Separately, the **audit tools** (`audit.count`, `audit.clear`) render as
+> default-off **Audit tools** rows (`ActionWiring.listAuditTools`, radii from `describe`,
+> toggle-only — no arm/preview; the **F-A** fix). No run affordance is added (the authoring
+> surface authors and enables only; R8 stays mitigated, not retired). G5 was re-anchored once,
+> deliberately: `88172139…` → `7cfdd821…`; the dictation digests are unchanged.
+
 > *Annotated (`shell-provider`, 2026-09-22) — the shell row above and the widened transport
 > lint.* **The roadmap's highest blast radius ships:** a shell command can delete, modify or
 > egress anything the user can — the first provider whose radius is unboundedly destructive

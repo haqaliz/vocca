@@ -103,11 +103,18 @@ public actor IntentPhraseStore {
         return base.appendingPathComponent("Vocca")
     }
 
+    // MARK: - The file location
+
+    /// `<directory>/intent-phrases.json` — the one location ``load()`` reads and ``save(_:)``
+    /// commits to, so a surface can display the file once.
+    public var fileURL: URL {
+        directory.appendingPathComponent(Self.fileName)
+    }
+
     // MARK: - Reading
 
     /// The table on disk, or the empty table — per the type documentation's tolerance rules.
     public func load() async -> IntentPhraseFile {
-        let fileURL = directory.appendingPathComponent(Self.fileName)
         guard await fileSystem.fileExists(atPath: fileURL.path) else { return .empty }
         guard let data = await fileSystem.read(fileURL) else {
             log("intent-phrases: could not read \(fileURL.path); loading an empty table")
@@ -118,14 +125,19 @@ public actor IntentPhraseStore {
 
     // MARK: - Writing
 
-    /// Writes `file` atomically. Throws — and writes nothing — over either cap, or on any
-    /// file-system failure: a failed save means the table is not durable.
+    /// Writes `file` atomically. Throws — and writes nothing — over either cap, for a row the
+    /// load-time rules refuse, or on any file-system failure: a failed save means the table is
+    /// not durable.
     public func save(_ file: IntentPhraseFile) async throws {
         guard file.phrases.count <= Self.maximumPhrases else {
             log(
                 "intent-phrases: refusing \(file.phrases.count) phrases (cap "
                     + "\(Self.maximumPhrases))")
             throw IntentPhraseStoreError.tooManyPhrases(file.phrases.count)
+        }
+        if let reason = Self.invalidRowReason(in: file.phrases) {
+            log("intent-phrases: refusing to save a row: \(reason)")
+            throw IntentPhraseStoreError.invalidRow(reason: reason)
         }
         let data = try Self.encode(file)
         guard data.count <= Self.maximumFileBytes else {
@@ -137,9 +149,42 @@ public actor IntentPhraseStore {
 
         try await fileSystem.createDirectory(at: directory)
         let temporaryURL = directory.appendingPathComponent(Self.fileName + Self.tempSuffix)
-        let committedURL = directory.appendingPathComponent(Self.fileName)
         try await fileSystem.write(data, to: temporaryURL)
-        try await fileSystem.moveItem(at: temporaryURL, to: committedURL)
+        try await fileSystem.moveItem(at: temporaryURL, to: fileURL)
+    }
+
+    /// Writes `file` only if the committed table still equals `snapshot` — the read-before-write
+    /// guard for a surface editing a file it loaded earlier. A committed file that differs throws
+    /// ``IntentPhraseStoreError/fileChangedOnDisk`` and writes nothing; otherwise this is
+    /// ``save(_:)``.
+    public func save(
+        _ file: IntentPhraseFile, ifUnchangedFrom snapshot: IntentPhraseFile
+    ) async throws {
+        let committed = await load()
+        guard committed == snapshot else {
+            log("intent-phrases: refusing to save; the file changed on disk")
+            throw IntentPhraseStoreError.fileChangedOnDisk
+        }
+        try await save(file)
+    }
+
+    /// The first reason ``save(_:)`` must refuse `phrases`, in a deterministic order — shell,
+    /// then duplicate, then empty, then length — or `nil` when every row is writable. The rules
+    /// mirror ``decode(_:onInvalid:)``'s per-row filters, applied as a strict gate at the write
+    /// rather than a tolerant one at the read.
+    private static func invalidRowReason(in phrases: [PhraseIntentRow]) -> String? {
+        var accepted = Set<String>()
+        for row in phrases {
+            guard row.providerID != ShellProvider.providerID else { return "shellTarget" }
+            let key = PhraseIntentResolver.normalized(row.phrase)
+            guard !accepted.contains(key) else { return "duplicatePhrase" }
+            guard !key.isEmpty else { return "emptyPhrase" }
+            guard row.phrase.count <= maximumPhraseLength else { return "phraseTooLong" }
+            guard row.providerID.count <= maximumIDLength, row.toolID.count <= maximumIDLength
+            else { return "idTooLong" }
+            accepted.insert(key)
+        }
+        return nil
     }
 
     // MARK: - The bytes
@@ -304,6 +349,14 @@ public enum IntentPhraseStoreError: Error, Equatable {
 
     /// More than ``IntentPhraseStore/maximumFileBytes`` of encoded bytes were produced.
     case fileTooLarge(Int)
+
+    /// A row the store refuses to write. `reason` is a short, stable key the surface maps to
+    /// copy: `"shellTarget"`, `"duplicatePhrase"`, `"emptyPhrase"`, `"phraseTooLong"`,
+    /// `"idTooLong"`.
+    case invalidRow(reason: String)
+
+    /// The committed file no longer equals the caller's snapshot; nothing was written.
+    case fileChangedOnDisk
 }
 
 /// The decoded phrase table — the file's value, not its bytes.

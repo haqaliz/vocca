@@ -1171,6 +1171,40 @@ written and runnable, recorded and never gated; no accuracy rate may be quoted. 
 
 ---
 
+*(Amended by the `phrase-authoring-ui` unit, 2026-10-17: **the action wedge becomes authorable** —
+a reachability slice, not a capability slice. Shipped:
+- **The store hardening** (`phrase-store-validation`): `IntentPhraseStore.save` refuses (throws
+  `IntentPhraseStoreError.invalidRow(reason:)`, writes nothing) the `dev.vocca.shell` row and the
+  duplicate/empty/over-length rows that `load` had filtered only on the next read — the write now
+  enforces the invariants, deterministically (shell → duplicate → empty → length); a
+  `public var fileURL` accessor; and `save(_:ifUnchangedFrom:)` — a read-before-write guard that
+  throws `.fileChangedOnDisk` (writes nothing) when the committed file differs from the snapshot.
+  `load` untouched.
+- **The audit rows** (`audit-enablement`): the **F-A** fix — `ActionWiring.listAuditTools`
+  (the `ShellWiring.listCommands` precedent) returns `audit.count`/`audit.clear` with radii from
+  `describe`; an Actions-tab **Audit tools** section, default off, enablement reapplied from the
+  shared store, **toggle-only** (no arm/preview — `audit.clear` is destructive), the D2 copy and
+  an explicit `audit.clear` warning.
+- **The authoring surface** (`phrase-authoring`): the Actions-tab **Phrases** section — add/edit/
+  remove/validate an `intent-phrases.json` row (a phrase + a validated free-text `providerID`/
+  `toolID` target, shell refused in editor and store), a `keywordFallback` toggle, UI-local
+  `ActionsPhraseRow`/`ActionsPhraseFile` + the root-side `AppBootstrap.phraseFile(from:)` mapping
+  (the `agentFile(from:)` precedent; **the intent seam lint is unmodified**), and
+  `SettingsBindings.loadPhrases`/`savePhrases` — **the first production `save` caller**. Load on
+  open, write only on an explicit changed save (byte preservation); save carries the open-time
+  snapshot, so a hand-edit landed mid-edit is refused, never clobbered.
+
+**The `audit-tools arm section` and the `phrase-authoring UI` retire from the remaining-machinery
+lists below; the `composite-intent-resolver` follow-on `a settings-UI row for keywordFallback`
+retires with the toggle.** G5 re-anchored once, deliberately (`88172139…` → `7cfdd821…`, computed
+with `shasum -a 256` on 2026-10-17 after the unit's composition-root edits, never edited-to-match;
+all seven pin sites; dictation digests unchanged). No gate passes (twenty-fifth unit ahead of the
+uncleared gates); the surface adds no run affordance; the composed default still reads `agents=0
+spawnsSubprocess=false`; the real surface is unverified (SMOKE 170 written, recorded, never
+gated). Test floor: **3306**.)*
+
+---
+
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+
 
 **Why it matters.** Two things at once. For users: managing models in-app instead of by hand. For the project: **the only honest test that any of our seams are real.** If someone outside the repository can add an ASR engine that the core has never heard of and it just works, the pluggable claim is true — and by direct implication, the hosted tier slots in without a rewrite. If they can't, every seam above is decoration and we should find that out now rather than at the moment we need it.

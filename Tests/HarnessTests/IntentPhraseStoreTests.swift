@@ -415,6 +415,198 @@ final class IntentPhraseStoreTests: XCTestCase {
             String(decoding: try IntentPhraseStore.encode(off), as: UTF8.self), expected)
     }
 
+    // MARK: - Save validation (`phrase-store-validation` A1-A5)
+
+    /// Asserts `save` refuses `submitted` with exactly `reason` and leaves the directory empty —
+    /// a refused save must write neither the file nor a stray temp file.
+    private func assertSaveRefuses(
+        _ submitted: IntentPhraseFile, in directory: URL, reason: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async {
+        let store = IntentPhraseStore(directory: directory, log: { _ in })
+        do {
+            try await store.save(submitted)
+            XCTFail("save must refuse with \(reason)", file: file, line: line)
+        } catch let error as IntentPhraseStoreError {
+            XCTAssertEqual(error, .invalidRow(reason: reason), file: file, line: line)
+        } catch {
+            XCTFail("expected IntentPhraseStoreError, got \(error)", file: file, line: line)
+        }
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        XCTAssertEqual(
+            contents, [], "a refused save must leave nothing behind", file: file, line: line)
+    }
+
+    /// A1 — a row naming the shell provider is refused at save, so the voice leg's shell refusal
+    /// cannot be defeated by writing the row through the store instead of hand-editing the file.
+    func testSaveRefusesAShellTargetRow() async {
+        await assertSaveRefuses(
+            IntentPhraseFile(phrases: [
+                PhraseIntentRow(
+                    phrase: "empty my downloads", providerID: ShellProvider.providerID,
+                    toolID: "empty-downloads")
+            ]),
+            in: Self.tempDirectory(), reason: "shellTarget")
+    }
+
+    /// A2 — a duplicate normalized phrase is refused: the same rows `load` would collapse to one,
+    /// judged with the resolver's own normalization.
+    func testSaveRefusesADuplicateNormalizedPhrase() async {
+        await assertSaveRefuses(
+            IntentPhraseFile(phrases: [
+                Self.clearRow,
+                PhraseIntentRow(
+                    phrase: "Clear the audit-log!", providerID: "dev.vocca.audit",
+                    toolID: "audit.count"),
+            ]),
+            in: Self.tempDirectory(), reason: "duplicatePhrase")
+    }
+
+    /// A3 — an empty, whitespace-only or punctuation-only phrase (the one normalization) is
+    /// refused.
+    func testSaveRefusesAnEmptyOrWhitespacePhrase() async {
+        for phrase in ["", "   ", "\t\n", "!!!"] {
+            await assertSaveRefuses(
+                IntentPhraseFile(phrases: [
+                    PhraseIntentRow(
+                        phrase: phrase, providerID: "dev.vocca.audit", toolID: "audit.clear")
+                ]),
+                in: Self.tempDirectory(), reason: "emptyPhrase")
+        }
+    }
+
+    /// A4 — an over-length phrase is refused, and over-length identifiers are refused distinctly.
+    func testSaveRefusesAnOverLengthPhrase() async {
+        let tooLong = String(repeating: "a", count: IntentPhraseStore.maximumPhraseLength + 1)
+        await assertSaveRefuses(
+            IntentPhraseFile(phrases: [
+                PhraseIntentRow(
+                    phrase: tooLong, providerID: "dev.vocca.audit", toolID: "audit.clear")
+            ]),
+            in: Self.tempDirectory(), reason: "phraseTooLong")
+    }
+
+    func testSaveRefusesAnOverLengthIdentifier() async {
+        let longProvider = String(repeating: "p", count: IntentPhraseStore.maximumIDLength + 1)
+        let longTool = String(repeating: "t", count: IntentPhraseStore.maximumIDLength + 1)
+        await assertSaveRefuses(
+            IntentPhraseFile(phrases: [
+                PhraseIntentRow(
+                    phrase: "clear the audit log", providerID: longProvider, toolID: "audit.clear")
+            ]),
+            in: Self.tempDirectory(), reason: "idTooLong")
+        await assertSaveRefuses(
+            IntentPhraseFile(phrases: [
+                PhraseIntentRow(
+                    phrase: "clear the audit log", providerID: "dev.vocca.audit", toolID: longTool)
+            ]),
+            in: Self.tempDirectory(), reason: "idTooLong")
+    }
+
+    /// The refusal order is deterministic: shell outranks duplicate, empty and length, so the
+    /// reason a surface shows is unambiguous.
+    func testTheSaveRefusalOrderIsShellFirst() async {
+        let tooLong = String(repeating: "a", count: IntentPhraseStore.maximumPhraseLength + 1)
+        await assertSaveRefuses(
+            IntentPhraseFile(phrases: [
+                Self.clearRow,
+                PhraseIntentRow(
+                    phrase: "clear the audit log", providerID: ShellProvider.providerID, toolID: "x"),
+            ]),
+            in: Self.tempDirectory(), reason: "shellTarget")
+        await assertSaveRefuses(
+            IntentPhraseFile(phrases: [
+                PhraseIntentRow(phrase: "", providerID: ShellProvider.providerID, toolID: "x")
+            ]),
+            in: Self.tempDirectory(), reason: "shellTarget")
+        await assertSaveRefuses(
+            IntentPhraseFile(phrases: [
+                PhraseIntentRow(phrase: tooLong, providerID: ShellProvider.providerID, toolID: "x")
+            ]),
+            in: Self.tempDirectory(), reason: "shellTarget")
+    }
+
+    /// A5 — a valid table still saves byte-identically to the pin: the refusals never touch a good
+    /// row's encoding.
+    func testAValidSaveWritesThePinnedBytes() async throws {
+        let directory = Self.tempDirectory()
+        let store = IntentPhraseStore(directory: directory, log: { _ in })
+
+        try await store.save(IntentPhraseFile(version: 1, phrases: [Self.clearRow]))
+
+        XCTAssertEqual(
+            String(decoding: try XCTUnwrap(bytes(in: directory)), as: UTF8.self),
+            #"{"phrases":[{"phrase":"clear the audit log","providerID":"dev.vocca.audit","toolID":"audit.clear"}],"version":1}"#
+        )
+    }
+
+    // MARK: - The file-location accessor (`phrase-store-validation` A7)
+
+    /// A7 — the accessor names `<directory>/intent-phrases.json`, the one path save and load use.
+    func testTheFileURLAccessorNamesTheCommittedFile() async throws {
+        let directory = Self.tempDirectory()
+        let store = IntentPhraseStore(directory: directory, log: { _ in })
+
+        let accessor = await store.fileURL
+
+        XCTAssertEqual(accessor, directory.appendingPathComponent(Self.fileName))
+        try await store.save(IntentPhraseFile(phrases: [Self.clearRow]))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: accessor.path))
+        let loaded = await store.load()
+        XCTAssertEqual(loaded, IntentPhraseFile(phrases: [Self.clearRow]))
+    }
+
+    // MARK: - The read-before-write guard (`phrase-store-validation` D-4)
+
+    /// A committed file that changed since the snapshot refuses the write and leaves the bytes
+    /// untouched — the conflict rule lives in the store, not the surface.
+    func testSaveIfUnchangedRefusesWhenTheFileChangedOnDisk() async throws {
+        let directory = Self.tempDirectory()
+        let store = IntentPhraseStore(directory: directory, log: { _ in })
+        let snapshot = IntentPhraseFile(phrases: [Self.clearRow])
+        try await store.save(snapshot)
+        try await store.save(IntentPhraseFile(phrases: [Self.countRow]))
+        let before = bytes(in: directory)
+
+        do {
+            try await store.save(
+                IntentPhraseFile(phrases: [Self.clearRow, Self.countRow]),
+                ifUnchangedFrom: snapshot)
+            XCTFail("a committed file that changed must refuse the save")
+        } catch let error as IntentPhraseStoreError {
+            XCTAssertEqual(error, .fileChangedOnDisk)
+        }
+
+        XCTAssertEqual(bytes(in: directory), before)
+    }
+
+    /// A committed file equal to the snapshot saves — the happy path the guard must not block.
+    func testSaveIfUnchangedWritesWhenTheFileMatches() async throws {
+        let directory = Self.tempDirectory()
+        let store = IntentPhraseStore(directory: directory, log: { _ in })
+        let snapshot = IntentPhraseFile(phrases: [Self.clearRow])
+        try await store.save(snapshot)
+        let next = IntentPhraseFile(phrases: [Self.clearRow, Self.countRow])
+
+        try await store.save(next, ifUnchangedFrom: snapshot)
+
+        let loaded = await store.load()
+        XCTAssertEqual(loaded, next)
+    }
+
+    /// An absent file is the empty committed table: an `.empty` snapshot matches and the save
+    /// lands, so a first save needs no special case.
+    func testSaveIfUnchangedWritesWhenAbsentAndTheSnapshotWasEmpty() async throws {
+        let directory = Self.tempDirectory()
+        let store = IntentPhraseStore(directory: directory, log: { _ in })
+        let next = IntentPhraseFile(phrases: [Self.clearRow])
+
+        try await store.save(next, ifUnchangedFrom: .empty)
+
+        let loaded = await store.load()
+        XCTAssertEqual(loaded, next)
+    }
+
     // MARK: - The default location
 
     func testTheDefaultDirectoryIsApplicationSupportVocca() {

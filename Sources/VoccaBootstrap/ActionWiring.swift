@@ -58,6 +58,13 @@ public struct ActionWiring<Provider: ActionProvider>: Sendable {
     /// honest first-launch answer: no server is configured out of the box (D2).
     public let loadConfig: @Sendable @MainActor () async -> ActionsConfigDraft
 
+    /// The audit provider's own tools as the tab's **Audit tools** rows (`audit-enablement`):
+    /// `audit.count` (read-only) and `audit.clear` (destructive), the radius read from each
+    /// tool's `describe` and the enablement folded from the shared store — default off, absent
+    /// is off (the `ShellWiring.listCommands` shape). A static list read over the provider the
+    /// recipe already carries: never a discovery and never a spawn.
+    public let listAuditTools: @Sendable @MainActor () async -> [ActionsToolRow]
+
     /// Writes the whole draft back — servers and enablement in one save. Throws what the store
     /// throws: a server the user believes configured must be configured.
     public let saveConfig: @Sendable @MainActor (ActionsConfigDraft) async throws -> Void
@@ -111,6 +118,7 @@ public struct ActionWiring<Provider: ActionProvider>: Sendable {
 
     public init(
         loadConfig: @escaping @Sendable @MainActor () async -> ActionsConfigDraft,
+        listAuditTools: @escaping @Sendable @MainActor () async -> [ActionsToolRow],
         saveConfig: @escaping @Sendable @MainActor (ActionsConfigDraft) async throws -> Void,
         discoverTools: @escaping @Sendable @MainActor (String) async -> ActionsDiscoveryResult,
         setToolEnabled: @escaping @Sendable @MainActor (String, String, Bool) async throws -> Void,
@@ -124,6 +132,7 @@ public struct ActionWiring<Provider: ActionProvider>: Sendable {
         spawnsSubprocess: Bool
     ) {
         self.loadConfig = loadConfig
+        self.listAuditTools = listAuditTools
         self.saveConfig = saveConfig
         self.discoverTools = discoverTools
         self.setToolEnabled = setToolEnabled
@@ -221,6 +230,37 @@ extension AppBootstrap {
                     config.enablement.map {
                         ActionsToolKey(providerID: $0.providerID, toolID: $0.toolID)
                     }))
+        }
+
+        // The audit leg's row source (`audit-enablement`): the provider's own tools, the radius
+        // read from each tool's `describe` and the enablement folded from the shared store —
+        // default off, absent is off. A static list read over the provider the recipe already
+        // carries: never a discovery and never a spawn.
+        let listAuditTools: @Sendable @MainActor () async -> [ActionsToolRow] = {
+            let config = await configStore.load()
+            var rows: [ActionsToolRow] = []
+            rows.reserveCapacity(provider.toolIDs.count)
+            for toolID in provider.toolIDs {
+                guard
+                    let invocation = ActionInvocation(
+                        providerID: AuditActionProvider.providerID, toolID: toolID)
+                else { continue }
+                let summary = await provider.describe(invocation)
+                let radius: ActionsTabRadius
+                switch summary.blastRadius {
+                case .readOnly: radius = .readOnly
+                case .destructive: radius = .destructive
+                case .outwardFacing: radius = .outwardFacing
+                }
+                rows.append(
+                    ActionsToolRow(
+                        providerID: AuditActionProvider.providerID, toolID: toolID,
+                        summary: summary.sentence, radius: radius,
+                        isEnabled: config.enablement.contains(
+                            ActionConfigEnablementRow(
+                                providerID: AuditActionProvider.providerID, toolID: toolID))))
+            }
+            return rows
         }
 
         let saveConfig: @Sendable @MainActor (ActionsConfigDraft) async throws -> Void = {
@@ -369,6 +409,7 @@ extension AppBootstrap {
 
         return ActionWiring(
             loadConfig: loadConfig,
+            listAuditTools: listAuditTools,
             saveConfig: saveConfig,
             discoverTools: discoverTools,
             setToolEnabled: setToolEnabled,

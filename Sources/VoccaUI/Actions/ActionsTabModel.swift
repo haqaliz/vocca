@@ -264,6 +264,115 @@ public enum AgentDraftField: Sendable, Equatable {
     case environmentValue(Int)
 }
 
+// MARK: - The phrase authoring surface (phrase-authoring)
+
+/// One user-authored phrase row, as the tab lists and edits it — the tab's own plain spelling
+/// of an `intent-phrases.json` row (the ``ActionsAgentDefinition`` precedent).
+///
+/// `VoccaUI` may not name the intent layer's types (the module boundary and the intent-seam
+/// lint), so everything the Phrases section crosses its seams with is spelled here, and the
+/// root maps the two spellings at the composition root — one direction, the
+/// ``ActionsConfigDraft`` precedent. The three fields are exactly the file's own.
+public struct ActionsPhraseRow: Sendable, Equatable, Identifiable {
+    /// The spoken phrase that matches this row, compared after the one normalization
+    /// (``PhraseAuthoringConstants/normalized(_:)``). Unique across the table by construction —
+    /// the editor refuses a duplicate and the store refuses one too.
+    public var phrase: String
+    /// The provider the matched tool belongs to.
+    public var providerID: String
+    /// The tool within that provider.
+    public var toolID: String
+
+    /// The row's identity in the table — the phrase itself, which the file's own rules make
+    /// unique (a duplicate normalized phrase never survives a save).
+    public var id: String { phrase }
+
+    public init(phrase: String, providerID: String, toolID: String) {
+        self.phrase = phrase
+        self.providerID = providerID
+        self.toolID = toolID
+    }
+}
+
+/// The phrase table as the tab saves it — the ``ActionsAgentFile`` shape for
+/// `intent-phrases.json`: version + rows + the keyword-fallback switch, one draft, so what the
+/// table shows and what the file holds cannot drift.
+public struct ActionsPhraseFile: Sendable, Equatable {
+    /// The file format's version — this build reads and writes `1`.
+    public let version: Int
+    /// The configured phrases, in the table's order.
+    public let phrases: [ActionsPhraseRow]
+    /// Whether the keyword fallback is on — absent in the file is off.
+    public let keywordFallback: Bool
+
+    /// No phrases — the file's empty spelling, and the honest first-launch answer.
+    public static let empty = ActionsPhraseFile(version: 1, phrases: [])
+
+    public init(version: Int = 1, phrases: [ActionsPhraseRow], keywordFallback: Bool = false) {
+        self.version = version
+        self.phrases = phrases
+        self.keywordFallback = keywordFallback
+    }
+}
+
+/// The phrase editor's fields — the closed set the draft-edit action names.
+public enum PhraseDraftField: Sendable, Equatable {
+    case phrase
+    case providerID
+    case toolID
+}
+
+/// What the phrase save path reported back to the section — the root's translation of the
+/// store's typed answer into a vocabulary `VoccaUI` may name. `saved` advances the snapshot;
+/// `conflict` is the read-before-write refusal (the file changed on disk); `failed` keeps the
+/// draft and surfaces the message.
+public enum PhraseSaveOutcome: Sendable, Equatable {
+    /// The table reached the file.
+    case saved
+    /// The committed file no longer matched the snapshot; nothing was written.
+    case conflict
+    /// The write failed for another reason, in the store's own words.
+    case failed(String)
+}
+
+/// **The phrase surface's own copy of the file contract** — the caps, the shell refusal and the
+/// one normalization `VoccaUI` must validate with, spelled here because the module boundary and
+/// the intent-seam lint forbid naming the store's, the resolver's and the shell provider's.
+///
+/// A second spelling is honest only while it is proven to agree with the one source of truth:
+/// `PhraseAuthoringTests` pins every value here against its action-layer counterpart, so a
+/// retune on either side fails loudly — the ``AgentAuthoringConstants`` precedent.
+public enum PhraseAuthoringConstants {
+    /// ``IntentPhraseStore/maximumPhraseLength``.
+    public static let maximumPhraseLength = 256
+    /// ``IntentPhraseStore/maximumIDLength``.
+    public static let maximumIDLength = 128
+    /// ``ShellProvider/providerID`` — refused in the editor and by the store alike.
+    public static let shellProviderID = "dev.vocca.shell"
+    /// ``AuditActionProvider/providerID`` — one of the legal targets the editor hints at.
+    public static let auditProviderID = "dev.vocca.audit"
+
+    /// The one normalization a phrase is judged under — lowercases letters, keeps letters and
+    /// digits, and collapses every other run of characters to a single space; no leading or
+    /// trailing space. Pinned against ``PhraseIntentResolver/normalized(_:)`` in the surface
+    /// suite, so the editor's duplicate and empty checks agree with the resolver's match and the
+    /// store's save gate.
+    public static func normalized(_ text: String) -> String {
+        var result = ""
+        var pendingSeparator = false
+        for ch in text {
+            if ch.isLetter || ch.isNumber {
+                if pendingSeparator && !result.isEmpty { result.append(" ") }
+                pendingSeparator = false
+                result += ch.lowercased()
+            } else {
+                pendingSeparator = true
+            }
+        }
+        return result
+    }
+}
+
 /// **The authoring surface's own copy of the row contract** — the caps, the timeout default
 /// and the placeholder `VoccaUI` must validate and pre-fill with, spelled here because the
 /// module boundary forbids naming the registry's and the catalog's constants.

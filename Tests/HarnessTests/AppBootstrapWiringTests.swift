@@ -896,12 +896,38 @@ final class AppBootstrapWiringTests: XCTestCase {
             "the scan would pass a call site that never forwards the history fact")
     }
 
+    /// **Settings wires the two phrase bindings** (`phrase-authoring`, A10): the shipped
+    /// `SettingsBindings` construction names `loadPhrases:` and `savePhrases:` — the Phrases
+    /// section's read and its guarded write — and both reach the store through the root's slot.
+    /// The defaulted closures that claim nothing have no place at the shipped call site.
+    func testShowSettingsWiresTheTwoPhraseBindings() throws {
+        let block = try Self.settingsBindingsConstructionBlock()
+        for binding in ["loadPhrases:", "savePhrases:"] {
+            XCTAssertTrue(
+                block.contains(binding),
+                "the SettingsBindings construction must name \(binding) — the defaulted "
+                    + "closure that claims nothing has no place at the shipped call site")
+        }
+        XCTAssertTrue(
+            block.contains("intentPhraseStore"),
+            "the bindings must reach the store through the root's slot — never a second store")
+
+        let root = try PackageRootLocator.find(from: #filePath)
+        let source = SwiftSourceScanner.stripComments(
+            from: try String(
+                contentsOf: root.appendingPathComponent(
+                    "Sources/VoccaBootstrap/AppBootstrap.swift"), encoding: .utf8))
+        XCTAssertTrue(
+            source.contains("root.intentPhraseStore = intentPhraseStore"),
+            "configure must attach the composed phrase store to the root's slot — the section "
+                + "authors the same file the per-turn resolver reads")
+    }
+
     /// The `SettingsBindings(` call's parenthesized block in `AppBootstrap.swift`, comments
     /// stripped — the `contextCompositionBlock` shape, for the settings window's construction.
     private static func settingsBindingsConstructionBlock() throws -> String {
         try Self.balancedBlock(in: "AppBootstrap.swift", after: "SettingsBindings(")
     }
-
     /// The balanced parenthesized block following `header` in `AppBootstrap.swift` — the
     /// `contextCompositionBlock` extraction, generalised.
     private static func balancedBlock(in fileName: String, after header: String) throws -> String {

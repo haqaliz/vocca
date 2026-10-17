@@ -799,6 +799,9 @@ public enum AppBootstrap {
                 home: FileManager.default.homeDirectoryForCurrentUser))
         let intentResolverProvider = AppBootstrap.composeIntentResolverProvider(
             store: intentPhraseStore)
+        // The phrase table is authored through the same store the resolver reads (`phrase-authoring`):
+        // the root keeps it so the Phrases section's bindings reach the one file.
+        root.intentPhraseStore = intentPhraseStore
         let intentWiring = AppBootstrap.composeIntentWiring(
             configStore: actionConfigStore,
             provider: actionProvider,
@@ -1483,6 +1486,38 @@ public enum AppBootstrap {
     ) -> @Sendable @MainActor () async -> any IntentResolver {
         { composeIntentResolver(file: await store.load()) }
     }
+
+    /// **The tab's phrase file, translated at the root** (`phrase-authoring`): the one mapping
+    /// between the tab's plain spelling and the store's. `VoccaUI` may not name the action
+    /// layer's or the confined core types (the module boundary and the intent-seam lint), so
+    /// the translation lives where both are nameable — the ``agentFile(from:)`` precedent — and
+    /// the shipped `savePhrases` binding and the authoring round-trip suite drive the same
+    /// mapping. Declared `throws` to mirror the agent mapping's shape for a future validation;
+    /// today every surface row is already valid by the time it reaches here.
+    ///
+    /// The row is built with the contextual `.init` spelling rather than an explicit type name:
+    /// ``IntentSeamBoundaryTests`` confines the row family to the files that decide with it, and
+    /// the composition root builds the store's value, it never resolves with it — so it need not
+    /// (and does not) name the confined type.
+    public static func phraseFile(from file: ActionsPhraseFile) throws -> IntentPhraseFile {
+        IntentPhraseFile(
+            version: file.version,
+            phrases: file.phrases.map {
+                .init(phrase: $0.phrase, providerID: $0.providerID, toolID: $0.toolID)
+            },
+            keywordFallback: file.keywordFallback)
+    }
+
+    /// The reverse for load: the store's table in the tab's plain spelling, so the section
+    /// reads through one mapping and the two spellings cannot drift (the agreement pin).
+    public static func actionsPhraseFile(from file: IntentPhraseFile) -> ActionsPhraseFile {
+        ActionsPhraseFile(
+            version: file.version,
+            phrases: file.phrases.map {
+                ActionsPhraseRow(phrase: $0.phrase, providerID: $0.providerID, toolID: $0.toolID)
+            },
+            keywordFallback: file.keywordFallback)
+    }
 }
 
 // MARK: - The failsafe surface the loop presents on
@@ -1901,6 +1936,13 @@ public final class DictationLoopRoot {
     /// `nil` only in a composition that built no intent wiring.
     public var intentResolverProvider: (@Sendable @MainActor () async -> any IntentResolver)?
 
+    /// **The phrase store the per-turn resolver reads** (`phrase-authoring`): the same
+    /// `intent-phrases.json` the composed default loads each turn, reached back from `configure`
+    /// so the Actions-tab Phrases section can author it (the ``agentRegistry`` precedent). The
+    /// section's save goes through it under the store's read-before-write guard. `nil` only in a
+    /// composition that built no intent wiring — every headless harness in the suite.
+    public var intentPhraseStore: IntentPhraseStore?
+
     // MARK: - The shell composition (C13 slice 7, shell-provider)
 
     /// **The composed shell wiring** (`wiring` aspect): the executor over the shell provider
@@ -2275,6 +2317,12 @@ public final class DictationLoopRoot {
                     loadShellCommands: { [weak self] in
                         await self?.shellWiring?.listCommands() ?? []
                     },
+                    // The audit leg's row source (`audit-enablement`): the audit provider's two
+                    // tools, read through the action wiring. `nil` wiring (the headless default)
+                    // claims nothing — the empty answer.
+                    loadAuditTools: { [weak self] in
+                        await self?.actionWiring?.listAuditTools() ?? []
+                    },
                     // The agent leg's row source: the registry's agents, read through the
                     // agent wiring. `nil` wiring (the headless default, or before the agent
                     // composition's launch task lands) claims nothing — the empty answer.
@@ -2328,6 +2376,31 @@ public final class DictationLoopRoot {
                     saveAgents: { [weak self] file in
                         guard let registry = self?.agentRegistry else { return }
                         try await registry.save(AppBootstrap.agentFile(from: file))
+                    },
+                    // The phrase authoring bindings (`phrase-authoring`): the read maps the
+                    // store's table into the tab's plain spelling at the root; the save maps
+                    // both the draft and the section's snapshot and commits under the store's
+                    // read-before-write guard, so a hand edit between open and save is a
+                    // conflict rather than a clobber. `nil` store (the headless default) claims
+                    // nothing and never claims a save succeeded.
+                    loadPhrases: { [weak self] in
+                        guard let store = self?.intentPhraseStore else { return .empty }
+                        return AppBootstrap.actionsPhraseFile(from: await store.load())
+                    },
+                    savePhrases: { [weak self] draft, snapshot in
+                        guard let store = self?.intentPhraseStore else {
+                            return .failed("the phrase store is not wired")
+                        }
+                        do {
+                            try await store.save(
+                                AppBootstrap.phraseFile(from: draft),
+                                ifUnchangedFrom: AppBootstrap.phraseFile(from: snapshot))
+                            return .saved
+                        } catch IntentPhraseStoreError.fileChangedOnDisk {
+                            return .conflict
+                        } catch {
+                            return .failed(error.localizedDescription)
+                        }
                     },
                     setToolEnabled: { [weak self] providerID, toolID, enabled in
                         guard let wiring = self?.actionWiring else { return }
