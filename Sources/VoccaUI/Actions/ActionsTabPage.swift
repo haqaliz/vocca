@@ -139,6 +139,56 @@ struct ActionsTabPage: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section(ActionsTabCopy.auditSectionTitle) {
+                // The audit section's D2 copy at the moment of enable: these tools act on the
+                // local action audit log, and clearing it cannot be undone. The section is
+                // **toggle-only** (D-1): `audit.clear` is destructive, so the rows carry the
+                // enable toggle, the radius and the destructive warning — and no arm/preview
+                // affordance. The voice path and the confirmation card are the run surface.
+                Text(ActionsTabCopy.auditD2TrustCopy)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(state.auditRows) { row in
+                    auditToolRow(row)
+                }
+            }
+
+            Section(ActionsTabCopy.phrasesSectionTitle) {
+                // The voice authoring surface: a phrase names a tool, and the table is what the
+                // per-turn resolver reads. The section authors only — no run affordance — and
+                // the shell provider is refused by the editor and the store alike.
+                if state.isPhrasesLoaded && state.phraseRows.isEmpty {
+                    Text(ActionsTabCopy.phraseEmptyPhrases)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(state.phraseRows) { row in
+                    if state.editingPhraseID == row.phrase {
+                        phraseEditor()
+                    } else {
+                        phraseRow(row)
+                    }
+                }
+                if state.isPhraseEditorOpen && state.editingPhraseID == nil {
+                    phraseEditor()
+                } else if state.editingPhraseID == nil {
+                    addPhraseForm()
+                }
+                Toggle(
+                    ActionsTabCopy.phraseKeywordFallbackLabel,
+                    isOn: Binding(
+                        get: { state.keywordFallbackDraft },
+                        set: { on in
+                            state = ActionsTabReducer.reduce(
+                                state, .keywordFallbackToggled(on))
+                            persistPhrases()
+                        })
+                )
+                Text(ActionsTabCopy.phraseKeywordFallbackDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if let saveError = state.saveError {
                 Section {
                     Text(ActionsTabCopy.saveError(saveError))
@@ -151,10 +201,12 @@ struct ActionsTabPage: View {
         .task {
             await load()
             await loadShellCommands()
+            await loadAuditTools()
             await loadAgents()
             await loadAgentPresets()
             await loadAgentDefinitions()
             await detectAgents()
+            await loadPhrases()
         }
     }
 
@@ -298,6 +350,149 @@ struct ActionsTabPage: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    // MARK: - The audit tools section
+
+    /// One audit tool: the enablement toggle (off by default), the radius, and — on the
+    /// destructive row — the `audit.clear` warning. **No arm and no preview** (D-1): the audit
+    /// rows are toggle-only, because `audit.clear` permanently deletes the log and the tab is
+    /// not a run surface. The affordances are omitted by construction, never by a condition.
+    private func auditToolRow(_ row: ActionsToolRow) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { row.isEnabled },
+                        set: { enabled in
+                            setEnabled(row, enabled)
+                        })
+                )
+                .labelsHidden()
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(row.providerID) / \(row.toolID)")
+                        .font(.callout)
+                    Text(ActionsTabCopy.radiusLabel(row.radius))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            if row.radius == .destructive {
+                Text(ActionsTabCopy.auditClearDestructiveWarning)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    // MARK: - The phrases section
+
+    /// One authored phrase: the phrase and its target, with the two row actions. The section
+    /// authors only — no run affordance.
+    private func phraseRow(_ row: ActionsPhraseRow) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.phrase)
+                Text("\(row.providerID) / \(row.toolID)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(ActionsTabCopy.editServerButton) {
+                state = ActionsTabReducer.reduce(state, .phraseEditStarted(phrase: row.phrase))
+            }
+            Button(ActionsTabCopy.removeServerButton) {
+                removePhrase(row)
+            }
+        }
+    }
+
+    /// The open phrase editor — the three fields, the known-targets hint, and the two ways out.
+    /// Save validates through the reducer first: a refused save keeps the editor open with the
+    /// loud reason and never reaches the file.
+    private func phraseEditor() -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField(ActionsTabCopy.phraseFieldLabel, text: phraseDraftBinding(.phrase))
+            TextField(ActionsTabCopy.phraseProviderLabel, text: phraseDraftBinding(.providerID))
+            TextField(ActionsTabCopy.phraseToolLabel, text: phraseDraftBinding(.toolID))
+            Text(ActionsTabCopy.phraseKnownTargetsHint)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(state.agentDefinitions) { agent in
+                Text(ActionsTabCopy.phraseAgentTargetHint(agent.id))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Button(ActionsTabCopy.saveServerButton) { savePhrase() }
+                Button(ActionsTabCopy.cancelButton) {
+                    state = ActionsTabReducer.reduce(state, .phraseEditCancelled)
+                }
+            }
+        }
+    }
+
+    /// The add affordance — a button that opens the blank editor through the reducer.
+    private func addPhraseForm() -> some View {
+        Button(ActionsTabCopy.phraseAddButton) {
+            state = ActionsTabReducer.reduce(state, .phraseEditorOpened)
+        }
+    }
+
+    /// One draft field's binding — every keystroke folds through the reducer.
+    private func phraseDraftBinding(_ field: PhraseDraftField) -> Binding<String> {
+        Binding(
+            get: {
+                switch field {
+                case .phrase: return state.phrasePhraseDraft
+                case .providerID: return state.phraseProviderIDDraft
+                case .toolID: return state.phraseToolIDDraft
+                }
+            },
+            set: { state = ActionsTabReducer.reduce(state, .phraseDraftFieldEdited(field, $0)) })
+    }
+
+    /// The editor's Save: the reducer validates and folds first — a refused save keeps the
+    /// editor open with the loud reason and never reaches the file; a folded save writes the
+    /// whole table through under the read-before-write guard.
+    private func savePhrase() {
+        state = ActionsTabReducer.reduce(state, .phraseSaveRequested)
+        guard !state.isPhraseEditorOpen else { return }
+        persistPhrases()
+    }
+
+    /// Removes the phrase from the draft and writes the whole table through.
+    private func removePhrase(_ row: ActionsPhraseRow) {
+        state = ActionsTabReducer.reduce(state, .phraseRemoved(phrase: row.phrase))
+        persistPhrases()
+    }
+
+    /// Writes the whole phrase table through, guarded by the snapshot the section loaded: a
+    /// committed file that changed since then surfaces the conflict copy and writes nothing, a
+    /// failure keeps the draft, and a save that reached the file advances the snapshot.
+    private func persistPhrases() {
+        let draft = ActionsPhraseFile(
+            version: state.phraseVersion, phrases: state.phraseRows,
+            keywordFallback: state.keywordFallbackDraft)
+        let snapshot = state.phraseSnapshot ?? .empty
+        Task {
+            switch await bindings.savePhrases(draft, snapshot) {
+            case .saved:
+                state = ActionsTabReducer.reduce(state, .phrasesSaved(draft))
+            case .conflict:
+                state = ActionsTabReducer.reduce(state, .saveFailed(ActionsTabCopy.phraseConflict))
+            case .failed(let message):
+                state = ActionsTabReducer.reduce(state, .saveFailed(message))
+            }
+        }
+    }
+
+    /// The phrase table as the file holds it — loaded once per opening, never written on open.
+    private func loadPhrases() async {
+        let file = await bindings.loadPhrases()
+        state = ActionsTabReducer.reduce(state, .phrasesConfigLoaded(file))
     }
 
     // MARK: - The agents section
@@ -602,6 +797,13 @@ struct ActionsTabPage: View {
     private func loadShellCommands() async {
         let rows = await bindings.loadShellCommands()
         state = ActionsTabReducer.reduce(state, .shellConfigLoaded(rows))
+    }
+
+    /// The audit provider's rows, folded once per opening — the audit leg's row source, read
+    /// through the wiring like the config is. A static list read; no discovery, no spawn.
+    private func loadAuditTools() async {
+        let rows = await bindings.loadAuditTools()
+        state = ActionsTabReducer.reduce(state, .auditToolsLoaded(rows))
     }
 
     /// The agent registry's agents, folded once per opening — the agent leg's row source,

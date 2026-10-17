@@ -142,6 +142,22 @@ public enum ActionsTabCopy {
     public static let agentEnvironmentLengthReason =
         "an environment key or value is longer than \(AgentAuthoringConstants.maximumEnvironmentValueLength) characters"
 
+    /// The audit tools section's title (`audit-enablement`) — the section that lists the local
+    /// audit provider's two tools as **toggle-only** enablement rows (D-1): no arm, no preview.
+    public static let auditSectionTitle = "Audit tools"
+    /// **The audit leg's D2 copy, exact-in-spirit** (the shell/agent copies above): the audit
+    /// tools act on the user's local action audit log, and clearing it cannot be undone. Placed
+    /// in the audit section, the moment of enable.
+    public static let auditD2TrustCopy =
+        "The audit tools act on your local action audit log. Vocca cannot restore it "
+        + "once cleared."
+
+    /// **The `audit.clear` destructive warning** (D-1) — rendered on the destructive audit row:
+    /// enabling the tool arms a voice phrase that permanently deletes the whole audit log.
+    public static let auditClearDestructiveWarning =
+        "Warning: audit.clear permanently deletes every entry in the audit log. This "
+        + "cannot be undone."
+
     /// The shell section's empty state — honest about why it is empty: nothing is configured
     /// out of the box, and an absent `shell-commands.json` is the empty registry.
     public static let emptyShellCommands =
@@ -257,4 +273,68 @@ public enum ActionsTabCopy {
     public static func saveError(_ message: String) -> String {
         "Couldn't save: \(message)"
     }
+
+    // MARK: - The phrase authoring surface (phrase-authoring)
+
+    /// The Phrases section's title — the first in-app authoring surface for the phrase table.
+    public static let phrasesSectionTitle = "Phrases"
+
+    /// The Phrases section's empty state — honest about why it is empty: nothing is authored
+    /// out of the box, and the in-app affordance is where a phrase is added.
+    public static let phraseEmptyPhrases =
+        "No phrases configured. Add one to say it in conversation."
+
+    /// The Phrases section's add affordance.
+    public static let phraseAddButton = "Add phrase"
+
+    /// The editor's phrase field.
+    public static let phraseFieldLabel = "Phrase"
+
+    /// The editor's provider field.
+    public static let phraseProviderLabel = "Provider"
+
+    /// The editor's tool field.
+    public static let phraseToolLabel = "Tool"
+
+    /// **The known-targets hint** — the legal targets a phrase may name, inline under the target
+    /// fields. The audit tools are static; a coding agent's id is appended per configured row
+    /// (``phraseAgentTargetHint(_:)``), and the shell provider is deliberately absent — it is
+    /// refused.
+    public static let phraseKnownTargetsHint =
+        "Known targets: \(PhraseAuthoringConstants.auditProviderID) / audit.count, "
+        + "\(PhraseAuthoringConstants.auditProviderID) / audit.clear"
+
+    /// One configured coding agent's target, as the hint lists it — `vocca.agent` named through
+    /// the surface's mirrored constant (never the action layer's type).
+    public static func phraseAgentTargetHint(_ agentID: String) -> String {
+        "\(AgentAuthoringConstants.agentProviderID) / \(agentID)"
+    }
+
+    /// The `keywordFallback` switch's label — persisting the field the composite resolver reads.
+    public static let phraseKeywordFallbackLabel = "Keyword fallback"
+
+    /// The `keywordFallback` switch's detail — what turning it on means.
+    public static let phraseKeywordFallbackDetail =
+        "When on, an utterance that matches no phrase also falls back to keyword matching."
+
+    /// **The conflict copy** (D-4): the committed file changed since the section loaded it, so
+    /// the save is refused and nothing is written; the user must reopen the section to reload.
+    public static let phraseConflict = "the file changed on disk — reopen the section"
+
+    /// A save refused because the draft violates the row's own contract, with the reason.
+    public static func phraseInvalidRow(_ reason: String) -> String {
+        "Save refused: \(reason)"
+    }
+
+    /// The reasons the editor refuses with — the store's own save rules, in words.
+    public static let phraseEmptyPhraseReason = "the phrase cannot be empty"
+    public static let phraseEmptyTargetReason = "the provider and the tool cannot be empty"
+    public static let phraseShellTargetReason =
+        "a shell command cannot be reached by voice; choose another target"
+    public static let phraseDuplicateReason =
+        "a phrase that says the same thing already exists"
+    public static let phraseTooLongReason =
+        "the phrase is longer than \(PhraseAuthoringConstants.maximumPhraseLength) characters"
+    public static let phraseIDTooLongReason =
+        "an identifier is longer than \(PhraseAuthoringConstants.maximumIDLength) characters"
 }

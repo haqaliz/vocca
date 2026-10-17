@@ -239,6 +239,11 @@ public struct SettingsBindings {
     /// (`shell-provider` wiring). A registry read, never a discovery and never a spawn. The
     /// empty answer is the honest default: no command is configured out of the box.
     public var loadShellCommands: () async -> [ActionsToolRow]
+    /// The audit provider's two tools as tool rows — the audit leg's row source
+    /// (`audit-enablement` wiring). A static list read, never a discovery and never a spawn.
+    /// The empty answer is the honest default: nothing is claimed before the wiring fills the
+    /// slot. The section is **toggle-only** (D-1) — the rows carry no arm/preview affordance.
+    public var loadAuditTools: () async -> [ActionsToolRow]
     /// The agent registry's configured agents as tool rows — the agent leg's row source
     /// (`coding-agent-handoff` wiring). A registry read, never a discovery and never a spawn.
     /// The empty answer is the honest default: no agent is configured out of the box.
@@ -257,6 +262,15 @@ public struct SettingsBindings {
     /// table shows and what `coding-agents.json` holds cannot drift. Throws what the registry
     /// throws: an agent the user believes configured must be configured.
     public var saveAgents: (ActionsAgentFile) async throws -> Void
+    /// The phrase table as the Phrases section reads it — the tab's own plain model, mapped by
+    /// the wiring from the store's `intent-phrases.json`. The empty answer is the honest
+    /// first-launch truth: nothing is authored out of the box.
+    public var loadPhrases: () async -> ActionsPhraseFile
+    /// Writes the phrase draft back under a read-before-write guard: the second argument is the
+    /// file the section loaded, and a committed file that changed since then refuses the write
+    /// (`conflict`) rather than clobbering it. Throws nothing — the outcome carries the answer,
+    /// because `VoccaUI` may not name the store's typed error.
+    public var savePhrases: (ActionsPhraseFile, ActionsPhraseFile) async -> PhraseSaveOutcome
     /// Flips one tool's enablement row. Persisted as membership; absent is off (PRD M7).
     public var setToolEnabled: (String, String, Bool) async throws -> Void
     /// Runs the armed action through the gate — the wiring's half of the arm path, behind the
@@ -363,6 +377,7 @@ public struct SettingsBindings {
         saveActionsConfig: @escaping (ActionsConfigDraft) async throws -> Void = { _ in },
         discoverTools: @escaping (String) async -> ActionsDiscoveryResult = { _ in .succeeded([]) },
         loadShellCommands: @escaping () async -> [ActionsToolRow] = { [] },
+        loadAuditTools: @escaping () async -> [ActionsToolRow] = { [] },
         loadAgents: @escaping () async -> [ActionsToolRow] = { [] },
         // The authoring defaults claim **nothing** and change **nothing**, for the same
         // reason: an empty preset list renders the honest chooser, an empty detection map
@@ -373,6 +388,14 @@ public struct SettingsBindings {
         detectAgents: @escaping () async -> ActionsAgentDetectionResult = { [:] },
         loadAgentDefinitions: @escaping () async -> [ActionsAgentDefinition] = { [] },
         saveAgents: @escaping (ActionsAgentFile) async throws -> Void = { _ in },
+        // The phrase defaults claim **nothing** and change **nothing**, for the same reason:
+        // an empty file renders the honest "nothing authored", and a save that claimed success
+        // while writing nothing would let the page tell a user their phrase was stored when it
+        // was not — the failure answer is the safe direction.
+        loadPhrases: @escaping () async -> ActionsPhraseFile = { .empty },
+        savePhrases: @escaping (ActionsPhraseFile, ActionsPhraseFile) async -> PhraseSaveOutcome = {
+            _, _ in .failed("the phrase store is not wired")
+        },
         setToolEnabled: @escaping (String, String, Bool) async throws -> Void = { _, _, _ in },
         armAction: @escaping (String, String) async throws -> Void = { _, _ in },
         previewAction: @escaping (String, String) async -> String? = { _, _ in nil },
@@ -421,11 +444,14 @@ public struct SettingsBindings {
         self.saveActionsConfig = saveActionsConfig
         self.discoverTools = discoverTools
         self.loadShellCommands = loadShellCommands
+        self.loadAuditTools = loadAuditTools
         self.loadAgents = loadAgents
         self.loadAgentPresets = loadAgentPresets
         self.detectAgents = detectAgents
         self.loadAgentDefinitions = loadAgentDefinitions
         self.saveAgents = saveAgents
+        self.loadPhrases = loadPhrases
+        self.savePhrases = savePhrases
         self.setToolEnabled = setToolEnabled
         self.armAction = armAction
         self.previewAction = previewAction

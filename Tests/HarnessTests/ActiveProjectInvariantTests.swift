@@ -547,7 +547,7 @@ final class ActiveProjectInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "88172139dc63778c7c67d21df72a706e686e361dff4762308f4886f8664bfd9b"
+                "7cfdd821b34500f00594653104871713a05d641f1f1969b8960fc17d5a0765d8"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")

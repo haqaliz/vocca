@@ -35,6 +35,15 @@ public struct ActionsTabState: Sendable, Equatable {
     /// Whether the shell registry's commands have landed — `false` with no rows is "we haven't
     /// looked yet"; `true` with no rows is the honest empty state (nothing configured).
     public var isShellLoaded: Bool
+    /// The rows the **Audit tools** section renders (`audit-enablement` wiring): the audit
+    /// provider's two tools (`audit.count`, `audit.clear`), with `isEnabled` folded from
+    /// ``enablement`` exactly like the shell rows — default off (M7), absent is off. A static
+    /// list read, never a discovery and never a spawn. The section is **toggle-only** (D-1): the
+    /// rows carry no arm/preview affordance.
+    public var auditRows: [ActionsToolRow]
+    /// Whether the audit tools' rows have landed — `false` with no rows is "we haven't looked
+    /// yet"; `true` with no rows is the honest empty state (the provider serves none).
+    public var isAuditToolsLoaded: Bool
     /// The rows the Agents section renders (`coding-agent-handoff` wiring): the registry's
     /// configured agents, with `isEnabled` folded from ``enablement`` exactly like discovery
     /// rows — default off (M7), absent is off. A registry read, never a discovery and never a
@@ -77,6 +86,31 @@ public struct ActionsTabState: Sendable, Equatable {
     /// The last project directory a save committed — the S2 in-memory pre-fill, never
     /// persisted this slice.
     public var lastAgentProjectDirectory: String
+
+    // MARK: - The phrase authoring surface (phrase-authoring)
+
+    /// The phrase rows the Phrases section renders and edits — the draft, in the table's order.
+    public var phraseRows: [ActionsPhraseRow]
+    /// **The file the section loaded** — the read-before-write guard's snapshot. `nil` until the
+    /// load lands; a save compares the committed file against it and refuses on a mismatch.
+    public var phraseSnapshot: ActionsPhraseFile?
+    /// Whether the phrase table has landed — `false` with no rows is "we haven't looked yet";
+    /// `true` with no rows is the honest empty state.
+    public var isPhrasesLoaded: Bool
+    /// The version the draft carries — read from the file and written back unchanged.
+    public var phraseVersion: Int
+    /// The `keywordFallback` switch's draft value — read from the file, written back on a save.
+    public var keywordFallbackDraft: Bool
+    /// The phrase editor's phrase draft.
+    public var phrasePhraseDraft: String
+    /// The phrase editor's provider draft.
+    public var phraseProviderIDDraft: String
+    /// The phrase editor's tool draft.
+    public var phraseToolIDDraft: String
+    /// Whether the phrase editor is open — an add (``editingPhraseID`` nil) or an edit.
+    public var isPhraseEditorOpen: Bool
+    /// The row being edited, by its current phrase (its identity). `nil` for an add.
+    public var editingPhraseID: String?
     /// The discovery's one closed three-step, per server.
     public var discovery: ActionsDiscoveryState
     /// The arm state — `awaitingConfirmation` is the wiring's card signal; nothing else on this
@@ -108,6 +142,7 @@ public struct ActionsTabState: Sendable, Equatable {
         preview: ActionsPreviewState, serverNameDraft: String, serverPathDraft: String,
         editingServerID: String?, isLoaded: Bool, saveError: String?,
         shellRows: [ActionsToolRow] = [], isShellLoaded: Bool = false,
+        auditRows: [ActionsToolRow] = [], isAuditToolsLoaded: Bool = false,
         agentRows: [ActionsToolRow] = [], isAgentLoaded: Bool = false,
         agentDefinitions: [ActionsAgentDefinition] = [],
         agentPresets: [ActionsAgentPreset] = [], isAgentCatalogLoaded: Bool = false,
@@ -117,13 +152,20 @@ public struct ActionsTabState: Sendable, Equatable {
         agentTimeoutDraft: String = "",
         agentEnvironmentDrafts: [ActionsAgentEnvironmentPairDraft] = [],
         agentClauseDraft: String = "", isAgentEditorOpen: Bool = false,
-        editingAgentID: String? = nil, lastAgentProjectDirectory: String = ""
+        editingAgentID: String? = nil, lastAgentProjectDirectory: String = "",
+        phraseRows: [ActionsPhraseRow] = [], phraseSnapshot: ActionsPhraseFile? = nil,
+        isPhrasesLoaded: Bool = false, phraseVersion: Int = 1,
+        keywordFallbackDraft: Bool = false, phrasePhraseDraft: String = "",
+        phraseProviderIDDraft: String = "", phraseToolIDDraft: String = "",
+        isPhraseEditorOpen: Bool = false, editingPhraseID: String? = nil
     ) {
         self.servers = servers
         self.enablement = enablement
         self.toolRows = toolRows
         self.shellRows = shellRows
         self.isShellLoaded = isShellLoaded
+        self.auditRows = auditRows
+        self.isAuditToolsLoaded = isAuditToolsLoaded
         self.agentRows = agentRows
         self.isAgentLoaded = isAgentLoaded
         self.agentDefinitions = agentDefinitions
@@ -140,6 +182,16 @@ public struct ActionsTabState: Sendable, Equatable {
         self.isAgentEditorOpen = isAgentEditorOpen
         self.editingAgentID = editingAgentID
         self.lastAgentProjectDirectory = lastAgentProjectDirectory
+        self.phraseRows = phraseRows
+        self.phraseSnapshot = phraseSnapshot
+        self.isPhrasesLoaded = isPhrasesLoaded
+        self.phraseVersion = phraseVersion
+        self.keywordFallbackDraft = keywordFallbackDraft
+        self.phrasePhraseDraft = phrasePhraseDraft
+        self.phraseProviderIDDraft = phraseProviderIDDraft
+        self.phraseToolIDDraft = phraseToolIDDraft
+        self.isPhraseEditorOpen = isPhraseEditorOpen
+        self.editingPhraseID = editingPhraseID
         self.discovery = discovery
         self.arm = arm
         self.preview = preview
@@ -189,6 +241,9 @@ public enum ActionsTabAction: Sendable, Equatable {
     /// The shell registry answered with its configured commands — the shell leg's row source
     /// (`shell-provider` wiring): a registry read, never a discovery and never a spawn.
     case shellConfigLoaded([ActionsToolRow])
+    /// The audit provider answered with its two tools — the audit leg's row source
+    /// (`audit-enablement` wiring): a static list read, never a discovery and never a spawn.
+    case auditToolsLoaded([ActionsToolRow])
     /// The agent registry answered with its configured agents — the agent leg's row source
     /// (`coding-agent-handoff` wiring): a registry read, never a discovery and never a spawn.
     case agentConfigLoaded([ActionsToolRow])
@@ -217,6 +272,27 @@ public enum ActionsTabAction: Sendable, Equatable {
     case agentEditCancelled
     /// The user removed an agent — its enablement row goes with it.
     case agentRemoved(id: String)
+    /// The phrase table was read — the Phrases section's row source and its snapshot: the file
+    /// the section loads is what a later save compares against (the read-before-write guard).
+    case phrasesConfigLoaded(ActionsPhraseFile)
+    /// The user opened the blank add editor.
+    case phraseEditorOpened
+    /// One phrase draft field changed — the closed set of editor fields.
+    case phraseDraftFieldEdited(PhraseDraftField, String)
+    /// The user committed the phrase editor — validated here, before anything reaches the file.
+    case phraseSaveRequested
+    /// The user opened an existing phrase row in the editor.
+    case phraseEditStarted(phrase: String)
+    /// The user closed the phrase editor without saving (add or edit).
+    case phraseEditCancelled
+    /// The user removed a phrase row from the draft.
+    case phraseRemoved(phrase: String)
+    /// The user flipped the keyword-fallback switch.
+    case keywordFallbackToggled(Bool)
+    /// The phrase save reached the file — the snapshot advances to the saved table and the
+    /// drafts clear (the dedicated success signal, so a server or agent save cannot move the
+    /// phrase snapshot out from under an in-flight edit).
+    case phrasesSaved(ActionsPhraseFile)
     /// The add form's name field changed.
     case serverNameFieldEdited(String)
     /// The add form's path field changed.
@@ -278,6 +354,18 @@ public enum ActionsTabReducer {
                 return resolved
             }
             next.isShellLoaded = true
+
+        case .auditToolsLoaded(let tools):
+            // Default off is the reducer's rule, not the wiring's — the same fold discovery
+            // rows obey: an audit tool that arrives enabled is off unless the persisted
+            // enablement holds its key (M7).
+            next.auditRows = tools.map { row in
+                var resolved = row
+                resolved.isEnabled = next.enablement.contains(
+                    ActionsToolKey(providerID: row.providerID, toolID: row.toolID))
+                return resolved
+            }
+            next.isAuditToolsLoaded = true
 
         case .agentConfigLoaded(let tools):
             // Default off is the reducer's rule, not the wiring's — the same fold discovery
@@ -455,9 +543,106 @@ public enum ActionsTabReducer {
             }
             next.saveError = nil
 
+        case .phrasesConfigLoaded(let file):
+            // The file is the section's row source and its snapshot: rows, version and the
+            // switch all ride the draft, and the snapshot is what a later save compares the
+            // committed file against. A load never writes.
+            next.phraseRows = file.phrases
+            next.phraseSnapshot = file
+            next.phraseVersion = file.version
+            next.keywordFallbackDraft = file.keywordFallback
+            next.isPhrasesLoaded = true
+            next.saveError = nil
+
+        case .phraseEditorOpened:
+            // The blank add editor — the drafts re-minted on every open, so a refused earlier
+            // save can never leak its values into a fresh row.
+            next.isPhraseEditorOpen = true
+            next.editingPhraseID = nil
+            next.phrasePhraseDraft = ""
+            next.phraseProviderIDDraft = ""
+            next.phraseToolIDDraft = ""
+            next.saveError = nil
+
+        case .phraseDraftFieldEdited(let field, let value):
+            switch field {
+            case .phrase: next.phrasePhraseDraft = value
+            case .providerID: next.phraseProviderIDDraft = value
+            case .toolID: next.phraseToolIDDraft = value
+            }
+
+        case .phraseSaveRequested:
+            // The refusal battery runs here, before anything reaches the file — the store's own
+            // rules, mirrored so the editor and the file agree. A refusal is loud (saveError)
+            // and keeps the editor open with the draft intact.
+            switch Self.phraseRow(from: next) {
+            case .refused(let reason):
+                next.saveError = ActionsTabCopy.phraseInvalidRow(reason)
+                return next
+            case .valid(let row):
+                if let editing = next.editingPhraseID,
+                    let index = next.phraseRows.firstIndex(where: { $0.phrase == editing })
+                {
+                    // Edit: replace in place — never a delete-plus-add, so the row keeps its
+                    // identity across a rename.
+                    next.phraseRows[index] = row
+                } else {
+                    next.phraseRows.append(row)
+                }
+            }
+            next.isPhraseEditorOpen = false
+            next.editingPhraseID = nil
+            next.saveError = nil
+            // The drafts are held through the save: success clears them (`.phrasesSaved`),
+            // failure leaves them for the user — the row the editor committed stays the row
+            // the user wrote.
+
+        case .phraseEditStarted(let phrase):
+            guard let row = next.phraseRows.first(where: { $0.phrase == phrase }) else {
+                return state
+            }
+            next.isPhraseEditorOpen = true
+            next.editingPhraseID = phrase
+            next.phrasePhraseDraft = row.phrase
+            next.phraseProviderIDDraft = row.providerID
+            next.phraseToolIDDraft = row.toolID
+            next.saveError = nil
+
+        case .phraseEditCancelled:
+            next.isPhraseEditorOpen = false
+            next.editingPhraseID = nil
+            next.phrasePhraseDraft = ""
+            next.phraseProviderIDDraft = ""
+            next.phraseToolIDDraft = ""
+
+        case .phraseRemoved(let phrase):
+            guard next.phraseRows.contains(where: { $0.phrase == phrase }) else { return state }
+            next.phraseRows.removeAll { $0.phrase == phrase }
+            if next.editingPhraseID == phrase {
+                next.editingPhraseID = nil
+                next.isPhraseEditorOpen = false
+            }
+            next.saveError = nil
+
+        case .keywordFallbackToggled(let on):
+            next.keywordFallbackDraft = on
+
+        case .phrasesSaved(let file):
+            // The write reached the file: the snapshot advances to the saved table (so the next
+            // save's read-before-write guard compares against the truth), and the drafts clear.
+            next.phraseRows = file.phrases
+            next.phraseSnapshot = file
+            next.phraseVersion = file.version
+            next.keywordFallbackDraft = file.keywordFallback
+            next.saveError = nil
+            next.phrasePhraseDraft = ""
+            next.phraseProviderIDDraft = ""
+            next.phraseToolIDDraft = ""
+            next.editingPhraseID = nil
+            next.isPhraseEditorOpen = false
+
         case .serverNameFieldEdited(let name):
             next.serverNameDraft = name
-
         case .serverPathFieldEdited(let path):
             next.serverPathDraft = path
 
@@ -549,6 +734,10 @@ public enum ActionsTabReducer {
                 $0.providerID == providerID && $0.toolID == toolID
             }) {
                 next.shellRows[index].isEnabled = enabled
+            } else if let index = next.auditRows.firstIndex(where: {
+                $0.providerID == providerID && $0.toolID == toolID
+            }) {
+                next.auditRows[index].isEnabled = enabled
             } else if let index = next.agentRows.firstIndex(where: {
                 $0.providerID == providerID && $0.toolID == toolID
             }) {
@@ -669,6 +858,49 @@ public enum ActionsTabReducer {
                 clause: state.agentClauseDraft.isEmpty ? nil : state.agentClauseDraft))
     }
 
+    /// Builds the phrase row the drafts name, or the loud reason the row must be refused — the
+    /// store's own save rules, mirrored here so the editor refuses before the file ever sees the
+    /// row: a `dev.vocca.shell` target, an empty phrase, an empty target, a phrase that
+    /// normalizes to one already present, and the length caps. The duplicate check excludes the
+    /// row being edited (an in-place rename is never a duplicate of itself).
+    private static func phraseRow(from state: ActionsTabState) -> PhraseDraftValidation {
+        let providerID = state.phraseProviderIDDraft
+        let toolID = state.phraseToolIDDraft
+        guard providerID != PhraseAuthoringConstants.shellProviderID else {
+            return .refused(reason: ActionsTabCopy.phraseShellTargetReason)
+        }
+        let phrase = state.phrasePhraseDraft
+        let key = PhraseAuthoringConstants.normalized(phrase)
+        guard !key.isEmpty else {
+            return .refused(reason: ActionsTabCopy.phraseEmptyPhraseReason)
+        }
+        guard !providerID.isEmpty, !toolID.isEmpty else {
+            return .refused(reason: ActionsTabCopy.phraseEmptyTargetReason)
+        }
+        let isDuplicate = state.phraseRows.contains {
+            PhraseAuthoringConstants.normalized($0.phrase) == key && $0.phrase != state.editingPhraseID
+        }
+        guard !isDuplicate else {
+            return .refused(reason: ActionsTabCopy.phraseDuplicateReason)
+        }
+        guard phrase.count <= PhraseAuthoringConstants.maximumPhraseLength else {
+            return .refused(reason: ActionsTabCopy.phraseTooLongReason)
+        }
+        guard providerID.count <= PhraseAuthoringConstants.maximumIDLength,
+            toolID.count <= PhraseAuthoringConstants.maximumIDLength
+        else {
+            return .refused(reason: ActionsTabCopy.phraseIDTooLongReason)
+        }
+        return .valid(
+            ActionsPhraseRow(phrase: phrase, providerID: providerID, toolID: toolID))
+    }
+
+    /// The phrase drafts' validation answer — the ``DraftValidation`` shape for the row.
+    private enum PhraseDraftValidation {
+        case valid(ActionsPhraseRow)
+        case refused(reason: String)
+    }
+
     /// The drafts' validation answer: the row they name, or the loud reason they must be
     /// refused. `String` is deliberately not the failure half of a `Result` — the reason is
     /// copy, not an error to throw.
@@ -676,7 +908,6 @@ public enum ActionsTabReducer {
         case valid(ActionsAgentDefinition)
         case refused(reason: String)
     }
-
     /// Whether `path` is a usable absolute path under the fixed-argv contract — it must begin
     /// with `/`, and it must **not** begin with `~` (nothing in this product expands `~`, so a
     /// `~/bin/agent` would silently resolve to a literal `~` directory at spawn time — the

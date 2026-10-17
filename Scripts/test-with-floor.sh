@@ -2533,8 +2533,22 @@ set -euo pipefail
 # sites; the dictation pair 1baeb2de…/ce70ca10… unchanged). PROBE-* unchanged. 3259 + 7 = 3266,
 # the count taken from the floor script's own parse.
 #
+# `phrase-authoring-ui` (the in-app authoring surface + the F-A audit rows): +40 —
+# `IntentPhraseStoreTests` +11 (the save-time refusals: shell/duplicate/empty/long, the
+# deterministic order, `save(_:ifUnchangedFrom:)`, the `fileURL` accessor), `AuditEnablementTests`
+# +12 (the audit row source, the section fold, the default-off reapply, the D2 copy + the
+# `audit.clear` warning, no arm affordance, the binding claims-nothing default), `PhraseAuthoringTests`
+# +16 (the round trip, byte preservation, the `keywordFallback` toggle, the refusals, edit/remove,
+# the conflict guard, the cross-module agreement pin) and `AppBootstrapWiringTests` +1 (the two
+# new bindings at the one construction site). No new module; the transport lint stays two files;
+# the FileManager seam table is untouched. The G5 pin re-anchored once, deliberately
+# (88172139… → 7cfdd821…, computed with `shasum -a 256` on 2026-10-17 after the unit's
+# composition-root edits, never edited-to-match; all seven pin sites; the dictation pair
+# 1baeb2de…/ce70ca10… unchanged). PROBE-* unchanged. 3266 + 40 = 3306, the count taken from the
+# floor script's own parse.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3266
+MINIMUM_EXECUTED_TESTS=3306
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
