@@ -4253,6 +4253,40 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
 
 ---
 
+170. **A phrase authored in the UI resolves to its enabled tool in a real CONVERSING session
+    (`phrase-authoring-ui`, recorded — never gated).**
+
+    *Gesture:* on the built bundle, open Settings → **Actions** and use the **Phrases** section:
+    click Add, type a phrase (e.g. "count the audit log"), and set its target to an audit tool
+    (`dev.vocca.audit` / `audit.count`) — confirm the editor's known-target hint. Save. Now open
+    the **Audit tools** section and toggle `audit.count` **on**. Then start a CONVERSING session
+    and speak the phrase. Record what the reply says and whether an audit entry appears.
+
+    *Verify the state was entered:* the phrase was really saved (rule 1 — reopen the section and
+    see it in the list), the target tool was really enabled (the row is on; `action-config.json`
+    carries the pair), and the phrase really was not in the file before this gesture.
+
+    *Pass:* the row recorded verbatim with the never-gated note: **a phrase authored in the
+    Phrases section, with its target enabled in the Audit tools section, resolved on the next
+    spoken turn without a relaunch and (for an outward-facing target) showed the confirmation
+    card, while the default — no phrase authored, audit tools off — echoed**. Record the counts
+    (phrases authored, tool rows toggled, the reply text), never a rate.
+
+    *Also observe (the F-A fix, not a gate):* enabling `audit.count` from the **Audit tools**
+    section (no hand-edit of `action-config.json`) is what made the phrase resolvable — before
+    this unit the audit tools had no tab row.
+
+    *Void — not fail — if:* the app was not rebuilt from this branch, the Actions tab could not be
+    opened, or the CONVERSING session could not be started (best-effort — a partial row).
+
+    *Failure:* a phrase saved in the UI that does not resolve on the next turn with its target
+    enabled; a save that drops `keywordFallback` or rewrites an untouched file's bytes; a
+    `dev.vocca.shell` target accepted by the editor; an `audit.clear` row offering an arm/preview
+    affordance; or a hand-edit of `intent-phrases.json` silently clobbered by a save made against
+    a stale snapshot (the conflict copy should appear instead).
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

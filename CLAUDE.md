@@ -9,6 +9,31 @@ This file orients a coding agent working in this repository. Read it first.
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
 >
+> **`phrase-authoring-ui` (P4, C13, shipped 2026-10-17):** **the action wedge becomes
+> authorable** — an Actions-tab **Phrases** section (add/edit/remove/validate) is the first
+> production caller of `IntentPhraseStore.save`, `keywordFallback` gains a UI toggle, and the
+> audit tools render as default-off enablement rows (the **F-A** fix). Three aspects:
+> `phrase-store-validation` (`save` refuses shell/duplicate/empty/long — mirroring load — via one
+> `invalidRow(reason:)`; a `fileURL` accessor; `save(_:ifUnchangedFrom:)`, a read-before-write
+> guard that refuses (`.fileChangedOnDisk`, writes nothing) when the file changed since the
+> snapshot); `audit-enablement` (`ActionWiring.listAuditTools` returns `audit.count`/`audit.clear`
+> with radii from `describe`; the **Audit tools** section, default off, **toggle-only** — no
+> arm/preview, `audit.clear` is destructive — D2 copy + an explicit `audit.clear` warning);
+> `phrase-authoring` (the Phrases section + editor, a validated free-text `providerID`/`toolID`
+> target with `dev.vocca.shell` refused, a `keywordFallback` toggle, UI-local
+> `ActionsPhraseRow`/`ActionsPhraseFile` + `AppBootstrap.phraseFile(from:)` mapping — the intent
+> seam lint unmodified — and `SettingsBindings.loadPhrases`/`savePhrases`). **Limits:** the target
+> is a free-text pair, not a composed picker (MCP discovery is disproportionate — a recorded
+> follow-on); read-on-open (the conflict guard covers a hand-edit landed between open and save
+> only); a stale target is inert, not flagged; `keywordFallback` seeds stay code-level; **no rate
+> exists** and the real surface is unverified (SMOKE 170). G5 re-anchored once, deliberately
+> (`88172139…` → `7cfdd821…`, seven pin sites; dictation digests `1baeb2de…`/`ce70ca10…`
+> unchanged). **No gate passes** (twenty-fifth unit ahead of the uncleared gates) — this makes
+> the P4→P5 gate's external-users leg *attemptable*, never clear; zero network, no audio path
+> touched; the composed default still reads `agents=0 spawnsSubprocess=false` and the audit tools
+> ship off; R8 mitigated in structure, not retired; the surface adds **no run affordance** (N2
+> stands). Test floor: **3306**.
+>
 > **`agent-home-detection` (P4, C13 follow-on to `agent-presets`, shipped 2026-10-12):**
 > **home-installed CLIs are detected** — the Actions-tab Coding-agents check resolves the CLIs a
 > developer actually has, not only the absolute trio. `AgentCLIDetection.detect` gained an additive

@@ -10,6 +10,82 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `phrase-authoring-ui` unit shipped 2026-10-17 — the action wedge becomes authorable: an
+Actions-tab Phrases section (add/edit/remove/validate) is the first production caller of
+`IntentPhraseStore.save`, `keywordFallback` gains a UI toggle, `save` refuses the
+shell/duplicate/empty/long rows the load already filtered (plus a read-before-write conflict
+guard), and the audit tools render as default-off enablement rows — closing F-A; no gate passes.**
+`feat/phrase-authoring-ui/aliz`. Three aspects (`phrase-store-validation`, `audit-enablement`,
+`phrase-authoring` — this entry). Floor **3266 → 3306** (executed 3306). A reachability slice: it
+makes the P4→P5 gate's "**≥10 external users** have run the action layer on their own machines"
+leg (`docs/ROADMAP.md:252`) *attemptable* — it does not clear a gate. Roadmap-push: no user asked
+(no issues exist).
+
+**What shipped.**
+*The store* (`phrase-store-validation`) — `IntentPhraseStore.save` now refuses a
+`dev.vocca.shell` row, a duplicate **normalized** phrase, an empty phrase and over-length rows
+with one `invalidRow(reason:)` (deterministic order shell→duplicate→empty→length), mirroring the
+load rules; a `public var fileURL` accessor (one derivation, reused by `load`/`save`); and
+`save(_:ifUnchangedFrom:)` — a read-before-write guard that throws `.fileChangedOnDisk` (writes
+nothing) when the committed file changed since the snapshot. `load` is untouched (still tolerant,
+first-wins). `IntentPhraseStoreTests` +11.
+*The audit rows* (`audit-enablement`) — the **F-A** fix. `ActionWiring.listAuditTools` (mirroring
+`ShellWiring.listCommands`) returns `audit.count`/`audit.clear` as `[ActionsToolRow]` with radii
+from `describe` (no discovery, no spawn); the Actions tab gains an **Audit tools** section,
+default off, enablement reapplied from `ActionConfigStore`; the rows are **toggle-only** — no
+arm/preview, because `audit.clear` permanently deletes the audit log — with the section's D2 copy
+and an explicit `audit.clear` warning. `AuditEnablementTests` +12.
+*The surface* (`phrase-authoring`) — the **Phrases** section: add/edit/remove an
+`intent-phrases.json` row (phrase + a validated free-text `providerID`/`toolID` target; a
+`dev.vocca.shell` target refused in the editor *and* the store), a `keywordFallback` toggle (the
+`composite-intent-resolver` named deferral), UI-local `ActionsPhraseRow`/`ActionsPhraseFile`
+types + a root-side mapping (`AppBootstrap.phraseFile(from:)`, the `agentFile(from:)` precedent —
+the intent seam lint unmodified), and `SettingsBindings.loadPhrases`/`savePhrases` — the **first
+production save path**. Save passes the open-time snapshot so a hand-edit landed mid-edit is
+refused (`.fileChangedOnDisk` → the conflict copy), never clobbered; load-on-open writes nothing
+(byte preservation). `PhraseAuthoringTests` +16, `AppBootstrapWiringTests` +1 (the two bindings at
+the one construction site).
+
+**G5 re-anchored once, deliberately:** `AppBootstrap.swift` was recomputed with `shasum -a 256`
+on 2026-10-17 after the unit's composition-root edits, never edited-to-match — `88172139…` →
+**`7cfdd821b34500f00594653104871713a05d641f1f1969b8960fc17d5a0765d8`**, across all seven pin sites
+(`WiringBaselineTests`, `AuthBaselineInvariantTests`, `AgentPresetsInvariantTests`,
+`ActiveProjectInvariantTests`, `SpokenTaskInvariantTests`, `TurnTakingComposedAcceptanceTests`,
+`ReplyRenderingInvariantTests`) plus the floor script's comment; the dictation digests unchanged —
+`1baeb2de…`/`ce70ca10…`.
+
+**Known limitations, recorded — not fixed.**
+- **Target entry is a validated free-text pair, not a composed picker.** A picker needs the
+  audit + agent + MCP lists composed (MCP via discovery) — disproportionate here; recorded as a
+  follow-on.
+- **The section is read-on-open** (the Conversation-tab precedent). The conflict guard covers a
+  hand-edit landed between open and save; a live refresh is not shipped.
+- **A stale target is inert, not flagged.** A phrase naming a since-removed agent/MCP tool
+  resolves nothing (the resolver's catalog gate); the section does not badge it specially.
+- **`keywordFallback` seeds are still code-level** — the toggle only flips the field.
+- **No `.fileURL` path display shipped** (a should-have, dropped for scope).
+- **The real surface is unverified** — a phrase authored in the UI resolving in a real CONVERSING
+  session has never been observed; SMOKE 170 is the first observation.
+
+**The honesty block:**
+- **No gate passes.** The **twenty-fifth unit** built ahead of the uncleared gates under the
+  recorded posture. Roadmap-push, not demand-pull.
+- **No rate exists** — no success, resolution, accuracy or latency number may be quoted.
+- **Zero network, no audio path touched** — the dictation path is digest-untouched (the G5 pin
+  proves it); the composed default still reads `agents=0 spawnsSubprocess=false`; the audit tools
+  ship **off**.
+- **R8 is unchanged** — mitigated in structure (the card, the click, the sentence binding, the
+  audit), not retired; the authoring surface adds **no run affordance** (N2 stands: an approval
+  asserts a human said yes and cannot verify it).
+- **Builds during the tasks were incremental**; the final verification is a clean run with the
+  floor script (CI's exact command).
+
+**SMOKE**: row 170 written and runnable — author a phrase in the Phrases section, enable its
+target (an audit tool or a configured agent), speak the phrase in a CONVERSING session and find
+the run in the audit — recorded, never gated; counts, never rates.
+
+---
+
 **The `agent-home-detection` unit shipped 2026-10-12 — home-installed CLIs are detected: the
 Actions-tab Coding-agents check now resolves the CLIs a developer actually has (`~/.opencode/bin`,
 `~/.local/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/.nix-profile/bin`, `~/.volta/bin`, `~/bin`)
