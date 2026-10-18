@@ -356,6 +356,14 @@ Early. What exists is the skeleton described at the top of this file a package, 
 
 If you do open a PR now, the bar it has to clear is CI: `swift test` (with the test-count floor in `Scripts/test-with-floor.sh`) and both bundle contracts, green. Issues and discussion about the plan itself are welcome too.
 
+## Support the project
+
+If this project is useful to you, you can chip in with a crypto donation:
+
+<a href="https://nowpayments.io/donation?api_key=52f38854-167a-4828-a00f-0424ab7dcc1e" target="_blank" rel="noreferrer noopener">
+    <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments">
+</a>
+
 ## License
 
 Apache-2.0. The patent grant matters for a tool doing system-level input injection, and it's the friendlier choice for the open-core structure described in the roadmap. Dependencies and model artifacts (with the weight-license record) are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
