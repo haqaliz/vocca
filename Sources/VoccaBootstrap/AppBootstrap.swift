@@ -86,7 +86,10 @@ public enum AppBootstrap {
     /// launch path (`main`) uses the return value.
     @discardableResult
     @MainActor
-    public static func configure(_ application: NSApplication) -> DictationLoopRoot {
+    public static func configure(
+        _ application: NSApplication,
+        intentPhraseDirectory: URL? = nil
+    ) -> DictationLoopRoot {
         // The *resulting policy* is checked, not the return value. Vocca's named failure mode is
         // "takes focus and types into the wrong field"; an application left in `.regular` does
         // exactly that, and it does it silently — there is no exception, no crash, just a widget
@@ -793,10 +796,11 @@ public enum AppBootstrap {
         // call time, never here, and the wiring declares `spawnsSubprocess = false` (the
         // `requiresNetwork` analogue, extended to the voice leg).
         let intentPhraseStore = IntentPhraseStore(
-            directory: IntentPhraseStore.defaultDirectory(
-                applicationSupport: FileManager.default.urls(
-                    for: .applicationSupportDirectory, in: .userDomainMask).first,
-                home: FileManager.default.homeDirectoryForCurrentUser))
+            directory: intentPhraseDirectory
+                ?? IntentPhraseStore.defaultDirectory(
+                    applicationSupport: FileManager.default.urls(
+                        for: .applicationSupportDirectory, in: .userDomainMask).first,
+                    home: FileManager.default.homeDirectoryForCurrentUser))
         let intentResolverProvider = AppBootstrap.composeIntentResolverProvider(
             store: intentPhraseStore)
         // The phrase table is authored through the same store the resolver reads (`phrase-authoring`):

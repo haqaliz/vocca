@@ -51,13 +51,14 @@ import VoccaUI
 // through the wiring `configure` actually composed. The drive reads `composedRoot.intentWiring`
 // and `composedRoot.intentResolverProvider` — the slots `configure` fills — so a composition that
 // wired a different resolver flips the report and the guard-the-guard refuses the flip as a
-// reviewed edit. The reads this costs are the real `action-config.json` and
-// `intent-phrases.json`; neither store's `load()` creates or rewrites anything ("empty" is a
-// reading, never a repair). The utterance names the probe's own tool, which no real phrase file
-// or enablement row carries, so the field is deterministic on a machine with tools enabled. The
-// switch-on chain is driven over temp files instead (PROBE-INTENT-COMPOSITE): the real phrase
-// file's switch is the user's, so a default line read off it would depend on whose machine ran
-// the probe.
+// reviewed edit. The phrase store reads a **probe-owned empty temp directory** since
+// `intent-probe-isolation` (issue #65): the line reports `store.location=temporary` and no longer
+// depends on whose machine ran the probe. The remaining real read is `action-config.json`; the
+// store's `load()` creates or rewrites nothing ("empty" is a reading, never a repair). The
+// utterance names the probe's own tool, which no real enablement row carries, so the field is
+// deterministic on a machine with tools enabled. The switch-on chain is driven over temp files
+// instead (PROBE-INTENT-COMPOSITE): the real config's switch is the user's, so a default line read
+// off it would depend on whose machine ran the probe.
 //
 // ## What a green PROBE-INTENT does NOT prove
 //
@@ -83,14 +84,15 @@ import VoccaUI
 // - `binding` — the confirmed entry's summary is the card's shown sentence: the N2 binding
 //   live in the voice path.
 //
-// PROBE-INTENT-DEFAULT: `resolver=PhraseIntentResolver resolves=1 intentResolved=0
-// spawnsSubprocess=false intentShellRows=0` — `resolver` derived from the composed root's
-// slot's own dynamic type, `resolves`/`intentResolved` from the resolution the drive actually
-// performed through the composed wiring, `spawnsSubprocess` from the composed wiring's
-// declared fact, and `intentShellRows` counted off the shipped resolver catalog — the
-// arm-surface-only decision (shell is never composed into the intent seam, the `shell-provider`
-// founder decision) as a reported fact: the voice leg has no learned phrase that could ever
-// resolve to a shell command.
+// PROBE-INTENT-DEFAULT: `store.location=temporary resolver=PhraseIntentResolver resolves=1
+// intentResolved=0 spawnsSubprocess=false intentShellRows=0` — `store.location` derived from the
+// composed root's own phrase store (a probe-owned temp directory since `intent-probe-isolation`),
+// `resolver` derived from the composed root's slot's own dynamic type, `resolves`/`intentResolved`
+// from the resolution the drive actually performed through the composed wiring, `spawnsSubprocess`
+// from the composed wiring's declared fact, and `intentShellRows` counted off the shipped resolver
+// catalog — the arm-surface-only decision (shell is never composed into the intent seam, the
+// `shell-provider` founder decision) as a reported fact: the voice leg has no learned phrase that
+// could ever resolve to a shell command.
 //
 // PROBE-INTENT-COMPOSITE: `store.location=temporary store.isDefaultLocation=false
 // resolver=CompositeIntentResolver phraseResolved=1 resolved=1 card=yes invoked=1
@@ -294,14 +296,26 @@ extension VoccaNetworkProbe {
         // synonym table, the only resolver catalog the voice leg can learn phrases from. A
         // composition that wired a shell synonym flips this count, and the guard-the-guard
         // refuses the flip as a reviewed edit. Since `phrase-intent-resolver` the count also
-        // covers the table the composed default was actually built over (the machine's real
-        // phrase file, read, never written): the store refuses a shell row at load, so this
-        // stays zero on any machine whatever the file holds.
+        // covers the table the composed default was actually built over (a probe-owned empty
+        // directory since `intent-probe-isolation`, read, never written): the store refuses a
+        // shell row at load, so this stays zero on any machine whatever a real file holds.
         let shellRows =
             KeywordIntentResolver.shippedSynonyms.filter {
                 $0.providerID == ShellProvider.providerID
             }.count
             + composedTable.filter { $0.providerID == ShellProvider.providerID }.count
+
+        // The composed root's phrase store reads a probe-owned directory since
+        // `intent-probe-isolation` (issue #65). Derived from the root's own store, so a
+        // composition that ignored the seam reports `elsewhere` and the probe line says so.
+        let phraseIsTemporary: Bool
+        if let store = composedRoot.intentPhraseStore {
+            let fileURL = await store.fileURL
+            phraseIsTemporary = fileURL.path.hasPrefix(
+                FileManager.default.temporaryDirectory.path)
+        } else {
+            phraseIsTemporary = false
+        }
 
         let phraseReport = await runPhraseRoundTrip(base: base)
         let compositeReport = await runCompositeRoundTrip(base: base, unfiltered: false)
@@ -331,6 +345,7 @@ extension VoccaNetworkProbe {
                 "binding=\(binding)",
             ].joined(separator: " "),
             defaultReport: [
+                "store.location=\(phraseIsTemporary ? "temporary" : "elsewhere")",
                 "resolver=\(resolverFact)",
                 "resolves=\(resolves)",
                 "intentResolved=\(intentResolved)",

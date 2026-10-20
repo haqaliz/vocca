@@ -1213,6 +1213,13 @@ click lands while Vocca is inactive and `canBecomeKey` stays `false`; the root w
 closure. **The `copy affordance (N1)` item retires from the remaining-machinery list below.**
 The live click is SMOKE 171, recorded and never gated. Test floor: **3310**.)*
 
+*(Amended by the `intent-probe-isolation` unit, 2026-10-21: **the probe's phrase directory is
+probe-owned** — `AppBootstrap.configure` gains a defaulted `intentPhraseDirectory`, the probe
+passes an empty temp directory, and `PROBE-INTENT-DEFAULT` reports `store.location=temporary`.
+`resolver=` no longer depends on whose machine ran the probe. **The `directory seam that isolates
+PROBE-INTENT-DEFAULT from the real phrase file` follow-on retires from the remaining-machinery
+list.** Test floor: **3311**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

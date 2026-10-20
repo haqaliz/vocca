@@ -237,9 +237,21 @@ struct VoccaNetworkProbe {
         // holding itself is the object graph a real launch keeps alive — the
         // `withExtendedLifetime` rationale, applied for the whole function now that the root
         // escapes the closure it used to live in.
+        //
+        // The composed root's phrase store reads a probe-owned empty directory, never the
+        // founder's real `intent-phrases.json` (`intent-probe-isolation`, issue #65): the
+        // default line's `resolver=` must not depend on whose machine ran the probe, and the
+        // probe has no reason to read the user's phrase file. The directory lives for the whole
+        // function — the root reads it lazily — and is removed on exit.
+        let intentPhraseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocca-probe-intent-default-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(
+            at: intentPhraseDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: intentPhraseDirectory) }
         let composedRoot: DictationLoopRoot = MainActor.assumeIsolated {
             let application = NSApplication.shared
-            return AppBootstrap.configure(application)
+            return AppBootstrap.configure(
+                application, intentPhraseDirectory: intentPhraseDirectory)
         }
         let observedPolicy: NSApplication.ActivationPolicy = MainActor.assumeIsolated {
             NSApplication.shared.activationPolicy()

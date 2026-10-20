@@ -10,6 +10,48 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `intent-probe-isolation` unit shipped 2026-10-21 — the zero-network invariant stops
+reading the founder's phrase file: `PROBE-INTENT-DEFAULT` now runs over a probe-owned empty
+directory (`store.location=temporary`), so `resolver=` no longer depends on whose machine ran
+the probe (C13 follow-on).**
+`feat/65/aliz`, issue #65. It retires the last recorded `composite-intent-resolver` follow-on
+(the directory seam) from the C13 remaining-machinery list. No gate passes.
+
+**What shipped.**
+- **The seam** (`AppBootstrap.configure`) — an optional `intentPhraseDirectory`, defaulted to
+  `nil`; `nil` resolves exactly `IntentPhraseStore.defaultDirectory(...)`, so the shipped launch
+  path is byte-behaviour-identical.
+- **The probe** (`VoccaNetworkProbe`) — creates an empty temp directory, passes it to the one
+  `configure` call, and removes it on exit. The composed root's phrase store reads nothing the
+  user owns.
+- **The evidence** (`IntentDrive`) — `PROBE-INTENT-DEFAULT` gains `store.location=temporary`,
+  derived from `composedRoot.intentPhraseStore.fileURL` (the same shape as
+  `PROBE-INTENT-PHRASE`), so a composition that ignored the seam reports `elsewhere`.
+- **The guard** (`ZeroNetworkTests`) — the pinned line and its guard test require the field; a
+  new source pin asserts the defaulted seam, the `?? defaultDirectory` fallback, and the probe's
+  use of it. One test class (`UsageWiringTests`) moved its `configure` declaration pin to the
+  new signature.
+
+**Known limitations, recorded — not fixed.**
+- **`action-config.json` is still read by the default leg.** It is a read, never a write, and
+  the utterance names the probe's own tool, so the line stays deterministic; the directory seam
+  covers the phrase file only.
+- **The probe's temp directory exists for the whole drive** (the store is read lazily). It is
+  removed on exit; a crash leaves an empty temp directory behind, as the audit drive already can.
+
+**The honesty block:**
+- **No gate passes.** The **twenty-seventh unit** built ahead of the uncleared gates under the
+  recorded posture. Roadmap-push, not demand-pull.
+- **Zero network, no audio path touched** — the dictation digests are unchanged; `PROBE-*` lines
+  are unchanged except the one new field.
+- **G5 re-anchored once**, deliberately: `58441952…` → **`7acaac375609e457a4259aada5dedd7d54404e1907594bd00e62b24b265aa76e`**, computed
+  with `shasum -a 256` on 2026-10-21 after the composition-root's signature edit, never
+  edited-to-match; all seven pin sites; the dictation pair `1baeb2de…`/`ce70ca10…` unchanged.
+- **Test floor: 3310 → 3311**; the full suite is green at 3311 (one flaky
+  `PlaybackOfflineRenderTests` run was re-run green and is recorded, not claimed fixed).
+
+---
+
 **The `reply-copy-affordance` unit shipped 2026-10-21 — the reply surface's last gap closes:
 the agent's answer can be copied with one click, without the never-key pill taking focus
 (N1).**
