@@ -585,6 +585,10 @@ final class ZeroNetworkTests: XCTestCase {
     /// deliberately **not** a golden string: ``testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault``
     /// reads it back and refuses a version that no longer describes the composed default.
     private static let expectedIntentDefaultLifecycle = [
+        // Where the composed root's phrase store reads from — a probe-owned temp directory, not
+        // the founder's real `intent-phrases.json` (`intent-probe-isolation`, issue #65). Without
+        // this field the line's `resolver=` would depend on whose machine ran the probe.
+        "store.location=temporary",
         // The composed root's fact carrier, derived from the dynamic type of the resolver the
         // root's per-turn provider builds — a composition that wired a different resolver flips
         // it. `phrase-intent-resolver` flipped it deliberately (NullIntentResolver →
@@ -634,9 +638,9 @@ final class ZeroNetworkTests: XCTestCase {
     /// guarded by
     /// ``testTheAssertedIntentPhrasePostConditionStillDescribesAPhraseRoundTripAndTheShellRefusal``.
     ///
-    /// The line lives on its own rather than on PROBE-INTENT-DEFAULT because the composed root
-    /// reads the **real** Application Support directory: a phrase count there would depend on
-    /// whose machine ran the probe.
+    /// The line lives on its own rather than on PROBE-INTENT-DEFAULT because a phrase count
+    /// describes a seeded fixture, not the composed default — the composed root's phrase
+    /// directory is probe-owned and empty (`intent-probe-isolation`, issue #65).
     private static let expectedIntentPhraseLifecycle = [
         // Where the drive wrote — no probe run writes to the real Application Support.
         "store.location=temporary",
@@ -1366,9 +1370,9 @@ final class ZeroNetworkTests: XCTestCase {
             nothing. Do not fix this by deleting the call, and do not fix it by pasting in \
             whatever the probe now prints — see \
             testTheAssertedIntentDefaultPostConditionStillDescribesTheComposedDefault. \
-            resolver=other on a dev machine: check `keywordFallback` in your real \
-            intent-phrases.json (the default drive reads the real phrase file — a known \
-            limitation recorded by composite-intent-resolver).
+            resolver=other: the composed root's phrase store read a directory it should not \
+            have — the probe owns an empty temp directory (intent-probe-isolation, #65) — or \
+            the composition really changed. \
             \(observation.diagnosticSummary)
             """)
 
@@ -2631,6 +2635,44 @@ final class ZeroNetworkTests: XCTestCase {
                 + "catalog to name zero dev.vocca.shell rows — the arm-surface-only decision "
                 + "(shell is never composed into the intent seam) could be silently flipped "
                 + "while this line watched nothing.")
+        XCTAssertEqual(
+            try value("store.location"), "temporary",
+            "The asserted intent default post-condition no longer requires the probe-owned "
+                + "phrase directory — the drive could be reading the founder's real "
+                + "intent-phrases.json, and `resolver=` would depend on whose machine ran the "
+                + "probe (intent-probe-isolation, issue #65).")
+    }
+
+    /// **The directory seam is real** (`intent-probe-isolation`, issue #65): `configure` carries
+    /// the defaulted `intentPhraseDirectory`, `nil` still resolves the shipped path, and the
+    /// probe passes its own directory. Source pins, because `configure` needs an `NSApplication`
+    /// and a run loop and the probe is executed only as a subprocess.
+    func testTheProbeOwnsTheComposedPhraseStoreDirectory() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let bootstrapSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift"),
+            encoding: .utf8)
+        let bootstrap = SwiftSourceScanner.stripComments(from: bootstrapSource)
+        XCTAssertTrue(
+            bootstrap.contains("intentPhraseDirectory: URL? = nil"),
+            "configure must keep the seam defaulted to nil — the shipped launch path must "
+                + "compile unchanged")
+        XCTAssertTrue(
+            bootstrap.contains("intentPhraseDirectory"),
+            "the seam must reach the phrase store construction")
+        XCTAssertTrue(
+            bootstrap.contains("?? IntentPhraseStore.defaultDirectory("),
+            "nil must resolve exactly the shipped default directory — the seam may not move the "
+                + "real store")
+
+        let probeSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/VoccaNetworkProbe/VoccaNetworkProbe.swift"),
+            encoding: .utf8)
+        let probe = SwiftSourceScanner.stripComments(from: probeSource)
+        XCTAssertTrue(
+            probe.contains("intentPhraseDirectory:"),
+            "the probe must pass its own temp directory — otherwise PROBE-INTENT-DEFAULT reads "
+                + "the founder's real phrase file")
     }
 
     /// **Guards the guard.** ``expectedShellLifecycle`` must keep describing **the composed

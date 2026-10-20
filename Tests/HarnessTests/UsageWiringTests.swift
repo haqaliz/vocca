@@ -206,7 +206,7 @@ final class UsageWiringTests: XCTestCase {
     /// `configure`'s body, comments stripped and whitespace collapsed — so a mention in prose is
     /// never mistaken for the wiring, and reformatting the file does not fail the pin.
     private static func configureBody() throws -> String {
-        try body(afterDeclaration: "public static func configure(_ application: NSApplication)")
+        try body(afterDeclaration: "public static func configure(")
     }
 
     /// `main()`'s body, on the same terms.

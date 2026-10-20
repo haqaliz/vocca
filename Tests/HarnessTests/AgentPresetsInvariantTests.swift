@@ -495,7 +495,7 @@ final class AgentPresetsInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "58441952f11abdd9004b86a36c127e00516827918fb05ba5d99a13a8f159d588"
+                "7acaac375609e457a4259aada5dedd7d54404e1907594bd00e62b24b265aa76e"
             ),
         ]
         for (file, expected) in pinned {
