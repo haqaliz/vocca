@@ -1205,6 +1205,16 @@ gated). Test floor: **3306**.)*
 
 ---
 
+*(Amended by the `reply-copy-affordance` unit, 2026-10-21: **the N1 copy affordance shipped** —
+the reply bubble gains a one-click copy that writes the full reply through
+`ShippingPasteboard.write`, without the never-key panel taking focus. `WidgetCopy` pins the
+affordance and its label; `WidgetView` renders it; `WidgetPanel` accepts the first mouse so the
+click lands while Vocca is inactive and `canBecomeKey` stays `false`; the root wires the
+closure. **The `copy affordance (N1)` item retires from the remaining-machinery list below.**
+The live click is SMOKE 171, recorded and never gated. Test floor: **3310**.)*
+
+---
+
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+
 
 **Why it matters.** Two things at once. For users: managing models in-app instead of by hand. For the project: **the only honest test that any of our seams are real.** If someone outside the repository can add an ASR engine that the core has never heard of and it just works, the pluggable claim is true — and by direct implication, the hosted tier slots in without a rewrite. If they can't, every seam above is decoration and we should find that out now rather than at the moment we need it.

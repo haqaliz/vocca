@@ -128,6 +128,18 @@ public enum WidgetCopy {
         replyText
     }
 
+    /// The copy affordance's visible word (N1, issue #64): the bubble is non-key, so the reply
+    /// is copied by a click rather than by selecting text. Kept to one word — the bubble has the
+    /// reply's room, not a toolbar's.
+    public static let replyCopyAffordance = "Copy"
+
+    /// The copy control's VoiceOver label: one verb plus the reply verbatim, so the user hears
+    /// what the click will put on the pasteboard. Never trims — the reply's characters are its
+    /// own (`replyBubbleLabel`'s doctrine).
+    public static func replyCopyLabel(_ replyText: String) -> String {
+        "Copy reply: \(replyText)"
+    }
+
     // MARK: - The confirmation card (confirmation-card M4a/M5a)
 
     /// The card's heading (`confirmation-card`): the actions surface's section word — the card is

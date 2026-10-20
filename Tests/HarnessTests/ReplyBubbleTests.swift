@@ -145,4 +145,73 @@ final class ReplyBubbleTests: XCTestCase {
         XCTAssertGreaterThan(VoccaTheme.Panel.converseNotchDepth, 0)
         XCTAssertGreaterThan(VoccaTheme.Panel.converseNotchWidth, 0)
     }
+
+    // MARK: - Acceptance 6: the copy affordance (N1, issue #64)
+
+    /// The copy control's strings are pinned by exact equality: one affordance, and a VoiceOver
+    /// label that carries the reply so the control announces what it will copy. The reply text
+    /// is verbatim in the label, the same sentence doctrine as the bubble itself.
+    func testTheCopyAffordanceCopyIsPinned() {
+        XCTAssertEqual(WidgetCopy.replyCopyAffordance, "Copy")
+        XCTAssertEqual(WidgetCopy.replyCopyLabel("Done."), "Copy reply: Done.")
+        XCTAssertEqual(
+            WidgetCopy.replyCopyLabel("  padded  "), "Copy reply:   padded  ",
+            "the label carries the reply byte-for-byte — never trimmed")
+    }
+
+    /// The view renders the pinned control and hands the reply text to the injected closure. A
+    /// source pin because the view is window-server glue executed by nothing in CI, and the
+    /// affordance the issue names is a render, not a predicate.
+    func testTheViewWiresThePinnedCopyAffordance() throws {
+        let source = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaUI/WidgetView.swift"),
+            encoding: .utf8)
+        let stripped = SwiftSourceScanner.stripComments(from: source)
+        XCTAssertTrue(
+            stripped.contains("replyCopyAffordance"),
+            "the bubble must render the pinned copy affordance")
+        XCTAssertTrue(
+            stripped.contains("onCopyReply("),
+            "the control must hand the reply text to the injected copy closure")
+        XCTAssertTrue(
+            stripped.contains("replyCopyLabel("),
+            "the control's accessibility label must be the pinned WidgetCopy string")
+    }
+
+    /// **The first click must land while Vocca is inactive.** A button in a non-active app's
+    /// window only receives the click when the view accepts the first mouse; and the panel must
+    /// still never become key. Both halves are window-server glue, pinned in source (`canBecomeKey`
+    /// is also asserted at runtime by `WidgetPanelBindingTests`).
+    func testThePanelAcceptsTheFirstMouseWithoutBecomingKey() throws {
+        let source = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaUI/WidgetPanel.swift"),
+            encoding: .utf8)
+        let stripped = SwiftSourceScanner.stripComments(from: source)
+        XCTAssertTrue(
+            stripped.contains("acceptsFirstMouse"),
+            "the copy control would need a focus click before it fires — the panel must accept "
+                + "the first mouse")
+        XCTAssertTrue(
+            stripped.contains("canBecomeKey"),
+            "the panel's never-key override is the other half of the no-focus rule")
+    }
+
+    /// The write is the composition root's, not `VoccaUI`'s: the root's one `LiveWidget`
+    /// construction passes the copy closure, and that closure reaches `ShippingPasteboard.write`.
+    /// A source pin because `AppBootstrap.configure` needs an `NSApplication` and a run loop.
+    func testTheRootWiresTheCopyToThePasteboard() throws {
+        let source = try String(
+            contentsOf: PackageRootLocator.find(from: #filePath)
+                .appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift"),
+            encoding: .utf8)
+        let stripped = SwiftSourceScanner.stripComments(from: source)
+        XCTAssertTrue(
+            stripped.contains("onCopyReply:"),
+            "the root must pass a copy closure at the LiveWidget construction")
+        XCTAssertTrue(
+            stripped.contains("ShippingPasteboard.write"),
+            "the copy closure must write through the shipped pasteboard adapter")
+    }
 }

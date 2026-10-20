@@ -10,7 +10,46 @@ carries the current state and the rules that still bind.
 
 ---
 
-**The `phrase-authoring-ui` unit shipped 2026-10-17 — the action wedge becomes authorable: an
+**The `reply-copy-affordance` unit shipped 2026-10-21 — the reply surface's last gap closes:
+the agent's answer can be copied with one click, without the never-key pill taking focus
+(N1).**
+`feat/64/aliz`, issue #64. It closes the **N1** item from the C13 remaining-machinery list, and
+therefore the last user-facing affordance gap in the reply surface. No gate passes.
+
+**What shipped.**
+- **The copy copy** (`WidgetCopy`) — `replyCopyAffordance` (`"Copy"`) and
+  `replyCopyLabel(_:)` (`"Copy reply: <verbatim>"`), the one-word affordance and a VoiceOver
+  label that names what the click will write. Both pinned by exact equality.
+- **The control** (`WidgetView.replyBubble`) — a plain button under the reply text, rendered
+  inside the existing material chrome, wired to an injected `(String) -> Void` carrying the full
+  reply text. The bubble's show predicate, label and verbatim carry are untouched.
+- **The first-mouse rule** (`WidgetPanel`) — `WidgetHostingView` overrides
+  `acceptsFirstMouse(for:)` to `true`, so a click on the inactive pill's control is delivered to
+  the button rather than spent activating Vocca; `canBecomeKey` stays `false`.
+- **The wiring** (`LiveWidget`, `AppBootstrap`) — the closure is threaded through both panel
+  construction paths and wired once at the composition root to `ShippingPasteboard.write`, the
+  failsafe's ⌘C route. `VoccaUI` still names no pasteboard.
+
+**Known limitations, recorded — not fixed.**
+- **The first-mouse click is window-server behaviour executed by nothing in CI.** The override
+  and the never-key rule are source-pinned; the live click is SMOKE 171's observation.
+- **A copy overwrites the current pasteboard** — the failsafe's contract, not a snapshot/restore
+  round trip. That is deliberate: a copy is an explicit user act.
+- **No keyboard shortcut and no copy history** — the button is the whole affordance.
+
+**The honesty block:**
+- **No gate passes.** The **twenty-sixth unit** built ahead of the uncleared gates under the
+  recorded posture. Roadmap-push, not demand-pull.
+- **Zero network, no audio path touched** — the dictation digests are unchanged and
+  `PROBE-*` is unchanged.
+- **G5 re-anchored once**, deliberately: `7cfdd821…` → **`58441952f11abdd9004b86a36c127e00516827918fb05ba5d99a13a8f159d588`**, computed
+  with `shasum -a 256` on 2026-10-21 after the composition-root's one construction-site edit,
+  never edited-to-match; all seven pin sites; the dictation pair `1baeb2de…`/`ce70ca10…`
+  unchanged.
+- **Test floor: 3306 → 3310** (`ReplyBubbleTests` +4); the full suite is green at 3310.
+
+---
+
 Actions-tab Phrases section (add/edit/remove/validate) is the first production caller of
 `IntentPhraseStore.save`, `keywordFallback` gains a UI toggle, `save` refuses the
 shell/duplicate/empty/long rows the load already filtered (plus a read-before-write conflict

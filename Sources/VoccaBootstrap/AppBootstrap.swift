@@ -2819,7 +2819,15 @@ public final class DictationLoopRoot {
         // The live pill, bound to that store and the injected level source. The window itself is
         // created lazily on the first non-IDLE fold — see `LiveWidget` — so nothing here touches
         // the window server.
-        let liveWidget = LiveWidget(store: widgetStore, level: liveLevel)
+        //
+        // The reply bubble's copy control writes through the shipped pasteboard adapter, the
+        // failsafe's ⌘C route (N1, issue #64): `VoccaUI` names no pasteboard, so the write is
+        // wired here.
+        let liveWidget = LiveWidget(
+            store: widgetStore, level: liveLevel,
+            onCopyReply: { text in
+                Task { await ShippingPasteboard.write(text) }
+            })
         self.liveWidget = liveWidget
 
         // The launch mode, read from the store exactly once and used for **both** the reported

@@ -2547,8 +2547,15 @@ set -euo pipefail
 # 1baeb2de…/ce70ca10… unchanged). PROBE-* unchanged. 3266 + 40 = 3306, the count taken from the
 # floor script's own parse.
 #
+# Raised by the `reply-copy-affordance` unit (issue #64, 2026-10-21): `ReplyBubbleTests` +4 (the
+# pinned affordance copy, the view's render pin, the panel's first-mouse + never-key pin, and the
+# root's pasteboard-write pin). `VoccaUI` still names no pasteboard; the G5 pin re-anchored once,
+# deliberately (7cfdd821… → 58441952…, computed with `shasum -a 256` on 2026-10-21 after the
+# composition-root edit, never edited-to-match; all seven pin sites; the dictation pair
+# 1baeb2de…/ce70ca10… unchanged). 3306 + 4 = 3310.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3306
+MINIMUM_EXECUTED_TESTS=3310
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

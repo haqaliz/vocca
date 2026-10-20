@@ -30,8 +30,9 @@ import VoccaCore
 /// target app stays active. **This panel does not, and must not.** The live widget's job is to stay
 /// out of the user's way while they dictate *into another app's field*; a panel that can become key
 /// is one keypress from stealing the field the user is typing into. The FAILSAFE's key handling is
-/// its whole point; the live pill's key handling is its whole absence — there are no key
-/// equivalents here, nothing to copy and nothing to retry.
+/// its whole point; the live pill's key handling is its whole absence — no key equivalents, no
+/// retry. The one control it grows is the reply bubble's copy button (N1), a click that writes the
+/// reply without the panel becoming key.
 ///
 /// ## How the window follows the store (the seam has no push)
 ///
@@ -68,6 +69,10 @@ public final class WidgetPanel: NSPanel {
     private let onConfirmAction: @Sendable () -> Void
     private let onDeclineAction: @Sendable () -> Void
 
+    /// The reply bubble's copy closure — the same injected-handler shape as the confirmation
+    /// card's, because `VoccaUI` names no pasteboard (N1, issue #64).
+    private let onCopyReply: @Sendable (String) -> Void
+
     /// The state the previous `apply` saw — the diff the sound selection reads. A converse entry
     /// plays the tick; a phase change or any dictation transition plays nothing.
     ///
@@ -93,12 +98,14 @@ public final class WidgetPanel: NSPanel {
         levelSource: any LiveLevelSource,
         soundPlayer: any WidgetSoundPlaying = SystemWidgetSoundPlayer(),
         onConfirmAction: @Sendable @escaping () -> Void = {},
-        onDeclineAction: @Sendable @escaping () -> Void = {}
+        onDeclineAction: @Sendable @escaping () -> Void = {},
+        onCopyReply: @Sendable @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.soundPlayer = soundPlayer
         self.onConfirmAction = onConfirmAction
         self.onDeclineAction = onDeclineAction
+        self.onCopyReply = onCopyReply
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 30),
             styleMask: [.nonactivatingPanel, .titled],
@@ -108,9 +115,10 @@ public final class WidgetPanel: NSPanel {
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        contentView = NSHostingView(rootView: WidgetView(
+        contentView = WidgetHostingView(rootView: WidgetView(
             store: store, level: levelSource,
-            onConfirmAction: onConfirmAction, onDeclineAction: onDeclineAction))
+            onConfirmAction: onConfirmAction, onDeclineAction: onDeclineAction,
+            onCopyReply: onCopyReply))
         box.value = self
         observation = store.$state.sink { [weak box] state in
             Task { @MainActor in
@@ -175,4 +183,18 @@ private final class WidgetPanelBox: @unchecked Sendable {
     weak var value: WidgetPanel?
 
     init() {}
+}
+
+/// The pill's hosting view, with the one AppKit rule the copy control needs: **accept the first
+/// mouse.** Vocca is inactive while the user dictates into another app, and AppKit spends a first
+/// click on an inactive app's window on activation instead of delivering it to the control — so
+/// without this override the reply's Copy button would need a focus click the panel must never
+/// take (`PRODUCT_SPEC.md:22`).
+private final class WidgetHostingView: NSHostingView<WidgetView> {
+    required init(rootView: WidgetView) { super.init(rootView: rootView) }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 }
