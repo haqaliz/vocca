@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Foundation
+import VoccaActions
 import VoccaASR
 @testable import VoccaBootstrap
 import VoccaContext
@@ -990,6 +991,49 @@ final class AppBootstrapWiringTests: XCTestCase {
     private static func tempDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("vocca-wiring-\(UUID().uuidString)")
+    }
+
+    // MARK: - Spoken display names (`composite-intent-resolver` follow-on, issue #66)
+
+    /// The catalog's spoken name: a known preset keeps its own name, every other id is spoken as
+    /// words. Pin the exact strings — a rename is a reviewed edit (the seed-table doctrine).
+    func testTheAskSpeaksKnownNamesAndSpellsOtherIdentifiersInWords() {
+        XCTAssertEqual(
+            AppBootstrap.spokenDisplayName(
+                providerID: CodingAgentProvider.providerID, toolID: "claude"),
+            "Claude")
+        XCTAssertEqual(
+            AppBootstrap.spokenDisplayName(
+                providerID: ShellProvider.providerID, toolID: "empty-downloads"),
+            "Empty downloads")
+        XCTAssertEqual(
+            AppBootstrap.spokenDisplayName(
+                providerID: AuditActionProvider.providerID, toolID: "audit.count"),
+            "Audit count")
+        XCTAssertEqual(
+            AppBootstrap.spokenDisplayName(providerID: "dev.vocca.mcp.notes", toolID: "postMessage"),
+            "PostMessage")
+        XCTAssertEqual(
+            AppBootstrap.spokenDisplayName(providerID: "dev.vocca.mcp.notes", toolID: ""), "",
+            "an empty id has no spoken name — the resolver falls back to providerID/toolID")
+    }
+
+    /// Both intent compositions — the audit/shell leg and the agent leg — pass the rooted name
+    /// resolver. A composition that forgot one would speak `vocca.agent/claude` for that leg
+    /// while the other spoke "Claude"; the source pin is the only place that difference is
+    /// visible headlessly, because the ask needs a real ambiguity to fire.
+    func testBothIntentCompositionsSpeakTheDisplayNames() throws {
+        let root = try PackageRootLocator.find(from: #filePath)
+        let sourceText = try String(
+            contentsOf: root.appendingPathComponent("Sources/VoccaBootstrap/AppBootstrap.swift"),
+            encoding: .utf8)
+        let source = SwiftSourceScanner.stripComments(from: sourceText)
+        let passes = source.components(
+            separatedBy: "displayName: AppBootstrap.spokenDisplayName").count - 1
+        XCTAssertEqual(
+            passes, 2,
+            "the audit/shell intent wiring and the agent intent wiring must both pass the "
+                + "spoken-name resolver")
     }
 }
 
