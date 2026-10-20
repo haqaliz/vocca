@@ -56,6 +56,10 @@ public final class LiveWidget {
     /// `AppBootstrap`'s construction compiles unchanged; the panel's `apply` diff drives it.
     private let soundPlayer: any WidgetSoundPlaying
 
+    /// The reply bubble's copy closure — passed through to the panel, which passes it to the
+    /// view. Defaulted so every existing construction compiles unchanged (N1, issue #64).
+    private let onCopyReply: @Sendable (String) -> Void
+
     /// The confirmation card's actions — supplied by the action wiring after construction (the
     /// `partialSink.store` shape): the wiring fills this slot in `configure`, and the panel —
     /// constructed lazily on the first card fold, which needs a user's arm and therefore comes
@@ -87,11 +91,13 @@ public final class LiveWidget {
     public init(
         store: WidgetStateStore,
         level: any LiveLevelSource,
-        soundPlayer: any WidgetSoundPlaying = SystemWidgetSoundPlayer()
+        soundPlayer: any WidgetSoundPlaying = SystemWidgetSoundPlayer(),
+        onCopyReply: @Sendable @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.level = level
         self.soundPlayer = soundPlayer
+        self.onCopyReply = onCopyReply
         observation = store.$state.sink { [weak self] state in
             Task { @MainActor in
                 self?.presentIfNeeded(state)
@@ -126,10 +132,12 @@ public final class LiveWidget {
                         guard let actions = self?.confirmationActions else { return }
                         await actions.decline()
                     }
-                })
+                },
+                onCopyReply: onCopyReply)
         } else {
             presentedPanel = WidgetPanel(
-                store: store, levelSource: level, soundPlayer: soundPlayer)
+                store: store, levelSource: level, soundPlayer: soundPlayer,
+                onCopyReply: onCopyReply)
         }
     }
 }

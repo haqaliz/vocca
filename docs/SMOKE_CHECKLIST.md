@@ -4287,6 +4287,30 @@ reconstruction held, never how often anything ran. Recorded — never gated, eac
 
 ---
 
+171. **The reply bubble's copy control works on the first click while Vocca is inactive
+    (`reply-copy-affordance`, recorded — never gated).**
+
+    *Gesture:* on the built bundle, get a reply into the CONVERSING bubble (any fixed reply is
+    enough). With another app frontmost, click **Copy** in the bubble **once**. Paste into a
+    text field and compare with the reply's visible text.
+
+    *Verify the state was entered:* the bubble showed a non-empty reply and the frontmost app was
+    not Vocca (rule 1 — check the menu bar still shows the other app as active).
+
+    *Pass:* the **first** click copied the full reply verbatim, the target app stayed frontmost,
+    and Vocca did not activate (no Dock icon, no focus change). Record the reply text and
+    whether the first click or a second click was needed.
+
+    *Void — not fail — if:* no reply could be produced, or the app was not rebuilt from this
+    branch.
+
+    *Failure:* the first click only activated Vocca or did nothing (the `acceptsFirstMouse`
+    override or the panel's wiring is wrong); the pasted text differs from the bubble in any
+    character; or the panel became key (typing into the target field stops working after the
+    click).
+
+---
+
 ## When this file is wrong
 
 Add to it. A limitation discovered by a human at 11pm before a release and not written down here

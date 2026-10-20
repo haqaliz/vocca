@@ -69,16 +69,23 @@ public struct WidgetView: View {
     /// The confirmation card's Decline closure — wiring-supplied, defaulted to a no-op.
     public let onDeclineAction: @Sendable () -> Void
 
+    /// What the reply bubble's copy control does — the composition root wires it to the
+    /// pasteboard adapter (N1, issue #64). `VoccaUI` names no pasteboard type, so the write is
+    /// injected exactly like the failsafe's ⌘C.
+    public let onCopyReply: @Sendable (String) -> Void
+
     public init(
         store: WidgetStateStore,
         level: any LiveLevelSource,
         onConfirmAction: @Sendable @escaping () -> Void = {},
-        onDeclineAction: @Sendable @escaping () -> Void = {}
+        onDeclineAction: @Sendable @escaping () -> Void = {},
+        onCopyReply: @Sendable @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.level = level
         self.onConfirmAction = onConfirmAction
         self.onDeclineAction = onDeclineAction
+        self.onCopyReply = onCopyReply
     }
 
     public var body: some View {
@@ -170,15 +177,23 @@ public struct WidgetView: View {
     /// would size the whole panel to one unbounded line (measured with `NSHostingView`).
     @ViewBuilder
     private func replyBubble(_ replyText: String) -> some View {
-        ScrollView {
-            Text(replyText)
-                .textSelection(.enabled)
+        VStack(alignment: .trailing, spacing: 6) {
+            ScrollView {
+                Text(replyText)
+                    .textSelection(.enabled)
+                    .font(VoccaTheme.Text.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(WidgetCopy.replyBubbleLabel(replyText))
+            }
+            .frame(minHeight: 48, maxHeight: 160)
+            // The copy affordance (N1, issue #64): the panel is never key, so selecting text is
+            // not a dependable copy path. The write is injected — this view names no pasteboard.
+            Button(WidgetCopy.replyCopyAffordance) { onCopyReply(replyText) }
+                .buttonStyle(.plain)
                 .font(VoccaTheme.Text.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(WidgetCopy.replyBubbleLabel(replyText))
+                .accessibilityLabel(WidgetCopy.replyCopyLabel(replyText))
         }
-        .frame(minHeight: 48, maxHeight: 160)
         .padding(VoccaTheme.Panel.horizontalPadding)
         .frame(minWidth: 260, maxWidth: 420)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
