@@ -3799,6 +3799,11 @@ public final class DictationLoopRoot {
             case .conversing:
                 stopConverseDriver()
             }
+            // An armed card never outlives a session (issue #67): arming is refused *during* a
+            // session, but a card armed just before the hotkey would otherwise wait for a yes
+            // after the user has moved on. The card is one surface, and a session boundary is
+            // where its moment ended.
+            widgetStore.dismissActionConfirmation()
             reflectModeInMenu()
         case .unchanged:
             break
