@@ -13,7 +13,7 @@
 # flattened whisper.framework's symlinks, so its bundle failed `codesign --verify` and
 # there was nothing installable to point at. The DMG packaging step fixed that.
 #
-# Shipped: v0.6.0 (2026-10-17) — https://github.com/haqaliz/vocca/releases/tag/v0.6.0
+# Shipped: v0.7.0 (2026-10-21) — https://github.com/haqaliz/vocca/releases/tag/v0.7.0
 # The `sha256` below is the real digest from that release's SHA256SUMS.txt, copied out of
 # it. At each release, bump `version`, copy the new sha256 out of SHA256SUMS.txt, and
 # mirror this file to the tap — `CaskVersionTests` pins the version against the bundle.
@@ -34,7 +34,7 @@
 # docs/planning/notarization/runbook.md step 6 for everything to delete then.
 cask "vocca" do
   version "0.7.0"
-  sha256 "2fbaf864e72886f6c253445adac9846f8a39cd7806f37ae8db0ac2189b888e5c"
+  sha256 "f3923ddc88562b747a48e0e3ad3b7f03ebe1bd04120360430c31ce22d9e1f995"
 
   url "https://github.com/haqaliz/vocca/releases/download/v#{version}/Vocca-v#{version}.dmg"
   name "Vocca"
