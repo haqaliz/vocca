@@ -244,6 +244,35 @@ final class ModeRoutingCompositionTests: XCTestCase {
 
     // MARK: - The converse chord
 
+    /// **An armed card never outlives a session** (issue #67): a card presented while idle is
+    /// cleared when the next session ends. The arm-time guard already refuses to arm *during* a
+    /// session; this is the other half — a card that armed just before the hotkey must not wait
+    /// for a yes after the user has moved on.
+    ///
+    /// Driven through the dictate chord: the same `.stopped(.dictation)` effect the converse
+    /// menu stop produces, without the driver's spawned stop task (the runtime's
+    /// "freed pointer was not the last allocation" teardown flake this file's `settleConverse`
+    /// documents). One session boundary, one rule — both modes land in `applyModeEffect`.
+    func testAnArmedCardIsDismissedWhenTheSessionEnds() async {
+        let harness = Harness()
+        harness.root.widgetStore.presentActionConfirmation(
+            WidgetConfirmationSignal(
+                sentence: "The probe would do nothing.", providerID: "dev.vocca.probe",
+                toolID: "probe-tool", generation: 1))
+        XCTAssertNotNil(harness.root.widgetStore.state.confirmation)
+
+        _ = harness.pressDictate()
+        XCTAssertNotNil(
+            harness.root.widgetStore.state.confirmation,
+            "the card is not cleared at the start — the guard clears on the session's end")
+        _ = harness.pressDictate()
+
+        XCTAssertNil(
+            harness.root.widgetStore.state.confirmation,
+            "the session's end clears the armed card")
+        await harness.settleConverse()
+    }
+
     /// **The gap closed**: a fresh converse-chord press claims the key and starts the converse
     /// driver — the loop is listening, the machine's session is minted, and the menu bar's
     /// mode row follows the machine's one fact.

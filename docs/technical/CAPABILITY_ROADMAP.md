@@ -1228,6 +1228,13 @@ enablement catalog's `ToolReference` carries a display name supplied by the comp
 display names for the ask` follow-on retires from the remaining-machinery list.** Test floor:
 **3313**.)*
 
+*(Amended by the `action-card-session-guard` unit, 2026-10-21: **the guard's clear half ships** —
+every `.stopped` session effect dismisses any armed confirmation card, so a card armed just
+before the hotkey does not wait for a yes after the user has moved on. The arm-time refusal
+(`sessionInFlight`) already shipped; this closes the pair. **The `session guard` item retires
+from the remaining-machinery list; `spoken confirm/decline (N2)` remains.** Test floor:
+**3314**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

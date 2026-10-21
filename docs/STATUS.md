@@ -10,6 +10,40 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `action-card-session-guard` unit shipped 2026-10-21 — an armed card cannot outlive the
+session that followed it: every session end clears the confirmation card, closing the half of
+the C13 guard that the arm-time refusal left open.**
+`feat/67/aliz`, issue #67. The refusal half already shipped (`ActionWiringError.sessionInFlight`);
+this is the clear half. No gate passes.
+
+**What shipped.**
+- **The clear** (`DictationLoopRoot.applyModeEffect`) — the single `.stopped(mode:...)` effect,
+  the one place both dictate and converse sessions end, now calls
+  `widgetStore.dismissActionConfirmation()`. The mode is not branched on: one rule, every
+  session boundary.
+- **The test** (`ModeRoutingCompositionTests`) — a card presented while idle survives the
+  session's **start** and is gone at its **end**, driven through the dictate chord (the same
+  `.stopped(.dictation)` effect the converse menu stop produces).
+
+**Known limitations, recorded — not fixed.**
+- **A card is cleared, not queued.** The issue allowed "refuse or queue"; the arm-time refusal
+  already exists, so the guard's job is to end the stale card, not to resurrect it after the
+  session. A user re-arms deliberately.
+- **The live panel behaviour is unobserved** — the store fold is the contract; the window's
+  dismissal is the panel's own observation, executed by nothing in CI (the `WidgetPanel`
+  precedent).
+
+**The honesty block:**
+- **No gate passes.** The **twenty-ninth unit** built ahead of the uncleared gates under the
+  recorded posture. Roadmap-push, not demand-pull.
+- **Zero network, no audio path touched**; `PROBE-*` unchanged.
+- **G5 re-anchored once**, deliberately: `c8af0f3f…` → **`2217092177744a13060dc56dd347a9710e2d924e471331c6e72e48356c09ebc8`**, computed
+  with `shasum -a 256` on 2026-10-21 after the one `applyModeEffect` line, never
+  edited-to-match; all seven pin sites; the dictation pair unchanged.
+- **Test floor: 3313 → 3314**; the full suite is green at 3314.
+
+---
+
 **The `intent-ask-display-names` unit shipped 2026-10-21 — the ask speaks names, not ids: an
 enabled tool's catalog row now carries a display name, so "did you mean" says "Claude" and
 "Audit count" instead of `vocca.agent/claude` (C13 follow-on).**

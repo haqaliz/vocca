@@ -474,7 +474,7 @@ final class AuthBaselineInvariantTests: XCTestCase {
             ),
             (
                 "Sources/VoccaBootstrap/AppBootstrap.swift",
-                "c8af0f3f88fa6c03a2016284ed40621801b94cde6f8e07973e6ed394caa217eb"
+                "2217092177744a13060dc56dd347a9710e2d924e471331c6e72e48356c09ebc8"
             ),
         ]
         XCTAssertFalse(pinned.isEmpty, "vacuity guard: the pin must name the files it pins")

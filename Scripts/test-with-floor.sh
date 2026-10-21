@@ -2567,8 +2567,14 @@ set -euo pipefail
 # on 2026-10-21 after the composition root's two `displayName:` arguments and the name helper,
 # never edited-to-match; all seven pin sites; the dictation pair unchanged). 3311 + 2 = 3313.
 #
+# Raised by the `action-card-session-guard` unit (issue #67, 2026-10-21):
+# `ModeRoutingCompositionTests` +1 (an armed card is cleared when the session ends). The G5 pin
+# re-anchored once, deliberately (c8af0f3f… → 22170921…, computed with `shasum -a 256` on
+# 2026-10-21 after the one `applyModeEffect` line, never edited-to-match; all seven pin sites;
+# the dictation pair unchanged). 3313 + 1 = 3314.
+#
 # Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-MINIMUM_EXECUTED_TESTS=3313
+MINIMUM_EXECUTED_TESTS=3314
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
