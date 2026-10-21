@@ -38,6 +38,10 @@ Your audio never has to leave your Mac.
 > endpoint ships too, opt-in and badged whenever it is on chosen in the Cleanup settings tab,
 > which asks for a confirmation naming exactly what gets sent before any text may leave the Mac.
 > `cleanup-config.json` stays hand-editable as a second, supported path.
+> **Replies can be copied** the CONVERSING bubble carries a **Copy** control that writes the full
+> reply to the pasteboard on the first click, without the widget taking focus (the panel never
+> becomes key), and an enabled action's "did you mean" now speaks the tool's name rather than its
+> identifier.
 > **Engine switching ships** the Speech tab picks the engine and the Whisper tier, downloads a
 > model and removes one, without a restart and **whisper is now verified, on both tiers**:
 > its first real transcriptions have happened, and it scored **WER 0.0000 on all six fixtures

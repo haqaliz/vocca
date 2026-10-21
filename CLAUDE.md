@@ -2,12 +2,24 @@
 
 This file orients a coding agent working in this repository. Read it first.
 
-> **Status (2026-10-10).** The skeleton exists; **the product does not.**
+> **Status (2026-10-21).** The skeleton exists; **the product does not.**
 > A Swift 6 package with **twelve library modules** — `VoccaCore`, `VoccaAudio`, `VoccaHotkey`,
 > `VoccaASR`, `VoccaText`, `VoccaInject`, `VoccaSpeech`, `VoccaContext`, `VoccaActions`,
 > `VoccaUI`, `VoccaUsage`, `VoccaBootstrap` — plus `VoccaNetworkProbe`, the executable that
 > drives the composition inside the zero-network interposer.
 > **C9 is complete** — `VoccaSpeech` is no longer a placeholder and both TTS implementations are real.
+>
+> **Four follow-ons shipped 2026-10-21 (issues #64–#67; PRs #80–#83), each full-suite green:**
+> `reply-copy-affordance` (a one-click **Copy** in the reply bubble, writing through
+> `ShippingPasteboard` without the never-key panel taking focus — `WidgetHostingView` accepts the
+> first mouse; retires N1); `intent-probe-isolation` (`AppBootstrap.configure` gains a defaulted
+> `intentPhraseDirectory`; the probe reads an empty temp directory and `PROBE-INTENT-DEFAULT`
+> reports `store.location=temporary`); `intent-ask-display-names` (the enablement catalog's
+> `ToolReference` carries a spoken display name — known presets by name, other ids in words;
+> both intent wirings pass a defaulted `displayName` seam); `action-card-session-guard` (every
+> `.stopped` session effect dismisses an armed confirmation card). **No gate passes** (twenty-sixth
+> through twenty-ninth units ahead of the uncleared gates); zero network; dictation digests
+> unchanged. Test floor: **3314**.
 >
 > **`phrase-authoring-ui` (P4, C13, shipped 2026-10-17):** **the action wedge becomes
 > authorable** — an Actions-tab **Phrases** section (add/edit/remove/validate) is the first
@@ -741,7 +753,7 @@ This file orients a coding agent working in this repository. Read it first.
 >
 > **`App/` + `Vocca.xcodeproj`** build a signed, unsandboxed, hardened-runtime `Vocca.app`
 > with the microphone entitlement, `LSUIElement`, and the frozen bundle id `dev.vocca.Vocca`.
-> **`Tests/HarnessTests/`: 3266 tests**, including the zero-network invariant (a `dyld`
+> **`Tests/HarnessTests/`: 3314 tests**, including the zero-network invariant (a `dyld`
 > interposer over **eight** libSystem entry points — `connect`, `connectx`, `sendto`,
 > `sendmsg`, three resolvers and `socket`; `connect` alone would let a URLSession request
 > through unseen, and **loopback counts as NETWORK on purpose**), module-boundary and per-seam
