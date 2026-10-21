@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vocca — local-first voice for macOS</title>
+<meta name="description" content="Vocca is an open-source, local-first voice tool for macOS. Press ⌥Space, talk, and polished text types into any app — on your machine.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#120c18">
+<link rel="icon" href="assets/vocca-app-icon.png" type="image/png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="#top">
+      <img src="assets/vocca-app-icon.png" alt="" width="32" height="32" class="brand-icon">
+      <span>Vocca</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#what">What it does</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#status">Status</a>
+      <a class="nav-cta" href="#install">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top" aria-labelledby="hero-title">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="chip"><span class="dot" aria-hidden="true"></span>macOS · Apple silicon · P0 in development</p>
+        <h1 id="hero-title">Vocca</h1>
+        <p class="tagline">Speak; it appears, or it answers instantly, on your machine, and yours to change.</p>
+        <p class="pitch">Press <kbd>⌥Space</kbd>, talk, and polished text types into any app — on your machine.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="https://github.com/haqaliz/vocca">GitHub repo</a>
+          <a class="btn btn-ghost" href="https://github.com/haqaliz/vocca/releases/latest">Releases</a>
+        </div>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="icon-tile">
+          <img src="assets/vocca-app-icon.png" alt="" width="88" height="88">
+        </div>
+        <div class="wave">
+          <span style="--h:34%"></span><span style="--h:58%"></span><span style="--h:86%"></span>
+          <span style="--h:52%"></span><span style="--h:72%"></span><span style="--h:100%"></span>
+          <span style="--h:64%"></span><span style="--h:40%"></span><span style="--h:78%"></span>
+          <span style="--h:96%"></span><span style="--h:56%"></span><span style="--h:30%"></span>
+          <span style="--h:68%"></span><span style="--h:88%"></span><span style="--h:46%"></span>
+          <span style="--h:74%"></span><span style="--h:92%"></span><span style="--h:60%"></span>
+          <span style="--h:38%"></span><span style="--h:80%"></span><span style="--h:66%"></span>
+          <span style="--h:94%"></span><span style="--h:50%"></span><span style="--h:32%"></span>
+        </div>
+        <p class="visual-caption"><span class="key">⌥Space</span> → transcript in the focused app</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="what" aria-labelledby="what-title">
+    <div class="wrap">
+      <p class="eyebrow">What it does</p>
+      <h2 id="what-title">Dictation first. The extras stay opt-in.</h2>
+      <div class="cards">
+        <article class="card">
+          <h3>Dictate into any app</h3>
+          <p>Press <kbd>⌥Space</kbd>, talk, press again, and the words land in whatever app has focus. Prefer holding the key instead? Hold-to-talk ships too, and the shortcut is rebindable in Settings → General.</p>
+        </article>
+        <article class="card">
+          <h3>Two local ASR engines</h3>
+          <p>Parakeet via FluidAudio is the default; whisper.cpp large-v3-turbo is the second, selectable engine. Whisper scored <strong>WER 0.0000 on all six fixtures on both tiers</strong> (turbo and q5_0) — accuracy only. Whisper's latency is not measured: no Core ML encoder ships, so it runs on Metal/CPU, which affects speed, not accuracy.</p>
+        </article>
+        <article class="card">
+          <h3>Talk back, optionally</h3>
+          <p>A local Kokoro voice loop with real turn-taking and barge-in you can interrupt. In the CONVERSING bubble, the <strong>Copy</strong> control writes the full reply to the pasteboard on the first click, without the widget taking focus. Voice-driven actions are on the roadmap, not claimed here.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="privacy" aria-labelledby="privacy-title">
+    <div class="wrap">
+      <div class="privacy-panel">
+        <p class="eyebrow accent">The differentiator</p>
+        <h2 id="privacy-title">Your audio never has to leave your Mac.</h2>
+        <p class="lede">The default configuration makes <strong>zero network calls and spawns no child process</strong> — asserted by a CI test that is a permanent release blocker. The one download is the speech model, once, at first launch.</p>
+        <ul class="checks">
+          <li><strong>Cleanup is local by default.</strong> Deterministic rules run entirely on your Mac: no model, no network, no wait.</li>
+          <li><strong>Anything that leaves is opt-in — and badged.</strong> A local Ollama model or your own BYOK endpoint is a choice you make in the Cleanup tab, and the moment a choice would send text off the machine it is badged <em>“Text leaves your Mac.”</em></li>
+          <li><strong>You confirm before text leaves.</strong> Turning either on asks for confirmation naming exactly what gets sent, before any text may leave the Mac.</li>
+        </ul>
+        <p class="fine">Where that claim stops, stated plainly: Vocca's network check watches its own process. It cannot see inside a program Vocca starts on your behalf, so enabling an MCP server is trust you extend to that server's author. The default install configures none.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="screenshots" aria-labelledby="shots-title">
+    <div class="wrap">
+      <p class="eyebrow">Screenshots</p>
+      <h2 id="shots-title">The shipping build</h2>
+      <p class="section-lead">Settings is a sidebar window; the dictation surface itself is a small always-on-top widget that never takes focus.</p>
+      <div class="gallery">
+        <figure>
+          <img src="assets/screenshots/general.png" width="1200" height="1035" alt="General settings: the dictation shortcut, and toggle versus hold-to-talk">
+          <figcaption><strong>General</strong> — the hotkey and how it activates. Toggle and hold-to-talk both ship; the shortcut is rebindable.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screenshots/cleanup.png" width="1200" height="1035" alt="Cleanup settings: deterministic rules by default, local Ollama and BYOK both opt-in, with an explicit warning when text would leave the Mac">
+          <figcaption><strong>Cleanup</strong> — deterministic rules by default. Ollama and BYOK are opt-in, and a choice that would send text off the machine is badged <em>“Text leaves your Mac.”</em></figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screenshots/apps.png" width="1200" height="1035" alt="Apps settings: the per-app strategy memory, showing which injection method Vocca learned for each application">
+          <figcaption><strong>Apps</strong> — the per-app strategy memory: which injection method Vocca learned for each application.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="status" aria-labelledby="status-title">
+    <div class="wrap">
+      <p class="eyebrow">Status: honest</p>
+      <h2 id="status-title">The loop has delivered. The product is not yet proven.</h2>
+      <p class="section-lead">The P0 dictation loop is wired and tested on a real Mac. That is a narrower claim than “finished”, and here is exactly where it stops.</p>
+      <div class="status-grid">
+        <article class="status-card measured">
+          <h3>Measured</h3>
+          <ul>
+            <li>Press <kbd>⌥Space</kbd>, talk, press again — the words are transcribed locally and typed into the focused app. First real dictations happened on the founder's Mac (<cite>docs/SMOKE_CHECKLIST.md</cite> steps 62–68).</li>
+            <li>Whisper accuracy: <strong>WER 0.0000 on all six fixtures on both tiers</strong> (turbo and q5_0), with manifest digests verified against the provisioned bytes.</li>
+            <li>The default configuration's zero-network invariant is asserted in CI and is a permanent release blocker.</li>
+            <li>v0.2.0 is the first installable release: signed, <strong>not notarized</strong>, so the quarantine command is required.</li>
+          </ul>
+        </article>
+        <article class="status-card pending">
+          <h3>Not yet measured</h3>
+          <ul>
+            <li>Whisper latency — no Core ML encoder is in the shipped manifest, so it runs on Metal/CPU.</li>
+            <li>The injection matrix — one recorded row so far.</li>
+            <li>Latency-gate p50/p95 — measured, but on a 60-second fixture rather than the gate's 10-second utterance, so they are not the gate's numbers.</li>
+            <li>LLM cleanup rewrite quality.</li>
+            <li>Notarization — the script has never run end to end; there is no Developer ID yet.</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="install" aria-labelledby="install-title">
+    <div class="wrap install-wrap">
+      <p class="eyebrow">Install</p>
+      <h2 id="install-title">Apple Silicon, macOS 15 or later.</h2>
+      <p class="section-lead">Homebrew is the short path. Run the <code>xattr</code> line <strong>before</strong> opening Vocca the first time — opening a quarantined copy makes macOS delete the app.</p>
+      <div class="code-card">
+        <div class="code-head">
+          <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>Terminal</span>
+        </div>
+<pre><code>brew install --cask haqaliz/vocca/vocca
+xattr -dr com.apple.quarantine /Applications/Vocca.app   # before opening it
+open /Applications/Vocca.app</code></pre>
+      </div>
+      <p class="install-alt">Prefer a download? Grab <code>Vocca-vX.Y.Z.dmg</code> from the <a href="https://github.com/haqaliz/vocca/releases/latest">latest release</a>, drag <strong>Vocca</strong> to Applications, then run the same <code>xattr</code> line and <code>open</code> command.</p>
+      <p class="install-note">Signed with an Apple Development certificate, <strong>not notarized yet</strong>. That is why the quarantine line exists; notarization is the next distribution milestone.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <p class="footer-brand"><img src="assets/vocca-app-icon.png" alt="" width="24" height="24"> Vocca</p>
+    <nav aria-label="Project links" class="footer-links">
+      <a href="https://github.com/haqaliz/vocca">GitHub</a>
+      <a href="https://github.com/haqaliz/vocca/releases/latest">Releases</a>
+      <a href="https://github.com/haqaliz/vocca/blob/master/LICENSE">Apache-2.0</a>
+    </nav>
+    <p class="footer-fine">No analytics, no cookies.</p>
+  </div>
+</footer>
+</body>
+</html>
