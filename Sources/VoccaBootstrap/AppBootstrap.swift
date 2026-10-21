@@ -812,7 +812,8 @@ public enum AppBootstrap {
             executor: actionWiring.executor,
             resolverProvider: intentResolverProvider,
             root: root,
-            activeProjectDirectory: activeProjectDirectory)
+            activeProjectDirectory: activeProjectDirectory,
+            displayName: AppBootstrap.spokenDisplayName)
         // The router (`intent-provider-routing`; `intent-and-surface` adds the MCP arm): a
         // `vocca.agent` call reaches the agent intent wiring, a `dev.vocca.mcp.*` call the MCP
         // server's wiring, everything else this one. Both sides land later / are composed above,
@@ -924,7 +925,8 @@ public enum AppBootstrap {
                 executor: agentWiring.executor,
                 resolverProvider: intentResolverProvider,
                 root: root,
-                activeProjectDirectory: activeProjectDirectory)
+                activeProjectDirectory: activeProjectDirectory,
+                displayName: AppBootstrap.spokenDisplayName)
         }
         // The confirmation card's closures, routed by the card's own providerID: a shell card
         // is answered by the shell wiring's executor, an agent card by the agent wiring's, an
@@ -1217,6 +1219,28 @@ public enum AppBootstrap {
                 strategy: strategy,
                 isAllowlisted: seed.contains(bundleID: strategy.bundleID))
         }
+    }
+
+    /// The name the intent ask speaks for a tool (`composite-intent-resolver` follow-on): the
+    /// known preset's display name where the provider is the coding agent, otherwise the tool id
+    /// in words. Empty only when the id has no word characters — the resolver then falls back to
+    /// `providerID/toolID`, its own contract.
+    ///
+    /// This is a *spoken* name, not a decision: it never changes which tool resolves, only what
+    /// the ask says when more than one could have. A wrong name is a reviewed edit to this
+    /// function, the seed-table doctrine.
+    public static func spokenDisplayName(providerID: String, toolID: String) -> String {
+        if providerID == CodingAgentProvider.providerID,
+            let preset = KnownAgentPresets.all.first(where: { $0.id == toolID })
+        {
+            return preset.displayName
+        }
+        let words = toolID.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        guard let first = words.first else { return "" }
+        return (
+            [first.prefix(1).uppercased() + first.dropFirst()]
+                + words.dropFirst().map(String.init)
+        ).joined(separator: " ")
     }
 
     /// The installed application's name, or the bundle identifier when nothing resolves.

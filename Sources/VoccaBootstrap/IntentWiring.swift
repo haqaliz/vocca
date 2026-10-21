@@ -206,6 +206,10 @@ extension AppBootstrap {
     /// one resolution per turn, and a composition that does not wire it is byte-identical to
     /// today. The row is read through the root's `agentRegistry` slot per call — never at
     /// composition — and an explicit row is never re-resolved (G2).
+    ///
+    /// `displayName` is the catalog's spoken name (`intent-ask-display-names`, issue #66): the
+    /// composition root answers from its known catalogs, and the default `""` keeps the
+    /// resolver's own `providerID/toolID` fallback — the recipe itself never learns a name.
     @MainActor
     public static func composeIntentWiring<Provider: ActionProvider>(
         configStore: ActionConfigStore,
@@ -213,7 +217,8 @@ extension AppBootstrap {
         executor: ActionExecutor<Provider>,
         resolverProvider: @escaping @Sendable @MainActor () async -> any IntentResolver,
         root: DictationLoopRoot,
-        activeProjectDirectory: @escaping @Sendable () async -> String? = { nil }
+        activeProjectDirectory: @escaping @Sendable () async -> String? = { nil },
+        displayName: @escaping @Sendable (String, String) -> String = { _, _ in "" }
     ) -> IntentWiring<Provider> {
         let generation = IntentGeneration()
         let logger = Logger(subsystem: "dev.vocca.Vocca", category: "intent-wiring")
@@ -236,7 +241,8 @@ extension AppBootstrap {
                 else { continue }
                 catalog.append(
                     ToolReference(
-                        providerID: row.providerID, toolID: row.toolID, displayName: ""))
+                        providerID: row.providerID, toolID: row.toolID,
+                        displayName: displayName(row.providerID, row.toolID)))
             }
             let resolver = await resolverProvider()
             return resolver.resolve(utterance, against: catalog)

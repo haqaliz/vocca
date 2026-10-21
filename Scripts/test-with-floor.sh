@@ -2554,15 +2554,21 @@ set -euo pipefail
 # composition-root edit, never edited-to-match; all seven pin sites; the dictation pair
 # 1baeb2de…/ce70ca10… unchanged). 3306 + 4 = 3310.
 #
-# Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
-#
 # Raised by the `intent-probe-isolation` unit (issue #65, 2026-10-21): `ZeroNetworkTests` +1
 # (the directory-seam source pin), and the `PROBE-INTENT-DEFAULT` line gains
 # `store.location=temporary` with its guard row. The G5 pin re-anchored once, deliberately
 # (58441952… → 7acaac37…, computed with `shasum -a 256` on 2026-10-21 after the
 # composition-root's one signature/construction edit, never edited-to-match; all seven pin
 # sites; the dictation pair 1baeb2de…/ce70ca10… unchanged). 3310 + 1 = 3311.
-MINIMUM_EXECUTED_TESTS=3311
+#
+# Raised by the `intent-ask-display-names` unit (issue #66, 2026-10-21):
+# `AppBootstrapWiringTests` +2 (the spoken-name table and the two-composition source pin). The
+# G5 pin re-anchored once, deliberately (7acaac37… → c8af0f3f…, computed with `shasum -a 256`
+# on 2026-10-21 after the composition root's two `displayName:` arguments and the name helper,
+# never edited-to-match; all seven pin sites; the dictation pair unchanged). 3311 + 2 = 3313.
+#
+# Raise it by hand, in the commit that changes the count, whenever the suite grows on purpose.
+MINIMUM_EXECUTED_TESTS=3313
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

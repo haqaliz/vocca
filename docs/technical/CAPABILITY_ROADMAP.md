@@ -1220,6 +1220,14 @@ passes an empty temp directory, and `PROBE-INTENT-DEFAULT` reports `store.locati
 PROBE-INTENT-DEFAULT from the real phrase file` follow-on retires from the remaining-machinery
 list.** Test floor: **3311**.)*
 
+*(Amended by the `intent-ask-display-names` unit, 2026-10-21: **the ask speaks names** — the
+enablement catalog's `ToolReference` carries a display name supplied by the composition root
+(known agent presets keep their name; every other id is spoken as words, with the resolver's
+`providerID/toolID` fallback when an id has no word characters). The rescue seam is a defaulted
+`displayName` closure on `composeIntentWiring`; both intent compositions pass it. **The `spoken
+display names for the ask` follow-on retires from the remaining-machinery list.** Test floor:
+**3313**.)*
+
 ---
 
 ## C14. Model registry + out-of-tree provider proof · P5, week 23+

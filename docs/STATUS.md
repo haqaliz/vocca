@@ -10,6 +10,46 @@ carries the current state and the rules that still bind.
 
 ---
 
+**The `intent-ask-display-names` unit shipped 2026-10-21 — the ask speaks names, not ids: an
+enabled tool's catalog row now carries a display name, so "did you mean" says "Claude" and
+"Audit count" instead of `vocca.agent/claude` (C13 follow-on).**
+`feat/66/aliz`, issue #66. Retires the `composite-intent-resolver` follow-on "spoken display
+names for the ask" from the C13 remaining-machinery list. No gate passes.
+
+**What shipped.**
+- **The name table** (`AppBootstrap.spokenDisplayName`) — a known coding-agent preset keeps its
+  display name ("Claude", "OpenCode"); every other id is spoken as words
+  (`empty-downloads` → "Empty downloads", `audit.count` → "Audit count", `postMessage` →
+  "PostMessage"), separators only, no invented word boundaries. An id with no word characters
+  yields `""`, the resolver's own `providerID/toolID` fallback.
+- **The seam** (`IntentWiring`) — `composeIntentWiring` gains a defaulted
+  `displayName: @Sendable (String, String) -> String`, used when the enablement catalog is
+  built. The recipe still learns nothing from a registry; the default is byte-identical.
+- **The composition** (`AppBootstrap`) — both intent wirings (audit/shell and agent) pass the
+  rooted name resolver, so the ask cannot speak one leg's names and not the other's.
+- **The pins** (`AppBootstrapWiringTests`) — the exact spoken-name table and a source pin that
+  counts the two `displayName:` arguments.
+
+**Known limitations, recorded — not fixed.**
+- **Names feed the resolver's candidate tokens too**, not only the ask. That is the seam's
+  design, and the nice consequence is better matching on camelCase MCP ids; a wrong name is
+  still a reviewed edit, never a runtime decision.
+- **No per-user naming** — a tool the user renamed in another app does not carry that name here.
+- **MCP names are the server's tool ids in words**, not the server's summary. Reading
+  descriptors at intent time would mean discovery on the turn; not done.
+
+**The honesty block:**
+- **No gate passes.** The **twenty-eighth unit** built ahead of the uncleared gates under the
+  recorded posture. Roadmap-push, not demand-pull.
+- **Zero network, no audio path touched**; `PROBE-*` unchanged.
+- **G5 re-anchored once**, deliberately: `7acaac37…` → **`c8af0f3f88fa6c03a2016284ed40621801b94cde6f8e07973e6ed394caa217eb`**, computed
+  with `shasum -a 256` on 2026-10-21 after the composition root's two arguments and the helper,
+  never edited-to-match; all seven pin sites; the dictation pair `1baeb2de…`/`ce70ca10…`
+  unchanged.
+- **Test floor: 3311 → 3313**; the full suite is green at 3313.
+
+---
+
 **The `intent-probe-isolation` unit shipped 2026-10-21 — the zero-network invariant stops
 reading the founder's phrase file: `PROBE-INTENT-DEFAULT` now runs over a probe-owned empty
 directory (`store.location=temporary`), so `resolver=` no longer depends on whose machine ran
