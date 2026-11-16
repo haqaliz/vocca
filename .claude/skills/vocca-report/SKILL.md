@@ -1,6 +1,6 @@
 ---
 name: vocca-report
-description: Use when a Vocca unit of work (bug, task, feature) is done and you want a brief, friendly, non-technical completion note saved on Desktop to share with the team.
+description: Use when a Vocca unit of work (bug, task, feature) is done and you want a brief, friendly, non-technical completion note saved in the Projects Brain vault to share with the team.
 allowed-tools: Read, Grep, Glob, Bash, Write
 arguments: "type id"
 ---
@@ -23,12 +23,14 @@ Usage: `/vocca-report bug 12` or `/vocca-report feature dictation-core`.
 
 ## Output
 
-Markdown file saved to `/Users/aliz/Desktop/{type}-{id}-completion.md`.
+Markdown file saved to `/Users/aliz/Documents/Projects Brain/at/vocca/Cards/{type}-{id}/{type}-{id}-completion.md`.
+
+Vault rule: `mkdir -p` the card folder, add frontmatter (`project: vocca`, `kind: completion`, `type`, `id`, `date`, `tags`) and `Part of [[vocca]]`. Quote the path (it has a space).
 
 Examples:
-- `/Users/aliz/Desktop/bug-12-completion.md`
-- `/Users/aliz/Desktop/task-bump-deps-completion.md`
-- `/Users/aliz/Desktop/feature-dictation-core-completion.md`
+- `/Users/aliz/Documents/Projects Brain/at/vocca/Cards/bug-12/bug-12-completion.md`
+- `/Users/aliz/Documents/Projects Brain/at/vocca/Cards/task-bump-deps/task-bump-deps-completion.md`
+- `/Users/aliz/Documents/Projects Brain/at/vocca/Cards/feature-dictation-core/feature-dictation-core-completion.md`
 
 ## The template
 
@@ -85,7 +87,7 @@ An honest small claim reads better to a teammate than an oversold one.
 2. **Distill** the change into one or two plain sentences. Resist the urge to add detail.
 3. **Pick the "See it live" target** that fits the work: the merged PR link, the widget/settings screen once the UI exists, or the exact thing a teammate would do to try it (e.g. run `vocca`, hold the hotkey, and talk). For core-only work with no visible surface yet, the PR is the honest answer — don't invent a demo that doesn't run.
 4. **Ask the user for a screenshot or short video** if one isn't already on hand.
-5. **Write** the note to `/Users/aliz/Desktop/{type}-{id}-completion.md` and tell the user it's ready.
+5. **Write** the note to `/Users/aliz/Documents/Projects Brain/at/vocca/Cards/{type}-{id}/{type}-{id}-completion.md` and tell the user it's ready.
 
 ## Optional: cross-check
 

@@ -1,6 +1,6 @@
 ---
 name: vocca-end
-description: Use when finishing local work on a Vocca unit of work after the PR is merged and you also need a completion report on Desktop. Triggers on "vocca-end", "ve", "ve bug 12", "ve feat dictation-core", "end full".
+description: Use when finishing local work on a Vocca unit of work after the PR is merged and you also need a completion report in Projects Brain. Triggers on "vocca-end", "ve", "ve bug 12", "ve feat dictation-core", "end full".
 arguments: "type id"
 ---
 
@@ -35,9 +35,9 @@ The two skills use slightly different type vocabularies — map before invoking:
 | `feat` | `feature` |
 | `feature` | `feature` |
 
-Example: `ve bug 12` → invoke `vocca-report` with `bug` + `12` → writes `/Users/aliz/Desktop/bug-12-completion.md`.
+Example: `ve bug 12` → invoke `vocca-report` with `bug` + `12` → writes `/Users/aliz/Documents/Projects Brain/at/vocca/Cards/bug-12/bug-12-completion.md`.
 
-`vocca-report` fetches the issue via `gh` when reachable (otherwise works from the merged PR / what we just did) and produces the standard template. If it asks for a screenshot/video, provide one (or hand it to the user to attach), then confirm the file landed on Desktop.
+`vocca-report` fetches the issue via `gh` when reachable (otherwise works from the merged PR / what we just did) and produces the standard template. If it asks for a screenshot/video, provide one (or hand it to the user to attach), then confirm the file landed in Projects Brain.
 
 ### Phase 5 — Comment on the issue (optional)
 
